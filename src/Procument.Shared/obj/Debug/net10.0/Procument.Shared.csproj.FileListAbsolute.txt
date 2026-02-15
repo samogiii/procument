@@ -1,0 +1,11 @@
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\bin\Debug\net10.0\Procument.Shared.deps.json
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\bin\Debug\net10.0\Procument.Shared.dll
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\bin\Debug\net10.0\Procument.Shared.pdb
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.AssemblyInfoInputs.cache
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.AssemblyInfo.cs
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.csproj.CoreCompileInputs.cache
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.dll
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\refint\Procument.Shared.dll
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\Procument.Shared.pdb
+C:\Users\Sam\Desktop\Procument\src\Procument.Shared\obj\Debug\net10.0\ref\Procument.Shared.dll

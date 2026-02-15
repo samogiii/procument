@@ -1,0 +1,6 @@
+@Procument.API_HostAddress = http://localhost:5184
+
+GET {{Procument.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

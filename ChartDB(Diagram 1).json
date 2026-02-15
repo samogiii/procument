@@ -1,0 +1,1923 @@
+{
+  "id": "0",
+  "name": "Diagram 1",
+  "createdAt": "2026-02-11T08:41:08.920Z",
+  "updatedAt": "2026-02-11T09:55:26.908Z",
+  "databaseType": "sql_server",
+  "tables": [
+    {
+      "id": "1",
+      "name": "RFQItems",
+      "x": -442.1127320815132,
+      "y": 73.33708293718163,
+      "fields": [
+        {
+          "id": "2",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799999392
+        },
+        {
+          "id": "3",
+          "name": "RFQID",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770800009849
+        },
+        {
+          "id": "4",
+          "name": "PN",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770800014545
+        },
+        {
+          "id": "5",
+          "name": "Alt",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770800022456
+        },
+        {
+          "id": "6",
+          "name": "Qty",
+          "type": {
+            "id": "int",
+            "name": "int"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770800027896
+        },
+        {
+          "id": "7",
+          "name": "Condition",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770803512170
+        }
+      ],
+      "indexes": [
+        {
+          "id": "8",
+          "name": "",
+          "fieldIds": [
+            "2"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799999392
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799999392,
+      "isView": false,
+      "order": 6,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "9",
+      "name": "PartNumbers",
+      "x": 277.62500558443764,
+      "y": 59.916689380874075,
+      "fields": [
+        {
+          "id": "10",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799590953
+        },
+        {
+          "id": "11",
+          "name": "Name",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799609006
+        },
+        {
+          "id": "12",
+          "name": "Description",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799617975
+        },
+        {
+          "id": "13",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799625017
+        },
+        {
+          "id": "14",
+          "name": "Supplier",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799751231
+        }
+      ],
+      "indexes": [
+        {
+          "id": "15",
+          "name": "",
+          "fieldIds": [
+            "10"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799590953
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799590953,
+      "isView": false,
+      "order": 3,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "16",
+      "name": "Suppliers",
+      "x": -39.87502030704559,
+      "y": -871.7499433094978,
+      "fields": [
+        {
+          "id": "17",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799391241
+        },
+        {
+          "id": "18",
+          "name": "Name",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799396417
+        },
+        {
+          "id": "19",
+          "name": "Email",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799417870
+        },
+        {
+          "id": "20",
+          "name": "Phone",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799423680
+        },
+        {
+          "id": "21",
+          "name": "Address",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799428727
+        },
+        {
+          "id": "22",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799434945
+        },
+        {
+          "id": "23",
+          "name": "ModifyAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799441760
+        },
+        {
+          "id": "24",
+          "name": "IsActive",
+          "type": {
+            "id": "bit",
+            "name": "bit"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799457660
+        }
+      ],
+      "indexes": [
+        {
+          "id": "25",
+          "name": "",
+          "fieldIds": [
+            "17"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799391241
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799391241,
+      "isView": false,
+      "order": 1,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "26",
+      "name": "Users",
+      "x": 548.7499257100582,
+      "y": -916.2499593859088,
+      "fields": [
+        {
+          "id": "27",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799273009
+        },
+        {
+          "id": "28",
+          "name": "Name",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799281392
+        },
+        {
+          "id": "29",
+          "name": "Email",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799284290
+        },
+        {
+          "id": "30",
+          "name": "Password",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799286499
+        },
+        {
+          "id": "31",
+          "name": "CreatedAt",
+          "type": {
+            "id": "date",
+            "name": "date"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799288334
+        },
+        {
+          "id": "32",
+          "name": "ModifyAt",
+          "type": {
+            "id": "date",
+            "name": "date"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799339729
+        },
+        {
+          "id": "33",
+          "name": "IsActive",
+          "type": {
+            "id": "bit",
+            "name": "bit"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799351057
+        }
+      ],
+      "indexes": [
+        {
+          "id": "34",
+          "name": "",
+          "fieldIds": [
+            "27"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799273009
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799273009,
+      "isView": false,
+      "order": 0,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "35",
+      "name": "RFQs",
+      "x": -51.12499475401319,
+      "y": -296.76040944768044,
+      "fields": [
+        {
+          "id": "36",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799838235
+        },
+        {
+          "id": "37",
+          "name": "Customer",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770799855661
+        },
+        {
+          "id": "38",
+          "name": "LeadTime",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770799905765
+        },
+        {
+          "id": "39",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770799912774
+        },
+        {
+          "id": "40",
+          "name": "ModifyAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799920699
+        },
+        {
+          "id": "41",
+          "name": "Name",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770799936015
+        },
+        {
+          "id": "42",
+          "name": "User",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770800087603
+        }
+      ],
+      "indexes": [
+        {
+          "id": "43",
+          "name": "",
+          "fieldIds": [
+            "36"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799838235
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799838235,
+      "isView": false,
+      "order": 5,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "44",
+      "name": "Procument",
+      "x": -713.3786802371397,
+      "y": -326.2323939091088,
+      "fields": [
+        {
+          "id": "45",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770800785968
+        },
+        {
+          "id": "46",
+          "name": "RFQItemId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770802278640
+        },
+        {
+          "id": "47",
+          "name": "Alt",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770802287582
+        },
+        {
+          "id": "48",
+          "name": "Price",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770802296163
+        },
+        {
+          "id": "49",
+          "name": "Qty",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770802301261
+        },
+        {
+          "id": "50",
+          "name": "SupplierId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770802317923
+        },
+        {
+          "id": "51",
+          "name": "Condition",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770803537413
+        }
+      ],
+      "indexes": [
+        {
+          "id": "52",
+          "name": "",
+          "fieldIds": [
+            "45"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770800785968
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770800785968,
+      "isView": false,
+      "order": 7,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "53",
+      "name": "Customers",
+      "x": -598.4648877268603,
+      "y": -839.412888158152,
+      "fields": [
+        {
+          "id": "54",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799499639
+        },
+        {
+          "id": "55",
+          "name": "Name",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799511699
+        },
+        {
+          "id": "56",
+          "name": "Email",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799520081
+        },
+        {
+          "id": "57",
+          "name": "Phone",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799526843
+        },
+        {
+          "id": "58",
+          "name": "ShipTo",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799532640
+        },
+        {
+          "id": "59",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799553548
+        },
+        {
+          "id": "60",
+          "name": "ModifyAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799561293
+        },
+        {
+          "id": "61",
+          "name": "IsActive",
+          "type": {
+            "id": "bit",
+            "name": "bit"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799567525
+        },
+        {
+          "id": "62",
+          "name": "BillTo",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770803554247
+        }
+      ],
+      "indexes": [
+        {
+          "id": "63",
+          "name": "",
+          "fieldIds": [
+            "54"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799499639
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799499639,
+      "isView": false,
+      "order": 2,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "64",
+      "name": "Alternatives",
+      "x": 690.125,
+      "y": 62.416687011718764,
+      "fields": [
+        {
+          "id": "65",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770799658087
+        },
+        {
+          "id": "66",
+          "name": "PNId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799667807
+        },
+        {
+          "id": "67",
+          "name": "Name",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799705899
+        },
+        {
+          "id": "68",
+          "name": "CreatedAt",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770799722441
+        }
+      ],
+      "indexes": [
+        {
+          "id": "69",
+          "name": "",
+          "fieldIds": [
+            "65"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770799658087
+        }
+      ],
+      "color": "#8eb7ff",
+      "createdAt": 1770799658087,
+      "isView": false,
+      "order": 4,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "77",
+      "name": "Quotes",
+      "x": 400.0,
+      "y": -300.0,
+      "fields": [
+        {
+          "id": "78",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804000000
+        },
+        {
+          "id": "79",
+          "name": "RFQId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000001
+        },
+        {
+          "id": "80",
+          "name": "CustomerId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000002
+        },
+        {
+          "id": "81",
+          "name": "UserId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000003
+        },
+        {
+          "id": "82",
+          "name": "QuoteNumber",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000004
+        },
+        {
+          "id": "83",
+          "name": "TotalAmount",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804000005
+        },
+        {
+          "id": "84",
+          "name": "Status",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000006
+        },
+        {
+          "id": "85",
+          "name": "ValidUntil",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804000007
+        },
+        {
+          "id": "86",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804000008
+        },
+        {
+          "id": "87",
+          "name": "ModifyAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804000009
+        }
+      ],
+      "indexes": [
+        {
+          "id": "88",
+          "name": "",
+          "fieldIds": [
+            "78"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804000000
+        }
+      ],
+      "color": "#66bb6a",
+      "createdAt": 1770804000000,
+      "isView": false,
+      "order": 8,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "89",
+      "name": "QuoteItems",
+      "x": 400.0,
+      "y": 60.0,
+      "fields": [
+        {
+          "id": "90",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804100000
+        },
+        {
+          "id": "91",
+          "name": "QuoteId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804100001
+        },
+        {
+          "id": "92",
+          "name": "RFQItemId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804100002
+        },
+        {
+          "id": "93",
+          "name": "PartNumberId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804100003
+        },
+        {
+          "id": "94",
+          "name": "Alt",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804100004
+        },
+        {
+          "id": "95",
+          "name": "Qty",
+          "type": {
+            "id": "int",
+            "name": "int"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804100005
+        },
+        {
+          "id": "96",
+          "name": "UnitPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804100006
+        },
+        {
+          "id": "97",
+          "name": "TotalPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804100007
+        },
+        {
+          "id": "98",
+          "name": "Condition",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804100008
+        },
+        {
+          "id": "99",
+          "name": "LeadTimeDays",
+          "type": {
+            "id": "int",
+            "name": "int"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804100009
+        }
+      ],
+      "indexes": [
+        {
+          "id": "100",
+          "name": "",
+          "fieldIds": [
+            "90"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804100000
+        }
+      ],
+      "color": "#66bb6a",
+      "createdAt": 1770804100000,
+      "isView": false,
+      "order": 9,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "101",
+      "name": "Invoices",
+      "x": 900.0,
+      "y": -300.0,
+      "fields": [
+        {
+          "id": "102",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804200000
+        },
+        {
+          "id": "103",
+          "name": "QuoteId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200001
+        },
+        {
+          "id": "104",
+          "name": "CustomerId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200002
+        },
+        {
+          "id": "105",
+          "name": "InvoiceNumber",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200003
+        },
+        {
+          "id": "106",
+          "name": "TotalAmount",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200004
+        },
+        {
+          "id": "107",
+          "name": "Status",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200005
+        },
+        {
+          "id": "108",
+          "name": "DueDate",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804200006
+        },
+        {
+          "id": "109",
+          "name": "PaidDate",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804200007
+        },
+        {
+          "id": "110",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804200008
+        }
+      ],
+      "indexes": [
+        {
+          "id": "111",
+          "name": "",
+          "fieldIds": [
+            "102"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804200000
+        }
+      ],
+      "color": "#ffa726",
+      "createdAt": 1770804200000,
+      "isView": false,
+      "order": 10,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "112",
+      "name": "InvoiceItems",
+      "x": 900.0,
+      "y": 60.0,
+      "fields": [
+        {
+          "id": "113",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804300000
+        },
+        {
+          "id": "114",
+          "name": "InvoiceId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804300001
+        },
+        {
+          "id": "115",
+          "name": "QuoteItemId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804300002
+        },
+        {
+          "id": "116",
+          "name": "Qty",
+          "type": {
+            "id": "int",
+            "name": "int"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804300003
+        },
+        {
+          "id": "117",
+          "name": "UnitPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804300004
+        },
+        {
+          "id": "118",
+          "name": "TotalPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804300005
+        }
+      ],
+      "indexes": [
+        {
+          "id": "119",
+          "name": "",
+          "fieldIds": [
+            "113"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804300000
+        }
+      ],
+      "color": "#ffa726",
+      "createdAt": 1770804300000,
+      "isView": false,
+      "order": 11,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "120",
+      "name": "PurchaseOrders",
+      "x": -900.0,
+      "y": -300.0,
+      "fields": [
+        {
+          "id": "121",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804400000
+        },
+        {
+          "id": "122",
+          "name": "SupplierId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804400001
+        },
+        {
+          "id": "123",
+          "name": "RFQId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804400002
+        },
+        {
+          "id": "124",
+          "name": "PONumber",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804400003
+        },
+        {
+          "id": "125",
+          "name": "TotalAmount",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804400004
+        },
+        {
+          "id": "126",
+          "name": "Status",
+          "type": {
+            "id": "varchar",
+            "name": "varchar"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804400005
+        },
+        {
+          "id": "127",
+          "name": "CreatedAt",
+          "type": {
+            "id": "datetime",
+            "name": "datetime"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804400006
+        }
+      ],
+      "indexes": [
+        {
+          "id": "128",
+          "name": "",
+          "fieldIds": [
+            "121"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804400000
+        }
+      ],
+      "color": "#ab47bc",
+      "createdAt": 1770804400000,
+      "isView": false,
+      "order": 12,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "129",
+      "name": "POItems",
+      "x": -900.0,
+      "y": 60.0,
+      "fields": [
+        {
+          "id": "130",
+          "name": "id",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": true,
+          "nullable": false,
+          "primaryKey": true,
+          "createdAt": 1770804500000
+        },
+        {
+          "id": "131",
+          "name": "POId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804500001
+        },
+        {
+          "id": "132",
+          "name": "ProcumentId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804500002
+        },
+        {
+          "id": "133",
+          "name": "PartNumberId",
+          "type": {
+            "id": "bigint",
+            "name": "bigint"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804500003
+        },
+        {
+          "id": "134",
+          "name": "Qty",
+          "type": {
+            "id": "int",
+            "name": "int"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804500004
+        },
+        {
+          "id": "135",
+          "name": "UnitPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804500005
+        },
+        {
+          "id": "136",
+          "name": "TotalPrice",
+          "type": {
+            "id": "decimal",
+            "name": "decimal"
+          },
+          "unique": false,
+          "nullable": false,
+          "primaryKey": false,
+          "createdAt": 1770804500006
+        },
+        {
+          "id": "137",
+          "name": "Condition",
+          "type": {
+            "id": "nvarchar",
+            "name": "nvarchar"
+          },
+          "unique": false,
+          "nullable": true,
+          "primaryKey": false,
+          "createdAt": 1770804500007
+        }
+      ],
+      "indexes": [
+        {
+          "id": "138",
+          "name": "",
+          "fieldIds": [
+            "130"
+          ],
+          "unique": true,
+          "isPrimaryKey": true,
+          "createdAt": 1770804500000
+        }
+      ],
+      "color": "#ab47bc",
+      "createdAt": 1770804500000,
+      "isView": false,
+      "order": 13,
+      "schema": "dbo",
+      "diagramId": "yfp3ctzjny4n"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "70",
+      "name": "Customers_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "53",
+      "targetSchema": "dbo",
+      "targetTableId": "35",
+      "sourceFieldId": "54",
+      "targetFieldId": "37",
+      "sourceCardinality": "one",
+      "targetCardinality": "one",
+      "createdAt": 1770799988195,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "71",
+      "name": "PartNumbers_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "9",
+      "targetSchema": "dbo",
+      "targetTableId": "64",
+      "sourceFieldId": "10",
+      "targetFieldId": "66",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770799695742,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "72",
+      "name": "RFQItems_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "1",
+      "targetSchema": "dbo",
+      "targetTableId": "44",
+      "sourceFieldId": "2",
+      "targetFieldId": "46",
+      "sourceCardinality": "one",
+      "targetCardinality": "one",
+      "createdAt": 1770802333129,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "73",
+      "name": "RFQs_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "35",
+      "targetSchema": "dbo",
+      "targetTableId": "1",
+      "sourceFieldId": "36",
+      "targetFieldId": "3",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770800084543,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "74",
+      "name": "Suppliers_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "16",
+      "targetSchema": "dbo",
+      "targetTableId": "9",
+      "sourceFieldId": "17",
+      "targetFieldId": "14",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770799767021,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "75",
+      "name": "Suppliers_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "16",
+      "targetSchema": "dbo",
+      "targetTableId": "44",
+      "sourceFieldId": "17",
+      "targetFieldId": "50",
+      "sourceCardinality": "one",
+      "targetCardinality": "one",
+      "createdAt": 1770802343697,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "76",
+      "name": "Users_id_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "26",
+      "targetSchema": "dbo",
+      "targetTableId": "35",
+      "sourceFieldId": "27",
+      "targetFieldId": "42",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770800099503,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "139",
+      "name": "RFQs_Quotes_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "35",
+      "targetSchema": "dbo",
+      "targetTableId": "77",
+      "sourceFieldId": "36",
+      "targetFieldId": "79",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600000,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "140",
+      "name": "Customers_Quotes_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "53",
+      "targetSchema": "dbo",
+      "targetTableId": "77",
+      "sourceFieldId": "54",
+      "targetFieldId": "80",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600001,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "141",
+      "name": "Users_Quotes_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "26",
+      "targetSchema": "dbo",
+      "targetTableId": "77",
+      "sourceFieldId": "27",
+      "targetFieldId": "81",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600002,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "142",
+      "name": "Quotes_QuoteItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "77",
+      "targetSchema": "dbo",
+      "targetTableId": "89",
+      "sourceFieldId": "78",
+      "targetFieldId": "91",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600003,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "143",
+      "name": "RFQItems_QuoteItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "1",
+      "targetSchema": "dbo",
+      "targetTableId": "89",
+      "sourceFieldId": "2",
+      "targetFieldId": "92",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600004,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "144",
+      "name": "PartNumbers_QuoteItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "9",
+      "targetSchema": "dbo",
+      "targetTableId": "89",
+      "sourceFieldId": "10",
+      "targetFieldId": "93",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600005,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "145",
+      "name": "Quotes_Invoices_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "77",
+      "targetSchema": "dbo",
+      "targetTableId": "101",
+      "sourceFieldId": "78",
+      "targetFieldId": "103",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600006,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "146",
+      "name": "Customers_Invoices_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "53",
+      "targetSchema": "dbo",
+      "targetTableId": "101",
+      "sourceFieldId": "54",
+      "targetFieldId": "104",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600007,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "147",
+      "name": "Invoices_InvoiceItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "101",
+      "targetSchema": "dbo",
+      "targetTableId": "112",
+      "sourceFieldId": "102",
+      "targetFieldId": "114",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600008,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "148",
+      "name": "QuoteItems_InvoiceItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "89",
+      "targetSchema": "dbo",
+      "targetTableId": "112",
+      "sourceFieldId": "90",
+      "targetFieldId": "115",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600009,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "149",
+      "name": "Suppliers_PurchaseOrders_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "16",
+      "targetSchema": "dbo",
+      "targetTableId": "120",
+      "sourceFieldId": "17",
+      "targetFieldId": "122",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600010,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "150",
+      "name": "RFQs_PurchaseOrders_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "35",
+      "targetSchema": "dbo",
+      "targetTableId": "120",
+      "sourceFieldId": "36",
+      "targetFieldId": "123",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600011,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "151",
+      "name": "PurchaseOrders_POItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "120",
+      "targetSchema": "dbo",
+      "targetTableId": "129",
+      "sourceFieldId": "121",
+      "targetFieldId": "131",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600012,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "152",
+      "name": "Procument_POItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "44",
+      "targetSchema": "dbo",
+      "targetTableId": "129",
+      "sourceFieldId": "45",
+      "targetFieldId": "132",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600013,
+      "diagramId": "yfp3ctzjny4n"
+    },
+    {
+      "id": "153",
+      "name": "PartNumbers_POItems_fk",
+      "sourceSchema": "dbo",
+      "sourceTableId": "9",
+      "targetSchema": "dbo",
+      "targetTableId": "129",
+      "sourceFieldId": "10",
+      "targetFieldId": "133",
+      "sourceCardinality": "one",
+      "targetCardinality": "many",
+      "createdAt": 1770804600014,
+      "diagramId": "yfp3ctzjny4n"
+    }
+  ],
+  "dependencies": [],
+  "areas": [],
+  "customTypes": [],
+  "notes": []
+}

@@ -1,0 +1,15 @@
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\bin\Debug\net10.0\Procument.Module.Identity.deps.json
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\bin\Debug\net10.0\Procument.Module.Identity.dll
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\bin\Debug\net10.0\Procument.Module.Identity.pdb
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\bin\Debug\net10.0\Procument.Shared.dll
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\bin\Debug\net10.0\Procument.Shared.pdb
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.csproj.AssemblyReference.cache
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.AssemblyInfoInputs.cache
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.AssemblyInfo.cs
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.csproj.CoreCompileInputs.cache
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procumen.9AD01916.Up2Date
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.dll
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\refint\Procument.Module.Identity.dll
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\Procument.Module.Identity.pdb
+C:\Users\Sam\Desktop\Procument\src\Modules\Procument.Module.Identity\obj\Debug\net10.0\ref\Procument.Module.Identity.dll
