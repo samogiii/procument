@@ -25,6 +25,7 @@
           :loading="loading"
           :items-per-page="10"
           @update:options="loadItems"
+          @click:row="goToRfq"
         >
           <template #item.createdAt="{ item }">
             {{ new Date(item.createdAt).toLocaleDateString() }}
@@ -35,9 +36,9 @@
           <template #item.itemCount="{ item }">
             <v-chip size="small" color="secondary">{{ item.items?.length || 0 }} parts</v-chip>
           </template>
-          <template #item.actions="{ item }">
+          <!-- <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" variant="text" size="small" :to="`/rfqs/${item.id}`" />
-          </template>
+          </template> -->
         </v-data-table-server>
       </v-card-text>
     </v-card>
@@ -92,7 +93,15 @@
                 </v-list-item>
               </template>
             </v-combobox>
-
+            <!-- Date -->
+            <v-text-field
+              v-model="form.date"
+              label="Date *"
+              prepend-inner-icon="mdi-calendar"
+              type="date"
+              :rules="[rules.required]"
+              class="mb-3"
+            />
             <!-- Lead Time -->
             <v-text-field
               v-model="form.leadTime"
@@ -208,8 +217,10 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 const api = useApi()
 const authStore = useAuthStore()
+const router = useRouter()
 
 // ── List state ──
 const search = ref('')
@@ -224,7 +235,7 @@ const headers = [
   { title: 'Lead Time', key: 'leadTime' },
   { title: 'Parts', key: 'itemCount', sortable: false },
   { title: 'Created', key: 'createdAt' },
-  { title: '', key: 'actions', sortable: false, width: '60px' },
+  // { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 
 async function loadItems(options: any) {
@@ -236,6 +247,14 @@ async function loadItems(options: any) {
   } catch {}
   finally { loading.value = false }
 }
+
+const goToRfq = (pointerEvent, rowData) => {
+  // rowData contains { index, item, internalItem, columns }
+  const item = rowData.item; 
+  
+  // console.log("Clicked ID:", item.id);
+  router.push(`/rfqs/${item.id}`);
+};
 
 // ── Create Modal state ──
 const showCreate = ref(false)
@@ -249,6 +268,7 @@ const form = ref({
   customerName: null as any,
   leadTime: '',
   partNumbers: Array(10).fill(null) as (any | null)[],
+  date: '',
 })
 
 const rules = {
@@ -393,3 +413,8 @@ async function submitRfq() {
   }
 }
 </script>
+<style scoped>
+:deep(.v-data-table .v-data-table__tr) {
+  cursor: pointer;
+}
+</style>

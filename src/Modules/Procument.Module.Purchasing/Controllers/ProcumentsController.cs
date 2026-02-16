@@ -21,15 +21,30 @@ public class SupplierQuotesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<SupplierQuoteResponse>>> GetByRFQ(long rfqId)
     {
-        var result = await _procumentService.GetByRFQIdAsync(rfqId);
+        var (userId, isAdmin) = GetUserContext();
+        var result = await _procumentService.GetByRFQIdAsync(rfqId, userId, isAdmin);
         return Ok(result);
     }
+
+    private (long userId, bool isAdmin) GetUserContext()
+    {
+        var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        long userId = 0;
+        if (idClaim != null && long.TryParse(idClaim.Value, out var id))
+        {
+            userId = id;
+        }
+        bool isAdmin = User.IsInRole("Admin");
+        return (userId, isAdmin);
+    }
+
+    private long GetUserId() => GetUserContext().userId;
 
     /// <summary>Create or update a single supplier quote.</summary>
     [HttpPost]
     public async Task<ActionResult<SupplierQuoteResponse>> Save(long rfqId, [FromBody] SaveSupplierQuoteRequest request)
     {
-        var result = await _procumentService.SaveAsync(request);
+        var result = await _procumentService.SaveAsync(request, GetUserId());
         return Ok(result);
     }
 
@@ -37,7 +52,7 @@ public class SupplierQuotesController : ControllerBase
     [HttpPost("bulk")]
     public async Task<ActionResult<List<SupplierQuoteResponse>>> BulkSave(long rfqId, [FromBody] BulkSaveQuotesRequest request)
     {
-        var result = await _procumentService.BulkSaveAsync(rfqId, request);
+        var result = await _procumentService.BulkSaveAsync(rfqId, request, GetUserId());
         return Ok(result);
     }
 
@@ -45,7 +60,7 @@ public class SupplierQuotesController : ControllerBase
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long rfqId, long id)
     {
-        var deleted = await _procumentService.DeleteAsync(id);
+        var deleted = await _procumentService.DeleteAsync(id, GetUserId());
         return deleted ? NoContent() : NotFound();
     }
 }

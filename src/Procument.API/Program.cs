@@ -4,9 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Procument.Data;
 using Procument.Module.Identity;
+using Procument.API.Services;
+
 using Procument.Module.Identity.Services;
 using Procument.Module.RFQ;
 using Procument.Module.Purchasing;
+using Procument.Module.Sales;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +30,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddIdentityModule();
 builder.Services.AddRFQModule();
 builder.Services.AddPurchasingModule();
+builder.Services.AddSalesModule();
 
 // ─── Register DbContext base class for module services ───
 builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());

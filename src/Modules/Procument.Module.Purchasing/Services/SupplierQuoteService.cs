@@ -4,28 +4,59 @@ using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
 
+using Procument.Module.Identity.Services;
+using Procument.Module.Identity.Entities; // for permissions
+
 namespace Procument.Module.Purchasing.Services;
 
 public interface ISupplierQuoteService
 {
-    Task<List<SupplierQuoteResponse>> GetByRFQIdAsync(long rfqId);
-    Task<SupplierQuoteResponse> SaveAsync(SaveSupplierQuoteRequest request);
-    Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request);
-    Task<bool> DeleteAsync(long id);
+    Task<List<SupplierQuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin);
+    Task<SupplierQuoteResponse> SaveAsync(SaveSupplierQuoteRequest request, long userId);
+    Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request, long userId);
+    Task<bool> DeleteAsync(long id, long userId);
 }
 
 public class SupplierQuoteService : ISupplierQuoteService
 {
     private readonly DbContext _db;
+    private readonly IPermissionService _permissionService;
+    private readonly IAuditService _auditService;
 
-    public SupplierQuoteService(DbContext db)
+    public SupplierQuoteService(DbContext db, IPermissionService permissionService, IAuditService auditService)
     {
         _db = db;
+        _permissionService = permissionService;
+        _auditService = auditService;
     }
 
     /// <summary>Get all supplier quotes for all items in an RFQ.</summary>
-    public async Task<List<SupplierQuoteResponse>> GetByRFQIdAsync(long rfqId)
+    public async Task<List<SupplierQuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin)
     {
+        // 1. Check if user has access to this RFQ
+        if (!isAdmin)
+        {
+            // We need to check if user is Creator OR has Permission.
+            // We can fetch RFQ header lightly or check permission table.
+            // Ideally re-use RFQService logic, but avoiding circular dep.
+            // Let's fetch RFQ UserId.
+            var rfq = await _db.Set<RFQHeader>().FirstOrDefaultAsync(r => r.Id == rfqId);
+            if (rfq == null) return new List<SupplierQuoteResponse>(); // RFQ doesn't exist
+
+            if (rfq.UserId != userId)
+            {
+                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Checker")
+                                 || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+
+                if (!hasPermission)
+                {
+                    // User has no access to this RFQ -> return empty list or throw.
+                    // Empty list is safer for list endpoints.
+                    return new List<SupplierQuoteResponse>();
+                }
+            }
+        }
+
         var records = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
             .Where(r => r.RFQItem.RFQId == rfqId)
@@ -35,8 +66,41 @@ public class SupplierQuoteService : ISupplierQuoteService
     }
 
     /// <summary>Create or update a single supplier quote.</summary>
-    public async Task<SupplierQuoteResponse> SaveAsync(SaveSupplierQuoteRequest request)
+    public async Task<SupplierQuoteResponse> SaveAsync(SaveSupplierQuoteRequest request, long userId)
     {
+        // 1. Check Permissions
+        // Since we don't have RFQId easily in Update case, we need to fetch it.
+        long rfqId;
+        if (request.Id.HasValue && request.Id > 0)
+        {
+            var existing = await _db.Set<ProcumentRecord>()
+                .Include(r => r.RFQItem)
+                .FirstOrDefaultAsync(r => r.Id == request.Id.Value);
+            if (existing == null) throw new KeyNotFoundException($"Supplier quote {request.Id} not found.");
+            rfqId = existing.RFQItem.RFQId;
+        }
+        else
+        {
+            // For create, we need RFQItemId to find RFQId
+            var rfqItem = await _db.Set<RFQItem>().FindAsync(request.RFQItemId)
+                ?? throw new KeyNotFoundException("RFQ Item not found");
+            rfqId = rfqItem.RFQId;
+        }
+
+        // Check if user is Admin OR has Procurer permission
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+
+        var user = await _db.Set<User>().FindAsync(userId);
+        bool isAdmin = user?.Role == "Admin";
+
+        // Check if user is the owner of THIS RFQ
+        var isOwner = await _db.Set<RFQHeader>().AnyAsync(r => r.Id == rfqId && r.UserId == userId);
+
+        if (!isAdmin && !hasPermission && !isOwner)
+        {
+            throw new UnauthorizedAccessException("User does not have permission to add quotes to this RFQ.");
+        }
+
         // Resolve or create supplier by name
         var supplier = await ResolveSupplierAsync(request.SupplierName);
 
@@ -46,14 +110,21 @@ public class SupplierQuoteService : ISupplierQuoteService
         {
             // Update existing
             record = await _db.Set<ProcumentRecord>()
-                .FirstOrDefaultAsync(r => r.Id == request.Id.Value)
-                ?? throw new KeyNotFoundException($"Supplier quote {request.Id} not found.");
+                .FirstOrDefaultAsync(r => r.Id == request.Id.Value);
+
+            // Log before change?
+            await _auditService.LogAsync(userId, "UpdateQuote", "ProcumentRecord", record!.Id.ToString(), $"Updated quote from {record.Price} to {request.Price}");
 
             record.SupplierId = supplier.Id;
             record.Qty = request.Qty;
             record.Price = request.Price;
             record.Condition = request.Condition;
             record.Alt = request.Alt;
+            record.UserId = userId; // Update Last Modified User? Or keep Creator? Usually keep Creator. But here tracking who made this specific version.
+            // If we want to track Creator, we only set it on new.
+            // Let's set ModifyAt if we had it.
+            // let's update UserId to the last person who touched it.
+            record.UserId = userId;
         }
         else
         {
@@ -65,12 +136,20 @@ public class SupplierQuoteService : ISupplierQuoteService
                 Qty = request.Qty,
                 Price = request.Price,
                 Condition = request.Condition,
-                Alt = request.Alt
+                Alt = request.Alt,
+                UserId = userId
             };
             _db.Set<ProcumentRecord>().Add(record);
+
+            // We can't log ID yet.
         }
 
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(); // Get ID
+
+        if (!request.Id.HasValue)
+        {
+            await _auditService.LogAsync(userId, "AddQuote", "ProcumentRecord", record.Id.ToString(), $"Added quote for RFQItem {request.RFQItemId}");
+        }
 
         // ── Auto-add Alt P/N to Alternatives table if not exists ──
         if (!string.IsNullOrWhiteSpace(request.Alt))
@@ -106,13 +185,34 @@ public class SupplierQuoteService : ISupplierQuoteService
     }
 
     /// <summary>Bulk save supplier quotes for an RFQ.</summary>
-    public async Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request)
+    public async Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request, long userId)
     {
+        // Permission check (once for the whole bulk op)
+        // Permission check (once for the whole bulk op)
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+        var user = await _db.Set<User>().FindAsync(userId);
+        bool isAdmin = user?.Role == "Admin";
+
+        var isOwner = await _db.Set<RFQHeader>().AnyAsync(s => s.Id == rfqId && s.UserId == userId);
+
+        if (!isAdmin && !hasPermission && !isOwner)
+        {
+            throw new UnauthorizedAccessException("User does not have permission to add quotes to this RFQ.");
+        }
+
         var results = new List<SupplierQuoteResponse>();
+
+        // We can reuse SaveAsync but pass userId. 
+        // OPTIMIZATION: SaveAsync does permission check again. 
+        // It's fine for now, or we can refactor internal method.
+        // But SaveAsync needs to fetch RFQId for each item to check permission if we don't pass it.
+        // Here we know RFQId.
 
         foreach (var quote in request.Quotes)
         {
-            var result = await SaveAsync(quote);
+            // We can't easily skip check inside SaveAsync without refactoring.
+            // Let's just call it. Use cache if performance issue.
+            var result = await SaveAsync(quote, userId);
             results.Add(result);
         }
 
@@ -120,13 +220,30 @@ public class SupplierQuoteService : ISupplierQuoteService
     }
 
     /// <summary>Delete a supplier quote by ID.</summary>
-    public async Task<bool> DeleteAsync(long id)
+    public async Task<bool> DeleteAsync(long id, long userId)
     {
-        var record = await _db.Set<ProcumentRecord>().FindAsync(id);
+        var record = await _db.Set<ProcumentRecord>()
+            .Include(r => r.RFQItem)
+            .FirstOrDefaultAsync(r => r.Id == id);
+
         if (record == null) return false;
+
+        // Check permission
+        long rfqId = record.RFQItem.RFQId;
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+        var user = await _db.Set<User>().FindAsync(userId);
+        bool isAdmin = user?.Role == "Admin";
+
+        if (!isAdmin && !hasPermission)
+        {
+            throw new UnauthorizedAccessException("User does not have permission to delete quotes from this RFQ.");
+        }
 
         _db.Set<ProcumentRecord>().Remove(record);
         await _db.SaveChangesAsync();
+
+        await _auditService.LogAsync(userId, "DeleteQuote", "ProcumentRecord", id.ToString(), "Deleted quote");
+
         return true;
     }
 

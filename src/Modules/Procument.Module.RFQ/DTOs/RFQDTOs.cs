@@ -1,11 +1,15 @@
 namespace Procument.Module.RFQ.DTOs;
 
+using Procument.Module.Identity.DTOs;
+using Procument.Shared.Entities;
+
 // ──── Request DTOs ────
 
 public class CreateRFQRequest
 {
     public string Name { get; set; } = string.Empty;
     public DateTime LeadTime { get; set; }
+    public DateTime CreatedAt { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public long UserId { get; set; }
     public List<string> PartNumbers { get; set; } = new();
@@ -32,6 +36,8 @@ public class RFQResponse
     public string? UserName { get; set; }
     public long? UserId { get; set; }
     public List<RFQItemResponse> Items { get; set; } = new();
+    public List<UserResponse> Checkers { get; set; } = new();
+    public List<UserResponse> Procurers { get; set; } = new();
 
 }
 

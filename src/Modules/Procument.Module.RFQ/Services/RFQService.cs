@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Identity.DTOs;
 using Procument.Module.Identity.Entities;
+using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
 
@@ -9,18 +12,20 @@ namespace Procument.Module.RFQ.Services;
 public interface IRFQService
 {
     Task<RFQResponse> CreateAsync(CreateRFQRequest request);
-    Task<RFQResponse?> GetByIdAsync(long id);
-    Task<List<RFQResponse>> GetAllAsync();
+    Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
+    Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
 }
 
 public class RFQService : IRFQService
 {
     private readonly DbContext _db;
+    private readonly IPermissionService _permissionService;
 
-    public RFQService(DbContext db)
+    public RFQService(DbContext db, IPermissionService permissionService)
     {
         _db = db;
+        _permissionService = permissionService;
     }
 
     public async Task<RFQResponse> CreateAsync(CreateRFQRequest request)
@@ -76,7 +81,7 @@ public class RFQService : IRFQService
             LeadTime = request.LeadTime,
             CustomerId = customer.Id,
             UserId = request.UserId,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = request.CreatedAt
         };
 
         _db.Set<RFQHeader>().Add(rfq);
@@ -96,30 +101,94 @@ public class RFQService : IRFQService
 
         await _db.SaveChangesAsync();
 
-        return await GetByIdAsync(rfq.Id) ?? throw new Exception("Failed to load created RFQ.");
+        return await GetByIdAsync(rfq.Id, request.UserId, true) ?? throw new Exception("Failed to load created RFQ.");
     }
 
-    public async Task<RFQResponse?> GetByIdAsync(long id)
+    public async Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isAdmin)
     {
         var rfq = await _db.Set<RFQHeader>()
             .Include(r => r.Customer)
             .Include(r => r.User)
             .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber)
+                .ThenInclude(ri => ri.PartNumber)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (rfq == null) return null;
 
-        return MapToResponse(rfq);
+        // Permission Check
+        if (!isAdmin && rfq.UserId != userId)
+        {
+            var hasPermission = await _db.Set<EntityPermission>()
+                .AnyAsync(p => p.UserId == userId && p.EntityName == "RFQ" && p.EntityId == id.ToString());
+
+            if (!hasPermission) return null; // Or throw UnauthorizedAccessException? returning null behaves like 404 which is safer
+        }
+
+        var response = MapToResponse(rfq);
+
+        // Populate Permissions
+        var permissions = await _permissionService.GetPermissionsForEntityAsync("RFQ", id.ToString());
+
+        response.Checkers = permissions
+            .Where(p => p.Permission == "Checker")
+            .Select(p => new UserResponse
+            {
+                Id = p.User.Id,
+                Name = p.User.Name,
+                Email = p.User.Email,
+                Role = p.User.Role,
+                IsActive = p.User.IsActive,
+                CreatedAt = p.User.CreatedAt
+            })
+            .ToList();
+
+        response.Procurers = permissions
+            .Where(p => p.Permission == "Procurer")
+            .Select(p => new UserResponse
+            {
+                Id = p.User.Id,
+                Name = p.User.Name,
+                Email = p.User.Email,
+                Role = p.User.Role,
+                IsActive = p.User.IsActive,
+                CreatedAt = p.User.CreatedAt
+            })
+            .ToList();
+
+        return response;
     }
 
-    public async Task<List<RFQResponse>> GetAllAsync()
+    public async Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin)
     {
-        var rfqs = await _db.Set<RFQHeader>()
+        IQueryable<RFQHeader> query = _db.Set<RFQHeader>()
             .Include(r => r.Customer)
             .Include(r => r.User)
             .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber)
+                .ThenInclude(i => i.PartNumber);
+
+        if (!isAdmin)
+        {
+            // Filter: Owner OR HasPermission
+            // Note: EF Core translation for Any with local variables might differ based on version, but 10.0 should be fine.
+            // Using a subquery approach for permissions join might be more efficient but this is cleaner.
+            // Since EntityId is string, we need to convert r.Id to string or use client eval? 
+            // EF Core might not translate `r.Id.ToString()`. 
+            // Better to perform a join or separate query for IDs.
+
+            // Let's get list of RFQ IDs user has permission to first.
+            var permittedRfqIdsStr = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+
+            var permittedRfqIds = permittedRfqIdsStr
+                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .ToList();
+
+            query = query.Where(r => r.UserId == userId || permittedRfqIds.Contains(r.Id));
+        }
+
+        var rfqs = await query
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync();
 
@@ -150,7 +219,7 @@ public class RFQService : IRFQService
             Description = item.PartNumber.Description,
             Alt = item.Alt,
             Qty = item.Qty,
-            
+
             Condition = item.Condition
         };
     }

@@ -29,7 +29,8 @@ public class RFQsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<RFQResponse>>> GetAll()
     {
-        var result = await _rfqService.GetAllAsync();
+        var (userId, isAdmin) = GetUserContext();
+        var result = await _rfqService.GetAllAsync(userId, isAdmin);
         return Ok(result);
     }
 
@@ -37,8 +38,29 @@ public class RFQsController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<ActionResult<RFQResponse>> GetById(long id)
     {
-        var result = await _rfqService.GetByIdAsync(id);
-        return result == null ? NotFound() : Ok(result);
+        var (userId, isAdmin) = GetUserContext();
+        var result = await _rfqService.GetByIdAsync(id, userId, isAdmin);
+
+        if (result == null)
+        {
+            // If service returns null, it could be 404 or 403 (filtered out). 
+            // Returning NotFound covers both securely.
+            return NotFound();
+        }
+
+        return Ok(result);
+    }
+
+    private (long userId, bool isAdmin) GetUserContext()
+    {
+        var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        long userId = 0;
+        if (idClaim != null && long.TryParse(idClaim.Value, out var id))
+        {
+            userId = id;
+        }
+        bool isAdmin = User.IsInRole("Admin");
+        return (userId, isAdmin);
     }
 
     /// <summary>Update an RFQ item's fields (Alt, Qty, Condition).</summary>

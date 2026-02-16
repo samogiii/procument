@@ -79,6 +79,30 @@
           </v-chip>
         </div>
         <div class="d-flex gap-2">
+          <!-- Action Buttons -->
+          <v-menu>
+            <template v-slot:activator="{ props }">
+              <v-btn icon="mdi-dots-vertical" variant="text" size="small" v-bind="props" />
+            </template>
+            <v-list density="compact">
+              <v-list-item prepend-icon="mdi-shield-account" @click="showPermissions = true" v-if="isAdmin">
+                <v-list-item-title>Manage Permissions</v-list-item-title>
+              </v-list-item>
+              <v-list-item prepend-icon="mdi-history" @click="showAudit = true">
+                <v-list-item-title>Audit History</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="success"
+            prepend-icon="mdi-plus"
+            :to="`/rfqs/${route.params.id}/create-quote`"
+          >
+            Add Quote
+          </v-btn>
           <v-btn
             size="small"
             variant="tonal"
@@ -260,6 +284,18 @@
       </div>
     </v-card>
 
+
+
+    <!-- Permission Dialog -->
+    <v-dialog v-model="showPermissions" max-width="600">
+      <PermissionManager :entity-name="'RFQ'" :entity-id="route.params.id as string" />
+    </v-dialog>
+
+    <!-- Audit Dialog -->
+    <v-dialog v-model="showAudit" max-width="700">
+      <AuditLogViewer :entity-name="'RFQ'" :entity-id="route.params.id as string" />
+    </v-dialog>
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
@@ -281,6 +317,13 @@ const saving = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+// Dialogs
+const showPermissions = ref(false)
+const showAudit = ref(false)
+
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 
 const statusColor = computed(() => {
   const s = rfq.value.status?.toLowerCase()

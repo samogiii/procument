@@ -1,8 +1,26 @@
+<style scoped>
+.glass-card {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  backdrop-filter: blur(10px);
+}
+:deep(.clickable-rows tbody tr) {
+  cursor: pointer !important;
+  transition: background-color 0.2s;
+}
+:deep(.clickable-rows tbody tr:hover) {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+</style>
 <template>
   <div>
     <div class="d-flex align-center justify-space-between mb-6">
       <h1 class="text-h5 font-weight-bold">Quotes</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus">New Quote</v-btn>
+      <!-- <v-btn color="primary" prepend-icon="mdi-plus">New Quote</v-btn> -->
+      <!-- Action Buttons -->
+       <div>
+       
+</div>
     </div>
 
     <v-card class="glass-card">
@@ -17,7 +35,10 @@
           :items-length="totalItems"
           :loading="loading"
           :items-per-page="10"
+          hover
           @update:options="loadItems"
+          @click:row="(e, { item }) => navigateTo(`/quotes/${item.id}`)"
+          class="clickable-rows"
         >
           <template #item.status="{ item }">
             <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
@@ -31,16 +52,20 @@
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
   </div>
+  
 </template>
 
 <script setup lang="ts">
+
 const api = useApi()
 const search = ref('')
 const statusFilter = ref('All')
 const loading = ref(false)
 const items = ref<any[]>([])
 const totalItems = ref(0)
+
 
 const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
@@ -65,3 +90,19 @@ async function loadItems(options: any) {
   finally { loading.value = false }
 }
 </script>
+
+<style scoped>
+.glass-card {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  backdrop-filter: blur(10px);
+}
+
+:deep(.clickable-rows tbody tr) {
+  cursor: pointer !important;
+  transition: background-color 0.2s;
+}
+:deep(.clickable-rows tbody tr:hover) {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+</style>

@@ -70,7 +70,7 @@
     <!-- Top Bar -->
     <v-app-bar flat color="surface" class="border-b-thin" density="compact">
       <v-app-bar-title>
-        <span class="text-body-1 text-medium-emphasis">{{ pageTitle }}</span>
+        <!-- <span class="text-body-1 text-medium-emphasis">{{ pageTitle }}</span> -->
       </v-app-bar-title>
       <template #append>
         <v-btn icon="mdi-bell-outline" variant="text" size="small" />
