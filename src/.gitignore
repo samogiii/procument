@@ -1,0 +1,15 @@
+# Ignore Visual Studio temporary files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.slndoc
+
+# Ignore build output folders (where .dll and .exe live)
+[Bb]in/
+[Oo]bj/
+
+# Ignore other common generated files
+*.lock.json
+*.cache
+*.generated.cs
