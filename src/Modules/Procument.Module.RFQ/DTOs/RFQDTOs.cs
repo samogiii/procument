@@ -11,6 +11,14 @@ public class CreateRFQRequest
     public List<string> PartNumbers { get; set; } = new();
 }
 
+public class UpdateRFQItemRequest
+{
+    public string? Alt { get; set; }
+    public int Qty { get; set; }
+
+    public string? Condition { get; set; }
+}
+
 // ──── Response DTOs ────
 
 public class RFQResponse
@@ -24,6 +32,7 @@ public class RFQResponse
     public string? UserName { get; set; }
     public long? UserId { get; set; }
     public List<RFQItemResponse> Items { get; set; } = new();
+
 }
 
 public class RFQItemResponse
@@ -32,6 +41,7 @@ public class RFQItemResponse
     public string PartNumberName { get; set; } = string.Empty;
     public long PartNumberId { get; set; }
     public string? Alt { get; set; }
+    public string? Description { get; set; }
     public int Qty { get; set; }
     public string? Condition { get; set; }
 }

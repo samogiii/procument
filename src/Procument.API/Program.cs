@@ -6,6 +6,7 @@ using Procument.Data;
 using Procument.Module.Identity;
 using Procument.Module.Identity.Services;
 using Procument.Module.RFQ;
+using Procument.Module.Purchasing;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +26,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ─── Modules ───
 builder.Services.AddIdentityModule();
 builder.Services.AddRFQModule();
+builder.Services.AddPurchasingModule();
 
 // ─── Register DbContext base class for module services ───
 builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());
@@ -73,7 +75,7 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
-        policy.WithOrigins("http://192.168.70.171:3000")
+        policy.WithOrigins("http://192.168.3.3:3000")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -93,7 +95,7 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference(options =>
     {
         options.WithTitle("Procument API")
-               .WithTheme(ScalarTheme.BluePlanet)
+               .WithTheme(ScalarTheme.DeepSpace)
                .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
     });
 }

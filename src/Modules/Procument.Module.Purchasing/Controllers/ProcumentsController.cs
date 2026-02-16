@@ -1,0 +1,51 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Procument.Module.Purchasing.DTOs;
+using Procument.Module.Purchasing.Services;
+
+namespace Procument.Module.Purchasing.Controllers;
+
+[ApiController]
+[Route("api/rfqs/{rfqId:long}/supplier-quotes")]
+[Authorize(Roles = "Admin,Expert")]
+public class SupplierQuotesController : ControllerBase
+{
+    private readonly ISupplierQuoteService _procumentService;
+
+    public SupplierQuotesController(ISupplierQuoteService procumentService)
+    {
+        _procumentService = procumentService;
+    }
+
+    /// <summary>Get all supplier quotes for an RFQ.</summary>
+    [HttpGet]
+    public async Task<ActionResult<List<SupplierQuoteResponse>>> GetByRFQ(long rfqId)
+    {
+        var result = await _procumentService.GetByRFQIdAsync(rfqId);
+        return Ok(result);
+    }
+
+    /// <summary>Create or update a single supplier quote.</summary>
+    [HttpPost]
+    public async Task<ActionResult<SupplierQuoteResponse>> Save(long rfqId, [FromBody] SaveSupplierQuoteRequest request)
+    {
+        var result = await _procumentService.SaveAsync(request);
+        return Ok(result);
+    }
+
+    /// <summary>Bulk save supplier quotes.</summary>
+    [HttpPost("bulk")]
+    public async Task<ActionResult<List<SupplierQuoteResponse>>> BulkSave(long rfqId, [FromBody] BulkSaveQuotesRequest request)
+    {
+        var result = await _procumentService.BulkSaveAsync(rfqId, request);
+        return Ok(result);
+    }
+
+    /// <summary>Delete a supplier quote.</summary>
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long rfqId, long id)
+    {
+        var deleted = await _procumentService.DeleteAsync(id);
+        return deleted ? NoContent() : NotFound();
+    }
+}

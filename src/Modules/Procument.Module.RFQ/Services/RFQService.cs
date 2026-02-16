@@ -11,6 +11,7 @@ public interface IRFQService
     Task<RFQResponse> CreateAsync(CreateRFQRequest request);
     Task<RFQResponse?> GetByIdAsync(long id);
     Task<List<RFQResponse>> GetAllAsync();
+    Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
 }
 
 public class RFQService : IRFQService
@@ -125,6 +126,35 @@ public class RFQService : IRFQService
         return rfqs.Select(MapToResponse).ToList();
     }
 
+    // ──── Update Item ────
+
+    public async Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request)
+    {
+        var item = await _db.Set<RFQItem>()
+            .Include(i => i.PartNumber)
+            .FirstOrDefaultAsync(i => i.Id == itemId);
+
+        if (item == null) return null;
+
+        item.Alt = request.Alt;
+        item.Qty = request.Qty;
+        item.Condition = request.Condition;
+
+        await _db.SaveChangesAsync();
+
+        return new RFQItemResponse
+        {
+            Id = item.Id,
+            PartNumberName = item.PartNumber.Name,
+            PartNumberId = item.PartNumberId,
+            Description = item.PartNumber.Description,
+            Alt = item.Alt,
+            Qty = item.Qty,
+            
+            Condition = item.Condition
+        };
+    }
+
     // ──── Mapping ────
 
     private static RFQResponse MapToResponse(RFQHeader rfq) => new()
@@ -142,6 +172,7 @@ public class RFQService : IRFQService
             Id = i.Id,
             PartNumberName = i.PartNumber.Name,
             PartNumberId = i.PartNumberId,
+            Description = i.PartNumber.Description,
             Alt = i.Alt,
             Qty = i.Qty,
             Condition = i.Condition

@@ -40,4 +40,12 @@ public class RFQsController : ControllerBase
         var result = await _rfqService.GetByIdAsync(id);
         return result == null ? NotFound() : Ok(result);
     }
+
+    /// <summary>Update an RFQ item's fields (Alt, Qty, Condition).</summary>
+    [HttpPut("items/{itemId:long}")]
+    public async Task<ActionResult<RFQItemResponse>> UpdateItem(long itemId, [FromBody] UpdateRFQItemRequest request)
+    {
+        var result = await _rfqService.UpdateItemAsync(itemId, request);
+        return result == null ? NotFound() : Ok(result);
+    }
 }
