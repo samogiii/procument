@@ -31,8 +31,27 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+/* ─── Glass Card ─── */
 .glass-card {
-  background: rgba(22, 27, 34, 0.7) !important;
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(48, 54, 61, 0.6);
+}
+
+/* ─── Clickable Table Rows ─── */
+.clickable-rows tbody tr {
+  cursor: pointer !important;
+  transition: background-color 0.2s;
+}
+.clickable-rows tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* ─── Cursor Utility ─── */
+.cursor-pointer { cursor: pointer; }
+
+/* ─── Monospace ─── */
+.font-monospace {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
 }

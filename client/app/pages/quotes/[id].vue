@@ -5,11 +5,11 @@
       <h1 class="text-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex align-center gap-2">
-        <!-- Status Chip with Menu -->
+        <!-- Status Chip with Dropdown -->
         <v-menu>
           <template #activator="{ props: menuProps }">
             <v-chip
-              :color="statusColor"
+              :color="statusColor(quote.status)"
               v-bind="menuProps"
               class="cursor-pointer"
               append-icon="mdi-chevron-down"
@@ -18,7 +18,7 @@
               {{ quote.status || '—' }}
             </v-chip>
           </template>
-          <v-list density="compact" class="status-menu">
+          <v-list density="compact" style="min-width: 180px">
             <v-list-subheader>Change Status</v-list-subheader>
             <v-list-item
               v-for="s in statuses"
@@ -35,54 +35,41 @@
           </v-list>
         </v-menu>
 
-        <v-btn
-          class="mx-1" prepend-icon="mdi-pencil"
-          variant="tonal"
-          color="warning"
-          size="small"
-          @click="editQuote"
-        >
+        <v-btn class="mx-1" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">
           Edit Quote
         </v-btn>
-
-        <v-btn class="mx-1" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true" v-if="isAdmin">Permission</v-btn>
-        <v-btn class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true" v-if="isAdmin">Audit</v-btn>
+        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Permission</v-btn>
+        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn class="mx-1" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">Generate PDF</v-btn>
       </div>
     </div>
 
+    <!-- Stat Cards -->
     <v-row class="mb-6">
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Customer</p>
-          <p class="text-body-1 font-weight-medium">{{ quote.customerName || '—' }}</p>
-        </v-card>
+        <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="quote.customerName" />
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Total Amount</p>
-          <p class="text-body-1 font-weight-medium">${{ quote.totalAmount?.toLocaleString() || '0' }}</p>
-        </v-card>
+        <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
+          ${{ quote.totalAmount?.toLocaleString() || '0' }}
+        </StatCard>
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Valid Until</p>
-          <p class="text-body-1 font-weight-medium">{{ quote.validUntil ? new Date(quote.validUntil).toLocaleDateString() : '—' }}</p>
-        </v-card>
+        <StatCard icon="mdi-calendar" color="warning" label="Valid Until"
+          :value="quote.validUntil ? new Date(quote.validUntil).toLocaleDateString() : undefined"
+        />
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">RFQ</p>
-          <p class="text-body-1 font-weight-medium">
-            <nuxt-link v-if="quote.rfqId" :to="`/rfqs/${quote.rfqId}`" class="text-primary text-decoration-none">
-              {{ quote.rfqName || `RFQ #${quote.rfqId}` }}
-            </nuxt-link>
-            <span v-else>—</span>
-          </p>
-        </v-card>
+        <StatCard icon="mdi-file-document-outline" color="info" label="RFQ">
+          <nuxt-link v-if="quote.rfqId" :to="`/rfqs/${quote.rfqId}`" class="text-primary text-decoration-none">
+            {{ quote.rfqName || `RFQ #${quote.rfqId}` }}
+          </nuxt-link>
+          <span v-else>—</span>
+        </StatCard>
       </v-col>
     </v-row>
 
+    <!-- Line Items -->
     <v-card class="glass-card">
       <v-card-title>Line Items</v-card-title>
       <v-card-text>
@@ -113,6 +100,7 @@ const route = useRoute()
 const router = useRouter()
 const api = useApi()
 const authStore = useAuthStore()
+const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
 const showPermissions = ref(false)
@@ -131,11 +119,6 @@ const statuses = [
   { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
 ]
 
-const statusColor = computed(() => {
-  const map: Record<string, string> = { Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error' }
-  return map[quote.value.status] || 'grey'
-})
-
 const itemHeaders = [
   { title: 'Part', key: 'partNumberName' },
   { title: 'Qty', key: 'qty' },
@@ -144,9 +127,7 @@ const itemHeaders = [
   { title: 'Condition', key: 'condition' },
 ]
 
-onMounted(async () => {
-  await loadQuote()
-})
+onMounted(() => loadQuote())
 
 async function loadQuote() {
   try {
@@ -168,7 +149,6 @@ async function changeStatus(newStatus: string) {
 }
 
 function editQuote() {
-  // Navigate to create-quote page for this RFQ, passing the quote id as a query param so we can pre-fill
   if (quote.value.rfqId) {
     router.push(`/rfqs/${quote.value.rfqId}/create-quote?editQuoteId=${route.params.id}`)
   } else {
@@ -182,10 +162,3 @@ function showSnack(text: string, color: string) {
   snackbar.value = true
 }
 </script>
-
-<style scoped>
-.cursor-pointer { cursor: pointer; }
-.status-menu {
-  min-width: 180px !important;
-}
-</style>

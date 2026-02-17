@@ -130,7 +130,7 @@ const headers = [
   { title: 'Action', key: 'action', width: '15%' },
   { title: 'Entity', key: 'entityName', width: '20%' },
   { title: 'Changes', key: 'details', width: '25%' }, // Summary
-  { title: 'Time', key: 'timestamp', align: 'end', width: '15%' },
+  { title: 'Time', key: 'timestamp', align: 'end' as const, width: '15%' },
 ]
 
 watch(viewMode, () => loadLogs())
@@ -237,14 +237,3 @@ function formatDate(ts: string) {
 }
 </script>
 
-<style scoped>
-.glass-card {
-  background: rgba(30, 41, 59, 0.6) !important;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.font-monospace {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 11px;
-}
-</style>

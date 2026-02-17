@@ -184,10 +184,3 @@ function getInitials(name?: string) {
 }
 </script>
 
-<style scoped>
-.glass-card {
-  background: rgba(30, 41, 59, 0.7) !important;
-  border: 1px solid rgba(51, 65, 85, 0.5) !important;
-  backdrop-filter: blur(10px);
-}
-</style>

@@ -4,33 +4,27 @@
       <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-2" />
       <h1 class="text-h5 font-weight-bold">Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
-      <v-chip :color="statusColor" class="ml-2">{{ invoice.status || '—' }}</v-chip>
+      <StatusChip :status="invoice.status ?? '—'" size="default" />
     </div>
 
     <v-row class="mb-6">
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Customer</p>
-          <p class="text-body-1 font-weight-medium">{{ invoice.customerName || '—' }}</p>
-        </v-card>
+        <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="invoice.customerName" />
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Total</p>
-          <p class="text-body-1 font-weight-medium">${{ invoice.totalAmount?.toLocaleString() || '0' }}</p>
-        </v-card>
+        <StatCard icon="mdi-currency-usd" color="success" label="Total">
+          ${{ invoice.totalAmount?.toLocaleString() || '0' }}
+        </StatCard>
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Due Date</p>
-          <p class="text-body-1 font-weight-medium">{{ invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : '—' }}</p>
-        </v-card>
+        <StatCard icon="mdi-calendar-clock" color="warning" label="Due Date"
+          :value="invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : undefined"
+        />
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="glass-card pa-4">
-          <p class="text-caption text-medium-emphasis">Paid Date</p>
-          <p class="text-body-1 font-weight-medium">{{ invoice.paidDate ? new Date(invoice.paidDate).toLocaleDateString() : 'Unpaid' }}</p>
-        </v-card>
+        <StatCard icon="mdi-calendar-check" color="info" label="Paid Date"
+          :value="invoice.paidDate ? new Date(invoice.paidDate).toLocaleDateString() : 'Unpaid'"
+        />
       </v-col>
     </v-row>
 
@@ -47,11 +41,6 @@
 const route = useRoute()
 const api = useApi()
 const invoice = ref<any>({})
-
-const statusColor = computed(() => {
-  const map: Record<string, string> = { Pending: 'warning', Paid: 'success', Overdue: 'error' }
-  return map[invoice.value.status] || 'grey'
-})
 
 const itemHeaders = [
   { title: 'Qty', key: 'qty' },

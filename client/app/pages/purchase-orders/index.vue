@@ -1,47 +1,27 @@
 <template>
-  <div>
-    <div class="d-flex align-center justify-space-between mb-6">
-      <h1 class="text-h5 font-weight-bold">Purchase Orders</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus">New PO</v-btn>
-    </div>
+  <DataListPage
+    title="Purchase Orders"
+    :headers="headers"
+    api-url="/purchase-orders"
+    :status-options="['All', 'Draft', 'Sent', 'Received', 'Cancelled']"
+    detail-route="/purchase-orders"
+    server-side
+  >
+    <template #item.status="{ item }">
+      <StatusChip :status="item.status" />
+    </template>
 
-    <v-card class="glass-card">
-      <v-card-text>
-        <div class="d-flex gap-3 mb-4">
-          <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" label="Search..." single-line hide-details class="flex-grow-1" />
-          <v-select v-model="statusFilter" :items="['All', 'Draft', 'Sent', 'Received', 'Cancelled']" label="Status" hide-details style="max-width: 160px" />
-        </div>
-        <v-data-table-server
-          :headers="headers"
-          :items="items"
-          :items-length="totalItems"
-          :loading="loading"
-          :items-per-page="10"
-          @update:options="loadItems"
-        >
-          <template #item.status="{ item }">
-            <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
-          </template>
-          <template #item.totalAmount="{ item }">
-            ${{ item.totalAmount?.toLocaleString() || '0' }}
-          </template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-eye" variant="text" size="small" :to="`/purchase-orders/${item.id}`" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
-  </div>
+    <template #item.totalAmount="{ item }">
+      ${{ item.totalAmount?.toLocaleString() || '0' }}
+    </template>
+
+    <template #item.actions="{ item }">
+      <v-btn icon="mdi-eye" variant="text" size="small" :to="`/purchase-orders/${item.id}`" />
+    </template>
+  </DataListPage>
 </template>
 
 <script setup lang="ts">
-const api = useApi()
-const search = ref('')
-const statusFilter = ref('All')
-const loading = ref(false)
-const items = ref<any[]>([])
-const totalItems = ref(0)
-
 const headers = [
   { title: 'PO #', key: 'poNumber' },
   { title: 'Supplier', key: 'supplierName' },
@@ -49,19 +29,4 @@ const headers = [
   { title: 'Status', key: 'status' },
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
-
-function statusColor(status: string) {
-  const map: Record<string, string> = { Draft: 'grey', Sent: 'info', Received: 'success', Cancelled: 'error' }
-  return map[status] || 'grey'
-}
-
-async function loadItems(options: any) {
-  loading.value = true
-  try {
-    const res = await api.get<any>(`/purchase-orders?page=${options.page}&pageSize=${options.itemsPerPage}`)
-    items.value = res.items || []
-    totalItems.value = res.totalCount || 0
-  } catch {}
-  finally { loading.value = false }
-}
 </script>

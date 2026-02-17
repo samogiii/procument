@@ -1,13 +1,11 @@
 <template>
   <div>
-    <div class="d-flex align-center justify-space-between mb-6">
-      <h1 class="text-h5 font-weight-bold">RFQs</h1>
-      <div>
+    <PageHeader title="RFQs">
+      <template #actions>
         <v-btn
           v-if="isAdmin"
           prepend-icon="mdi-shield-account"
           variant="tonal"
-          class="mr-2"
           @click="showBulkPerms = true"
         >
           Manage Permissions
@@ -15,8 +13,8 @@
         <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal">
           New RFQ
         </v-btn>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- RFQ List -->
     <v-card class="glass-card">
@@ -231,7 +229,6 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 const api = useApi()
 const authStore = useAuthStore()
 const router = useRouter()
@@ -430,8 +427,3 @@ async function submitRfq() {
   }
 }
 </script>
-<style scoped>
-:deep(.v-data-table .v-data-table__tr) {
-  cursor: pointer;
-}
-</style>
