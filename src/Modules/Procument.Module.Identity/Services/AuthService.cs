@@ -34,14 +34,17 @@ public class AuthService : IAuthService
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
         var user = await _db.Set<User>()
-            .FirstOrDefaultAsync(u => u.Email == request.Email && u.IsActive);
+            .FirstOrDefaultAsync(u => u.Email == request.Email);
 
         if (user == null)
             throw new UnauthorizedAccessException("Invalid email or password.");
 
         if (!VerifyPassword(request.Password, user.Password))
             throw new UnauthorizedAccessException("Invalid email or password.");
-
+        if (!user.IsActive)
+        {
+            throw new UnauthorizedAccessException("Account Deactivated !");
+        }
         return new AuthResponse
         {
             Id = user.Id,

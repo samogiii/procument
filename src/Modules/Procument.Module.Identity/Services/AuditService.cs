@@ -13,7 +13,7 @@ public class AuditService : IAuditService
         _context = context;
     }
 
-    public async Task LogAsync(long? userId, string action, string entityName, string entityId, string details = null)
+    public async Task LogAsync(long? userId, string action, string entityName, string entityId, string? details = null)
     {
         var log = new AuditLog
         {
@@ -35,6 +35,14 @@ public class AuditService : IAuditService
         return await _context.Set<AuditLog>()
             .Where(l => l.EntityName == entityName && l.EntityId == entityId)
             .OrderByDescending(l => l.Timestamp)
+            .ToListAsync();
+    }
+
+    public async Task<List<AuditLog>> GetAllLogsAsync(int limit = 100)
+    {
+        return await _context.Set<AuditLog>()
+            .OrderByDescending(l => l.Timestamp)
+            .Take(limit)
             .ToListAsync();
     }
 }

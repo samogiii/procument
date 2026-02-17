@@ -20,6 +20,11 @@ public class CreateQuoteItemRequest
     public int? LeadTimeDays { get; set; }
 }
 
+public class UpdateQuoteStatusRequest
+{
+    public string Status { get; set; } = string.Empty;
+}
+
 // ──── Response DTOs ────
 
 public class QuoteResponse

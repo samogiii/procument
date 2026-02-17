@@ -7,7 +7,7 @@ namespace Procument.Module.Identity.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin")]
 public class AuditController : ControllerBase
 {
     private readonly IAuditService _auditService;
@@ -21,6 +21,13 @@ public class AuditController : ControllerBase
     public async Task<ActionResult<List<AuditLog>>> GetLogs(string entityName, string entityId)
     {
         var logs = await _auditService.GetLogsAsync(entityName, entityId);
+        return Ok(logs);
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<List<AuditLog>>> GetAllLogs([FromQuery] int limit = 100)
+    {
+        var logs = await _auditService.GetAllLogsAsync(limit);
         return Ok(logs);
     }
 }

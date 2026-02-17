@@ -4,6 +4,8 @@ using Procument.Module.Identity.DTOs;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
 
+using Procument.Shared.Audit;
+
 namespace Procument.Module.Identity.Controllers;
 
 [ApiController]
@@ -21,6 +23,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPost("assign")]
+    [Auditable("Permission", "Assign", CaptureBody = true)]
     public async Task<IActionResult> AssignPermission([FromBody] AssignPermissionRequest request)
     {
         var user = await _authService.GetUserByIdAsync(request.UserId);
@@ -31,6 +34,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPost("revoke")]
+    [Auditable("Permission", "Revoke", CaptureBody = true)]
     public async Task<IActionResult> RevokePermission([FromBody] AssignPermissionRequest request)
     {
         await _permissionService.RemovePermissionAsync(request.UserId, request.EntityName, request.EntityId, request.Permission);

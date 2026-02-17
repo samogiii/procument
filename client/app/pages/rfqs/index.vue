@@ -2,9 +2,20 @@
   <div>
     <div class="d-flex align-center justify-space-between mb-6">
       <h1 class="text-h5 font-weight-bold">RFQs</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal">
-        New RFQ
-      </v-btn>
+      <div>
+        <v-btn
+          v-if="isAdmin"
+          prepend-icon="mdi-shield-account"
+          variant="tonal"
+          class="mr-2"
+          @click="showBulkPerms = true"
+        >
+          Manage Permissions
+        </v-btn>
+        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal">
+          New RFQ
+        </v-btn>
+      </div>
     </div>
 
     <!-- RFQ List -->
@@ -213,6 +224,9 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Bulk Permission Manager -->
+    <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" />
   </div>
 </template>
 
@@ -221,6 +235,9 @@ import { useRouter } from 'vue-router'
 const api = useApi()
 const authStore = useAuthStore()
 const router = useRouter()
+
+const isAdmin = computed(() => authStore.isAdmin)
+const showBulkPerms = ref(false)
 
 // ── List state ──
 const search = ref('')

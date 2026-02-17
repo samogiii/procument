@@ -15,7 +15,13 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // ─── Database ───
-builder.Services.AddDbContext<AppDbContext>(options =>
+// ─── Database ───
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<Procument.API.Interceptors.AuditSaveChangesInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+{
+    var interceptor = sp.GetRequiredService<Procument.API.Interceptors.AuditSaveChangesInterceptor>();
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         sqlOptions =>
@@ -23,7 +29,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             sqlOptions.MigrationsAssembly("Procument.Data");
             sqlOptions.CommandTimeout(60);
             sqlOptions.EnableRetryOnFailure(3);
-        }));
+        })
+        .AddInterceptors(interceptor);
+});
 
 
 // ─── Modules ───
@@ -64,8 +72,12 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ExpertOrAdmin", policy => policy.RequireRole("Admin", "Expert"));
 });
 
-// ─── Controllers ───
-builder.Services.AddControllers();
+// ─── Controllers + Audit Filter ───
+builder.Services.AddScoped<Procument.API.Filters.AuditActionFilter>();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.AddService<Procument.API.Filters.AuditActionFilter>();
+});
 
 // ─── OpenAPI (built-in .NET 10) ───
 builder.Services.AddOpenApi();

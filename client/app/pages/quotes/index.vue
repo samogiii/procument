@@ -16,11 +16,17 @@
   <div>
     <div class="d-flex align-center justify-space-between mb-6">
       <h1 class="text-h5 font-weight-bold">Quotes</h1>
-      <!-- <v-btn color="primary" prepend-icon="mdi-plus">New Quote</v-btn> -->
-      <!-- Action Buttons -->
-       <div>
-       
-</div>
+      <div>
+        <v-btn
+          v-if="isAdmin"
+          prepend-icon="mdi-shield-account"
+          variant="tonal"
+          class="mr-2"
+          @click="showBulkPerms = true"
+        >
+          Manage Permissions
+        </v-btn>
+      </div>
     </div>
 
     <v-card class="glass-card">
@@ -53,6 +59,8 @@
       </v-card-text>
     </v-card>
 
+    <!-- Bulk Permission Manager -->
+    <BulkPermissionManager v-model="showBulkPerms" entity-name="Quote" />
   </div>
   
 </template>
@@ -60,11 +68,15 @@
 <script setup lang="ts">
 
 const api = useApi()
+const authStore = useAuthStore()
 const search = ref('')
 const statusFilter = ref('All')
 const loading = ref(false)
 const items = ref<any[]>([])
 const totalItems = ref(0)
+const showBulkPerms = ref(false)
+
+const isAdmin = computed(() => authStore.isAdmin)
 
 
 const headers = [

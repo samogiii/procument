@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
 
+using Procument.Shared.Audit;
+
 namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
@@ -42,6 +44,7 @@ public class SupplierQuotesController : ControllerBase
 
     /// <summary>Create or update a single supplier quote.</summary>
     [HttpPost]
+    [Auditable("ProcumentRecord", "Save", CaptureBody = true)]
     public async Task<ActionResult<SupplierQuoteResponse>> Save(long rfqId, [FromBody] SaveSupplierQuoteRequest request)
     {
         var result = await _procumentService.SaveAsync(request, GetUserId());
@@ -50,6 +53,7 @@ public class SupplierQuotesController : ControllerBase
 
     /// <summary>Bulk save supplier quotes.</summary>
     [HttpPost("bulk")]
+    [Auditable("ProcumentRecord", "BulkSave", CaptureBody = true)]
     public async Task<ActionResult<List<SupplierQuoteResponse>>> BulkSave(long rfqId, [FromBody] BulkSaveQuotesRequest request)
     {
         var result = await _procumentService.BulkSaveAsync(rfqId, request, GetUserId());
@@ -58,6 +62,7 @@ public class SupplierQuotesController : ControllerBase
 
     /// <summary>Delete a supplier quote.</summary>
     [HttpDelete("{id:long}")]
+    [Auditable("ProcumentRecord", "Delete")]
     public async Task<IActionResult> Delete(long rfqId, long id)
     {
         var deleted = await _procumentService.DeleteAsync(id, GetUserId());

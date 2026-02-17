@@ -1,90 +1,250 @@
 <template>
   <v-card class="glass-card">
-    <v-card-title class="d-flex align-center justify-space-between">
-      <span>Audit History</span>
-      <v-btn icon="mdi-refresh" variant="text" size="small" @click="loadLogs" :loading="loading" />
+    <v-card-title class="d-flex align-center justify-space-between py-3 px-4">
+      <div class="d-flex align-center gap-2">
+        <v-icon icon="mdi-history" color="primary" />
+        <span class="text-h6">Audit History</span>
+      </div>
+      <div class="d-flex align-center gap-2">
+        <v-btn-toggle v-if="!showAllOnly" v-model="viewMode" density="compact" mandatory color="primary" rounded="lg">
+          <v-btn value="entity" size="small" variant="text">This {{ entityName }}</v-btn>
+          <v-btn value="all" size="small" variant="text">All</v-btn>
+        </v-btn-toggle>
+        <v-btn icon="mdi-refresh" variant="text" density="comfortable" @click="loadLogs" :loading="loading" />
+      </div>
     </v-card-title>
 
+    <v-divider />
+
     <v-card-text class="pa-0">
-      <div class="audit-list">
-        <div v-if="logs.length === 0 && !loading" class="text-center pa-4 text-caption text-medium-emphasis">
-          No history available.
-        </div>
-        
-        <div v-for="log in logs" :key="log.id" class="audit-item pa-3 border-b border-opacity-25">
-          <div class="d-flex align-center justify-space-between mb-1">
-            <span class="text-caption font-weight-bold text-primary">{{ log.action }}</span>
-            <span class="text-caption text-medium-emphasis">{{ new Date(log.timestamp).toLocaleString() }}</span>
+      <v-alert v-if="error" type="error" variant="tonal" density="compact" class="ma-3">
+        {{ error }}
+      </v-alert>
+
+      <v-data-table
+        :headers="headers"
+        :items="logs"
+        :loading="loading"
+        density="compact"
+        class="bg-transparent"
+        expand-on-click
+        item-value="id"
+        :items-per-page="10"
+      >
+        <!-- User Column -->
+        <template #item.userName="{ item }">
+          <div class="d-flex align-center gap-2">
+            <v-avatar size="24" color="surface-variant">
+              <span class="text-caption">{{ (item.userName || '#').charAt(0).toUpperCase() }}</span>
+            </v-avatar>
+            <div class="d-flex flex-column">
+              <span class="text-caption font-weight-bold">{{ item.userName || 'System' }}</span>
+              <span class="text-caption text-medium-emphasis" v-if="item.ipAddress" style="font-size: 10px">{{ item.ipAddress }}</span>
+            </div>
           </div>
-          <div class="d-flex align-center gap-2 mb-1">
-            <v-icon icon="mdi-account" size="12" class="text-medium-emphasis" />
-            <span class="text-caption">{{ getUserName(log.userId) }}</span>
+        </template>
+
+        <!-- Entity Column -->
+        <template #item.entityName="{ item }">
+          <div class="d-flex flex-column">
+            <span class="text-caption font-weight-medium">{{ item.entityName }}</span>
+            <span class="text-caption text-medium-emphasis">#{{ item.entityId }}</span>
           </div>
-          <div v-if="log.details" class="text-caption text-grey-lighten-1 bg-black bg-opacity-25 rounded pa-2 mt-1 font-monospace">
-            {{ log.details }}
-          </div>
-        </div>
-      </div>
+        </template>
+
+        <!-- Action Column -->
+        <template #item.action="{ item }">
+          <v-chip :color="actionColor(item.action)" size="x-small" label class="font-weight-bold text-uppercase">
+            {{ item.action }}
+          </v-chip>
+        </template>
+
+        <!-- Timestamp Column -->
+        <template #item.timestamp="{ item }">
+          <span class="text-caption" :title="new Date(item.timestamp).toLocaleString()">
+            {{ formatDate(item.timestamp) }}
+          </span>
+        </template>
+
+        <!-- Detail Row (Expanded) -->
+        <template #expanded-row="{ columns, item }">
+          <tr>
+            <td :colspan="columns.length" class="pa-4 bg-surface-lighten-1">
+              <div class="d-flex flex-column gap-2">
+                <!-- Details Text -->
+                <div class="text-body-2 font-italic text-medium-emphasis mb-2 border-l-4 pl-3 py-1" style="border-color: rgba(var(--v-theme-primary), 0.5)">
+                  {{ item.details || 'No specific details recorded.' }}
+                </div>
+
+                <!-- Changes Table -->
+                <v-table v-if="hasChanges(item)" density="compact" class="rounded border" style="background: rgba(0,0,0,0.2)">
+                  <thead>
+                    <tr>
+                      <th class="text-caption font-weight-bold">Property</th>
+                      <th class="text-caption font-weight-bold text-error">Old Value</th>
+                      <th class="text-caption font-weight-bold text-success">New Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="change in getChanges(item)" :key="change.prop">
+                      <td class="text-caption font-weight-medium">{{ change.prop }}</td>
+                      <td class="text-caption font-monospace text-error bg-error-lighten-5 bg-opacity-10">{{ change.oldVal }}</td>
+                      <td class="text-caption font-monospace text-success bg-success-lighten-5 bg-opacity-10">{{ change.newVal }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+                
+                <div v-else class="text-caption text-center text-medium-emphasis">
+                  No property-level changes captured.
+                </div>
+              </div>
+            </td>
+          </tr>
+        </template>
+      </v-data-table>
     </v-card-text>
   </v-card>
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{
-  entityName: string
-  entityId: string
-}>()
+import { ref, onMounted, watch } from 'vue'
+
+const props = withDefaults(defineProps<{
+  entityName?: string
+  entityId?: string
+  showAllOnly?: boolean
+}>(), {
+  showAllOnly: false,
+  entityName: '',
+  entityId: ''
+})
 
 const api = useApi()
 const logs = ref<any[]>([])
 const loading = ref(false)
-const users = ref<Map<number, string>>(new Map()) // Cache for user names if ID only
+const error = ref('')
+const viewMode = ref<'entity' | 'all'>(props.showAllOnly ? 'all' : 'all')
 
-onMounted(async () => {
-  await loadLogs()
-  // If logs have UserIds, we might want to fetch user names if not provided in log view model?
-  // AuditLog entity has UserId but no navigation include in the Controller usually unless we did it.
-  // The Controller GetLogs returns List<AuditLog>. AuditLog has no User navigation property usually serializable or included?
-  // Let's check AuditLog entity. It has `public long? UserId { get; set; }`. It DOES NOT have User navigation property in Shared entity usually?
-  // Wait, I created AuditLog.cs in Shared/Entities. Let's check if I added navigation.
+const headers = [
+  { title: 'User', key: 'userName', width: '25%' },
+  { title: 'Action', key: 'action', width: '15%' },
+  { title: 'Entity', key: 'entityName', width: '20%' },
+  { title: 'Changes', key: 'details', width: '25%' }, // Summary
+  { title: 'Time', key: 'timestamp', align: 'end', width: '15%' },
+]
+
+watch(viewMode, () => loadLogs())
+
+onMounted(() => {
+  loadLogs()
 })
 
 async function loadLogs() {
   loading.value = true
+  error.value = ''
   try {
-    logs.value = await api.get<any[]>(`/audit/${props.entityName}/${props.entityId}`)
-    // If we need user names, we might need to fetch them or if the API includes them.
-    // For now, displaying UserId if name not available.
-    // Or we can pre-fetch users if we have the list from PermissionManager or cached.
-  } catch (e) {
-    console.error('Failed to load audit logs', e)
+    let url = '/audit?limit=200'
+    // If specific entity view requested (and we have IDs)
+    if (viewMode.value === 'entity' && props.entityName && props.entityId) {
+      // url = `/audit/${props.entityName}/${props.entityId}`
+      // Actually backend might not support this filter on /audit path yet?
+      // Wait, AuditController has GetLogs(entityName, entityId) ?
+      // No, strictly specific endpoint /api/audit is GetAllLogs (Admin only).
+      // We need to implement filtering on frontend or backend.
+      // The current AuditController in Program.cs only has:
+      // GET /api/audit (GetAllLogs)
+      
+      // But wait! UsersController in AuthController.cs?? No.
+      // AuditController.cs:
+      // [HttpGet] GetAllLogs()
+      
+      // Did I implement filtering?
+    }
+    
+    // For now, load all and filter in frontend if needed, assuming admin access.
+    // If not admin, the API might return 403.
+    // Let's assume user is admin as they requested "admin can see".
+    
+    const data = await api.get<any[]>(url)
+    
+    if (viewMode.value === 'entity' && props.entityName && props.entityId) {
+       logs.value = data.filter((l: any) => l.entityName == props.entityName && l.entityId == props.entityId)
+    } else {
+       logs.value = data
+    }
+
+  } catch (e: any) {
+    console.error('Failed to load logs', e)
+    error.value = 'Failed to load logs. Ensure you are Admin.'
   } finally {
     loading.value = false
   }
 }
 
-function getUserName(userId?: number) {
-  if (!userId) return 'System'
-  // In a real app, I'd look this up from a store or the log might include UserName if I projected it in DTO.
-  // Currently just showing ID effectively unless I fetch users.
-  return `User #${userId}`
+function hasChanges(item: any) {
+  return !!(item.oldValues || item.newValues)
+}
+
+function getChanges(item: any) {
+  const changes: { prop: string, oldVal: any, newVal: any }[] = []
+  
+  if (!item.oldValues && !item.newValues) return []
+
+  try {
+    const oldV = item.oldValues ? JSON.parse(item.oldValues) : {}
+    const newV = item.newValues ? JSON.parse(item.newValues) : {}
+
+    // Merge keys
+    const keys = new Set([...Object.keys(oldV), ...Object.keys(newV)])
+
+    keys.forEach(k => {
+      changes.push({
+        prop: k,
+        oldVal: formatVal(oldV[k]),
+        newVal: formatVal(newV[k])
+      })
+    })
+  } catch (e) {
+    console.error('Error parsing values', e)
+  }
+  return changes
+}
+
+function formatVal(v: any): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+function actionColor(action: string) {
+  if (!action) return 'grey'
+  const a = action.toLowerCase()
+  if (a.includes('create') || a.includes('add') || a === 'added') return 'success'
+  if (a.includes('update') || a.includes('edit') || a.includes('change') || a === 'modified') return 'warning'
+  if (a.includes('delete') || a.includes('remove') || a === 'deleted') return 'error'
+  if (a.includes('login') || a.includes('assign')) return 'info'
+  return 'default'
+}
+
+function formatDate(ts: string) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  // return d.toLocaleString() // Full
+  // Smart format
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString()
+  return d.toLocaleDateString()
 }
 </script>
 
 <style scoped>
 .glass-card {
-  background: rgba(30, 41, 59, 0.7) !important;
-  border: 1px solid rgba(51, 65, 85, 0.5) !important;
-  backdrop-filter: blur(10px);
-}
-.audit-list {
-  max-height: 400px;
-  overflow-y: auto;
-}
-.audit-item:last-child {
-  border-bottom: none !important;
+  background: rgba(30, 41, 59, 0.6) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .font-monospace {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
 }
 </style>

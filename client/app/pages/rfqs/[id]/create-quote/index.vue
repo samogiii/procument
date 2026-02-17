@@ -2,13 +2,17 @@
   <div class="create-quote-page">
     <!-- Header -->
     <div class="d-flex align-center mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="`/rfqs/${route.params.id}`" class="mr-2" />
+      <v-btn icon="mdi-arrow-left" variant="text" :to="backUrl" class="mr-2" />
       <div>
-        <h1 class="text-h5 font-weight-bold">Add Quote</h1>
+        <h1 class="text-h5 font-weight-bold">{{ isEditMode ? 'Edit Quote' : 'Add Quote' }}</h1>
         <p class="text-caption text-medium-emphasis mt-1">
-          Select supplier prices to include in this customer quote
+          {{ isEditMode ? 'Modify selected items and pricing for this quote' : 'Select supplier prices to include in this customer quote' }}
         </p>
       </div>
+      <v-spacer />
+      <v-chip v-if="isEditMode" color="warning" variant="tonal" size="small" prepend-icon="mdi-pencil">
+        Editing Quote #{{ editQuoteId }}
+      </v-chip>
     </div>
 
     <!-- Toolbar -->
@@ -37,9 +41,9 @@
             prepend-icon="mdi-check"
             :disabled="selectedCount === 0"
             :loading="saving"
-            @click="createQuote"
+            @click="saveQuote"
           >
-            Create Quote
+            {{ isEditMode ? 'Update Quote' : 'Create Quote' }}
           </v-btn>
         </div>
       </div>
@@ -202,8 +206,25 @@ const selectedTotal = computed(() =>
     .reduce((sum, s) => sum + (s.sellPrice * (s.record?.qty || 1)), 0)
 )
 
+// Edit mode
+const editQuoteId = computed(() => (route.query.editQuoteId as string) || null)
+const isEditMode = computed(() => !!editQuoteId.value)
+const existingQuote = ref<any>(null)
+
+const backUrl = computed(() =>
+  isEditMode.value && editQuoteId.value
+    ? `/quotes/${editQuoteId.value}`
+    : `/rfqs/${route.params.id}`
+)
+
 onMounted(async () => {
   await loadData()
+
+  // If editing, load existing quote and pre-select items
+  if (editQuoteId.value) {
+    await loadExistingQuote()
+  }
+
   // Auto-expand all items that have records
   rfqItems.value.forEach(item => {
     if (getRecordCount(item.id) > 0) {
@@ -285,9 +306,47 @@ function updateSellPrice(recordId: number, event: Event) {
   }
 }
 
-// ──── Create Quote ────
+// ──── Load existing quote for edit ────
 
-async function createQuote() {
+async function loadExistingQuote() {
+  try {
+    existingQuote.value = await api.get<any>(`/quotes/${editQuoteId.value}`)
+    const eq = existingQuote.value
+
+    // Pre-fill validUntil
+    if (eq.validUntil) {
+      validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0] as string
+    }
+
+    // Pre-select procurement records that match quote items by rfqItemId
+    // For each quote item, find the best matching procurement record
+    if (eq.items && Array.isArray(eq.items)) {
+      for (const qi of eq.items) {
+        // Find procurement records for this RFQ item
+        const matchingRecords = procurementRecords.value.filter(
+          (r: any) => r.rfqItemId === qi.rfqItemId
+        )
+
+        if (matchingRecords.length > 0) {
+          // Pick the first matching record and pre-select it with the quote's sell price
+          const record = matchingRecords[0]
+          selections.value[record.id] = {
+            selected: true,
+            sellPrice: qi.unitPrice || record.price || 0,
+            record
+          }
+        }
+      }
+      selections.value = { ...selections.value }
+    }
+  } catch {
+    showSnack('Failed to load existing quote for editing', 'error')
+  }
+}
+
+// ──── Save Quote (Create or Update) ────
+
+async function saveQuote() {
   const selectedEntries = Object.values(selections.value).filter(s => s.selected)
 
   if (selectedEntries.length === 0) {
@@ -306,18 +365,27 @@ async function createQuote() {
       leadTimeDays: null
     }))
 
-    await api.post('/quotes', {
+    const payload = {
       rfqId: Number(route.params.id),
       validUntil: validUntil.value || null,
       items
-    })
+    }
 
-    showSnack('Quote created successfully', 'success')
-    setTimeout(() => {
-      router.push(`/rfqs/${route.params.id}`)
-    }, 500)
-  } catch (e) {
-    showSnack('Failed to create quote', 'error')
+    if (isEditMode.value) {
+      await api.put(`/quotes/${editQuoteId.value}`, payload)
+      showSnack('Quote updated successfully', 'success')
+      setTimeout(() => {
+        router.push(`/quotes/${editQuoteId.value}`)
+      }, 500)
+    } else {
+      await api.post('/quotes', payload)
+      showSnack('Quote created successfully', 'success')
+      setTimeout(() => {
+        router.push(`/rfqs/${route.params.id}`)
+      }, 500)
+    }
+  } catch {
+    showSnack(isEditMode.value ? 'Failed to update quote' : 'Failed to create quote', 'error')
   } finally {
     saving.value = false
   }

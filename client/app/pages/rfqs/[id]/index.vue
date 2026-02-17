@@ -80,7 +80,7 @@
         </div>
         <div class="d-flex gap-2">
           <!-- Action Buttons -->
-          <v-menu>
+          <!-- <v-menu>
             <template v-slot:activator="{ props }">
               <v-btn icon="mdi-dots-vertical" variant="text" size="small" v-bind="props" />
             </template>
@@ -92,12 +92,14 @@
                 <v-list-item-title>Audit History</v-list-item-title>
               </v-list-item>
             </v-list>
-          </v-menu>
-
+          </v-menu> -->
+          <VBtn prepend-icon="mdi-history" @click="showAudit = true" size="small"  variant="tonal" color="secondary" v-if="isAdmin">Audit History</VBtn>
+          <VBtn v-if="isAdmin" class="mx-2" prepend-icon="mdi-shield-account" @click="showPermissions = true" size="small" variant="tonal" color="secondary">Manage Permissions</VBtn>
           <v-btn
             size="small"
             variant="tonal"
             color="success"
+            class="mx-2"
             prepend-icon="mdi-plus"
             :to="`/rfqs/${route.params.id}/create-quote`"
           >

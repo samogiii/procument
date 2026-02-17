@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Procument.Module.Identity.DTOs;
 using Procument.Module.Identity.Services;
 
+using Procument.Shared.Audit;
+
 namespace Procument.Module.Identity.Controllers;
 
 [ApiController]
@@ -10,7 +12,6 @@ namespace Procument.Module.Identity.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
-
     public AuthController(IAuthService authService)
     {
         _authService = authService;
@@ -18,11 +19,13 @@ public class AuthController : ControllerBase
 
     /// <summary>Login with email and password.</summary>
     [HttpPost("login")]
+    [Auditable("User", "Login")]
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
     {
         try
         {
             var result = await _authService.LoginAsync(request);
+            // Audit handled by filter
             return Ok(result);
         }
         catch (UnauthorizedAccessException ex)
@@ -33,11 +36,13 @@ public class AuthController : ControllerBase
 
     /// <summary>Self-register as an Expert.</summary>
     [HttpPost("register")]
+    [Auditable("User", "Register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
         try
         {
             var result = await _authService.RegisterAsync(request);
+            // Audit handled by filter
             return Ok(result);
         }
         catch (InvalidOperationException ex)

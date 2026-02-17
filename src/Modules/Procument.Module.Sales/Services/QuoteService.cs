@@ -16,6 +16,8 @@ public interface IQuoteService
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
     Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin);
     Task<bool> DeleteAsync(long id);
+    Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin);
+    Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
 }
 
 public class QuoteService : IQuoteService
@@ -209,6 +211,72 @@ public class QuoteService : IQuoteService
         _db.Set<Quote>().Remove(quote);
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin)
+    {
+        var allowedStatuses = new[] { "Draft", "Sent", "Accepted", "Rejected" };
+        if (!allowedStatuses.Contains(newStatus)) return false;
+
+        var quote = await _db.Set<Quote>().FindAsync(id);
+        if (quote == null) return false;
+
+        // Only owner or admin can change status
+        if (!isAdmin && quote.UserId != userId) return false;
+
+        quote.Status = newStatus;
+        quote.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin)
+    {
+        var quote = await _db.Set<Quote>()
+            .Include(q => q.QuoteItems)
+            .FirstOrDefaultAsync(q => q.Id == id);
+        if (quote == null) return null;
+
+        // Only owner or admin can edit
+        if (!isAdmin && quote.UserId != userId) return null;
+
+        // Remove old items
+        _db.Set<QuoteItem>().RemoveRange(quote.QuoteItems);
+
+        // Build new items
+        decimal totalAmount = 0;
+        var newItems = new List<QuoteItem>();
+
+        foreach (var itemReq in request.Items)
+        {
+            var rfqItem = await _db.Set<RFQItem>()
+                .Include(i => i.PartNumber)
+                .FirstOrDefaultAsync(i => i.Id == itemReq.RFQItemId);
+            if (rfqItem == null) continue;
+
+            var totalPrice = itemReq.Qty * itemReq.UnitPrice;
+            totalAmount += totalPrice;
+
+            newItems.Add(new QuoteItem
+            {
+                RFQItemId = itemReq.RFQItemId,
+                PartNumberId = rfqItem.PartNumberId,
+                Qty = itemReq.Qty,
+                UnitPrice = itemReq.UnitPrice,
+                TotalPrice = totalPrice,
+                Condition = itemReq.Condition,
+                Alt = itemReq.Alt,
+                LeadTimeDays = itemReq.LeadTimeDays
+            });
+        }
+
+        quote.TotalAmount = totalAmount;
+        quote.ValidUntil = request.ValidUntil;
+        quote.ModifyAt = DateTime.UtcNow;
+        quote.QuoteItems = newItems;
+
+        await _db.SaveChangesAsync();
+        return await GetByIdAsync(quote.Id, userId, true);
     }
 
     private static QuoteResponse MapToResponse(Quote q) => new()

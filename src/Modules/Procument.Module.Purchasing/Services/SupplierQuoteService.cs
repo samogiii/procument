@@ -21,13 +21,11 @@ public class SupplierQuoteService : ISupplierQuoteService
 {
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
-    private readonly IAuditService _auditService;
 
-    public SupplierQuoteService(DbContext db, IPermissionService permissionService, IAuditService auditService)
+    public SupplierQuoteService(DbContext db, IPermissionService permissionService)
     {
         _db = db;
         _permissionService = permissionService;
-        _auditService = auditService;
     }
 
     /// <summary>Get all supplier quotes for all items in an RFQ.</summary>
@@ -109,11 +107,11 @@ public class SupplierQuoteService : ISupplierQuoteService
         if (request.Id.HasValue && request.Id > 0)
         {
             // Update existing
-            record = await _db.Set<ProcumentRecord>()
+            var existingRecord = await _db.Set<ProcumentRecord>()
                 .FirstOrDefaultAsync(r => r.Id == request.Id.Value);
 
-            // Log before change?
-            await _auditService.LogAsync(userId, "UpdateQuote", "ProcumentRecord", record!.Id.ToString(), $"Updated quote from {record.Price} to {request.Price}");
+            if (existingRecord == null) throw new KeyNotFoundException($"Procurement record {request.Id.Value} not found.");
+            record = existingRecord;
 
             record.SupplierId = supplier.Id;
             record.Qty = request.Qty;
@@ -148,7 +146,7 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         if (!request.Id.HasValue)
         {
-            await _auditService.LogAsync(userId, "AddQuote", "ProcumentRecord", record.Id.ToString(), $"Added quote for RFQItem {request.RFQItemId}");
+            // audit handled by controller middleware
         }
 
         // ── Auto-add Alt P/N to Alternatives table if not exists ──
@@ -241,8 +239,6 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         _db.Set<ProcumentRecord>().Remove(record);
         await _db.SaveChangesAsync();
-
-        await _auditService.LogAsync(userId, "DeleteQuote", "ProcumentRecord", id.ToString(), "Deleted quote");
 
         return true;
     }

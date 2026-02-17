@@ -4,6 +4,8 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Services;
 using System.Security.Claims;
 
+using Procument.Shared.Audit;
+
 namespace Procument.Module.Sales.Controllers;
 
 [ApiController]
@@ -47,6 +49,7 @@ public class QuotesController : ControllerBase
 
     /// <summary>Create a new quote from selected procurement records.</summary>
     [HttpPost]
+    [Auditable("Quote", "Create", CaptureBody = true)]
     public async Task<ActionResult<QuoteResponse>> Create([FromBody] CreateQuoteRequest request)
     {
         var (userId, isAdmin) = GetUserContext();
@@ -56,8 +59,29 @@ public class QuotesController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
+    /// <summary>Update quote status.</summary>
+    [HttpPatch("{id:long}/status")]
+    [Auditable("Quote", "UpdateStatus", CaptureBody = true)]
+    public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateQuoteStatusRequest request)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var success = await _quoteService.UpdateStatusAsync(id, request.Status, userId, isAdmin);
+        return success ? Ok() : NotFound();
+    }
+
+    /// <summary>Update quote items (re-select procurement records).</summary>
+    [HttpPut("{id:long}")]
+    [Auditable("Quote", "Update", CaptureBody = true)]
+    public async Task<ActionResult<QuoteResponse>> Update(long id, [FromBody] CreateQuoteRequest request)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var result = await _quoteService.UpdateAsync(id, request, userId, isAdmin);
+        return result == null ? NotFound() : Ok(result);
+    }
+
     /// <summary>Delete a quote.</summary>
     [HttpDelete("{id:long}")]
+    [Auditable("Quote", "Delete")]
     public async Task<IActionResult> Delete(long id)
     {
         var deleted = await _quoteService.DeleteAsync(id);
