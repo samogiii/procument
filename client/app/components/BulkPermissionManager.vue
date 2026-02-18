@@ -113,7 +113,8 @@
 
 <script setup lang="ts">
 const props = defineProps<{
-  entityName: 'RFQ' | 'Quote'
+  entityName: 'RFQ' | 'Quote' | 'Invoice'
+  preselectedIds?: number[]
 }>()
 
 const model = defineModel<boolean>({ default: false })
@@ -132,14 +133,29 @@ const assigning = ref(false)
 const resultMessage = ref('')
 const resultType = ref<'success' | 'error'>('success')
 
-const entityLabel = computed(() => props.entityName === 'RFQ' ? 'RFQ' : 'Quote')
-const entityTitleKey = computed(() => props.entityName === 'RFQ' ? 'name' : 'quoteNumber')
+const entityLabel = computed(() => {
+  if (props.entityName === 'RFQ') return 'RFQ'
+  if (props.entityName === 'Quote') return 'Quote'
+  return 'Invoice'
+})
+
+const entityTitleKey = computed(() => {
+  if (props.entityName === 'RFQ') return 'name'
+  if (props.entityName === 'Quote') return 'quoteNumber'
+  return 'invoiceNumber' // Assuming Invoice has InvoiceNumber
+})
+
 const canAssign = computed(() => selectedUsers.value.length > 0 && selectedEntityIds.value.length > 0)
 
 // Load data when dialog opens
 watch(model, async (open) => {
   if (open) {
     resultMessage.value = ''
+    if (props.preselectedIds?.length) {
+      selectedEntityIds.value = [...props.preselectedIds]
+    } else {
+      selectedEntityIds.value = []
+    }
     await Promise.all([loadUsers(), loadEntities()])
   }
 })
@@ -158,8 +174,12 @@ async function loadEntities() {
     if (props.entityName === 'RFQ') {
       const res = await api.get<any>('/rfqs')
       entityItems.value = res || []
-    } else {
+    } else if (props.entityName === 'Quote') {
       const res = await api.get<any>('/quotes?page=1&pageSize=500')
+      entityItems.value = res.items || []
+    } else {
+      // Invoice
+      const res = await api.get<any>('/invoices?page=1&pageSize=500')
       entityItems.value = res.items || []
     }
   } catch { entityItems.value = [] }

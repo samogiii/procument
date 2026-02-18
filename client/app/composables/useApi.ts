@@ -19,10 +19,10 @@ export function useApi() {
     }
 
     return {
-        get: <T>(path: string) => apiFetch<T>(path),
+        get: <T>(path: string, options: any = {}) => apiFetch<T>(path, options),
         post: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'POST', body }),
         put: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'PUT', body }),
-        patch: <T>(path: string, body?: any) => apiFetch<T>(path, { method: 'PATCH', body }),
+        patch: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'PATCH', body }),
         del: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
     }
 }

@@ -19,7 +19,7 @@ public class UpdateRFQItemRequest
 {
     public string? Alt { get; set; }
     public int Qty { get; set; }
-
+   
     public string? Condition { get; set; }
 }
 

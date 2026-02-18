@@ -207,6 +207,7 @@ public class RFQService : IRFQService
 
         item.Alt = request.Alt;
         item.Qty = request.Qty;
+        
         item.Condition = request.Condition;
 
         await _db.SaveChangesAsync();

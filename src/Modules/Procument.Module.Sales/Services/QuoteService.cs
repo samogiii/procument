@@ -5,7 +5,6 @@ using Procument.Module.RFQ.Entities;
 using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Identity.Services;
-using Procument.Module.Identity.Entities;
 
 namespace Procument.Module.Sales.Services;
 
@@ -14,7 +13,7 @@ public interface IQuoteService
     Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin);
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
@@ -159,11 +158,16 @@ public class QuoteService : IQuoteService
             ?? throw new Exception("Failed to load created quote.");
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin)
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .Include(q => q.Customer)
             .Include(q => q.User);
+
+        if (!string.IsNullOrEmpty(status))
+        {
+            query = query.Where(q => q.Status == status);
+        }
 
         if (!isAdmin)
         {

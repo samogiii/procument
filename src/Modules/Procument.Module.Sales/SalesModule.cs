@@ -8,6 +8,7 @@ public static class SalesModule
     public static IServiceCollection AddSalesModule(this IServiceCollection services)
     {
         services.AddScoped<IQuoteService, QuoteService>();
+        services.AddScoped<IInvoiceService, InvoiceService>();
         return services;
     }
 }

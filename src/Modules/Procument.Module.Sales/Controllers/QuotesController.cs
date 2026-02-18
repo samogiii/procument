@@ -22,10 +22,10 @@ public class QuotesController : ControllerBase
 
     /// <summary>Get all quotes (paginated).</summary>
     [HttpGet]
-    public async Task<ActionResult<PagedResult<QuoteResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    public async Task<ActionResult<PagedResult<QuoteResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? status = null)
     {
         var (userId, isAdmin) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isAdmin);
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isAdmin, status);
         return Ok(result);
     }
 

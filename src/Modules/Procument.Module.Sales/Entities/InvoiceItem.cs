@@ -7,6 +7,7 @@ public class InvoiceItem : BaseEntity
     public int Qty { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
 
     // Foreign keys
     public long InvoiceId { get; set; }

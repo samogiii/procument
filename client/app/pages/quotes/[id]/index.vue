@@ -40,6 +40,7 @@
         </v-btn>
         <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Permission</v-btn>
         <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
+        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn class="mx-1" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">Generate PDF</v-btn>
       </div>
     </div>
