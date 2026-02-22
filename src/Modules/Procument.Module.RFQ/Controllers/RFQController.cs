@@ -70,4 +70,12 @@ public class RFQsController : ControllerBase
         var result = await _rfqService.UpdateItemAsync(itemId, request);
         return result == null ? NotFound() : Ok(result);
     }
+
+    /// <summary>Add a new item to an existing RFQ. Creates part number if it doesn't exist.</summary>
+    [HttpPost("{id:long}/items")]
+    public async Task<ActionResult<RFQItemResponse>> AddItem(long id, [FromBody] AddRFQItemRequest request)
+    {
+        var result = await _rfqService.AddItemAsync(id, request);
+        return result == null ? NotFound() : Ok(result);
+    }
 }

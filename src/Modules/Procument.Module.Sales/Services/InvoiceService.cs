@@ -75,8 +75,8 @@ public class InvoiceService : IInvoiceService
         if (!isAdmin && invoice.Quote.UserId != userId)
         {
             // Check specific permission
-            var hasPermission = await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "Checker")
-                             || await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "Procurer");
+            var hasPermission = await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "View")
+                             || await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "Edit");
 
             if (!hasPermission) return null;
         }

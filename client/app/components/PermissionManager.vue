@@ -22,7 +22,7 @@
           />
           <v-select
             v-model="newPerm.permission"
-            :items="['Checker', 'Procurer']"
+            :items="['View', 'Edit']"
             label="Role"
             density="compact"
             hide-details
@@ -62,7 +62,7 @@
             <td>
               <v-chip
                 size="x-small"
-                :color="perm.permission === 'Procurer' ? 'success' : 'info'"
+                :color="perm.permission === 'Edit' ? 'success' : 'info'"
                 variant="tonal"
               >
                 {{ perm.permission }}
@@ -105,7 +105,7 @@ const users = ref<any[]>([])
 const loading = ref(false)
 const assigning = ref(false)
 const revoking = ref<number | null>(null)
-const newPerm = ref({ userId: null, permission: 'Checker' })
+const newPerm = ref({ userId: null, permission: 'View' })
 
 // Current user can manage if Admin
 const canManage = computed(() => authStore.isAdmin)

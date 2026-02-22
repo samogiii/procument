@@ -1,10 +1,10 @@
 <template>
   <div class="create-quote-page">
     <!-- Header -->
-    <div class="d-flex align-center mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="backUrl" class="mr-2" />
-      <div>
-        <h1 class="text-h5 font-weight-bold">{{ isEditMode ? 'Edit Quote' : 'Add Quote' }}</h1>
+    <div class="d-flex flex-wrap align-center gap-2 mb-4">
+      <v-btn icon="mdi-arrow-left" variant="text" :to="backUrl" class="mr-1 flex-shrink-0" size="small" />
+      <div class="min-width-0">
+        <h1 class="text-h6 text-sm-h5 font-weight-bold">{{ isEditMode ? 'Edit Quote' : 'Add Quote' }}</h1>
         <p class="text-caption text-medium-emphasis mt-1">
           {{ isEditMode ? 'Modify selected items and pricing for this quote' : 'Select supplier prices to include in this customer quote' }}
         </p>
@@ -17,8 +17,8 @@
 
     <!-- Toolbar -->
     <v-card class="toolbar-card mb-4">
-      <div class="d-flex align-center justify-space-between pa-3">
-        <div class="d-flex align-center gap-3">
+      <div class="d-flex flex-wrap align-center justify-space-between pa-3 gap-2">
+        <div class="d-flex align-center gap-2">
           <v-chip color="primary" variant="tonal" size="small">
             {{ selectedCount }} item{{ selectedCount !== 1 ? 's' : '' }} selected
           </v-chip>
@@ -26,7 +26,7 @@
             Total: <strong style="color: #4ade80;">${{ selectedTotal.toFixed(2) }}</strong>
           </span>
         </div>
-        <div class="d-flex align-center gap-2">
+        <div class="d-flex flex-wrap align-center gap-2">
           <v-text-field
             v-model="validUntil"
             label="Valid Until"
@@ -34,7 +34,7 @@
             density="compact"
             hide-details
             variant="outlined"
-            style="max-width: 180px;"
+            style="min-width: 150px; max-width: 180px;"
           />
           <v-btn
             color="success"
@@ -43,7 +43,7 @@
             :loading="saving"
             @click="saveQuote"
           >
-            {{ isEditMode ? 'Update Quote' : 'Create Quote' }}
+            {{ isEditMode ? 'Update' : 'Create' }}
           </v-btn>
         </div>
       </div>
@@ -97,16 +97,24 @@
                       </span>
                     </div>
 
-                    <table class="quote-grid" v-if="getItemRecords(item.id).length > 0">
+                    <div class="quote-grid-scroll" v-if="getItemRecords(item.id).length > 0">
+                    <table class="quote-grid">
                       <thead>
                         <tr>
                           <th style="width: 40px;"></th>
-                          <th>Supplier</th>
+                          <th style="min-width: 80px;">Supplier</th>
+                          <th style="width: 130px;">Alt P/N</th>
                           <th style="width: 80px;">Cond</th>
                           <th style="width: 70px;">Qty</th>
-                          <th style="width: 110px;">Cost Price</th>
-                          <th style="width: 130px;">Sell Price ($)</th>
-                          <th style="width: 130px;">Alt P/N</th>
+                          <th style="width: 110px;">Buyer Price</th>
+                          <th style="width: 110px;">Shipping Cost</th>
+                          <th style="width: 75px;">Coef 1</th>
+                          <th style="width: 75px;">Coef 2</th>
+                          <th style="width: 75px;">Coef 3</th>
+                          <th style="width: 110px;">Unit Price</th>
+                          <th style="width: 110px;">Total Price</th>
+                          <!-- <th style="width: 130px;">Sell Price ($)</th> -->
+                          
                         </tr>
                       </thead>
                       <tbody>
@@ -114,39 +122,77 @@
                           v-for="record in getItemRecords(item.id)"
                           :key="record.id"
                           class="quote-row"
-                          :class="{ 'selected-row': selections[record.id]?.selected }"
+                          :class="{ 'selected-row': selections[record.id] }"
                         >
                           <td class="text-center">
                             <input
                               type="checkbox"
-                              :checked="selections[record.id]?.selected"
+                              :checked="selections[record.id]"
                               @change="toggleSelection(record)"
                               class="record-checkbox"
                             />
                           </td>
                           <td style="padding-left: 8px; font-size: 13px;">{{ record.supplierName }}</td>
+                          <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">
+                            {{ record.alt || '—' }}
+                          </td>
                           <td style="padding-left: 8px; font-size: 12px;">{{ record.condition || 'N/A' }}</td>
                           <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
                           <td style="color: #94a3b8; font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
                             ${{ record.price?.toFixed(2) || '0.00' }}
                           </td>
+                          <td style="color: #94a3b8; font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
+                            ${{ (record.shippingCost ?? 0).toFixed(2) }}
+                          </td>
                           <td>
                             <input
                               type="number"
+                              class="coef-input"
+                              placeholder="1"
+                              v-model.number="record.coef_1"
+                              step="0.01"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              class="coef-input"
+                              placeholder="1"
+                              v-model.number="record.coef_2"
+                              step="0.01"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              class="coef-input"
+                              placeholder="1"
+                              v-model.number="record.coef_3"
+                              step="0.01"
+                            />
+                          </td>
+                          <td class="computed-cell">
+                            ${{ calcUnitPrice(record).toFixed(2) }}
+                          </td>
+                          <td class="computed-cell total-cell">
+                            ${{ calcTotalPrice(record).toFixed(2) }}
+                          </td>
+                          <!-- <td>
+                            <input
+                              type="number"
                               class="sell-price-input"
-                              :value="selections[record.id]?.sellPrice ?? record.price"
+                              :value="selections[record.id]?.sellPrice ?? calcUnitPrice(record)"
                               step="0.01"
                               min="0"
                               :disabled="!selections[record.id]?.selected"
                               @input="updateSellPrice(record.id, $event)"
                             />
-                          </td>
-                          <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">
-                            {{ record.alt || '—' }}
-                          </td>
+                          </td> -->
+                          
                         </tr>
                       </tbody>
                     </table>
+                    </div>
 
                     <div v-else class="empty-records text-center pa-6">
                       <v-icon icon="mdi-package-variant" size="32" color="grey-darken-1" class="mb-2" />
@@ -189,21 +235,22 @@ const procurementRecords = ref<any[]>([])
 const expandedRows = ref(new Set<number>())
 const validUntil = ref('')
 
-// selections: { [procurementRecordId]: { selected: boolean, sellPrice: number, record: any } }
-const selections = ref<Record<number, { selected: boolean; sellPrice: number; record: any }>>({})
+// selections: simple map of recordId → selected boolean
+const selections = ref<Record<number, boolean>>({})
 
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 
-const selectedCount = computed(() =>
-  Object.values(selections.value).filter(s => s.selected).length
+// Get all selected records from the live procurementRecords array
+const selectedRecords = computed(() =>
+  procurementRecords.value.filter(r => selections.value[r.id])
 )
 
+const selectedCount = computed(() => selectedRecords.value.length)
+
 const selectedTotal = computed(() =>
-  Object.values(selections.value)
-    .filter(s => s.selected)
-    .reduce((sum, s) => sum + (s.sellPrice * (s.record?.qty || 1)), 0)
+  selectedRecords.value.reduce((sum, r) => sum + calcTotalPrice(r), 0)
 )
 
 // Edit mode
@@ -251,12 +298,17 @@ async function loadData() {
       condition: i.condition || ''
     }))
 
-    procurementRecords.value = records || []
+    procurementRecords.value = (records || []).map((r: any) => ({
+      ...r,
+      coef_1: r.coef_1 ?? 1,
+      coef_2: r.coef_2 ?? 1,
+      coef_3: r.coef_3 ?? 1,
+    }))
 
-    // Initialize selections for each record
-    const sel: Record<number, any> = {}
+    // Initialize all selections to false
+    const sel: Record<number, boolean> = {}
     procurementRecords.value.forEach((r: any) => {
-      sel[r.id] = { selected: false, sellPrice: r.price || 0, record: r }
+      sel[r.id] = false
     })
     selections.value = sel
   } catch (e) {
@@ -264,6 +316,23 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+}
+
+// ──── Calculation helpers ────
+
+function calcUnitPrice(q: any): number {
+  const price = Number(q.price) || 0
+  const shipping = Number(q.shippingCost) || 0
+  const qty = Number(q.qty) || 1
+  const c1 = Number(q.coef_1) || 1
+  const c2 = Number(q.coef_2) || 1
+  const c3 = Number(q.coef_3) || 1
+  return (price + (shipping / qty)) * c1 * c2 * c3
+}
+
+function calcTotalPrice(q: any): number {
+  const qty = Number(q.qty) || 1
+  return calcUnitPrice(q) * qty
 }
 
 // ──── Record helpers ────
@@ -288,22 +357,8 @@ function toggleExpand(itemId: number) {
 // ──── Selection logic ────
 
 function toggleSelection(record: any) {
-  const current = selections.value[record.id]
-  if (current) {
-    current.selected = !current.selected
-  } else {
-    selections.value[record.id] = { selected: true, sellPrice: record.price || 0, record }
-  }
-  // Trigger reactivity
+  selections.value[record.id] = !selections.value[record.id]
   selections.value = { ...selections.value }
-}
-
-function updateSellPrice(recordId: number, event: Event) {
-  const val = parseFloat((event.target as HTMLInputElement).value) || 0
-  if (selections.value[recordId]) {
-    selections.value[recordId].sellPrice = val
-    selections.value = { ...selections.value }
-  }
 }
 
 // ──── Load existing quote for edit ────
@@ -318,23 +373,26 @@ async function loadExistingQuote() {
       validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0] as string
     }
 
-    // Pre-select procurement records that match quote items by rfqItemId
-    // For each quote item, find the best matching procurement record
+    // Pre-select procurement records that match quote items
     if (eq.items && Array.isArray(eq.items)) {
       for (const qi of eq.items) {
-        // Find procurement records for this RFQ item
-        const matchingRecords = procurementRecords.value.filter(
-          (r: any) => r.rfqItemId === qi.rfqItemId
-        )
-
-        if (matchingRecords.length > 0) {
-          // Pick the first matching record and pre-select it with the quote's sell price
-          const record = matchingRecords[0]
-          selections.value[record.id] = {
-            selected: true,
-            sellPrice: qi.unitPrice || record.price || 0,
-            record
+        // First try to match by procumentRecordId (exact match)
+        if (qi.procumentRecordId) {
+          const exactMatch = procurementRecords.value.find(
+            (r: any) => r.id === qi.procumentRecordId
+          )
+          if (exactMatch) {
+            selections.value[exactMatch.id] = true
+            continue
           }
+        }
+
+        // Fallback: match by rfqItemId (pick first unselected record)
+        const matchingRecords = procurementRecords.value.filter(
+          (r: any) => r.rfqItemId === qi.rfqItemId && !selections.value[r.id]
+        )
+        if (matchingRecords.length > 0) {
+          selections.value[matchingRecords[0].id] = true
         }
       }
       selections.value = { ...selections.value }
@@ -347,21 +405,50 @@ async function loadExistingQuote() {
 // ──── Save Quote (Create or Update) ────
 
 async function saveQuote() {
-  const selectedEntries = Object.values(selections.value).filter(s => s.selected)
+  const selected = selectedRecords.value
 
-  if (selectedEntries.length === 0) {
+  if (selected.length === 0) {
     showSnack('Please select at least one supplier price', 'warning')
     return
   }
 
   saving.value = true
   try {
-    const items = selectedEntries.map(s => ({
-      rfqItemId: s.record.rfqItemId,
-      qty: s.record.qty,
-      unitPrice: s.sellPrice,
-      condition: s.record.condition || null,
-      alt: s.record.alt || null,
+    // 1. Save coefs/unitPrice/totalPrice back to procurement records
+    const quotesToUpdate = selected.map(r => ({
+      id: r.id,
+      rfqItemId: r.rfqItemId,
+      supplierName: r.supplierName,
+      qty: r.qty,
+      price: r.price,
+      condition: r.condition,
+      alt: r.alt,
+      certName: r.certName || null,
+      tagDate: r.tagDate || null,
+      shippingCost: r.shippingCost ?? null,
+      shippingPoint: r.shippingPoint || null,
+      coef_1: r.coef_1 ?? 1,
+      coef_2: r.coef_2 ?? 1,
+      coef_3: r.coef_3 ?? 1,
+      unitPrice: calcUnitPrice(r),
+      totalPrice: calcTotalPrice(r),
+    }))
+
+    if (quotesToUpdate.length > 0) {
+      await api.post(
+        `/rfqs/${route.params.id}/supplier-quotes/bulk`,
+        { quotes: quotesToUpdate }
+      )
+    }
+
+    // 2. Create/update the sales quote
+    const items = selected.map(r => ({
+      rfqItemId: r.rfqItemId,
+      procumentRecordId: r.id,
+      qty: r.qty,
+      unitPrice: calcUnitPrice(r),
+      condition: r.condition || null,
+      alt: r.alt || null,
       leadTimeDays: null
     }))
 
@@ -425,6 +512,7 @@ function showSnack(text: string, color: string) {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  min-width: 900px;
 }
 
 .excel-grid thead th {
@@ -510,6 +598,47 @@ function showSnack(text: string, color: string) {
   padding: 16px 20px 16px 56px;
   border-left: 3px solid #3b82f6;
   margin-left: 20px;
+}
+
+.quote-grid-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.computed-cell {
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 13px;
+  color: #94a3b8;
+  text-align: right;
+  padding-right: 12px !important;
+  white-space: nowrap;
+}
+.total-cell {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.coef-input {
+  width: 100%;
+  height: 32px;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.4);
+  color: #e2e8f0;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  text-align: center;
+  border-radius: 4px;
+  outline: none;
+  transition: all 0.15s;
+}
+.coef-input:hover {
+  border-color: rgba(51, 65, 85, 0.6);
+}
+.coef-input:focus {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }
 
 .letter-spacing-wide {

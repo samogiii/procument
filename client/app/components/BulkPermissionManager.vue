@@ -44,8 +44,8 @@
           Select Role
         </p>
         <v-btn-toggle v-model="selectedRole" mandatory color="primary" class="mb-5" density="compact">
-          <v-btn value="Checker" prepend-icon="mdi-eye-check">Checker</v-btn>
-          <v-btn value="Procurer" prepend-icon="mdi-cart-check">Procurer</v-btn>
+          <v-btn value="View" class="mr-2" prepend-icon="mdi-eye-check">View</v-btn>
+          <v-btn value="Edit" prepend-icon="mdi-cart-check">Edit</v-btn>
         </v-btn-toggle>
 
         <!-- Step 3: Select Entity IDs -->
@@ -126,7 +126,7 @@ const users = ref<any[]>([])
 const entityItems = ref<any[]>([])
 const selectedUsers = ref<number[]>([])
 const selectedEntityIds = ref<number[]>([])
-const selectedRole = ref<string>('Checker')
+const selectedRole = ref<string>('View')
 const loadingUsers = ref(false)
 const loadingEntities = ref(false)
 const assigning = ref(false)

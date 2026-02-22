@@ -43,8 +43,8 @@ public class SupplierQuoteService : ISupplierQuoteService
 
             if (rfq.UserId != userId)
             {
-                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Checker")
-                                 || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "View")
+                                 || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
 
                 if (!hasPermission)
                 {
@@ -85,8 +85,8 @@ public class SupplierQuoteService : ISupplierQuoteService
             rfqId = rfqItem.RFQId;
         }
 
-        // Check if user is Admin OR has Procurer permission
-        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+        // Check if user is Admin OR has Edit permission
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
 
         var user = await _db.Set<User>().FindAsync(userId);
         bool isAdmin = user?.Role == "Admin";
@@ -118,10 +118,17 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.Price = request.Price;
             record.Condition = request.Condition;
             record.Alt = request.Alt;
-            record.UserId = userId; // Update Last Modified User? Or keep Creator? Usually keep Creator. But here tracking who made this specific version.
-            // If we want to track Creator, we only set it on new.
-            // Let's set ModifyAt if we had it.
-            // let's update UserId to the last person who touched it.
+            record.Unit = request.Unit;
+            record.LeadTime = request.LeadTime;
+            record.Coef_1 = request.Coef_1;
+            record.Coef_2 = request.Coef_2;
+            record.Coef_3 = request.Coef_3;
+            record.ShippingCost = request.ShippingCost;
+            record.ShippingPoint = request.ShippingPoint;
+            record.CertName = request.CertName;
+            record.UnitPrice = request.UnitPrice;
+            record.TotalPrice = request.TotalPrice;
+            record.TagDate = request.TagDate;
             record.UserId = userId;
         }
         else
@@ -135,6 +142,17 @@ public class SupplierQuoteService : ISupplierQuoteService
                 Price = request.Price,
                 Condition = request.Condition,
                 Alt = request.Alt,
+                Unit = request.Unit,
+                LeadTime = request.LeadTime,
+                Coef_1 = request.Coef_1,
+                Coef_2 = request.Coef_2,
+                Coef_3 = request.Coef_3,
+                ShippingCost = request.ShippingCost,
+                ShippingPoint = request.ShippingPoint,
+                CertName = request.CertName,
+                UnitPrice = request.UnitPrice,
+                TotalPrice = request.TotalPrice,
+                TagDate = request.TagDate,
                 UserId = userId
             };
             _db.Set<ProcumentRecord>().Add(record);
@@ -147,6 +165,29 @@ public class SupplierQuoteService : ISupplierQuoteService
         if (!request.Id.HasValue)
         {
             // audit handled by controller middleware
+        }
+
+        // ── Auto-link supplier to part number in junction table ──
+        {
+            var rfqItemForLink = await _db.Set<RFQItem>()
+                .FirstOrDefaultAsync(i => i.Id == record.RFQItemId);
+
+            if (rfqItemForLink != null)
+            {
+                var alreadyLinked = await _db.Set<PartNumberSupplier>()
+                    .AnyAsync(ps => ps.PartNumberId == rfqItemForLink.PartNumberId && ps.SupplierId == supplier.Id);
+
+                if (!alreadyLinked)
+                {
+                    _db.Set<PartNumberSupplier>().Add(new PartNumberSupplier
+                    {
+                        PartNumberId = rfqItemForLink.PartNumberId,
+                        SupplierId = supplier.Id,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await _db.SaveChangesAsync();
+                }
+            }
         }
 
         // ── Auto-add Alt P/N to Alternatives table if not exists ──
@@ -187,7 +228,7 @@ public class SupplierQuoteService : ISupplierQuoteService
     {
         // Permission check (once for the whole bulk op)
         // Permission check (once for the whole bulk op)
-        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
         var user = await _db.Set<User>().FindAsync(userId);
         bool isAdmin = user?.Role == "Admin";
 
@@ -228,7 +269,7 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         // Check permission
         long rfqId = record.RFQItem.RFQId;
-        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+        var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
         var user = await _db.Set<User>().FindAsync(userId);
         bool isAdmin = user?.Role == "Admin";
 
@@ -275,6 +316,17 @@ public class SupplierQuoteService : ISupplierQuoteService
         Qty = r.Qty,
         Price = r.Price,
         Condition = r.Condition,
-        Alt = r.Alt
+        Alt = r.Alt,
+        Unit = r.Unit,
+        CertName = r.CertName,
+        Coef_1  = r.Coef_1,
+        Coef_2 = r.Coef_2,
+        Coef_3 = r.Coef_3,
+        ShippingPoint = r.ShippingPoint,
+        ShippingCost = r.ShippingCost,
+        UnitPrice = r.UnitPrice,
+        TotalPrice = r.TotalPrice,
+        TagDate = r.TagDate,
+        LeadTime = r.LeadTime,
     };
 }

@@ -1,33 +1,32 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-2" />
-      <h1 class="text-h5 font-weight-bold">Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
+    <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
+      <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-1 flex-shrink-0" size="small" />
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
-      
-      <!-- Status Chip with Dropdown -->
-      <v-menu>
-        <template #activator="{ props: menuProps }">
-          <v-chip
-            :color="statusColor(invoice.status)"
-            v-bind="menuProps"
-            class="cursor-pointer"
-            append-icon="mdi-chevron-down"
-            size="default"
-          >
-            {{ invoice.status || '—' }}
-          </v-chip>
-        </template>
-        <v-list density="compact" style="min-width: 140px">
-           <v-list-item v-for="s in ['Pending', 'Paid', 'Overdue', 'Cancelled']" :key="s" :value="s" @click="updateStatus(s)">
-             <v-list-item-title>{{ s }}</v-list-item-title>
-           </v-list-item>
-        </v-list>
-      </v-menu>
+      <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
+        <!-- Status Chip with Dropdown -->
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-chip
+              :color="statusColor(invoice.status)"
+              v-bind="menuProps"
+              class="cursor-pointer"
+              append-icon="mdi-chevron-down"
+              size="default"
+            >
+              {{ invoice.status || '—' }}
+            </v-chip>
+          </template>
+          <v-list density="compact" style="min-width: 140px">
+             <v-list-item v-for="s in ['Pending', 'Paid', 'Overdue', 'Cancelled']" :key="s" :value="s" @click="updateStatus(s)">
+               <v-list-item-title>{{ s }}</v-list-item-title>
+             </v-list-item>
+          </v-list>
+        </v-menu>
 
-      <div class="d-flex align-center gap-2 ml-4">
-        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Permission</v-btn>
-        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
       </div>
     </div>
 

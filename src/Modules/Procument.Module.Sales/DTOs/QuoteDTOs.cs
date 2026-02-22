@@ -47,6 +47,7 @@ public class QuoteItemResponse
     public string PartNumberName { get; set; } = string.Empty;
     public long? PartNumberId { get; set; }
     public long? RFQItemId { get; set; }
+    public long? ProcumentRecordId { get; set; }
     public string? Alt { get; set; }
     public int Qty { get; set; }
     public decimal UnitPrice { get; set; }

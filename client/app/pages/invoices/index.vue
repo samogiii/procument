@@ -7,7 +7,6 @@
     detail-route="/invoices"
     show-select
     v-model="selectedInvoices"
-    server-side
   >
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />

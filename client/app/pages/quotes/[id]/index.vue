@@ -1,10 +1,10 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/quotes" class="mr-2" />
-      <h1 class="text-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
+    <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
+      <v-btn icon="mdi-arrow-left" variant="text" to="/quotes" class="mr-1 flex-shrink-0" size="small" />
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
-      <div class="d-flex align-center gap-2">
+      <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Status Chip with Dropdown -->
         <v-menu>
           <template #activator="{ props: menuProps }">
@@ -35,13 +35,10 @@
           </v-list>
         </v-menu>
 
-        <v-btn class="mx-1" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">
-          Edit Quote
-        </v-btn>
-        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Permission</v-btn>
-        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn v-if="isAdmin" class="mx-1" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn class="mx-1" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">Generate PDF</v-btn>
+        <v-btn prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
+        <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
       </div>
     </div>
 
@@ -74,7 +71,18 @@
     <v-card class="glass-card">
       <v-card-title>Line Items</v-card-title>
       <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable" />
+        <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable">
+          <template #item.alt="{ item: row }">
+            <span v-if="(row as any).alt" style="color: #fbbf24;">{{ (row as any).alt }}</span>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+          <template #item.unitPrice="{ item: row }">
+            ${{ (row as any).unitPrice?.toFixed(2) || '0.00' }}
+          </template>
+          <template #item.totalPrice="{ item: row }">
+            <strong style="color: #4ade80;">${{ (row as any).totalPrice?.toFixed(2) || '0.00' }}</strong>
+          </template>
+        </v-data-table>
       </v-card-text>
     </v-card>
 
@@ -121,18 +129,64 @@ const statuses = [
 ]
 
 const itemHeaders = [
-  { title: 'Part', key: 'partNumberName' },
+  { title: 'Ref.', key: 'rfqRef', width: '60px' },
+  { title: 'Part Number', key: 'partNumberName' },
+  { title: 'Alt P/N', key: 'alt' },
+  { title: 'Condition', key: 'condition' },
   { title: 'Qty', key: 'qty' },
   { title: 'Unit Price', key: 'unitPrice' },
-  { title: 'Total', key: 'totalPrice' },
-  { title: 'Condition', key: 'condition' },
+  { title: 'Total Price', key: 'totalPrice' },
 ]
 
 onMounted(() => loadQuote())
 
 async function loadQuote() {
   try {
-    quote.value = await api.get(`/quotes/${route.params.id}`)
+    const q = await api.get<any>(`/quotes/${route.params.id}`)
+
+    // Fetch the RFQ and procurement records to enrich quote items
+    if (q.rfqId) {
+      try {
+        const [rfq, procRecords] = await Promise.all([
+          api.get<any>(`/rfqs/${q.rfqId}`),
+          api.get<any[]>(`/rfqs/${q.rfqId}/supplier-quotes`)
+        ])
+        q.rfqName = rfq.name || `RFQ #${q.rfqId}`
+
+        // Build a map of rfqItemId → row index (1-based) and rfqItemId → description
+        const refMap: Record<number, number> = {}
+        const descMap: Record<number, string> = {}
+        ;(rfq.items || []).forEach((item: any, idx: number) => {
+          refMap[item.id] = idx + 1
+          descMap[item.id] = item.description || ''
+        })
+
+        // Build a map of procurementRecordId → record details
+        const procMap: Record<number, any> = {}
+        ;(procRecords || []).forEach((r: any) => {
+          procMap[r.id] = r
+        })
+
+        // Enrich quote items
+        if (q.items) {
+          q.items = q.items.map((qi: any) => {
+            const proc = qi.procumentRecordId ? procMap[qi.procumentRecordId] : null
+            return {
+              ...qi,
+              rfqRef: qi.rfqItemId ? refMap[qi.rfqItemId] || '—' : '—',
+              description: qi.rfqItemId ? descMap[qi.rfqItemId] || '' : '',
+              shippingCost: proc?.shippingCost ?? null,
+              certName: proc?.certName || null,
+              tagDate: proc?.tagDate || null,
+            }
+          })
+        }
+      } catch {
+        // RFQ fetch failed, continue without enrichment
+      }
+    }
+
+    quote.value = q
   } catch {
     showSnack('Failed to load quote', 'error')
   }

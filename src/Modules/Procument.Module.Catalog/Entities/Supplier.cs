@@ -11,4 +11,5 @@ public class Supplier : AuditableEntity
 
     // Navigation
     public ICollection<PartNumber> PartNumbers { get; set; } = new List<PartNumber>();
+    public ICollection<PartNumberSupplier> PartNumberSuppliers { get; set; } = new List<PartNumberSupplier>();
 }

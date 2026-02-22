@@ -135,23 +135,40 @@ const renderedHtml = computed(() => {
   const total = q.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'
 
   // ── Table rows ──
-  const rows = items.map((it: any, i: number) => `
+  const rows = items.map((it: any, i: number) => {
+    const tagDateFmt = it.tagDate ? new Date(it.tagDate).toLocaleDateString() : '—'
+    const shippingFmt = it.shippingCost != null ? `$${Number(it.shippingCost).toFixed(2)}` : '—'
+    return `
     <tr>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee; text-align:center;">${i + 1}</td>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee;">${it.partNumberName || '—'}</td>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee;">${it.condition || '—'}</td>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee; text-align:center;">${it.qty}</td>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee; text-align:right;">$${Number(it.unitPrice).toFixed(2)}</td>
-      <td style="padding:10px 12px; border-bottom:1px solid #eee; text-align:right; font-weight:600;">$${Number(it.totalPrice).toFixed(2)}</td>
+      <td style="padding:10px 12px; border-bottom:none; text-align:center;">${i + 1}</td>
+      <td style="padding:10px 12px; border-bottom:none; text-align:center; color:#1565c0; font-weight:600;">${it.rfqRef || '—'}</td>
+      <td style="padding:10px 12px; border-bottom:none;">${it.partNumberName || '—'}</td>
+      <td style="padding:10px 12px; border-bottom:none; color:#b8860b;">${it.alt || '—'}</td>
+      <td style="padding:10px 12px; border-bottom:none;">${it.condition || '—'}</td>
+      <td style="padding:10px 12px; border-bottom:none; text-align:center;">${it.qty}</td>
+      <td style="padding:10px 12px; border-bottom:none; text-align:right;">$${Number(it.unitPrice).toFixed(2)}</td>
+      <td style="padding:10px 12px; border-bottom:none; text-align:right; font-weight:600;">$${Number(it.totalPrice).toFixed(2)}</td>
     </tr>
-  `).join('')
+    <tr>
+      <td colspan="8" style="padding:4px 12px 10px 48px; border-bottom:1px solid #eee; font-size:11px; color:#666; line-height:1.7;">
+        <strong>Description:</strong> ${it.description || '—'} &nbsp;&nbsp;|&nbsp;&nbsp;
+        
+        
+        <strong>Certificate Type:</strong> ${it.certName || '—'} &nbsp;&nbsp;|&nbsp;&nbsp;
+        <strong>Tag Date:</strong> ${tagDateFmt} &nbsp;&nbsp;|&nbsp;&nbsp;
+        <strong>Price Type:</strong> OutRight
+      </td>
+    </tr>`
+  }).join('')
 
   const tableHtml = `
     <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:16px;">
       <thead>
         <tr style="background:#f5f7fa;">
           <th style="padding:10px 12px; text-align:center; font-weight:600; border-bottom:2px solid #ddd; width:50px;">#</th>
+          <th style="padding:10px 12px; text-align:center; font-weight:600; border-bottom:2px solid #ddd; width:50px;">Ref.</th>
           <th style="padding:10px 12px; text-align:left; font-weight:600; border-bottom:2px solid #ddd;">Part Number</th>
+          <th style="padding:10px 12px; text-align:left; font-weight:600; border-bottom:2px solid #ddd;">Alt P/N</th>
           <th style="padding:10px 12px; text-align:left; font-weight:600; border-bottom:2px solid #ddd;">Condition</th>
           <th style="padding:10px 12px; text-align:center; font-weight:600; border-bottom:2px solid #ddd;">Qty</th>
           <th style="padding:10px 12px; text-align:right; font-weight:600; border-bottom:2px solid #ddd;">Unit Price</th>
@@ -167,6 +184,7 @@ const renderedHtml = computed(() => {
     <div style="display:flex; justify-content:space-between; margin:20px 0; font-size:13px;">
       <div>
         <p style="margin:4px 0;"><strong>Quote #:</strong> ${q.quoteNumber || '—'}</p>
+        <p style="margin:4px 0;"><strong>RFQ:</strong> ${q.rfqName || '—'}</p>
         <p style="margin:4px 0;"><strong>Customer:</strong> ${q.customerName || '—'}</p>
         <p style="margin:4px 0;"><strong>Prepared by:</strong> ${q.userName || '—'}</p>
       </div>

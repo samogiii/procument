@@ -6,8 +6,9 @@ namespace Procument.Module.RFQ.Entities;
 public class RFQItem : BaseEntity
 {
     public string? Alt { get; set; }
-    public int Qty { get; set; }
+    public double Qty { get; set; }
     public string? Condition { get; set; }
+    public string? Unit { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

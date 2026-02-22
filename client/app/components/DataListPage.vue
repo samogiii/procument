@@ -9,7 +9,7 @@
     <v-card class="glass-card">
       <v-card-text>
         <!-- Search + optional status filter -->
-        <div class="d-flex gap-3 mb-4">
+        <div class="d-flex flex-wrap gap-3 mb-4">
           <v-text-field
             v-model="search"
             prepend-inner-icon="mdi-magnify"
@@ -17,6 +17,7 @@
             single-line
             hide-details
             class="flex-grow-1"
+            style="min-width: 180px;"
           />
           <v-select
             v-if="statusOptions?.length"
@@ -24,7 +25,7 @@
             :items="statusOptions"
             label="Status"
             hide-details
-            style="max-width: 160px"
+            style="min-width: 120px; max-width: 160px;"
           />
         </div>
 
@@ -56,7 +57,8 @@
         <v-data-table
           v-else
           :headers="headers"
-          :items="internalItems"
+          :items="filteredClientItems"
+          :search="search"
           :loading="loading"
           :items-per-page="itemsPerPage"
           hover
@@ -123,8 +125,15 @@ const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)
 
+const filteredClientItems = computed(() => {
+  if (!statusFilter.value || statusFilter.value === 'All') return internalItems.value
+  return internalItems.value.filter((item: any) => item.status === statusFilter.value)
+})
+const lastServerOptions = ref<any>({ page: 1, itemsPerPage: 10 })
+
 // ─── Server-side loading ───
 async function loadServerItems(options: any) {
+  lastServerOptions.value = options
   loading.value = true
   try {
     const params = new URLSearchParams()
@@ -149,7 +158,9 @@ async function loadServerItems(options: any) {
 async function loadClientItems() {
   loading.value = true
   try {
-    internalItems.value = await api.get<any[]>(props.apiUrl)
+    const res = await api.get<any>(props.apiUrl + '?pageSize=9999')
+    // Handle both plain array and paginated { items } responses
+    internalItems.value = Array.isArray(res) ? res : (res.items || res.Items || [])
   } catch (e) {
     console.error(`[DataListPage] Failed to load ${props.apiUrl}`, e)
   } finally {
@@ -162,6 +173,20 @@ function onRowClick(_event: Event, row: any) {
   if (props.detailRoute && row?.item?.id) {
     navigateTo(`${props.detailRoute}/${row.item.id}`)
   }
+}
+
+// ─── Watchers for server-side search/status changes ───
+let searchDebounce: any = null
+if (props.serverSide) {
+  watch(search, () => {
+    clearTimeout(searchDebounce)
+    searchDebounce = setTimeout(() => {
+      loadServerItems({ ...lastServerOptions.value, page: 1 })
+    }, 350)
+  })
+  watch(statusFilter, () => {
+    loadServerItems({ ...lastServerOptions.value, page: 1 })
+  })
 }
 
 // ─── Lifecycle ───

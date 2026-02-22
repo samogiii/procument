@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
   public DbSet<Supplier> Suppliers => Set<Supplier>();
   public DbSet<PartNumber> PartNumbers => Set<PartNumber>();
   public DbSet<Alternative> Alternatives => Set<Alternative>();
+  public DbSet<PartNumberSupplier> PartNumberSuppliers => Set<PartNumberSupplier>();
 
   // RFQ
   public DbSet<RFQHeader> RFQs => Set<RFQHeader>();
@@ -128,6 +129,24 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.SupplierId);
+    });
+
+    modelBuilder.Entity<PartNumberSupplier>(entity =>
+    {
+      entity.ToTable("PartNumberSuppliers");
+      entity.HasKey(e => e.Id);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany(p => p.PartNumberSuppliers)
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Supplier)
+                .WithMany(s => s.PartNumberSuppliers)
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => new { e.PartNumberId, e.SupplierId }).IsUnique();
     });
 
     modelBuilder.Entity<Alternative>(entity =>

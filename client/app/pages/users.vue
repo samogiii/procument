@@ -9,11 +9,21 @@
 
     <v-card class="glass-card">
       <v-card-text>
+        <v-text-field
+          v-model="search"
+          prepend-inner-icon="mdi-magnify"
+          label="Search users..."
+          single-line
+          hide-details
+          class="mb-4"
+        />
         <v-data-table
           :headers="headers"
           :items="users"
+          :search="search"
           :loading="loading"
           density="comfortable"
+          hover
         >
           <template #item.role="{ item }">
             <v-chip :color="item.role === 'Admin' ? 'primary' : 'secondary'" size="small">{{ item.role }}</v-chip>
@@ -72,6 +82,7 @@ const loading = ref(false)
 const showCreate = ref(false)
 const creating = ref(false)
 const createError = ref('')
+const search = ref('')
 const form = ref({ name: '', email: '', password: '', role: 'Expert' })
 
 const headers = [

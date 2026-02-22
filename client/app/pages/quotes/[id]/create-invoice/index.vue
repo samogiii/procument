@@ -1,10 +1,10 @@
 <template>
   <div class="create-invoice-page">
     <!-- Header -->
-    <div class="d-flex align-center mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="`/quotes/${route.params.id}`" class="mr-2" />
-      <div>
-        <h1 class="text-h5 font-weight-bold">Create Invoice</h1>
+    <div class="d-flex flex-wrap align-center gap-2 mb-4">
+      <v-btn icon="mdi-arrow-left" variant="text" :to="`/quotes/${route.params.id}`" class="mr-1 flex-shrink-0" size="small" />
+      <div class="min-width-0">
+        <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Invoice</h1>
         <p class="text-caption text-medium-emphasis mt-1">
           Select items from Quote #{{ quote?.quoteNumber }} to invoice.
         </p>
@@ -13,8 +13,8 @@
 
     <!-- Toolbar -->
     <v-card class="toolbar-card mb-4">
-      <div class="d-flex align-center justify-space-between pa-3">
-        <div class="d-flex align-center gap-3">
+      <div class="d-flex flex-wrap align-center justify-space-between pa-3 gap-2">
+        <div class="d-flex align-center gap-2">
           <v-chip color="primary" variant="tonal" size="small">
             {{ selectedCount }} item{{ selectedCount !== 1 ? 's' : '' }} selected
           </v-chip>
@@ -22,7 +22,7 @@
             Total: <strong style="color: #4ade80;">${{ selectedTotal.toFixed(2) }}</strong>
           </span>
         </div>
-        <div class="d-flex align-center gap-2">
+        <div class="d-flex flex-wrap align-center gap-2">
           <v-text-field
             v-model="dueDate"
             label="Due Date"
@@ -30,7 +30,7 @@
             density="compact"
             hide-details
             variant="outlined"
-            style="max-width: 180px;"
+            style="min-width: 150px; max-width: 180px;"
           />
           <v-btn
             color="success"
@@ -39,7 +39,7 @@
             :loading="saving"
             @click="createInvoice"
           >
-            Create Invoice
+            Create
           </v-btn>
         </div>
       </div>
@@ -272,6 +272,7 @@ function showSnack(text: string, color: string) {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  min-width: 700px;
 }
 
 .excel-grid thead th {

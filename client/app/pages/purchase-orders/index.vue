@@ -5,7 +5,6 @@
     api-url="/purchase-orders"
     :status-options="['All', 'Draft', 'Sent', 'Received', 'Cancelled']"
     detail-route="/purchase-orders"
-    server-side
   >
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />

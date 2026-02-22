@@ -41,7 +41,7 @@ public class CustomersController : ControllerBase
     [HttpGet("search")]
     public async Task<ActionResult> Search([FromQuery] string q)
     {
-        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 1)
             return Ok(Array.Empty<object>());
 
         var results = await _db.Set<Customer>()
@@ -143,7 +143,7 @@ public class SuppliersController : ControllerBase
     [HttpGet("search")]
     public async Task<ActionResult> Search([FromQuery] string q)
     {
-        if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 1)
             return Ok(Array.Empty<object>());
 
         var results = await _db.Set<Supplier>()
@@ -231,6 +231,8 @@ public class PartNumbersController : ControllerBase
                 p.Id,
                 p.Name,
                 p.Description,
+                p.Fleet,
+                p.Remark,
                 p.CreatedAt,
                 SupplierName = p.Supplier != null ? p.Supplier.Name : null,
                 Alternatives = p.Alternatives.Select(a => new { a.Id, a.Name }).ToList()
@@ -243,14 +245,23 @@ public class PartNumbersController : ControllerBase
     [HttpGet("search")]
     public async Task<ActionResult> Search([FromQuery] string q)
     {
-        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 1)
             return Ok(Array.Empty<object>());
 
         var results = await _db.Set<PartNumber>()
+            .Include(p => p.Alternatives)
             .Where(p => p.Name.Contains(q))
             .OrderBy(p => p.Name)
             .Take(10)
-            .Select(p => new { p.Id, p.Name })
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Description,
+                p.Fleet,
+                p.Remark,
+                Alternatives = p.Alternatives.Select(a => new { a.Id, a.Name }).ToList()
+            })
             .ToListAsync();
 
         return Ok(results);
@@ -263,12 +274,86 @@ public class PartNumbersController : ControllerBase
         {
             Name = dto.Name,
             Description = dto.Description,
+            Fleet = dto.Fleet,
+            Remark = dto.Remark,
             SupplierId = dto.SupplierId,
             CreatedAt = DateTime.UtcNow
         };
         _db.Set<PartNumber>().Add(entity);
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
+    }
+
+    /// <summary>Bulk create part numbers with alternatives.</summary>
+    [HttpPost("bulk")]
+    public async Task<ActionResult> BulkCreate([FromBody] BulkPartNumberRequest request)
+    {
+        var created = 0;
+        var skipped = 0;
+
+        foreach (var item in request.Parts)
+        {
+            var trimmedName = item.Name.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedName)) { skipped++; continue; }
+
+            var existing = await _db.Set<PartNumber>()
+                .Include(p => p.Alternatives)
+                .FirstOrDefaultAsync(p => p.Name == trimmedName);
+
+            if (existing != null)
+            {
+                // Update fields if provided
+                if (!string.IsNullOrWhiteSpace(item.Description)) existing.Description = item.Description;
+                if (!string.IsNullOrWhiteSpace(item.Fleet)) existing.Fleet = item.Fleet;
+                if (!string.IsNullOrWhiteSpace(item.Remark)) existing.Remark = item.Remark;
+
+                // Add new alternatives
+                foreach (var altName in item.Alternatives ?? [])
+                {
+                    var alt = altName.Trim();
+                    if (string.IsNullOrWhiteSpace(alt)) continue;
+                    if (!existing.Alternatives.Any(a => a.Name == alt))
+                    {
+                        _db.Set<Alternative>().Add(new Alternative
+                        {
+                            Name = alt,
+                            PartNumberId = existing.Id,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+                skipped++;
+            }
+            else
+            {
+                var entity = new PartNumber
+                {
+                    Name = trimmedName,
+                    Description = item.Description,
+                    Fleet = item.Fleet,
+                    Remark = item.Remark,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Set<PartNumber>().Add(entity);
+                await _db.SaveChangesAsync();
+
+                foreach (var altName in item.Alternatives ?? [])
+                {
+                    var alt = altName.Trim();
+                    if (string.IsNullOrWhiteSpace(alt)) continue;
+                    _db.Set<Alternative>().Add(new Alternative
+                    {
+                        Name = alt,
+                        PartNumberId = entity.Id,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                created++;
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { created, skipped, total = request.Parts.Count });
     }
 
     [HttpPut("{id:long}")]
@@ -279,10 +364,56 @@ public class PartNumbersController : ControllerBase
 
         entity.Name = dto.Name;
         entity.Description = dto.Description;
+        entity.Fleet = dto.Fleet;
+        entity.Remark = dto.Remark;
         entity.SupplierId = dto.SupplierId;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
+    }
+
+    /// <summary>Add an alternative part number to an existing part.</summary>
+    [HttpPost("{id:long}/alternatives")]
+    public async Task<ActionResult> AddAlternative(long id, [FromBody] AlternativeDto dto)
+    {
+        var part = await _db.Set<PartNumber>().FindAsync(id);
+        if (part == null) return NotFound();
+
+        var alt = new Alternative
+        {
+            Name = dto.Name,
+            PartNumberId = id,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.Set<Alternative>().Add(alt);
+        await _db.SaveChangesAsync();
+        return Ok(new { alt.Id, alt.Name });
+    }
+
+    /// <summary>Remove an alternative from a part number.</summary>
+    [HttpDelete("{id:long}/alternatives/{altId:long}")]
+    public async Task<ActionResult> RemoveAlternative(long id, long altId)
+    {
+        var alt = await _db.Set<Alternative>()
+            .FirstOrDefaultAsync(a => a.Id == altId && a.PartNumberId == id);
+        if (alt == null) return NotFound();
+        _db.Set<Alternative>().Remove(alt);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    /// <summary>Get all suppliers linked to a part number.</summary>
+    [HttpGet("{id:long}/suppliers")]
+    public async Task<ActionResult> GetSuppliers(long id)
+    {
+        var suppliers = await _db.Set<PartNumberSupplier>()
+            .Where(ps => ps.PartNumberId == id)
+            .Include(ps => ps.Supplier)
+            .OrderBy(ps => ps.Supplier.Name)
+            .Select(ps => new { ps.Supplier.Id, ps.Supplier.Name })
+            .ToListAsync();
+
+        return Ok(suppliers);
     }
 
     [HttpDelete("{id:long}")]
@@ -300,5 +431,26 @@ public class PartNumberDto
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Fleet { get; set; }
+    public string? Remark { get; set; }
     public long? SupplierId { get; set; }
+}
+
+public class AlternativeDto
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class BulkPartNumberRequest
+{
+    public List<BulkPartNumberItem> Parts { get; set; } = new();
+}
+
+public class BulkPartNumberItem
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string? Fleet { get; set; }
+    public string? Remark { get; set; }
+    public List<string> Alternatives { get; set; } = new();
 }

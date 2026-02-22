@@ -6,6 +6,8 @@ public class PartNumber : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Fleet { get; set; }
+    public string? Remark { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Foreign keys
@@ -14,4 +16,5 @@ public class PartNumber : BaseEntity
     // Navigation
     public Supplier? Supplier { get; set; }
     public ICollection<Alternative> Alternatives { get; set; } = new List<Alternative>();
+    public ICollection<PartNumberSupplier> PartNumberSuppliers { get; set; } = new List<PartNumberSupplier>();
 }

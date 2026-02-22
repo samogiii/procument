@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260221082135_utandtpadded")]
+    partial class utandtpadded
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -106,16 +109,10 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<string>("Fleet")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("Remark")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<long?>("SupplierId")
                         .HasColumnType("bigint");
@@ -125,33 +122,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("SupplierId");
 
                     b.ToTable("PartNumbers", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Catalog.Entities.PartNumberSupplier", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("PartNumberId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("SupplierId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SupplierId");
-
-                    b.HasIndex("PartNumberId", "SupplierId")
-                        .IsUnique();
-
-                    b.ToTable("PartNumberSuppliers", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Catalog.Entities.Supplier", b =>
@@ -458,12 +428,6 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
-                    b.Property<string>("Notes")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Priority")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint");
 
@@ -677,9 +641,6 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("PartNumberId")
                         .HasColumnType("bigint");
 
-                    b.Property<long?>("ProcumentRecordId")
-                        .HasColumnType("bigint");
-
                     b.Property<int>("Qty")
                         .HasColumnType("int");
 
@@ -698,8 +659,6 @@ namespace Procument.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PartNumberId");
-
-                    b.HasIndex("ProcumentRecordId");
 
                     b.HasIndex("QuoteId");
 
@@ -784,25 +743,6 @@ namespace Procument.Data.Migrations
                         .WithMany("PartNumbers")
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Supplier");
-                });
-
-            modelBuilder.Entity("Procument.Module.Catalog.Entities.PartNumberSupplier", b =>
-                {
-                    b.HasOne("Procument.Module.Catalog.Entities.PartNumber", "PartNumber")
-                        .WithMany("PartNumberSuppliers")
-                        .HasForeignKey("PartNumberId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Catalog.Entities.Supplier", "Supplier")
-                        .WithMany("PartNumberSuppliers")
-                        .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PartNumber");
 
                     b.Navigation("Supplier");
                 });
@@ -995,10 +935,6 @@ namespace Procument.Data.Migrations
                         .HasForeignKey("PartNumberId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Procument.Module.Purchasing.Entities.ProcumentRecord", "ProcumentRecord")
-                        .WithMany()
-                        .HasForeignKey("ProcumentRecordId");
-
                     b.HasOne("Procument.Module.Sales.Entities.Quote", "Quote")
                         .WithMany("QuoteItems")
                         .HasForeignKey("QuoteId")
@@ -1012,8 +948,6 @@ namespace Procument.Data.Migrations
 
                     b.Navigation("PartNumber");
 
-                    b.Navigation("ProcumentRecord");
-
                     b.Navigation("Quote");
 
                     b.Navigation("RFQItem");
@@ -1022,14 +956,10 @@ namespace Procument.Data.Migrations
             modelBuilder.Entity("Procument.Module.Catalog.Entities.PartNumber", b =>
                 {
                     b.Navigation("Alternatives");
-
-                    b.Navigation("PartNumberSuppliers");
                 });
 
             modelBuilder.Entity("Procument.Module.Catalog.Entities.Supplier", b =>
                 {
-                    b.Navigation("PartNumberSuppliers");
-
                     b.Navigation("PartNumbers");
                 });
 

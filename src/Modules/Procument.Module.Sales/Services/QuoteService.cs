@@ -40,8 +40,8 @@ public class QuoteService : IQuoteService
 
             if (rfq.UserId != userId)
             {
-                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Checker")
-                                 || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Procurer");
+                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "View")
+                                 || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
                 if (!hasPermission) return new List<QuoteResponse>();
             }
         }
@@ -83,8 +83,8 @@ public class QuoteService : IQuoteService
                 // If RFQ is null (shouldn't happen), assume no access unless I created quote (checked above)
                 if (rfq == null || rfq.UserId != userId)
                 {
-                    var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Checker")
-                                     || await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Procurer");
+                    var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "View")
+                                     || await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
 
                     if (!hasPermission) return null;
                 }
@@ -124,6 +124,7 @@ public class QuoteService : IQuoteService
             {
                 RFQItemId = itemReq.RFQItemId,
                 PartNumberId = rfqItem.PartNumberId,
+                ProcumentRecordId = itemReq.ProcumentRecordId,
                 Qty = itemReq.Qty,
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,
@@ -265,6 +266,7 @@ public class QuoteService : IQuoteService
             {
                 RFQItemId = itemReq.RFQItemId,
                 PartNumberId = rfqItem.PartNumberId,
+                ProcumentRecordId = itemReq.ProcumentRecordId,
                 Qty = itemReq.Qty,
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,
@@ -300,6 +302,7 @@ public class QuoteService : IQuoteService
             PartNumberName = qi.PartNumber?.Name ?? "",
             PartNumberId = qi.PartNumberId,
             RFQItemId = qi.RFQItemId,
+            ProcumentRecordId = qi.ProcumentRecordId,
             Alt = qi.Alt,
             Qty = qi.Qty,
             UnitPrice = qi.UnitPrice,

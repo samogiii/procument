@@ -55,3 +55,42 @@ body {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 11px;
 }
+
+/* ─── Page Header ─── */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ─── Responsive Main Content ─── */
+.main-content {
+  padding: 24px;
+}
+
+@media (max-width: 960px) {
+  .main-content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .main-content {
+    padding: 12px 8px;
+  }
+}
+
+/* ─── Responsive Tables ─── */
+.v-data-table {
+  overflow-x: auto;
+}
+
+/* ─── Responsive Dialogs ─── */
+@media (max-width: 600px) {
+  .v-dialog > .v-overlay__content {
+    margin: 8px !important;
+    max-height: calc(100vh - 16px) !important;
+  }
+}

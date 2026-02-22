@@ -15,6 +15,7 @@ public interface IRFQService
     Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
+    Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
 }
 
 public class RFQService : IRFQService
@@ -81,7 +82,9 @@ public class RFQService : IRFQService
             LeadTime = request.LeadTime,
             CustomerId = customer.Id,
             UserId = request.UserId,
-            CreatedAt = request.CreatedAt
+            CreatedAt = request.CreatedAt,
+            Notes = request.Notes,
+            Priority = request.Priority
         };
 
         _db.Set<RFQHeader>().Add(rfq);
@@ -111,6 +114,7 @@ public class RFQService : IRFQService
             .Include(r => r.User)
             .Include(r => r.RFQItems)
                 .ThenInclude(ri => ri.PartNumber)
+                    .ThenInclude(pn => pn.Alternatives)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (rfq == null) return null;
@@ -129,8 +133,8 @@ public class RFQService : IRFQService
         // Populate Permissions
         var permissions = await _permissionService.GetPermissionsForEntityAsync("RFQ", id.ToString());
 
-        response.Checkers = permissions
-            .Where(p => p.Permission == "Checker")
+        response.Views = permissions
+            .Where(p => p.Permission == "View")
             .Select(p => new UserResponse
             {
                 Id = p.User.Id,
@@ -142,8 +146,8 @@ public class RFQService : IRFQService
             })
             .ToList();
 
-        response.Procurers = permissions
-            .Where(p => p.Permission == "Procurer")
+        response.Edits = permissions
+            .Where(p => p.Permission == "Edit")
             .Select(p => new UserResponse
             {
                 Id = p.User.Id,
@@ -164,7 +168,8 @@ public class RFQService : IRFQService
             .Include(r => r.Customer)
             .Include(r => r.User)
             .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber);
+                .ThenInclude(i => i.PartNumber)
+                    .ThenInclude(pn => pn.Alternatives);
 
         if (!isAdmin)
         {
@@ -201,6 +206,7 @@ public class RFQService : IRFQService
     {
         var item = await _db.Set<RFQItem>()
             .Include(i => i.PartNumber)
+                .ThenInclude(pn => pn.Alternatives)
             .FirstOrDefaultAsync(i => i.Id == itemId);
 
         if (item == null) return null;
@@ -220,8 +226,92 @@ public class RFQService : IRFQService
             Description = item.PartNumber.Description,
             Alt = item.Alt,
             Qty = item.Qty,
+            Condition = item.Condition,
+            Fleet = item.PartNumber.Fleet,
+            Remark = item.PartNumber.Remark,
+            Alternatives = item.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
+        };
+    }
 
-            Condition = item.Condition
+    public async Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request)
+    {
+        // Verify RFQ exists
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return null;
+
+        // Resolve or create PartNumber
+        var trimmedName = request.PartNumberName.Trim();
+        var partNumber = await _db.Set<PartNumber>()
+            .Include(p => p.Alternatives)
+            .FirstOrDefaultAsync(p => p.Name == trimmedName);
+
+        if (partNumber == null)
+        {
+            partNumber = new PartNumber
+            {
+                Name = trimmedName,
+                Description = request.Description,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Set<PartNumber>().Add(partNumber);
+            await _db.SaveChangesAsync();
+        }
+        else
+        {
+            // Update description if provided
+            if (!string.IsNullOrWhiteSpace(request.Description))
+            {
+                partNumber.Description = request.Description;
+            }
+        }
+
+        // Add new alternatives that don't already exist
+        foreach (var altName in request.Alternatives)
+        {
+            var trimmedAlt = altName.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedAlt)) continue;
+
+            var exists = partNumber.Alternatives.Any(a => a.Name == trimmedAlt);
+            if (!exists)
+            {
+                var alt = new Alternative
+                {
+                    Name = trimmedAlt,
+                    PartNumberId = partNumber.Id,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Set<Alternative>().Add(alt);
+                partNumber.Alternatives.Add(alt);
+            }
+        }
+
+        // Create RFQ Item
+        var item = new RFQItem
+        {
+            RFQId = rfqId,
+            PartNumberId = partNumber.Id,
+            Qty = request.Qty,
+            Condition = request.Condition,
+            Alt = request.Alt
+        };
+        _db.Set<RFQItem>().Add(item);
+        await _db.SaveChangesAsync();
+
+        // Reload alternatives
+        await _db.Entry(partNumber).Collection(p => p.Alternatives).LoadAsync();
+
+        return new RFQItemResponse
+        {
+            Id = item.Id,
+            PartNumberName = partNumber.Name,
+            PartNumberId = partNumber.Id,
+            Description = partNumber.Description,
+            Alt = item.Alt,
+            Qty = item.Qty,
+            Condition = item.Condition,
+            Fleet = partNumber.Fleet,
+            Remark = partNumber.Remark,
+            Alternatives = partNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
     }
 
@@ -237,6 +327,8 @@ public class RFQService : IRFQService
         CustomerId = rfq.CustomerId,
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,
+        Notes = rfq.Notes,
+        Priority = rfq.Priority,
         Items = rfq.RFQItems.Select(i => new RFQItemResponse
         {
             Id = i.Id,
@@ -245,7 +337,10 @@ public class RFQService : IRFQService
             Description = i.PartNumber.Description,
             Alt = i.Alt,
             Qty = i.Qty,
-            Condition = i.Condition
+            Condition = i.Condition,
+            Fleet = i.PartNumber.Fleet,
+            Remark = i.PartNumber.Remark,
+            Alternatives = i.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         }).ToList()
     };
 }

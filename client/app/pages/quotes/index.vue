@@ -5,7 +5,6 @@
     api-url="/quotes"
     :status-options="['All', 'Draft', 'Sent', 'Accepted', 'Rejected']"
     detail-route="/quotes"
-    server-side
   >
     <template #actions>
       <v-btn

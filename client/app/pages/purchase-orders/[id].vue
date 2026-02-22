@@ -1,8 +1,8 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-2" />
-      <h1 class="text-h5 font-weight-bold">PO {{ po.poNumber || `#${route.params.id}` }}</h1>
+    <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
+      <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-1 flex-shrink-0" size="small" />
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">PO {{ po.poNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <StatusChip :status="po.status ?? '—'" size="default" />
     </div>

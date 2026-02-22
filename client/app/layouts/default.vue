@@ -2,18 +2,19 @@
   <v-app>
     <v-navigation-drawer
       v-model="drawer"
-      :rail="rail"
-      permanent
+      :rail="!mobile && rail"
+      :temporary="mobile"
+      :permanent="!mobile"
       color="surface"
       class="border-e-thin"
     >
       <!-- Logo -->
       <v-list-item
-        :prepend-icon="rail ? 'mdi-airplane' : undefined"
+        :prepend-icon="(!mobile && rail) ? 'mdi-airplane' : undefined"
         class="pa-4"
-        @click="rail = !rail"
+        @click="mobile ? undefined : rail = !rail"
       >
-        <template v-if="!rail" #default>
+        <template v-if="mobile || !rail" #default>
           <div class="d-flex align-center">
             <v-icon icon="mdi-airplane" color="primary" size="28" class="mr-3" />
             <span class="text-h6 font-weight-bold text-gradient">Procument</span>
@@ -34,18 +35,20 @@
           rounded="lg"
           class="mb-1"
           active-color="primary"
+          @click="mobile ? drawer = false : undefined"
         />
 
         <!-- Admin Section -->
         <template v-if="authStore.isAdmin">
           <v-divider class="my-2" />
-          <v-list-subheader v-if="!rail">ADMIN</v-list-subheader>
+          <v-list-subheader v-if="mobile || !rail">ADMIN</v-list-subheader>
           <v-list-item
             to="/users"
             prepend-icon="mdi-account-group"
             title="Users"
             rounded="lg"
             active-color="primary"
+            @click="mobile ? drawer = false : undefined"
           />
         </template>
       </v-list>
@@ -69,8 +72,9 @@
 
     <!-- Top Bar -->
     <v-app-bar flat color="surface" class="border-b-thin" density="compact">
-      <v-app-bar-title>
-        <!-- <span class="text-body-1 text-medium-emphasis">{{ pageTitle }}</span> -->
+      <v-app-bar-nav-icon v-if="mobile" @click="drawer = !drawer" />
+      <v-app-bar-title v-if="mobile">
+        <span class="text-body-2 font-weight-bold text-gradient">Procument</span>
       </v-app-bar-title>
       <template #append>
         <v-btn icon="mdi-bell-outline" variant="text" size="small" />
@@ -79,7 +83,7 @@
     </v-app-bar>
 
     <v-main>
-      <v-container fluid class="pa-6">
+      <v-container fluid class="main-content">
         <slot />
       </v-container>
     </v-main>
@@ -87,10 +91,16 @@
 </template>
 
 <script setup lang="ts">
-const drawer = ref(true)
+const { mobile } = useDisplay()
+const drawer = ref(!mobile.value)
 const rail = ref(false)
 const route = useRoute()
 const authStore = useAuthStore()
+
+watch(mobile, (isMobile) => {
+  drawer.value = !isMobile
+  if (isMobile) rail.value = false
+})
 
 const navItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard' },

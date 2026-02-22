@@ -8,8 +8,10 @@ public class RFQHeader : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public DateTime LeadTime { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; }
     public DateTime? ModifyAt { get; set; }
+    public string? Notes { get; set; }
+    public string? Priority { get; set; }
 
     // Foreign keys
     public long CustomerId { get; set; }
