@@ -7,10 +7,11 @@
           prepend-icon="mdi-shield-account"
           variant="tonal"
           @click="showBulkPerms = true"
+          size="small"
         >
-          Manage Permissions
+          Perms
         </v-btn>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal">
+        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
           New RFQ
         </v-btn>
       </template>
@@ -42,7 +43,7 @@
           <template #item.leadTime="{ item }">
             {{ new Date(item.leadTime).toLocaleDateString() }}
           </template>
-          <template #item.priority="{ item }">
+          <!-- <template #item.priority="{ item }">
             <v-chip
               size="small"
               :color="item.priority === 'AOG' ? 'error' : item.priority === 'Urgent' ? 'warning' : 'secondary'"
@@ -50,7 +51,7 @@
             >
               {{ item.priority || 'Normal' }}
             </v-chip>
-          </template>
+          </template> -->
           <template #item.itemCount="{ item }">
             <v-chip size="small" color="secondary">{{ item.items?.length || 0 }} parts</v-chip>
           </template>
@@ -131,14 +132,7 @@
             />
 
             <!-- Priority -->
-            <v-select
-              v-model="form.priority"
-              :items="['Normal', 'Urgent', 'AOG']"
-              label="Priority"
-              prepend-inner-icon="mdi-flag-outline"
-              clearable
-              class="mb-3"
-            />
+            
 
             <!-- Notes -->
             <v-textarea
@@ -195,7 +189,7 @@
             <div v-if="showPasteBox" class="mb-4">
               <p class="text-caption text-medium-emphasis mb-2">
                 Copy rows from Excel and paste below. Expected columns (tab-separated):
-                <strong>PartNumber &nbsp; Description &nbsp; Qty &nbsp; Condition &nbsp; Fleet &nbsp; Remark &nbsp; Alt</strong>
+                <strong>PartNumber &nbsp; Description &nbsp; Qty &nbsp; Condition &nbsp; Priority &nbsp; Remark &nbsp; Alt</strong>
               </p>
               <v-textarea
                 v-model="pasteText"
@@ -282,7 +276,6 @@
 
               <!-- Description -->
               <v-text-field
-              class="mx-2"
                 v-model="row.description"
                 label="Description"
                 density="compact"
@@ -293,7 +286,6 @@
 
               <!-- Qty -->
               <v-text-field
-              class="mx-2"
                 v-model.number="row.qty"
                 label="Qty"
                 type="number"
@@ -306,7 +298,6 @@
 
               <!-- Condition -->
               <v-select
-              class="mx-2"
                 v-model="row.condition"
                 :items="['NE', 'OH', 'SV', 'AR']"
                 label="Cond."
@@ -317,20 +308,19 @@
                 style="max-width: 140px;"
               />
 
-              <!-- Fleet -->
-              <v-text-field
-                class="mx-2"
-                v-model="row.fleet"
-                label="Fleet"
-                density="compact"
-                variant="outlined"
-                hide-details
-                style="min-width: 100px; flex: 1;"
-              />
+              <v-select
+              v-model="row.priority"
+              :items="['Normal', 'Urgent', 'AOG']"
+              label="Priority"
+              density="compact"
+              variant="outlined"
+              hide-details
+
+              clearable
+            />
 
               <!-- Remark -->
               <v-text-field
-                class="mx-2"
                 v-model="row.remark"
                 label="Remark"
                 density="compact"
@@ -446,13 +436,11 @@ async function loadItems() {
   finally { loading.value = false }
 }
 
-const goToRfq = (pointerEvent, rowData) => {
-  // rowData contains { index, item, internalItem, columns }
-  const item = rowData.item; 
-  
-  // console.log("Clicked ID:", item.id);
-  router.push(`/rfqs/${item.id}`);
-};
+function goToRfq(pointerEvent: Event, rowData: { item: any }) {
+  if (rowData && rowData.item && rowData.item.id) {
+    navigateTo(`/rfqs/${rowData.item.id}`)
+  }
+}
 
 // ── Create Modal state ──
 const showCreate = ref(false)
@@ -466,15 +454,15 @@ interface ItemRow {
   description: string
   qty: number
   condition: string
-  fleet: string
   remark: string
+  priority: string
   alternatives: string[]
   altInput: string
   isExisting: boolean
 }
 
 function makeEmptyRow(): ItemRow {
-  return { partNumber: null, description: '', qty: 1, condition: '', fleet: '', remark: '', alternatives: [], altInput: '', isExisting: false }
+  return { partNumber: null, description: '', qty: 1, condition: '', remark: '',priority: '' as string, alternatives: [], altInput: '', isExisting: false }
 }
 
 const form = ref({
@@ -483,7 +471,7 @@ const form = ref({
   leadTime: '',
   date: '',
   notes: '',
-  priority: '' as string,
+  
   items: Array.from({ length: 10 }, makeEmptyRow) as ItemRow[],
 })
 
@@ -541,7 +529,6 @@ function onPartPicked(val: any, index: number) {
   if (!val) {
     row.isExisting = false
     row.description = ''
-    row.fleet = ''
     row.remark = ''
     row.alternatives = []
     return
@@ -549,7 +536,6 @@ function onPartPicked(val: any, index: number) {
   if (typeof val === 'object' && val.id) {
     row.isExisting = true
     row.description = val.description || ''
-    row.fleet = val.fleet || ''
     row.remark = val.remark || ''
     row.alternatives = (val.alternatives || []).map((a: any) => a.name)
   } else {
@@ -619,7 +605,7 @@ async function importFromPaste() {
     }
 
     // Detect header row
-    const firstLine = (lines[0] ?? '').toLowerCase()
+    const firstLine = (lines.length > 0 ? (lines[0] || '') : '').toLowerCase()
     const hasHeader = firstLine.includes('partnumber') || firstLine.includes('part number') || firstLine.includes('part_number') || firstLine.includes('p/n')
     const startIdx = hasHeader ? 1 : 0
 
@@ -627,15 +613,15 @@ async function importFromPaste() {
     for (let i = startIdx; i < lines.length; i++) {
       // Excel copies as tab-separated
       const cols = lines[i].split('\t')
-      if (cols.length === 0 || !cols[0]?.trim()) continue
+      if (cols.length === 0 || !(cols[0] || '').trim()) continue
 
-      const partNumber = cols[0]?.trim() || ''
-      const description = cols[1]?.trim() || ''
-      const qty = parseInt(cols[2]?.trim()) || 1
-      const condition = cols[3]?.trim().toUpperCase() || ''
-      const fleet = cols[4]?.trim() || ''
-      const remark = cols[5]?.trim() || ''
-      const alt = cols[6]?.trim() || ''
+      const partNumber = (cols[0] || '').trim()
+      const description = (cols[1] || '').trim()
+      const qty = parseInt((cols[2] || '').trim()) || 1
+      const condition = (cols[3] || '').trim().toUpperCase()
+      const priority = (cols[4] || '').trim()
+      const remark = (cols[5] || '').trim()
+      const alt = (cols[6] || '').trim()
 
       const alternatives = alt ? alt.split(';').map(a => a.trim()).filter(Boolean) : []
 
@@ -644,8 +630,8 @@ async function importFromPaste() {
         description,
         qty,
         condition,
-        fleet,
         remark,
+        priority,
         alternatives,
         altInput: '',
         isExisting: false,
@@ -673,7 +659,7 @@ async function importFromPaste() {
 
         if (match) {
           foundCount++
-          row.partNumber = { id: match.id, name: match.name, description: match.description, fleet: match.fleet, remark: match.remark, alternatives: match.alternatives }
+          row.partNumber = { id: match.id, name: match.name, description: match.description, remark: match.remark, alternatives: match.alternatives }
           row.isExisting = true
 
           // Import description from DB if the pasted description is empty
@@ -681,10 +667,6 @@ async function importFromPaste() {
             row.description = match.description
           }
 
-          // Import fleet from DB if the pasted fleet is empty
-          if (!row.fleet && match.fleet) {
-            row.fleet = match.fleet
-          }
 
           // Import remark from DB if the pasted remark is empty
           if (!row.remark && match.remark) {
@@ -728,7 +710,7 @@ function openCreateModal() {
     leadTime: '',
     date: '',
     notes: '',
-    priority: '',
+    // priority: '',
     items: Array.from({ length: 10 }, makeEmptyRow),
   }
   partCount.value = 10
@@ -808,12 +790,11 @@ async function submitRfq() {
           condition: localRow.condition || null,
         }))
 
-        // Update description, fleet, remark on part number if any provided
-        if (localRow.description || localRow.fleet || localRow.remark) {
+        // Update description, remark on part number if any provided
+        if (localRow.description ||  localRow.remark) {
           promises.push(api.put(`/partnumbers/${serverItem.partNumberId}`, {
             name: serverItem.partNumberName,
             description: localRow.description || null,
-            fleet: localRow.fleet || null,
             remark: localRow.remark || null,
             supplierId: null,
           }))

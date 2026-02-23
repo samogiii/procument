@@ -70,7 +70,7 @@
 
     <!-- Priority & Notes Row -->
     <v-row class="mb-5" dense>
-      <v-col cols="12" md="3">
+      <!-- <v-col cols="12" md="3">
         <v-card class="info-card pa-4">
           <div class="d-flex align-center gap-3">
             <v-avatar :color="rfq.priority === 'AOG' ? 'error' : rfq.priority === 'Urgent' ? 'warning' : 'secondary'" variant="tonal" size="40">
@@ -82,7 +82,7 @@
             </div>
           </div>
         </v-card>
-      </v-col>
+      </v-col> -->
       <v-col cols="12" md="9" v-if="rfq.notes">
         <v-card class="info-card pa-4">
           <div class="d-flex align-center gap-3">
@@ -125,6 +125,7 @@
           </v-menu> -->
           <VBtn prepend-icon="mdi-history" @click="showAudit = true" size="small" variant="tonal" color="secondary" v-if="isAdmin">Audit</VBtn>
           <VBtn v-if="isAdmin" prepend-icon="mdi-shield-account" @click="showPermissions = true" size="small" variant="tonal" color="secondary">Perms</VBtn>
+          <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
           <v-btn
             size="small"
             variant="tonal"
@@ -160,16 +161,16 @@
         <table class="excel-grid">
           <thead>
             <tr>
-              <th style="width: 44px; text-align: center;"></th>
-              <th style="width: 50px; text-align: center;">#</th>
-              <th style="width: 180px;">Part Number</th>
-              <th style="width: 180px;">Description</th>
-              <th style="width: 80px;">Qty</th>
-              <th style="width: 100px;">Condition</th>
-              <th style="width: 120px;">Fleet</th>
-              <th style="width: 140px;">Remark</th>
+              <th style="min-width: 60px; text-align: center;"></th>
+              <th style="min-width: 50px; text-align: center;">#</th>
+              <th style="min-width: 180px;">Part Number</th>
+              <th style="min-width: 180px;">Description</th>
+              <th style="min-width: 80px;">Qty</th>
+              <th style="min-width: 100px;">Condition</th>
+              <th style="min-width: 120px;">Priority</th>
+              <th style="min-width: 140px;">Remark</th>
               <th style="min-width: 200px;">Alternatives</th>
-              <th style="width: 120px;">Procurements</th>
+              <th style="min-width: 120px;">Procurements</th>
             </tr>
           </thead>
           <tbody>
@@ -208,12 +209,12 @@
                   </select>
                 </td>
                 <td>
-                  <input
-                    type="text"
-                    class="item-input"
-                    placeholder="Fleet"
-                    v-model="item.fleet"
-                  />
+                   <select class="item-input item-select" v-model="item.priority">
+                    <option value="AOG">AOG</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="Normal">Normal</option>
+                   </select>
+                 
                 </td>
                 <td>
                   <input
@@ -273,7 +274,7 @@
                     </div>
 
                     <!-- Linked Suppliers (from junction table) -->
-                    <div v-if="getLinkedSuppliers(item.partNumberId).length > 0" class="mb-3 d-flex flex-wrap align-center gap-1">
+                    <!-- <div v-if="getLinkedSuppliers(item.partNumberId).length > 0" class="mb-3 d-flex flex-wrap align-center gap-1">
                       <span class="text-caption text-medium-emphasis mr-1">Known suppliers:</span>
                       <v-chip
                         v-for="sup in getLinkedSuppliers(item.partNumberId)"
@@ -287,26 +288,26 @@
                       >
                         {{ sup.name }}
                       </v-chip>
-                    </div>
+                    </div> -->
 
                     <div class="quote-grid-scroll" v-if="getItemQuotes(item.id).length > 0">
                       <table class="quote-grid">
                         <thead>
                           <tr>
-                            <th style="min-width: 160px;">Supplier Name</th>
-                            <th style="width: 90px;">Condition</th>
-                            <th style="width: 130px;">Alt P/N</th>
-                            <th style="width: 70px;">Qty</th>
-                            <th style="min-width: 50px;">Unit</th>
-                            <th style="width: 110px;">Cost Price ($)</th>
-                            <th style="width: 120px;">Cert Type</th>
-                            <th style="width: 130px;">Tag Date</th>
-                            <th style="width: 110px;">Shipping Cost</th>
+                            <th style="min-width: 160px;">Supplier</th>
+                            <th style="min-width: 80px;">Cond</th>
+                            <th style="min-width: 130px;">Alt P/N</th>
+                            <th style="min-width: 70px;">Qty</th>
+                            <th style="min-width: 70px;">Unit</th>
+                            <th style="min-width: 110px;">Cost Price ($)</th>
+                            <th style="min-width: 120px;">Cert Type</th>
+                            <th style="min-width: 130px;">Tag Date</th>
+                            <th style="min-width: 110px;">Shipping Cost</th>
                             <th style="min-width: 120px;">Shipping Point</th>
                             
                             <th style="min-width: 80px;">LeadTime</th>
 
-                            <th style="width: 44px;"></th>
+                            <th style="min-width: 60px;"></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -650,6 +651,8 @@
       <AuditLogViewer :entity-name="'RFQ'" :entity-id="route.params.id as string" />
     </v-dialog>
 
+    <RfqPdfGenerator v-model="showPdf" :rfq="rfq" />
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
@@ -677,6 +680,7 @@ const snackbarColor = ref('success')
 // Dialogs
 const showPermissions = ref(false)
 const showAudit = ref(false)
+const showPdf = ref(false)
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
@@ -713,7 +717,7 @@ async function loadData() {
       alt: i.alt || '',
       qty: i.qty,
       condition: i.condition || '',
-      fleet: i.fleet || '',
+      priority: i.priority || '',
       remark: i.remark || '',
       alternatives: (i.alternatives || []).map((a: any) => ({ id: a.id, name: a.name }))
     }))
@@ -776,7 +780,7 @@ function addQuoteRow(itemId: number) {
     id: null,
     rfqItemId: itemId,
     supplierName: '',
-    qty: item?.qty || 1,
+    qty: 0,
     price: 0,
     condition: 'NE',
     alt: '',
@@ -784,7 +788,7 @@ function addQuoteRow(itemId: number) {
     tagDate: '',
     shippingCost: null,
     shippingPoint: '',
-    unit: '-',
+    unit: 'EA',
     leadTime: '',
   })
 }
@@ -834,15 +838,15 @@ async function saveAll() {
       const promises: Promise<any>[] = []
       promises.push(api.put(`/rfqs/items/${item.id}`, {
         alt: item.alt || null,
+        priority: item.priority || "noraml",
         qty: item.qty,
         condition: item.condition || null
       }))
       // Save fleet/remark on the part number
-      if (item.fleet || item.remark) {
+      if ( item.remark) {
         promises.push(api.put(`/partnumbers/${item.partNumberId}`, {
           name: item.partNumberName,
           description: item.description || null,
-          fleet: item.fleet || null,
           remark: item.remark || null,
           supplierId: null,
         }))
@@ -1119,6 +1123,7 @@ function showSnack(text: string, color: string) {
   position: sticky;
   top: 0;
   z-index: 2;
+  white-space: nowrap;
 }
 
 .excel-grid tbody td {
@@ -1263,6 +1268,7 @@ function showSnack(text: string, color: string) {
   padding: 6px 8px;
   border-bottom: 1px solid rgba(51, 65, 85, 0.5);
   text-align: left;
+  white-space: nowrap;
 }
 
 .quote-grid tbody td {

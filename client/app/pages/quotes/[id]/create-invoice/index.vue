@@ -285,6 +285,7 @@ function showSnack(text: string, color: string) {
   padding: 10px 12px;
   border-bottom: 2px solid rgba(51, 65, 85, 0.8);
   text-align: left;
+  white-space: nowrap;
 }
 
 .excel-grid tbody td {

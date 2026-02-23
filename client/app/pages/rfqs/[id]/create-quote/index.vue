@@ -528,6 +528,7 @@ function showSnack(text: string, color: string) {
   position: sticky;
   top: 0;
   z-index: 2;
+  white-space: nowrap;
 }
 
 .excel-grid tbody td {

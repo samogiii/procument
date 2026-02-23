@@ -26,8 +26,9 @@ body {
 
 /* ─── Utility ─── */
 .text-gradient {
-  background: linear-gradient(135deg, #1565C0, #00BCD4);
+  background: linear-gradient(90deg, #60a5fa, #a78bfa);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -83,8 +84,14 @@ body {
 }
 
 /* ─── Responsive Tables ─── */
+.v-table__wrapper,
+.v-data-table__wrapper {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
 .v-data-table {
-  overflow-x: auto;
+  max-width: 100%;
 }
 
 /* ─── Responsive Dialogs ─── */

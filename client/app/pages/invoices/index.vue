@@ -32,7 +32,7 @@
         Permissions {{ selectedInvoices.length > 0 ? `(${selectedInvoices.length})` : '' }}
       </v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
-        Create Invoice
+        Create Proforma Invoice
       </v-btn>
     </template>
 
