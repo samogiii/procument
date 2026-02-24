@@ -231,7 +231,6 @@ public class PartNumbersController : ControllerBase
                 p.Id,
                 p.Name,
                 p.Description,
-                p.Fleet,
                 p.Remark,
                 p.CreatedAt,
                 SupplierName = p.Supplier != null ? p.Supplier.Name : null,
@@ -258,7 +257,6 @@ public class PartNumbersController : ControllerBase
                 p.Id,
                 p.Name,
                 p.Description,
-                p.Fleet,
                 p.Remark,
                 Alternatives = p.Alternatives.Select(a => new { a.Id, a.Name }).ToList()
             })
@@ -274,7 +272,6 @@ public class PartNumbersController : ControllerBase
         {
             Name = dto.Name,
             Description = dto.Description,
-            Fleet = dto.Fleet,
             Remark = dto.Remark,
             SupplierId = dto.SupplierId,
             CreatedAt = DateTime.UtcNow
@@ -304,7 +301,6 @@ public class PartNumbersController : ControllerBase
             {
                 // Update fields if provided
                 if (!string.IsNullOrWhiteSpace(item.Description)) existing.Description = item.Description;
-                if (!string.IsNullOrWhiteSpace(item.Fleet)) existing.Fleet = item.Fleet;
                 if (!string.IsNullOrWhiteSpace(item.Remark)) existing.Remark = item.Remark;
 
                 // Add new alternatives
@@ -330,7 +326,6 @@ public class PartNumbersController : ControllerBase
                 {
                     Name = trimmedName,
                     Description = item.Description,
-                    Fleet = item.Fleet,
                     Remark = item.Remark,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -364,7 +359,6 @@ public class PartNumbersController : ControllerBase
 
         entity.Name = dto.Name;
         entity.Description = dto.Description;
-        entity.Fleet = dto.Fleet;
         entity.Remark = dto.Remark;
         entity.SupplierId = dto.SupplierId;
 
@@ -431,7 +425,7 @@ public class PartNumberDto
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string? Fleet { get; set; }
+    public string? Priority { get; set; }
     public string? Remark { get; set; }
     public long? SupplierId { get; set; }
 }
@@ -450,7 +444,7 @@ public class BulkPartNumberItem
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string? Fleet { get; set; }
+    public string? Priority { get; set; }
     public string? Remark { get; set; }
     public List<string> Alternatives { get; set; } = new();
 }

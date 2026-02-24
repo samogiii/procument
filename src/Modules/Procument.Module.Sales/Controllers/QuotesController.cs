@@ -79,6 +79,16 @@ public class QuotesController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    /// <summary>Update quote Type.</summary>
+    [HttpPatch("{id:long}/types")]
+    [Auditable("Quote", "UpdateStatus", CaptureBody = true)]
+    public async Task<IActionResult> UpdateQuoteType(long id, [FromBody] QuoteTypeDTO request)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var success = await _quoteService.UpdateQuoteTypeAsync(id, request.QuoteType,request.TypeAdditional, userId, isAdmin);
+        return success ? Ok() : NotFound();
+    }
+
     /// <summary>Delete a quote.</summary>
     [HttpDelete("{id:long}")]
     [Auditable("Quote", "Delete")]

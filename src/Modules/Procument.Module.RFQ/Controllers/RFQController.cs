@@ -78,4 +78,12 @@ public class RFQsController : ControllerBase
         var result = await _rfqService.AddItemAsync(id, request);
         return result == null ? NotFound() : Ok(result);
     }
+
+    /// <summary>Update the ExType of an RFQ.</summary>
+    [HttpPatch("{id:long}/extype")]
+    public async Task<IActionResult> UpdateExType(long id, [FromBody] UpdateExTypeRequest request)
+    {
+        var success = await _rfqService.UpdateExTypeAsync(id, request.ExType);
+        return success ? Ok() : NotFound();
+    }
 }

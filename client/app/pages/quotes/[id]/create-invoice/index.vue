@@ -4,9 +4,9 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
       <v-btn icon="mdi-arrow-left" variant="text" :to="`/quotes/${route.params.id}`" class="mr-1 flex-shrink-0" size="small" />
       <div class="min-width-0">
-        <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Invoice</h1>
+        <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Proforma Invoice</h1>
         <p class="text-caption text-medium-emphasis mt-1">
-          Select items from Quote #{{ quote?.quoteNumber }} to invoice.
+          Select items from Quote #{{ quote?.quoteNumber }} to create a proforma invoice.
         </p>
       </div>
     </div>
@@ -27,6 +27,7 @@
             v-model="dueDate"
             label="Due Date"
             type="date"
+            :min="today"
             density="compact"
             hide-details
             variant="outlined"
@@ -98,6 +99,7 @@
                   type="date"
                   class="inv-date-input"
                   v-model="selections[item.id].expectedDeliveryDate"
+                  :min="today"
                   :disabled="!selections[item.id]?.selected"
                 />
               </td>
@@ -128,6 +130,8 @@
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
+
+const today = new Date().toISOString().split('T')[0]
 
 // State
 const loading = ref(true)
@@ -230,12 +234,12 @@ async function createInvoice() {
     }
 
     const res = await api.post<any>('/invoices', payload)
-    showSnack('Invoice created successfully', 'success')
+    showSnack('Proforma Invoice created successfully', 'success')
     setTimeout(() => {
       router.push(`/invoices/${res.id}`)
     }, 500)
   } catch (e) {
-    showSnack('Failed to create invoice', 'error')
+    showSnack('Failed to create proforma invoice', 'error')
   } finally {
     saving.value = false
   }

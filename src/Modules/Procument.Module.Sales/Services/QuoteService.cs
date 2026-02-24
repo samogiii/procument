@@ -5,6 +5,7 @@ using Procument.Module.RFQ.Entities;
 using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Identity.Services;
+using Procument.Module.Sales.Enums;
 
 namespace Procument.Module.Sales.Services;
 
@@ -16,6 +17,7 @@ public interface IQuoteService
     Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin);
+    Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
 }
 
@@ -294,6 +296,8 @@ public class QuoteService : IQuoteService
         ValidUntil = q.ValidUntil,
         CreatedAt = q.CreatedAt,
         RFQId = q.RFQId,
+        Type = q.Type,
+        TypeAdditional = q.TypeAdditional,
         CustomerName = q.Customer.Name,
         UserName = q.User?.Name,
         Items = q.QuoteItems.Select(qi => new QuoteItemResponse
@@ -311,4 +315,20 @@ public class QuoteService : IQuoteService
             LeadTimeDays = qi.LeadTimeDays
         }).ToList()
     };
+
+    public async Task<bool> UpdateQuoteTypeAsync(long id, int? newType,string? additional, long userId, bool isAdmin)
+    {
+        
+        var quote = await _db.Set<Quote>().FindAsync(id);
+        if (quote == null) return false;
+
+        // Only owner or admin can change status
+        if (!isAdmin && quote.UserId != userId) return false;
+
+        quote.Type = newType;
+        quote.TypeAdditional = additional;
+        quote.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
+    }
 }

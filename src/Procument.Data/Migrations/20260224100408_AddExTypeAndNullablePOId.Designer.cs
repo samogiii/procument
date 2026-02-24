@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260224100408_AddExTypeAndNullablePOId")]
+    partial class AddExTypeAndNullablePOId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -403,13 +406,13 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<long?>("InvoiceId")
-                        .HasColumnType("bigint");
-
                     b.Property<string>("PONumber")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<long?>("RFQId")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -426,10 +429,10 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("InvoiceId");
-
                     b.HasIndex("PONumber")
                         .IsUnique();
+
+                    b.HasIndex("RFQId");
 
                     b.HasIndex("SupplierId");
 
@@ -885,11 +888,18 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrder", b =>
                 {
+                    b.HasOne("Procument.Module.RFQ.Entities.RFQHeader", "RFQ")
+                        .WithMany()
+                        .HasForeignKey("RFQId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Procument.Module.Catalog.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("RFQ");
 
                     b.Navigation("Supplier");
                 });

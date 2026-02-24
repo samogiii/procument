@@ -31,6 +31,7 @@
             v-model="validUntil"
             label="Valid Until"
             type="date"
+            :min="today"
             density="compact"
             hide-details
             variant="outlined"
@@ -226,6 +227,8 @@
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
+
+const today = new Date().toISOString().split('T')[0]
 
 // State
 const loading = ref(true)

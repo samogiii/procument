@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-1 flex-shrink-0" size="small" />
-      <h1 class="text-h6 text-sm-h5 font-weight-bold">Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">Proforma Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Status Chip with Dropdown -->
@@ -115,7 +115,7 @@ async function loadInvoice() {
   try {
     invoice.value = await api.get(`/invoices/${route.params.id}`)
   } catch {
-    showSnack('Failed to load invoice', 'error')
+    showSnack('Failed to load proforma invoice', 'error')
   }
 }
 

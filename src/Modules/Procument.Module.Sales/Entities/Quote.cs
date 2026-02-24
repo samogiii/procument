@@ -1,6 +1,7 @@
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Module.RFQ.Entities;
+using Procument.Module.Sales.Enums;
 using Procument.Shared.Entities;
 
 namespace Procument.Module.Sales.Entities;
@@ -13,6 +14,8 @@ public class Quote : BaseEntity
     public DateTime? ValidUntil { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ModifyAt { get; set; }
+    public int? Type { get; set; }
+    public string? TypeAdditional { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

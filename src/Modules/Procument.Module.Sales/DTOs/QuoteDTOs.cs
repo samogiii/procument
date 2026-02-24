@@ -1,4 +1,7 @@
+using Procument.Module.Sales.Enums;
+
 namespace Procument.Module.Sales.DTOs;
+
 
 // ──── Request DTOs ────
 
@@ -36,6 +39,8 @@ public class QuoteResponse
     public DateTime? ValidUntil { get; set; }
     public DateTime CreatedAt { get; set; }
     public long RFQId { get; set; }
+    public int? Type { get; set; }
+    public string? TypeAdditional { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string? UserName { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();

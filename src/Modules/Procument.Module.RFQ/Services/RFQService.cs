@@ -16,6 +16,7 @@ public interface IRFQService
     Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
+    Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
 }
 
 public class RFQService : IRFQService
@@ -84,7 +85,7 @@ public class RFQService : IRFQService
             UserId = request.UserId,
             CreatedAt = request.CreatedAt,
             Notes = request.Notes,
-            Priority = request.Priority
+            ExType = request.ExType,
         };
 
         _db.Set<RFQHeader>().Add(rfq);
@@ -97,7 +98,8 @@ public class RFQService : IRFQService
             {
                 RFQId = rfq.Id,
                 PartNumberId = pn.Id,
-                Qty = 1
+                Qty = 1,
+                
             };
             _db.Set<RFQItem>().Add(item);
         }
@@ -169,7 +171,7 @@ public class RFQService : IRFQService
             .Include(r => r.User)
             .Include(r => r.RFQItems)
                 .ThenInclude(i => i.PartNumber)
-                    .ThenInclude(pn => pn.Alternatives);
+                    .ThenInclude(pn => pn.Alternatives).OrderBy(x=> x.Id);
 
         if (!isAdmin)
         {
@@ -194,7 +196,7 @@ public class RFQService : IRFQService
         }
 
         var rfqs = await query
-            .OrderByDescending(r => r.CreatedAt)
+            .OrderByDescending(r => r.Id)
             .ToListAsync();
 
         return rfqs.Select(MapToResponse).ToList();
@@ -213,7 +215,8 @@ public class RFQService : IRFQService
 
         item.Alt = request.Alt;
         item.Qty = request.Qty;
-        
+        item.Priority = request.Priority;
+        item.Note = request.Note;
         item.Condition = request.Condition;
 
         await _db.SaveChangesAsync();
@@ -226,8 +229,9 @@ public class RFQService : IRFQService
             Description = item.PartNumber.Description,
             Alt = item.Alt,
             Qty = item.Qty,
+            Priority = item.Priority,
+            Note = item.Note,
             Condition = item.Condition,
-            Fleet = item.PartNumber.Fleet,
             Remark = item.PartNumber.Remark,
             Alternatives = item.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
@@ -292,7 +296,8 @@ public class RFQService : IRFQService
             PartNumberId = partNumber.Id,
             Qty = request.Qty,
             Condition = request.Condition,
-            Alt = request.Alt
+            Alt = request.Alt,
+            Note = request.Note,
         };
         _db.Set<RFQItem>().Add(item);
         await _db.SaveChangesAsync();
@@ -308,11 +313,21 @@ public class RFQService : IRFQService
             Description = partNumber.Description,
             Alt = item.Alt,
             Qty = item.Qty,
+            Note = item.Note,
+            Priority = item.Priority,
             Condition = item.Condition,
-            Fleet = partNumber.Fleet,
             Remark = partNumber.Remark,
             Alternatives = partNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
+    }
+
+    public async Task<bool> UpdateExTypeAsync(long rfqId, int? exType)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return false;
+        rfq.ExType = exType;
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     // ──── Mapping ────
@@ -328,7 +343,7 @@ public class RFQService : IRFQService
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,
         Notes = rfq.Notes,
-        Priority = rfq.Priority,
+        ExType = rfq.ExType,
         Items = rfq.RFQItems.Select(i => new RFQItemResponse
         {
             Id = i.Id,
@@ -337,8 +352,9 @@ public class RFQService : IRFQService
             Description = i.PartNumber.Description,
             Alt = i.Alt,
             Qty = i.Qty,
+            Priority = i.Priority,
+            Note = i.Note,
             Condition = i.Condition,
-            Fleet = i.PartNumber.Fleet,
             Remark = i.PartNumber.Remark,
             Alternatives = i.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         }).ToList()

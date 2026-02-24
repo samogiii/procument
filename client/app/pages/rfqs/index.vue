@@ -35,13 +35,17 @@
           :loading="loading"
           :items-per-page="10"
           hover
+          :row-props="getRowProps"
           @click:row="goToRfq"
         >
           <template #item.createdAt="{ item }">
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.leadTime="{ item }">
-            {{ new Date(item.leadTime).toLocaleDateString() }}
+            <span :style="isLeadTimeUrgent(item.leadTime) ? 'color: #ef4444; font-weight: 600;' : ''">
+              {{ new Date(item.leadTime).toLocaleDateString() }}
+              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
+            </span>
           </template>
           <!-- <template #item.priority="{ item }">
             <v-chip
@@ -118,6 +122,7 @@
               label="Date *"
               prepend-inner-icon="mdi-calendar"
               type="date"
+              :max="today"
               :rules="[rules.required]"
               class="mb-3"
             />
@@ -127,12 +132,25 @@
               label="Lead Time *"
               prepend-inner-icon="mdi-calendar"
               type="date"
+              :min="today"
               :rules="[rules.required]"
               class="mb-3"
             />
 
             <!-- Priority -->
             
+
+            <!-- Ex Type -->
+            <v-select
+              v-model="form.exType"
+              :items="exTypeOptions"
+              item-title="label"
+              item-value="value"
+              label="Ex Type"
+              prepend-inner-icon="mdi-swap-horizontal"
+              clearable
+              class="mb-3"
+            />
 
             <!-- Notes -->
             <v-textarea
@@ -407,6 +425,22 @@ const api = useApi()
 const authStore = useAuthStore()
 const router = useRouter()
 
+const today = new Date().toISOString().split('T')[0]
+
+function isLeadTimeUrgent(dateStr: string) {
+  if (!dateStr) return false
+  const diff = new Date(dateStr).getTime() - Date.now()
+  const daysLeft = diff / (1000 * 60 * 60 * 24)
+  return daysLeft >= 0 && daysLeft <= 5
+}
+
+function getRowProps({ item }: { item: any }) {
+  if (isLeadTimeUrgent(item.leadTime)) {
+    return { class: 'lead-time-urgent-row' }
+  }
+  return {}
+}
+
 const isAdmin = computed(() => authStore.isAdmin)
 const showBulkPerms = ref(false)
 
@@ -465,13 +499,19 @@ function makeEmptyRow(): ItemRow {
   return { partNumber: null, description: '', qty: 1, condition: '', remark: '',priority: '' as string, alternatives: [], altInput: '', isExisting: false }
 }
 
+const exTypeOptions = [
+  { label: 'Ex Warehouse', value: 0 },
+  { label: 'Ex Vendor', value: 1 },
+  { label: 'Ex Customer', value: 2 },
+]
+
 const form = ref({
   name: '',
   customerName: null as any,
   leadTime: '',
   date: '',
   notes: '',
-  
+  exType: null as number | null,
   items: Array.from({ length: 10 }, makeEmptyRow) as ItemRow[],
 })
 
@@ -710,7 +750,7 @@ function openCreateModal() {
     leadTime: '',
     date: '',
     notes: '',
-    // priority: '',
+    exType: null,
     items: Array.from({ length: 10 }, makeEmptyRow),
   }
   partCount.value = 10
@@ -769,7 +809,7 @@ async function submitRfq() {
       createdAt: form.value.date ? new Date(form.value.date).toISOString() : new Date().toISOString(),
       userId: authStore.user?.id || 0,
       notes: form.value.notes || null,
-      priority: form.value.priority || null,
+      exType: form.value.exType,
       partNumbers,
     }
 
@@ -822,3 +862,16 @@ async function submitRfq() {
   }
 }
 </script>
+
+<style scoped>
+:deep(.lead-time-urgent-row) {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-left: 3px solid #ef4444;
+}
+:deep(.lead-time-urgent-row:hover) {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+:deep(.lead-time-urgent-row td) {
+  color: #fca5a5 !important;
+}
+</style>

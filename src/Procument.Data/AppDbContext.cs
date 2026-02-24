@@ -356,11 +356,7 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.SupplierId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-      entity.HasOne(e => e.RFQ)
-                .WithMany()
-                .HasForeignKey(e => e.RFQId)
-                .OnDelete(DeleteBehavior.Restrict);
-
+      entity.HasIndex(e => e.InvoiceId);
       entity.HasIndex(e => e.SupplierId);
       entity.HasIndex(e => e.CreatedAt);
     });
@@ -376,7 +372,8 @@ public class AppDbContext : DbContext
       entity.HasOne(e => e.PurchaseOrder)
                 .WithMany(po => po.POItems)
                 .HasForeignKey(e => e.POId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
 
       entity.HasOne(e => e.ProcumentRecord)
                 .WithMany(pr => pr.POItems)

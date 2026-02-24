@@ -1,6 +1,6 @@
 <template>
   <DataListPage
-    title="Invoices"
+    title="Proforma Invoices"
     :headers="headers"
     api-url="/invoices"
     :status-options="['All', 'Pending', 'Paid', 'Overdue']"
@@ -39,12 +39,12 @@
     <v-dialog v-model="showCreateDialog" max-width="600">
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center">
-          Create Invoice
+          Create Proforma Invoice
           <v-spacer />
           <v-btn icon="mdi-close" variant="text" @click="showCreateDialog = false" />
         </v-card-title>
         <v-card-text>
-          <p class="mb-4 text-grey-lighten-1">Select a Quote to create an invoice from.</p>
+          <p class="mb-4 text-grey-lighten-1">Select a Quote to create a proforma invoice from.</p>
           
           <v-autocomplete
             v-model="selectedQuote"
@@ -102,7 +102,7 @@ const selectedQuote = ref<any>(null)
 const selectedInvoices = ref<number[]>([])
 
 const headers = [
-  { title: 'Invoice #', key: 'invoiceNumber' },
+  { title: 'Proforma Invoice #', key: 'invoiceNumber' },
   { title: 'Customer', key: 'customerName' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },

@@ -106,7 +106,7 @@ const navItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard' },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs' },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes' },
-  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices' },
+  { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices' },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders' },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog' },
 ]

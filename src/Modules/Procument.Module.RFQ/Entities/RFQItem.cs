@@ -9,6 +9,8 @@ public class RFQItem : BaseEntity
     public double Qty { get; set; }
     public string? Condition { get; set; }
     public string? Unit { get; set; }
+    public string? Priority { get; set; }
+    public string? Note { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

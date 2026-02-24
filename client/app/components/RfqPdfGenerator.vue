@@ -133,15 +133,13 @@ const renderedHtml = computed(() => {
         <div style="background:#f8fafc; border-radius:8px; padding:14px 16px; border:1px solid #e2e8f0;">
           <p style="margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#94a3b8; font-weight:600;">RFQ Details</p>
           <p style="margin:3px 0; color:#334155;"><strong>Name:</strong> ${r.name || '—'}</p>
-          <p style="margin:3px 0; color:#334155;"><strong>Customer:</strong> ${r.customerName || '—'}</p>
-          <p style="margin:3px 0; color:#334155;"><strong>Prepared by:</strong> ${r.userName || '—'}</p>
+
         </div>
       </div>
       <div style="flex:1;">
         <div style="background:#f8fafc; border-radius:8px; padding:14px 16px; border:1px solid #e2e8f0;">
           <p style="margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#94a3b8; font-weight:600;">Dates</p>
           <p style="margin:3px 0; color:#334155;"><strong>Created:</strong> ${rfqDate}</p>
-          <p style="margin:3px 0; color:#334155;"><strong>Lead Time:</strong> ${leadTime}</p>
           <p style="margin:3px 0; color:#334155;"><strong>Items:</strong> ${items.length} part${items.length !== 1 ? 's' : ''}</p>
         </div>
       </div>
@@ -155,8 +153,8 @@ const renderedHtml = computed(() => {
       : '<span style="color:#ccc;">—</span>'
 
     const bgColor = i % 2 === 0 ? '#ffffff' : '#f8fafc'
-    const priorityColor = (it.priority || '').toLowerCase() === 'aog' ? '#ef4444'
-      : (it.priority || '').toLowerCase() === 'urgent' ? '#f59e0b' : '#64748b'
+    // const priorityColor = (it.priority || '').toLowerCase() === 'aog' ? '#ef4444'
+    //   : (it.priority || '').toLowerCase() === 'urgent' ? '#f59e0b' : '#64748b'
 
     return `
     <tr style="background:${bgColor};">
@@ -165,7 +163,6 @@ const renderedHtml = computed(() => {
       <td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#475569;">${it.description || '—'}</td>
       <td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:center; font-weight:600;">${it.qty || 1}</td>
       <td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:center;"><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${it.condition || '—'}</span></td>
-      <td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:center;"><span style="color:${priorityColor};font-weight:600;font-size:11px;">${it.priority || 'Normal'}</span></td>
     </tr>
     <tr style="background:${bgColor};">
       <td colspan="6" style="padding:2px 12px 10px 48px; border-bottom:1px solid #e2e8f0; font-size:11px; color:#64748b; line-height:1.8;">
@@ -184,7 +181,6 @@ const renderedHtml = computed(() => {
           <th style="padding:11px 12px; text-align:left; font-weight:600; color:#e2e8f0; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Description</th>
           <th style="padding:11px 12px; text-align:center; font-weight:600; color:#e2e8f0; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; width:60px;">Qty</th>
           <th style="padding:11px 12px; text-align:center; font-weight:600; color:#e2e8f0; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; width:80px;">Cond.</th>
-          <th style="padding:11px 12px; text-align:center; font-weight:600; color:#e2e8f0; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; width:80px;">Priority</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>

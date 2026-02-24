@@ -28,14 +28,17 @@
         </v-card>
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="info-card pa-4">
+        <v-card class="info-card pa-4" :style="isLeadTimeUrgent(rfq.leadTime) ? 'border: 1px solid #ef4444 !important;' : ''">
           <div class="d-flex align-center gap-3">
-            <v-avatar color="info" variant="tonal" size="40">
-              <v-icon icon="mdi-clock-outline" size="20" />
+            <v-avatar :color="isLeadTimeUrgent(rfq.leadTime) ? 'error' : 'info'" variant="tonal" size="40">
+              <v-icon :icon="isLeadTimeUrgent(rfq.leadTime) ? 'mdi-alert' : 'mdi-clock-outline'" size="20" />
             </v-avatar>
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Lead Time</p>
-              <p class="text-body-2 font-weight-medium mb-0">{{ rfq.leadTime ? new Date(rfq.leadTime).toLocaleDateString() : '—' }}</p>
+              <p class="text-body-2 font-weight-medium mb-0" :style="isLeadTimeUrgent(rfq.leadTime) ? 'color: #ef4444;' : ''">
+                {{ rfq.leadTime ? new Date(rfq.leadTime).toLocaleDateString() : '—' }}
+                <v-icon v-if="isLeadTimeUrgent(rfq.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
+              </p>
             </div>
           </div>
         </v-card>
@@ -62,6 +65,46 @@
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Total Items</p>
               <p class="text-body-2 font-weight-medium mb-0">{{ rfq.items?.length || 0 }} parts</p>
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="3">
+        <v-card class="info-card pa-4">
+          <div class="d-flex align-center gap-3">
+            <v-avatar :color="exTypeOptions.find(e => e.value === rfq.exType)?.color || 'grey'" variant="tonal" size="40">
+              <v-icon icon="mdi-tag-outline" size="20" />
+            </v-avatar>
+            <div>
+              <p class="text-caption text-medium-emphasis mb-0">ExType</p>
+              <v-menu>
+                <template #activator="{ props: menuProps }">
+                  <v-chip
+                    :color="exTypeOptions.find(e => e.value === rfq.exType)?.color || 'grey'"
+                    v-bind="menuProps"
+                    class="cursor-pointer mt-1"
+                    append-icon="mdi-chevron-down"
+                    size="small"
+                  >
+                    {{ exTypeOptions.find(e => e.value === rfq.exType)?.label || 'Not Set' }}
+                  </v-chip>
+                </template>
+                <v-list density="compact" style="min-width: 180px">
+                  <v-list-subheader>Change ExType</v-list-subheader>
+                  <v-list-item
+                    v-for="opt in exTypeOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :active="rfq.exType === opt.value"
+                    @click="changeExType(opt.value)"
+                  >
+                    <template #prepend>
+                      <v-icon :icon="opt.icon" :color="opt.color" size="18" />
+                    </template>
+                    <v-list-item-title>{{ opt.label }}</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
             </div>
           </div>
         </v-card>
@@ -170,6 +213,7 @@
               <th style="min-width: 120px;">Priority</th>
               <th style="min-width: 140px;">Remark</th>
               <th style="min-width: 200px;">Alternatives</th>
+              <th style="min-width: 200px;">Note</th>
               <th style="min-width: 120px;">Procurements</th>
             </tr>
           </thead>
@@ -246,6 +290,14 @@
                       @click.stop="openAddAlt(item)"
                     />
                   </div>
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    class="item-input"
+                    placeholder="Note"
+                    v-model="item.note"
+                  />
                 </td>
                 <td class="cell-status">
                   <span :class="getQuoteCount(item.id) > 0 ? 'text-success' : 'text-medium-emphasis'">
@@ -390,6 +442,7 @@
                                 type="date"
                                 class="quote-input"
                                 v-model="quote.tagDate"
+                                :min="today"
                               />
                             </td>
                             <td>
@@ -664,6 +717,15 @@
 const route = useRoute()
 const api = useApi()
 
+const today = new Date().toISOString().split('T')[0]
+
+function isLeadTimeUrgent(dateStr: string) {
+  if (!dateStr) return false
+  const diff = new Date(dateStr).getTime() - Date.now()
+  const daysLeft = diff / (1000 * 60 * 60 * 24)
+  return daysLeft >= 0 && daysLeft <= 5
+}
+
 // State
 const rfq = ref<any>({})
 const editableItems = ref<any[]>([])
@@ -684,6 +746,12 @@ const showPdf = ref(false)
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
+
+const exTypeOptions = [
+  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 1, label: 'Ex Vendor', icon: 'mdi-truck-outline', color: 'info' },
+  { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
+]
 
 const statusColor = computed(() => {
   const s = rfq.value.status?.toLowerCase()
@@ -715,6 +783,7 @@ async function loadData() {
       partNumberName: i.partNumberName,
       partNumberId: i.partNumberId,
       alt: i.alt || '',
+      note: i.note,
       qty: i.qty,
       condition: i.condition || '',
       priority: i.priority || '',
@@ -739,6 +808,19 @@ async function loadData() {
     console.error('Failed to load RFQ:', e)
   } finally {
     loading.value = false
+  }
+}
+
+// ──── ExType ────
+
+async function changeExType(newType: number) {
+  if (newType === rfq.value.exType) return
+  try {
+    await api.patch(`/rfqs/${route.params.id}/extype`, { exType: newType })
+    rfq.value.exType = newType
+    showSnack('ExType updated', 'success')
+  } catch {
+    showSnack('Failed to update ExType', 'error')
   }
 }
 
@@ -839,6 +921,7 @@ async function saveAll() {
       promises.push(api.put(`/rfqs/items/${item.id}`, {
         alt: item.alt || null,
         priority: item.priority || "noraml",
+        note: item.note,
         qty: item.qty,
         condition: item.condition || null
       }))

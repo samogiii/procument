@@ -6,7 +6,6 @@ public class PartNumber : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string? Fleet { get; set; }
     public string? Remark { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

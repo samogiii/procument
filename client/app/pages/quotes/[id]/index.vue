@@ -33,8 +33,7 @@
               <v-list-item-title>{{ s.label }}</v-list-item-title>
             </v-list-item>
           </v-list>
-        </v-menu>
-
+      </v-menu>
         <v-btn prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>

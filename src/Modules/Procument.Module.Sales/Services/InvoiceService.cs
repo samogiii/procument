@@ -6,6 +6,7 @@ using Procument.Shared.Audit;
 using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Entities;
+using Procument.Module.Purchasing.Entities;
 
 namespace Procument.Module.Sales.Services;
 
@@ -139,6 +140,8 @@ public class InvoiceService : IInvoiceService
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.Quote)
+            .Include(i => i.InvoiceItems)
+                .ThenInclude(ii => ii.QuoteItem)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (invoice == null) return false;
@@ -148,6 +151,43 @@ public class InvoiceService : IInvoiceService
         if (status == "Paid" && invoice.PaidDate == null)
         {
             invoice.PaidDate = DateTime.UtcNow;
+        }
+
+        // When Proforma Invoice is Paid, auto-create POItems (without PO)
+        if (status == "Paid")
+        {
+            foreach (var ii in invoice.InvoiceItems)
+            {
+                // Check if a POItem already exists for this InvoiceItem
+                var exists = await _db.Set<POItem>().AnyAsync(p => p.InvoiceItemId == ii.Id);
+                if (exists) continue;
+
+                var quoteItem = ii.QuoteItem;
+                var procumentRecordId = quoteItem?.ProcumentRecordId;
+
+                // Get supplier from procurement record if available
+                long? supplierId = null;
+                if (procumentRecordId.HasValue)
+                {
+                    var proc = await _db.Set<ProcumentRecord>().FindAsync(procumentRecordId.Value);
+                    supplierId = proc?.SupplierId;
+                }
+
+                var poItem = new POItem
+                {
+                    POId = null, // No PO assigned yet
+                    InvoiceItemId = ii.Id,
+                    ProcumentId = procumentRecordId,
+                    PartNumberId = quoteItem?.PartNumberId,
+                    SupplierId = supplierId,
+                    Qty = ii.Qty,
+                    UnitPrice = ii.UnitPrice,
+                    TotalPrice = ii.TotalPrice,
+                    Condition = quoteItem?.Condition,
+                };
+
+                _db.Set<POItem>().Add(poItem);
+            }
         }
 
         await _db.SaveChangesAsync();

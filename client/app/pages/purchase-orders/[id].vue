@@ -17,7 +17,7 @@
         </StatCard>
       </v-col>
       <v-col cols="12" md="4">
-        <StatCard icon="mdi-file-document-outline" color="info" label="Linked RFQ" :value="po.rfqName" />
+        <StatCard icon="mdi-file-document-outline" color="info" label="Proforma Invoice" :value="po.invoiceNumber || '—'" />
       </v-col>
     </v-row>
 

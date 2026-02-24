@@ -136,7 +136,7 @@ const resultType = ref<'success' | 'error'>('success')
 const entityLabel = computed(() => {
   if (props.entityName === 'RFQ') return 'RFQ'
   if (props.entityName === 'Quote') return 'Quote'
-  return 'Invoice'
+  return 'Proforma Invoice'
 })
 
 const entityTitleKey = computed(() => {

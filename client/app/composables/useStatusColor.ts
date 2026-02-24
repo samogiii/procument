@@ -10,7 +10,7 @@ const STATUS_COLORS: Record<string, string> = {
     Accepted: 'success',
     Rejected: 'error',
 
-    // Invoice
+    // Proforma Invoice
     Pending: 'warning',
     Paid: 'success',
     Overdue: 'error',

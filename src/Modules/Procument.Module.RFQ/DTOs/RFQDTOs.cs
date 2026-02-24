@@ -13,7 +13,7 @@ public class CreateRFQRequest
     public string CustomerName { get; set; } = string.Empty;
     public long UserId { get; set; }
     public string? Notes { get; set; }
-    public string? Priority { get; set; }
+    public int? ExType { get; set; }
     public List<string> PartNumbers { get; set; } = new();
 }
 
@@ -21,8 +21,14 @@ public class UpdateRFQItemRequest
 {
     public string? Alt { get; set; }
     public double Qty { get; set; }
-   
+    public string? Priority { get; set; }
+    public string? Note { get; set; }
     public string? Condition { get; set; }
+}
+
+public class UpdateExTypeRequest
+{
+    public int? ExType { get; set; }
 }
 
 public class AddRFQItemRequest
@@ -31,6 +37,8 @@ public class AddRFQItemRequest
     public string? Description { get; set; }
     public double Qty { get; set; } = 1;
     public string? Condition { get; set; }
+    public string? Priority { get; set; }
+    public string? Note { get; set; }
     public string? Alt { get; set; }
     public List<string> Alternatives { get; set; } = new();
 }
@@ -48,7 +56,8 @@ public class RFQResponse
     public string? UserName { get; set; }
     public long? UserId { get; set; }
     public string? Notes { get; set; }
-    public string? Priority { get; set; }
+    public int? ExType { get; set; }
+
     public List<RFQItemResponse> Items { get; set; } = new();
     public List<UserResponse> Views { get; set; } = new();
     public List<UserResponse> Edits { get; set; } = new();
@@ -63,8 +72,9 @@ public class RFQItemResponse
     public string? Description { get; set; }
     public double Qty { get; set; }
     public string? Condition { get; set; }
-    public string? Fleet { get; set; }
+    public string? Priority { get; set; }
     public string? Remark { get; set; }
+    public string? Note { get; set; }
     public List<AlternativeResponse> Alternatives { get; set; } = new();
 }
 
