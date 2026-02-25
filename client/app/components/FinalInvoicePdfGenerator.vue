@@ -3,22 +3,21 @@
     <v-card class="d-flex flex-column" style="background: #1a1a2e;">
       <v-toolbar color="rgba(30,30,60,0.95)" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Purchase Order PDF — {{ pdfData.poNumber || '' }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ pdfData.invoiceNumber || '' }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
-      <!-- Controls -->
       <v-container fluid class="flex-shrink-0 py-4">
         <v-row dense align="center">
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyLocation" label="Location" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
@@ -42,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ poId: number | string }>()
+const props = defineProps<{ invoiceId: number | string }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
 
@@ -51,7 +50,7 @@ const companyLocation = ref('Selangor, Malaysia')
 const companyPhone = ref('+86 130 0214 1119')
 const companyWebsite = ref('www.company.com')
 const companyEmail = ref('info@company.com')
-const footerText = ref('If you have any questions about this purchase order, please contact')
+const footerText = ref('If you have any questions about this invoice, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
 const loadingData = ref(false)
@@ -70,13 +69,13 @@ function onLogoUpload(files: File[] | File | null) {
 }
 
 watch(model, async (open) => {
-  if (open && !pdfData.value.poNumber) {
+  if (open && !pdfData.value.invoiceNumber) {
     loadingData.value = true
     try {
-      const data = await api.get<any>(`/purchase-orders/${props.poId}/pdf-data`)
+      const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
       pdfData.value = data
-      if (data.importDetail?.comments) comments.value = data.importDetail.comments
-    } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
+      if (data.notes) comments.value = data.notes
+    } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
     finally { loadingData.value = false }
   }
 })
@@ -85,24 +84,19 @@ const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 
 
 const renderedHtml = computed(() => {
   const d = pdfData.value
-  if (!d.poNumber) return ''
+  if (!d.invoiceNumber) return ''
 
   const items: any[] = d.items || []
-  const vendor = d.vendor || {}
-  const deliver = d.deliverTo || {}
-  const importDtl = d.importDetail || {}
   const logo = logoDataUrl.value
+  const logoImg = logo ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />` : ''
 
-  const logoImg = logo
-    ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />`
-    : ''
-
-  const poDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'
+  const invDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'
+  const dueDate = d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—'
   const subtotal = Number(d.totalAmount) || 0
-  const totalShipping = items.reduce((s: number, it: any) => s + (Number(it.shippingCost) || 0), 0)
+  const shippingCost = Number(d.shippingCost) || 0
   const tax = taxAmount.value || 0
   const other = otherAmount.value || 0
-  const grandTotal = subtotal + totalShipping + tax + other
+  const grandTotal = subtotal + shippingCost + tax + other
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : '#f7f8fa'
@@ -110,13 +104,14 @@ const renderedHtml = computed(() => {
     <tr style="background:${bg};">
       <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
       <td style="padding:9px 12px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
-      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>
+      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:110px;">${it.description || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.qty}</td>
       <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
       <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.certification || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
-      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.note || ''}</td>
+      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.trackNumber || ''}</td>
+      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.carrier || ''}</td>
     </tr>`
   }).join('')
 
@@ -133,37 +128,32 @@ const renderedHtml = computed(() => {
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-size:24px; font-weight:700; color:#1a2744; letter-spacing:1px;">PURCHASE ORDER</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${d.poNumber}</div>
+          <div style="font-size:24px; font-weight:700; color:#1a2744; letter-spacing:1px;">INVOICE</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${d.invoiceNumber}</div>
         </div>
       </div>
 
-      <!-- Accent line -->
       <div style="height:3px; background:linear-gradient(90deg,#1a2744 0%,#2563eb 40%,#e5e7eb 100%); margin:0 40px;"></div>
 
       <!-- ═══ Meta Row ═══ -->
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
-        <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${poDate}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Ordered By:</span> ${d.orderedBy || '—'}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Status:</span> ${d.status || '—'}</div>
+        <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${invDate}</div>
+        <div><span style="font-weight:600; color:#1a2744;">Due Date:</span> ${dueDate}</div>
+        <div><span style="font-weight:600; color:#1a2744;">Proforma Ref:</span> ${d.proformaInvoiceNumber || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
 
-      <!-- ═══ Vendor / Deliver To ═══ -->
+      <!-- ═══ Bill To / Ship To ═══ -->
       <div style="display:flex; gap:0; margin:0 40px 20px 40px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Vendor</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${vendor.name || '—'}</div>
-          ${vendor.address ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${vendor.address}</div>` : ''}
-          ${vendor.phone ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${vendor.phone}</div>` : ''}
-          ${vendor.email ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${vendor.email}</div>` : ''}
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Bill To</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          ${d.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerBillTo}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Deliver To</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${deliver.name || '—'}</div>
-          ${deliver.address ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${deliver.address}</div>` : ''}
-          ${deliver.phone ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${deliver.phone}</div>` : ''}
-          ${deliver.email ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${deliver.email}</div>` : ''}
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Ship To</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          ${d.customerShipTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerShipTo}</div>` : (d.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerBillTo}</div>` : '')}
         </div>
       </div>
 
@@ -172,31 +162,29 @@ const renderedHtml = computed(() => {
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
             <tr style="background:#1a2744;">
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">#</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">#</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">Qty</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">CD</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">Qty</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">CD</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Cert</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Note</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Track #</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Carrier</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
 
-      <!-- ═══ Totals + Shipping Info ═══ -->
+      <!-- ═══ Totals + Shipping ═══ -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin:0 40px 16px 40px;">
         <div style="font-size:11px; max-width:340px;">
-          ${importDtl.fedExAccount || importDtl.shippingMethod || importDtl.incoterms ? `
+          ${d.shippingMethod ? `
             <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
               <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">Shipping Information</div>
-              ${importDtl.shippingMethod ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Shipping Method:</span> ${importDtl.shippingMethod}</div>` : ''}
-              ${importDtl.incoterms ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Incoterms:</span> ${importDtl.incoterms}</div>` : ''}
-              ${importDtl.fedExAccount ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">FedEx Account:</span> ${importDtl.fedExAccount}</div>` : ''}
-              ${importDtl.servicePriority ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Service Priority:</span> ${importDtl.servicePriority}</div>` : ''}
+              <div style="color:#1a2744;"><span style="font-weight:600;">Shipping Method:</span> ${d.shippingMethod}</div>
             </div>
           ` : ''}
         </div>
@@ -204,7 +192,7 @@ const renderedHtml = computed(() => {
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
             <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(subtotal)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(totalShipping)}</td></tr>
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(shippingCost)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">$${fmt(other)}</td></tr>
             <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(grandTotal)}</td></tr>
           </table>
@@ -234,7 +222,7 @@ async function downloadPdf() {
     const html2pdf = (await import('html2pdf.js')).default
     await html2pdf().set({
       margin: 0,
-      filename: `${pdfData.value.poNumber || 'PO'}.pdf`,
+      filename: `${pdfData.value.invoiceNumber || 'FinalInvoice'}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },

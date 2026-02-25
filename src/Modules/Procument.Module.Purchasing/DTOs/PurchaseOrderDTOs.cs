@@ -72,6 +72,8 @@ public class POImportDetailResponse
     public string? BankCountry { get; set; }
     public string? FedExAccount { get; set; }
     public string? CourierName { get; set; }
+    public string? ShippingMethod { get; set; }
+    public string? Incoterms { get; set; }
     public string? Notes { get; set; }
 }
 
@@ -84,6 +86,8 @@ public class SavePOImportDetailRequest
     public string? BankCountry { get; set; }
     public string? FedExAccount { get; set; }
     public string? CourierName { get; set; }
+    public string? ShippingMethod { get; set; }
+    public string? Incoterms { get; set; }
     public string? Notes { get; set; }
 }
 

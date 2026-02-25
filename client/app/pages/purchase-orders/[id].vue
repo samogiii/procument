@@ -91,6 +91,12 @@
           <v-col cols="12" md="3">
             <v-text-field v-model="importForm.courierName" label="Courier Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
           </v-col>
+          <v-col cols="12" md="3">
+            <v-select v-model="importForm.shippingMethod" :items="['Air', 'Sea', 'Ground', 'Express']" label="Shipping Method" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-select v-model="importForm.incoterms" :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']" label="Incoterms" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable />
+          </v-col>
           <v-col cols="12">
             <v-textarea v-model="importForm.notes" label="Notes" variant="outlined" density="compact" hide-details rows="2" auto-grow :readonly="!editingImport" />
           </v-col>
@@ -265,7 +271,8 @@ const savingImport = ref(false)
 const importForm = ref<any>({
   bankName: '', bankAccountNumber: '', bankAddress: '',
   bankCity: '', bankCountry: '',
-  fedExAccount: '', courierName: '', notes: '',
+  fedExAccount: '', courierName: '',
+  shippingMethod: '', incoterms: '', notes: '',
 })
 const importOriginal = ref<any>({})
 

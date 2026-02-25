@@ -36,6 +36,8 @@ public class AppDbContext : DbContext
   public DbSet<QuoteItem> QuoteItems => Set<QuoteItem>();
   public DbSet<Invoice> Invoices => Set<Invoice>();
   public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
+  public DbSet<FinalInvoice> FinalInvoices => Set<FinalInvoice>();
+  public DbSet<FinalInvoiceItem> FinalInvoiceItems => Set<FinalInvoiceItem>();
 
   // Purchasing
   public DbSet<ProcumentRecord> ProcumentRecords => Set<ProcumentRecord>();
@@ -313,6 +315,57 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.InvoiceId);
     });
 
+    modelBuilder.Entity<FinalInvoice>(entity =>
+    {
+      entity.ToTable("FinalInvoices");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.InvoiceNumber).HasMaxLength(100);
+      entity.Property(e => e.Status).HasMaxLength(50);
+      entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.ShippingCost).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.ShippingMethod).HasMaxLength(100);
+      entity.Property(e => e.Notes).HasMaxLength(2000);
+
+      entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+
+      entity.HasOne(e => e.ProformaInvoice)
+                .WithMany()
+                .HasForeignKey(e => e.ProformaInvoiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.Customer)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ProformaInvoiceId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<FinalInvoiceItem>(entity =>
+    {
+      entity.ToTable("FinalInvoiceItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.TrackNumber).HasMaxLength(500);
+      entity.Property(e => e.Carrier).HasMaxLength(200);
+
+      entity.HasOne(e => e.FinalInvoice)
+                .WithMany(fi => fi.Items)
+                .HasForeignKey(e => e.FinalInvoiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.FinalInvoiceId);
+    });
+
     // ───────────────────────────────────────────
     // Purchasing Module
     // ───────────────────────────────────────────
@@ -402,6 +455,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.BankCountry).HasMaxLength(200);
       entity.Property(e => e.FedExAccount).HasMaxLength(200);
       entity.Property(e => e.CourierName).HasMaxLength(200);
+      entity.Property(e => e.ShippingMethod).HasMaxLength(100);
+      entity.Property(e => e.Incoterms).HasMaxLength(100);
       entity.Property(e => e.Notes).HasMaxLength(2000);
 
       entity.HasOne(e => e.PurchaseOrder)

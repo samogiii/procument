@@ -200,6 +200,8 @@ public class PurchaseOrdersController : ControllerBase
             {
                 fedExAccount = po.ImportDetail.FedExAccount ?? "",
                 servicePriority = po.ImportDetail.CourierName ?? "",
+                shippingMethod = po.ImportDetail.ShippingMethod ?? "",
+                incoterms = po.ImportDetail.Incoterms ?? "",
                 comments = po.ImportDetail.Notes ?? "",
             } : null,
             items,
@@ -231,6 +233,8 @@ public class PurchaseOrdersController : ControllerBase
             BankCountry = detail.BankCountry,
             FedExAccount = detail.FedExAccount,
             CourierName = detail.CourierName,
+            ShippingMethod = detail.ShippingMethod,
+            Incoterms = detail.Incoterms,
             Notes = detail.Notes,
         });
     }
@@ -258,6 +262,8 @@ public class PurchaseOrdersController : ControllerBase
         detail.BankCountry = request.BankCountry;
         detail.FedExAccount = request.FedExAccount;
         detail.CourierName = request.CourierName;
+        detail.ShippingMethod = request.ShippingMethod;
+        detail.Incoterms = request.Incoterms;
         detail.Notes = request.Notes;
 
         await _db.SaveChangesAsync();
@@ -273,6 +279,8 @@ public class PurchaseOrdersController : ControllerBase
             BankCountry = detail.BankCountry,
             FedExAccount = detail.FedExAccount,
             CourierName = detail.CourierName,
+            ShippingMethod = detail.ShippingMethod,
+            Incoterms = detail.Incoterms,
             Notes = detail.Notes,
         });
     }

@@ -11,6 +11,8 @@ public class POImportDetail : BaseEntity
     public string? BankCountry { get; set; }
     public string? FedExAccount { get; set; }
     public string? CourierName { get; set; }
+    public string? ShippingMethod { get; set; }  // Air, Sea, Ground, Express
+    public string? Incoterms { get; set; }       // FOB, CIF, EXW, DDP, etc.
     public string? Notes { get; set; }
 
     // Foreign key

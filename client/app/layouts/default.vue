@@ -184,6 +184,7 @@ const navItems = [
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs' },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes' },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices' },
+  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices' },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders' },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog' },
 ]

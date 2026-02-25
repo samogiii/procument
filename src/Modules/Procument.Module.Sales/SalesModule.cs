@@ -9,6 +9,7 @@ public static class SalesModule
     {
         services.AddScoped<IQuoteService, QuoteService>();
         services.AddScoped<IInvoiceService, InvoiceService>();
+        services.AddScoped<IFinalInvoiceService, FinalInvoiceService>();
         return services;
     }
 }
