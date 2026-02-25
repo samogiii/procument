@@ -9,6 +9,7 @@ public class PurchaseOrder : BaseEntity
     public decimal? TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? RejectionNote { get; set; }
 
     // Foreign keys
     public long SupplierId { get; set; }
@@ -17,4 +18,5 @@ public class PurchaseOrder : BaseEntity
     // Navigation
     public Supplier Supplier { get; set; } = null!;
     public ICollection<POItem> POItems { get; set; } = new List<POItem>();
+    public POImportDetail? ImportDetail { get; set; }
 }

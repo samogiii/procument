@@ -68,7 +68,10 @@ public class InvoiceService : IInvoiceService
             .Include(i => i.Quote)
             .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.QuoteItem)
-                .ThenInclude(qi => qi.PartNumber)
+                .ThenInclude(qi => qi!.PartNumber)
+            .Include(i => i.InvoiceItems)
+                .ThenInclude(ii => ii.QuoteItem)
+                .ThenInclude(qi => qi!.ProcumentRecord)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (invoice == null) return null;
@@ -136,7 +139,7 @@ public class InvoiceService : IInvoiceService
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin)
+    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, string? rejectionNote = null)
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.Quote)
@@ -147,10 +150,22 @@ public class InvoiceService : IInvoiceService
         if (invoice == null) return false;
         if (!isAdmin && invoice.Quote.UserId != userId) return false;
 
+        // Only admin can change to Paid, Rejected, or Overdue
+        if ((status == "Paid" || status == "Rejected" || status == "Overdue") && !isAdmin) return false;
+
         invoice.Status = status;
         if (status == "Paid" && invoice.PaidDate == null)
         {
             invoice.PaidDate = DateTime.UtcNow;
+        }
+
+        if (status == "Rejected")
+        {
+            invoice.RejectionNote = rejectionNote;
+        }
+        else
+        {
+            invoice.RejectionNote = null;
         }
 
         // When Proforma Invoice is Paid, auto-create POItems (without PO)
@@ -165,13 +180,19 @@ public class InvoiceService : IInvoiceService
                 var quoteItem = ii.QuoteItem;
                 var procumentRecordId = quoteItem?.ProcumentRecordId;
 
-                // Get supplier from procurement record if available
+                // Get supplier and cost price from procurement record if available
+                ProcumentRecord? proc = null;
                 long? supplierId = null;
                 if (procumentRecordId.HasValue)
                 {
-                    var proc = await _db.Set<ProcumentRecord>().FindAsync(procumentRecordId.Value);
+                    proc = await _db.Set<ProcumentRecord>().FindAsync(procumentRecordId.Value);
                     supplierId = proc?.SupplierId;
                 }
+
+                // Use supplier's cost price from ProcumentRecord, fallback to invoice price
+                var costUnitPrice = (proc?.UnitPrice.HasValue == true)
+                    ? (decimal)proc.UnitPrice.Value
+                    : ii.UnitPrice;
 
                 var poItem = new POItem
                 {
@@ -181,8 +202,8 @@ public class InvoiceService : IInvoiceService
                     PartNumberId = quoteItem?.PartNumberId,
                     SupplierId = supplierId,
                     Qty = ii.Qty,
-                    UnitPrice = ii.UnitPrice,
-                    TotalPrice = ii.TotalPrice,
+                    UnitPrice = costUnitPrice,
+                    TotalPrice = ii.Qty * costUnitPrice,
                     Condition = quoteItem?.Condition,
                 };
 
@@ -216,6 +237,9 @@ public class InvoiceService : IInvoiceService
         QuoteId = i.QuoteId,
         CustomerId = i.CustomerId,
         CustomerName = i.Customer?.Name ?? "",
+        CustomerBillTo = i.Customer?.BillTo,
+        CustomerShipTo = i.Customer?.ShipTo,
+        RejectionNote = i.RejectionNote,
         Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
         {
             Id = ii.Id,
@@ -225,7 +249,9 @@ public class InvoiceService : IInvoiceService
             ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
             QuoteItemId = ii.QuoteItemId,
             PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
-            Description = ii.QuoteItem?.PartNumber?.Description ?? ""
+            Description = ii.QuoteItem?.PartNumber?.Description ?? "",
+            Condition = ii.QuoteItem?.Condition,
+            CertName = ii.QuoteItem?.ProcumentRecord?.CertName
         }).ToList() ?? new()
     };
 

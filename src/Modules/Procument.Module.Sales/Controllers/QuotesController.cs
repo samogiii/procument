@@ -1,7 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Sales.DTOs;
+using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
+using Procument.Module.Identity.Entities;
+using Procument.Shared.Entities;
 using System.Security.Claims;
 
 using Procument.Shared.Audit;
@@ -14,10 +18,12 @@ namespace Procument.Module.Sales.Controllers;
 public class QuotesController : ControllerBase
 {
     private readonly IQuoteService _quoteService;
+    private readonly DbContext _db;
 
-    public QuotesController(IQuoteService quoteService)
+    public QuotesController(IQuoteService quoteService, DbContext db)
     {
         _quoteService = quoteService;
+        _db = db;
     }
 
     /// <summary>Get all quotes (paginated).</summary>
@@ -65,8 +71,56 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateQuoteStatusRequest request)
     {
         var (userId, isAdmin) = GetUserContext();
-        var success = await _quoteService.UpdateStatusAsync(id, request.Status, userId, isAdmin);
-        return success ? Ok() : NotFound();
+        // Get quote info before update for notification
+        var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);
+        if (quote == null) return NotFound();
+
+        var success = await _quoteService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.RejectionNote);
+        if (!success) return BadRequest("Status change not allowed.");
+
+        // Create notifications
+        if (request.Status == "Rejected" || request.Status == "Accepted")
+        {
+            // Notify the quote owner
+            var ownerUser = await _db.Set<Quote>().Where(q => q.Id == id).Select(q => q.UserId).FirstOrDefaultAsync();
+            if (ownerUser > 0)
+            {
+                var msg = request.Status == "Rejected"
+                    ? $"Quote {quote.QuoteNumber} has been rejected."
+                    : $"Quote {quote.QuoteNumber} has been accepted.";
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = ownerUser,
+                    Type = request.Status == "Rejected" ? "Rejection" : "StatusChange",
+                    EntityName = "Quote",
+                    EntityId = id,
+                    EntityNumber = quote.QuoteNumber,
+                    Message = msg,
+                    RejectionNote = request.RejectionNote
+                });
+                await _db.SaveChangesAsync();
+            }
+        }
+        else if (request.Status == "Sent")
+        {
+            // Notify all admins that a quote needs review
+            var adminIds = await _db.Set<User>().Where(u => u.Role == "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
+            foreach (var aid in adminIds)
+            {
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = aid,
+                    Type = "PendingApproval",
+                    EntityName = "Quote",
+                    EntityId = id,
+                    EntityNumber = quote.QuoteNumber,
+                    Message = $"Quote {quote.QuoteNumber} is pending approval."
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok();
     }
 
     /// <summary>Update quote items (re-select procurement records).</summary>

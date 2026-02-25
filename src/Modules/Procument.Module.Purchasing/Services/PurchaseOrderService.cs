@@ -12,7 +12,7 @@ public interface IPurchaseOrderService
     Task<POResponse?> GetByIdAsync(long id);
     Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync();
     Task<POResponse> CreateAsync(CreatePORequest request);
-    Task<bool> UpdateStatusAsync(long id, string newStatus);
+    Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, string? rejectionNote = null);
     Task<bool> UpdateItemAsync(UpdatePOItemRequest request);
     Task<bool> DeleteAsync(long id);
 }
@@ -94,6 +94,8 @@ public class PurchaseOrderService : IPurchaseOrderService
             .Include(po => po.POItems)
                 .ThenInclude(i => i.ProcumentRecord)
                     .ThenInclude(pr => pr!.Supplier)
+            .Include(po => po.POItems)
+                .ThenInclude(i => i.TrackNumbers)
             .OrderByDescending(po => po.CreatedAt)
             .ToListAsync();
 
@@ -112,6 +114,8 @@ public class PurchaseOrderService : IPurchaseOrderService
             .Include(po => po.POItems)
                 .ThenInclude(i => i.ProcumentRecord)
                     .ThenInclude(pr => pr!.Supplier)
+            .Include(po => po.POItems)
+                .ThenInclude(i => i.TrackNumbers)
             .FirstOrDefaultAsync(po => po.Id == id);
 
         if (po == null) return null;
@@ -163,12 +167,25 @@ public class PurchaseOrderService : IPurchaseOrderService
         return (await GetByIdAsync(po.Id))!;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string newStatus)
+    public async Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, string? rejectionNote = null)
     {
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return false;
 
+        // Only admin can change PO status
+        if (!isAdmin) return false;
+
         po.Status = newStatus;
+
+        if (newStatus == "Rejected")
+        {
+            po.RejectionNote = rejectionNote;
+        }
+        else
+        {
+            po.RejectionNote = null;
+        }
+
         await _db.SaveChangesAsync();
         return true;
     }
@@ -291,6 +308,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         SupplierName = po.Supplier?.Name ?? "",
         InvoiceId = po.InvoiceId,
         InvoiceNumber = invoiceNumber,
+        RejectionNote = po.RejectionNote,
         Items = po.POItems.Select(i => new POItemResponse
         {
             Id = i.Id,
@@ -304,6 +322,15 @@ public class PurchaseOrderService : IPurchaseOrderService
             Condition = i.Condition,
             SupplierId = i.SupplierId,
             SupplierName = i.ProcumentRecord?.Supplier?.Name ?? po.Supplier?.Name ?? "",
+            TrackNumbers = (i.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => new TrackNumberResponse
+            {
+                Id = t.Id,
+                POItemId = t.POItemId,
+                TrackNumber = t.TrackNumber,
+                Carrier = t.Carrier,
+                Notes = t.Notes,
+                CreatedAt = t.CreatedAt,
+            }).ToList(),
         }).ToList()
     };
 }

@@ -6,7 +6,26 @@
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold d-flex align-center gap-2">
           RFQ #{{ route.params.id }}
-          <v-chip :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
+          <v-menu>
+            <template #activator="{ props: menuProps }">
+              <v-chip :color="statusColor" size="small" class="ml-1 cursor-pointer" v-bind="menuProps" append-icon="mdi-chevron-down">{{ rfq.status || 'Open' }}</v-chip>
+            </template>
+            <v-list density="compact" style="min-width: 160px">
+              <v-list-subheader>Change Status</v-list-subheader>
+              <v-list-item
+                v-for="s in rfqStatuses"
+                :key="s.value"
+                :value="s.value"
+                :active="rfq.status === s.value"
+                @click="changeRfqStatus(s.value)"
+              >
+                <template #prepend>
+                  <v-icon :icon="s.icon" :color="s.color" size="18" />
+                </template>
+                <v-list-item-title>{{ s.label }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
         </h1>
         <p class="text-caption text-medium-emphasis mt-1 text-truncate" v-if="rfq.name">{{ rfq.name }}</p>
       </div>
@@ -209,6 +228,7 @@
               <th style="min-width: 180px;">Part Number</th>
               <th style="min-width: 180px;">Description</th>
               <th style="min-width: 80px;">Qty</th>
+              <th style="min-width: 80px;">Unit</th>
               <th style="min-width: 100px;">Condition</th>
               <th style="min-width: 120px;">Priority</th>
               <th style="min-width: 140px;">Remark</th>
@@ -238,6 +258,14 @@
                     v-model.number="item.qty"
                     min="1"
                   />
+                </td>
+                <td>
+                  <select class="item-input item-select" v-model="item.unit">
+                    <option value="">—</option>
+                    <option value="EA">EA</option>
+                    <option value="Meter">METER</option>
+                    <option value="Kg">KG</option>
+                  </select>
                 </td>
                 <td>
                   <select class="item-input item-select" v-model="item.condition">
@@ -358,7 +386,7 @@
                             <th style="min-width: 120px;">Shipping Point</th>
                             
                             <th style="min-width: 80px;">LeadTime</th>
-
+                            <th style="min-width: 160px;">Note</th>
                             <th style="min-width: 60px;"></th>
                           </tr>
                         </thead>
@@ -470,6 +498,14 @@
                                 class="quote-input"
                                 placeholder="e.g. 5 days"
                                 v-model="quote.leadTime"
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                class="quote-input"
+                                placeholder="Note..."
+                                v-model="quote.note"
                               />
                             </td>
                             <td class="text-center">
@@ -608,6 +644,15 @@
                 :items="['NE', 'OH', 'SV', 'AR','RP', 'NS','FN','IN']"
                 label="Condition"
                 prepend-inner-icon="mdi-tag-outline"
+                clearable
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-select
+                v-model="addItemForm.unit"
+                :items="['EA', 'Meter', 'Kg']"
+                label="Unit"
+                prepend-inner-icon="mdi-ruler"
                 clearable
               />
             </v-col>
@@ -753,12 +798,29 @@ const exTypeOptions = [
   { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
 ]
 
+const rfqStatuses = [
+  { value: 'Open', label: 'Open', icon: 'mdi-folder-open-outline', color: 'primary' },
+  { value: 'In Progress', label: 'In Progress', icon: 'mdi-progress-clock', color: 'info' },
+  { value: 'Quoted', label: 'Quoted', icon: 'mdi-file-document-check-outline', color: 'warning' },
+  { value: 'Completed', label: 'Completed', icon: 'mdi-check-circle-outline', color: 'success' },
+  { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-close-circle-outline', color: 'error' },
+]
+
 const statusColor = computed(() => {
-  const s = rfq.value.status?.toLowerCase()
-  if (s === 'closed') return 'success'
-  if (s === 'cancelled') return 'error'
-  return 'primary'
+  const found = rfqStatuses.find(s => s.value === rfq.value.status)
+  return found?.color || 'primary'
 })
+
+async function changeRfqStatus(newStatus: string) {
+  if (newStatus === rfq.value.status) return
+  try {
+    await api.patch(`/rfqs/${route.params.id}/status`, { status: newStatus })
+    rfq.value.status = newStatus
+    showSnack(`Status changed to ${newStatus}`, 'success')
+  } catch {
+    showSnack('Failed to change status', 'error')
+  }
+}
 
 const totalQuotes = computed(() => supplierQuotes.value.length)
 
@@ -784,6 +846,7 @@ async function loadData() {
       partNumberId: i.partNumberId,
       alt: i.alt || '',
       note: i.note,
+      unit: i.unit || '',
       qty: i.qty,
       condition: i.condition || '',
       priority: i.priority || '',
@@ -923,7 +986,8 @@ async function saveAll() {
         priority: item.priority || "noraml",
         note: item.note,
         qty: item.qty,
-        condition: item.condition || null
+        condition: item.condition || null,
+        unit: item.unit || null
       }))
       // Save fleet/remark on the part number
       if ( item.remark) {
@@ -955,6 +1019,7 @@ async function saveAll() {
         shippingPoint: q.shippingPoint || null,
         unit: q.unit || null,
         leadTime: q.leadTime || null,
+        note: q.note || null,
       }))
 
     if (quotesToSave.length > 0) {
@@ -990,6 +1055,7 @@ const addItemForm = ref({
   description: '',
   qty: 1,
   condition: '' as string,
+  unit: '' as string,
   alternatives: [] as string[],
   isExisting: false,
 })
@@ -1000,6 +1066,7 @@ function openAddItemDialog() {
     description: '',
     qty: 1,
     condition: '',
+    unit: '',
     alternatives: [],
     isExisting: false,
   }
@@ -1078,6 +1145,7 @@ async function submitAddItem() {
       description: addItemForm.value.description || null,
       qty: addItemForm.value.qty,
       condition: addItemForm.value.condition || null,
+      unit: addItemForm.value.unit || null,
       alt: null,
       alternatives: addItemForm.value.alternatives,
     })

@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Sales.DTOs;
+using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
+using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
+using Procument.Shared.Entities;
 using System.Security.Claims;
 
 namespace Procument.Module.Sales.Controllers;
@@ -13,10 +17,12 @@ namespace Procument.Module.Sales.Controllers;
 public class InvoicesController : ControllerBase
 {
     private readonly IInvoiceService _invoiceService;
+    private readonly DbContext _db;
 
-    public InvoicesController(IInvoiceService invoiceService)
+    public InvoicesController(IInvoiceService invoiceService, DbContext db)
     {
         _invoiceService = invoiceService;
+        _db = db;
     }
 
     [HttpGet]
@@ -49,8 +55,59 @@ public class InvoicesController : ControllerBase
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateInvoiceStatusRequest request)
     {
         var (userId, isAdmin) = GetUserContext();
-        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin);
-        return success ? Ok() : NotFound();
+        // Get invoice info for notification
+        var invoice = await _invoiceService.GetByIdAsync(id, userId, isAdmin);
+        if (invoice == null) return NotFound();
+
+        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.RejectionNote);
+        if (!success) return BadRequest("Status change not allowed.");
+
+        // Create notifications
+        if (request.Status == "Rejected" || request.Status == "Paid")
+        {
+            // Notify the invoice owner (via quote)
+            var ownerUserId = await _db.Set<Invoice>()
+                .Where(i => i.Id == id)
+                .Select(i => i.Quote.UserId)
+                .FirstOrDefaultAsync();
+            if (ownerUserId > 0)
+            {
+                var msg = request.Status == "Rejected"
+                    ? $"Proforma Invoice {invoice.InvoiceNumber} has been rejected."
+                    : $"Proforma Invoice {invoice.InvoiceNumber} has been marked as Paid.";
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = ownerUserId,
+                    Type = request.Status == "Rejected" ? "Rejection" : "StatusChange",
+                    EntityName = "Invoice",
+                    EntityId = id,
+                    EntityNumber = invoice.InvoiceNumber,
+                    Message = msg,
+                    RejectionNote = request.RejectionNote
+                });
+                await _db.SaveChangesAsync();
+            }
+        }
+        else if (request.Status == "Pending")
+        {
+            // Notify admins
+            var adminIds = await _db.Set<User>().Where(u => u.Role == "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
+            foreach (var aid in adminIds)
+            {
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = aid,
+                    Type = "PendingApproval",
+                    EntityName = "Invoice",
+                    EntityId = id,
+                    EntityNumber = invoice.InvoiceNumber,
+                    Message = $"Proforma Invoice {invoice.InvoiceNumber} is pending approval."
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok();
     }
 
     [HttpPost("permissions")]

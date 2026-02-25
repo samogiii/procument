@@ -17,6 +17,7 @@ public interface IRFQService
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
+    Task<bool> UpdateStatusAsync(long rfqId, string status);
 }
 
 public class RFQService : IRFQService
@@ -218,6 +219,7 @@ public class RFQService : IRFQService
         item.Priority = request.Priority;
         item.Note = request.Note;
         item.Condition = request.Condition;
+        item.Unit = request.Unit;
 
         await _db.SaveChangesAsync();
 
@@ -231,6 +233,7 @@ public class RFQService : IRFQService
             Qty = item.Qty,
             Priority = item.Priority,
             Note = item.Note,
+            Unit = item.Unit,
             Condition = item.Condition,
             Remark = item.PartNumber.Remark,
             Alternatives = item.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
@@ -298,6 +301,7 @@ public class RFQService : IRFQService
             Condition = request.Condition,
             Alt = request.Alt,
             Note = request.Note,
+            Unit = request.Unit,
         };
         _db.Set<RFQItem>().Add(item);
         await _db.SaveChangesAsync();
@@ -314,6 +318,7 @@ public class RFQService : IRFQService
             Alt = item.Alt,
             Qty = item.Qty,
             Note = item.Note,
+            Unit = item.Unit,
             Priority = item.Priority,
             Condition = item.Condition,
             Remark = partNumber.Remark,
@@ -330,12 +335,22 @@ public class RFQService : IRFQService
         return true;
     }
 
+    public async Task<bool> UpdateStatusAsync(long rfqId, string status)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return false;
+        rfq.Status = status;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     // ──── Mapping ────
 
     private static RFQResponse MapToResponse(RFQHeader rfq) => new()
     {
         Id = rfq.Id,
         Name = rfq.Name,
+        Status = rfq.Status,
         LeadTime = rfq.LeadTime,
         CreatedAt = rfq.CreatedAt,
         CustomerName = rfq.Customer.Name,
@@ -354,6 +369,7 @@ public class RFQService : IRFQService
             Qty = i.Qty,
             Priority = i.Priority,
             Note = i.Note,
+            Unit = i.Unit,
             Condition = i.Condition,
             Remark = i.PartNumber.Remark,
             Alternatives = i.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()

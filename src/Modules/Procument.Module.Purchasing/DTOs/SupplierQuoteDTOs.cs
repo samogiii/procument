@@ -20,6 +20,7 @@ public class SaveSupplierQuoteRequest
     public double? UnitPrice { get; set; }
     public double? TotalPrice { get; set; }
     public DateOnly? TagDate { get; set; }
+    public string? Note { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -48,4 +49,5 @@ public class SupplierQuoteResponse
     public double? UnitPrice { get; set; }
     public double? TotalPrice { get; set; }
     public DateOnly? TagDate { get; set; }
+    public string? Note { get; set; }
 }

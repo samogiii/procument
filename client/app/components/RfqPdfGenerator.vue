@@ -206,6 +206,8 @@ const renderedHtml = computed(() => {
             <div>
               <h1 style="margin:0; font-size:22px; color:#1565c0;">${header}</h1>
               <p style="margin:2px 0 0; font-size:12px; color:#888;">Aviation Procurement</p>
+              <p style="margin:2px 0 0; font-size:10px; color:#aaa;">Unit 1203, 12/F, Tower 1, Lippo Centre, 89 Queensway, Admiralty, Hong Kong</p>
+              <p style="margin:1px 0 0; font-size:10px; color:#aaa;">Tel: +852 1234 5678 &nbsp;|&nbsp; Email: info@company.com</p>
             </div>
           </div>
           <div style="text-align:right;">
@@ -238,6 +240,8 @@ const renderedHtml = computed(() => {
             <div>
               <h1 style="margin:0; font-size:20px; font-weight:700;">${header}</h1>
               <p style="margin:2px 0 0; font-size:12px; opacity:0.7;">Aviation Procurement</p>
+              <p style="margin:2px 0 0; font-size:10px; opacity:0.5;">Unit 1203, 12/F, Tower 1, Lippo Centre, 89 Queensway, Admiralty, Hong Kong</p>
+              <p style="margin:1px 0 0; font-size:10px; opacity:0.5;">Tel: +852 1234 5678 &nbsp;|&nbsp; Email: info@company.com</p>
             </div>
           </div>
           <div style="text-align:right;">
@@ -267,7 +271,11 @@ const renderedHtml = computed(() => {
       <div style="display:flex; justify-content:space-between; align-items:flex-end; padding-bottom:12px; border-bottom:1px solid #e0e0e0;">
         <div style="display:flex; align-items:center; gap:12px;">
           ${logoImg}
-          <span style="font-size:16px; font-weight:600; color:#555;">${header}</span>
+          <div>
+            <span style="font-size:16px; font-weight:600; color:#555;">${header}</span>
+            <p style="margin:2px 0 0; font-size:10px; color:#aaa;">Unit 1203, 12/F, Tower 1, Lippo Centre, 89 Queensway, Admiralty, Hong Kong</p>
+            <p style="margin:1px 0 0; font-size:10px; color:#aaa;">Tel: +852 1234 5678 &nbsp;|&nbsp; Email: info@company.com</p>
+          </div>
         </div>
         <div style="text-align:right;">
           <span style="font-size:18px; font-weight:700; color:#333;">RFQ</span>

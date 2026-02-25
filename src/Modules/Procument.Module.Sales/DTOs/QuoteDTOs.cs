@@ -26,6 +26,7 @@ public class CreateQuoteItemRequest
 public class UpdateQuoteStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public string? RejectionNote { get; set; }
 }
 
 // ──── Response DTOs ────
@@ -42,7 +43,10 @@ public class QuoteResponse
     public int? Type { get; set; }
     public string? TypeAdditional { get; set; }
     public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerBillTo { get; set; }
+    public string? CustomerShipTo { get; set; }
     public string? UserName { get; set; }
+    public string? RejectionNote { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();
 }
 

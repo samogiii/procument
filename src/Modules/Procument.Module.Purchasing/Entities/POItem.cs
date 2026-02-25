@@ -21,4 +21,5 @@ public class POItem : BaseEntity
     public PurchaseOrder? PurchaseOrder { get; set; }
     public ProcumentRecord? ProcumentRecord { get; set; }
     public PartNumber? PartNumber { get; set; }
+    public ICollection<POItemTrackNumber> TrackNumbers { get; set; } = new List<POItemTrackNumber>();
 }

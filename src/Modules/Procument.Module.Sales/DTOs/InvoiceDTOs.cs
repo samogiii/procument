@@ -20,6 +20,7 @@ public class CreateInvoiceItemRequest
 public class UpdateInvoiceStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public string? RejectionNote { get; set; }
 }
 
 public class InvoiceResponse
@@ -35,6 +36,9 @@ public class InvoiceResponse
     public long QuoteId { get; set; }
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerBillTo { get; set; }
+    public string? CustomerShipTo { get; set; }
+    public string? RejectionNote { get; set; }
 
     public List<InvoiceItemResponse> Items { get; set; } = new();
 }
@@ -49,4 +53,6 @@ public class InvoiceItemResponse
     public long? QuoteItemId { get; set; }
     public string PartNumberName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? Condition { get; set; }
+    public string? CertName { get; set; }
 }

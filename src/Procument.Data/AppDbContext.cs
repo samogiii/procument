@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
 
   // Shared
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+  public DbSet<Notification> Notifications => Set<Notification>();
 
   // Catalog
   public DbSet<Customer> Customers => Set<Customer>();
@@ -40,6 +41,8 @@ public class AppDbContext : DbContext
   public DbSet<ProcumentRecord> ProcumentRecords => Set<ProcumentRecord>();
   public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
   public DbSet<POItem> POItems => Set<POItem>();
+  public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
+  public DbSet<POItemTrackNumber> POItemTrackNumbers => Set<POItemTrackNumber>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -386,6 +389,54 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.POId);
+    });
+
+    modelBuilder.Entity<POImportDetail>(entity =>
+    {
+      entity.ToTable("POImportDetails");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.BankName).HasMaxLength(200);
+      entity.Property(e => e.BankAccountNumber).HasMaxLength(100);
+      entity.Property(e => e.BankAddress).HasMaxLength(500);
+      entity.Property(e => e.BankCity).HasMaxLength(200);
+      entity.Property(e => e.BankCountry).HasMaxLength(200);
+      entity.Property(e => e.FedExAccount).HasMaxLength(200);
+      entity.Property(e => e.CourierName).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(2000);
+
+      entity.HasOne(e => e.PurchaseOrder)
+                .WithOne(po => po.ImportDetail)
+                .HasForeignKey<POImportDetail>(e => e.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.PurchaseOrderId).IsUnique();
+    });
+
+    modelBuilder.Entity<POItemTrackNumber>(entity =>
+    {
+      entity.ToTable("POItemTrackNumbers");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.TrackNumber).HasMaxLength(200);
+      entity.Property(e => e.Carrier).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+
+      entity.HasOne(e => e.POItem)
+                .WithMany(i => i.TrackNumbers)
+                .HasForeignKey(e => e.POItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.POItemId);
+    });
+
+    // ───────────────────────────────────────────
+    // Notifications
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<Notification>(entity =>
+    {
+      entity.ToTable("Notifications");
+      entity.HasKey(e => e.Id);
+      entity.HasIndex(e => e.UserId);
+      entity.HasIndex(e => new { e.UserId, e.IsDismissed });
     });
   }
 }

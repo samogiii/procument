@@ -1,8 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
+using Procument.Module.Purchasing.Entities;
 using Procument.Module.Purchasing.Services;
+using Procument.Module.Catalog.Entities;
+using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
+using Procument.Shared.Entities;
 
 namespace Procument.Module.Purchasing.Controllers;
 
@@ -12,10 +17,12 @@ namespace Procument.Module.Purchasing.Controllers;
 public class PurchaseOrdersController : ControllerBase
 {
     private readonly IPurchaseOrderService _poService;
+    private readonly DbContext _db;
 
-    public PurchaseOrdersController(IPurchaseOrderService poService)
+    public PurchaseOrdersController(IPurchaseOrderService poService, DbContext db)
     {
         _poService = poService;
+        _db = db;
     }
 
     /// <summary>Get all purchase orders.</summary>
@@ -56,8 +63,39 @@ public class PurchaseOrdersController : ControllerBase
     [Auditable("PurchaseOrder", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdatePOStatusRequest request)
     {
-        var success = await _poService.UpdateStatusAsync(id, request.Status);
-        return success ? Ok() : NotFound();
+        bool isAdmin = User.IsInRole("Admin");
+
+        // Get PO info for notification
+        var po = await _poService.GetByIdAsync(id);
+        if (po == null) return NotFound();
+
+        var success = await _poService.UpdateStatusAsync(id, request.Status, isAdmin, request.RejectionNote);
+        if (!success) return BadRequest("Status change not allowed.");
+
+        // Notify all non-admin users about PO status changes
+        if (request.Status == "Rejected" || request.Status == "Accepted" || request.Status == "Completed")
+        {
+            var expertIds = await _db.Set<User>().Where(u => u.Role != "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
+            foreach (var uid in expertIds)
+            {
+                var msg = request.Status == "Rejected"
+                    ? $"PO {po.PONumber} has been rejected."
+                    : $"PO {po.PONumber} status changed to {request.Status}.";
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = uid,
+                    Type = request.Status == "Rejected" ? "Rejection" : "StatusChange",
+                    EntityName = "PurchaseOrder",
+                    EntityId = id,
+                    EntityNumber = po.PONumber,
+                    Message = msg,
+                    RejectionNote = request.RejectionNote
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok();
     }
 
     /// <summary>Update a single PO item (supplier, qty, unitPrice).</summary>
@@ -77,5 +115,232 @@ public class PurchaseOrdersController : ControllerBase
     {
         var deleted = await _poService.DeleteAsync(id);
         return deleted ? NoContent() : NotFound();
+    }
+
+    /// <summary>Get enriched PO data for PDF generation.</summary>
+    [HttpGet("{id:long}/pdf-data")]
+    public async Task<IActionResult> GetPdfData(long id)
+    {
+        var po = await _db.Set<PurchaseOrder>()
+            .Include(p => p.Supplier)
+            .Include(p => p.ImportDetail)
+            .Include(p => p.POItems).ThenInclude(i => i.PartNumber)
+            .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.RFQItem).ThenInclude(ri => ri.RFQ).ThenInclude(r => r.Customer)
+            .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.Supplier)
+            .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.User)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        if (po == null) return NotFound();
+
+        // Determine delivery address from first item's RFQ ExType
+        // ExType: null/0 = Warehouse (Hong Kong), other = Customer Exwork
+        var firstProc = po.POItems.FirstOrDefault(i => i.ProcumentRecord?.RFQItem?.RFQ != null)?.ProcumentRecord;
+        var rfq = firstProc?.RFQItem?.RFQ;
+        var customer = rfq?.Customer;
+        var exType = rfq?.ExType;
+
+        // Ordered By — the user who created the first procurement record
+        var orderedByUser = po.POItems.FirstOrDefault(i => i.ProcumentRecord?.User != null)?.ProcumentRecord?.User;
+        var orderedBy = orderedByUser?.Name ?? "";
+
+        string deliverToName;
+        string deliverToAddress;
+        string deliverToPhone = "";
+        string deliverToEmail = "";
+        if (exType.HasValue && exType.Value != 0 && customer != null)
+        {
+            // Customer Exwork — deliver to customer address
+            deliverToName = customer.Name;
+            deliverToAddress = customer.ShipTo ?? customer.BillTo ?? "";
+            deliverToPhone = customer.Phone ?? "";
+            deliverToEmail = customer.Email ?? "";
+        }
+        else
+        {
+            // Warehouse — deliver to Hong Kong office
+            deliverToName = "Warehouse — Hong Kong";
+            deliverToAddress = "Unit 1203, 12/F, Tower 1, Lippo Centre, 89 Queensway, Admiralty, Hong Kong";
+        }
+
+        var items = po.POItems.Select(i => new
+        {
+            partNumber = i.PartNumber?.Name ?? "",
+            description = i.PartNumber?.Description ?? "",
+            qty = i.Qty,
+            condition = i.Condition ?? "",
+            certification = i.ProcumentRecord?.CertName ?? "",
+            unitPrice = i.ProcumentRecord?.UnitPrice ?? (double)i.UnitPrice,
+            totalPrice = i.ProcumentRecord?.TotalPrice ?? (double)i.TotalPrice,
+            shippingCost = i.ProcumentRecord?.ShippingCost,
+            note = i.ProcumentRecord?.Note ?? "",
+        }).ToList();
+
+        return Ok(new
+        {
+            poNumber = po.PONumber,
+            status = po.Status,
+            createdAt = po.CreatedAt,
+            totalAmount = po.TotalAmount,
+            orderedBy,
+            vendor = new
+            {
+                name = po.Supplier?.Name ?? "",
+                address = po.Supplier?.Address ?? "",
+                phone = po.Supplier?.Phone ?? "",
+                email = po.Supplier?.Email ?? "",
+            },
+            deliverTo = new
+            {
+                name = deliverToName,
+                address = deliverToAddress,
+                phone = deliverToPhone,
+                email = deliverToEmail,
+            },
+            importDetail = po.ImportDetail != null ? new
+            {
+                fedExAccount = po.ImportDetail.FedExAccount ?? "",
+                servicePriority = po.ImportDetail.CourierName ?? "",
+                comments = po.ImportDetail.Notes ?? "",
+            } : null,
+            items,
+        });
+    }
+
+    // ═══════════════════════════════════════════
+    // Import Details
+    // ═══════════════════════════════════════════
+
+    /// <summary>Get import details for a PO.</summary>
+    [HttpGet("{poId:long}/import-detail")]
+    public async Task<IActionResult> GetImportDetail(long poId)
+    {
+        var detail = await _db.Set<POImportDetail>()
+            .FirstOrDefaultAsync(d => d.PurchaseOrderId == poId);
+
+        if (detail == null)
+            return Ok((POImportDetailResponse?)null);
+
+        return Ok(new POImportDetailResponse
+        {
+            Id = detail.Id,
+            PurchaseOrderId = detail.PurchaseOrderId,
+            BankName = detail.BankName,
+            BankAccountNumber = detail.BankAccountNumber,
+            BankAddress = detail.BankAddress,
+            BankCity = detail.BankCity,
+            BankCountry = detail.BankCountry,
+            FedExAccount = detail.FedExAccount,
+            CourierName = detail.CourierName,
+            Notes = detail.Notes,
+        });
+    }
+
+    /// <summary>Create or update import details for a PO.</summary>
+    [HttpPut("{poId:long}/import-detail")]
+    public async Task<IActionResult> SaveImportDetail(long poId, [FromBody] SavePOImportDetailRequest request)
+    {
+        var po = await _db.Set<PurchaseOrder>().FindAsync(poId);
+        if (po == null) return NotFound();
+
+        var detail = await _db.Set<POImportDetail>()
+            .FirstOrDefaultAsync(d => d.PurchaseOrderId == poId);
+
+        if (detail == null)
+        {
+            detail = new POImportDetail { PurchaseOrderId = poId };
+            _db.Set<POImportDetail>().Add(detail);
+        }
+
+        detail.BankName = request.BankName;
+        detail.BankAccountNumber = request.BankAccountNumber;
+        detail.BankAddress = request.BankAddress;
+        detail.BankCity = request.BankCity;
+        detail.BankCountry = request.BankCountry;
+        detail.FedExAccount = request.FedExAccount;
+        detail.CourierName = request.CourierName;
+        detail.Notes = request.Notes;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new POImportDetailResponse
+        {
+            Id = detail.Id,
+            PurchaseOrderId = detail.PurchaseOrderId,
+            BankName = detail.BankName,
+            BankAccountNumber = detail.BankAccountNumber,
+            BankAddress = detail.BankAddress,
+            BankCity = detail.BankCity,
+            BankCountry = detail.BankCountry,
+            FedExAccount = detail.FedExAccount,
+            CourierName = detail.CourierName,
+            Notes = detail.Notes,
+        });
+    }
+
+    // ═══════════════════════════════════════════
+    // Track Numbers
+    // ═══════════════════════════════════════════
+
+    /// <summary>Get all track numbers for a PO item.</summary>
+    [HttpGet("items/{poItemId:long}/track-numbers")]
+    public async Task<ActionResult<List<TrackNumberResponse>>> GetTrackNumbers(long poItemId)
+    {
+        var tracks = await _db.Set<POItemTrackNumber>()
+            .Where(t => t.POItemId == poItemId)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new TrackNumberResponse
+            {
+                Id = t.Id,
+                POItemId = t.POItemId,
+                TrackNumber = t.TrackNumber,
+                Carrier = t.Carrier,
+                Notes = t.Notes,
+                CreatedAt = t.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(tracks);
+    }
+
+    /// <summary>Add a track number to a PO item.</summary>
+    [HttpPost("items/{poItemId:long}/track-numbers")]
+    public async Task<IActionResult> AddTrackNumber(long poItemId, [FromBody] SaveTrackNumberRequest request)
+    {
+        var item = await _db.Set<POItem>().FindAsync(poItemId);
+        if (item == null) return NotFound();
+
+        var track = new POItemTrackNumber
+        {
+            POItemId = poItemId,
+            TrackNumber = request.TrackNumber,
+            Carrier = request.Carrier,
+            Notes = request.Notes,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        _db.Set<POItemTrackNumber>().Add(track);
+        await _db.SaveChangesAsync();
+
+        return Ok(new TrackNumberResponse
+        {
+            Id = track.Id,
+            POItemId = track.POItemId,
+            TrackNumber = track.TrackNumber,
+            Carrier = track.Carrier,
+            Notes = track.Notes,
+            CreatedAt = track.CreatedAt,
+        });
+    }
+
+    /// <summary>Delete a track number.</summary>
+    [HttpDelete("track-numbers/{trackId:long}")]
+    public async Task<IActionResult> DeleteTrackNumber(long trackId)
+    {
+        var track = await _db.Set<POItemTrackNumber>().FindAsync(trackId);
+        if (track == null) return NotFound();
+
+        _db.Set<POItemTrackNumber>().Remove(track);
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 }

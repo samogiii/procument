@@ -43,6 +43,9 @@ builder.Services.AddSalesModule();
 // ─── Register DbContext base class for module services ───
 builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());
 
+// ─── Application Services ───
+builder.Services.AddScoped<INotificationService, NotificationService>();
+
 // ─── JWT Authentication ───
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = Encoding.UTF8.GetBytes(jwtSettings["Secret"]!);

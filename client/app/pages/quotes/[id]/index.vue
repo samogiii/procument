@@ -5,8 +5,8 @@
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
-        <!-- Status Chip with Dropdown -->
-        <v-menu>
+        <!-- Status Chip with Dropdown (admin only) -->
+        <v-menu v-if="isAdmin">
           <template #activator="{ props: menuProps }">
             <v-chip
               :color="statusColor(quote.status)"
@@ -25,7 +25,7 @@
               :key="s.value"
               :value="s.value"
               :active="quote.status === s.value"
-              @click="changeStatus(s.value)"
+              @click="onStatusSelect(s.value)"
             >
               <template #prepend>
                 <v-icon :icon="s.icon" :color="s.color" size="18" />
@@ -33,11 +33,13 @@
               <v-list-item-title>{{ s.label }}</v-list-item-title>
             </v-list-item>
           </v-list>
-      </v-menu>
+        </v-menu>
+        <v-chip v-else :color="statusColor(quote.status)" size="default">{{ quote.status || '—' }}</v-chip>
+
         <v-btn prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn v-if="quote.status === 'Accepted'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
       </div>
     </div>
 
@@ -95,6 +97,28 @@
     </v-dialog>
 
     <QuotePdfGenerator v-model="showPdf" :quote="quote" />
+
+    <!-- Rejection Note Dialog -->
+    <v-dialog v-model="showRejectDialog" max-width="450" persistent>
+      <v-card>
+        <v-card-title class="text-h6">Reject Quote</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-3">Please provide a reason for rejecting this quote:</p>
+          <v-textarea
+            v-model="rejectionNote"
+            label="Rejection Reason"
+            variant="outlined"
+            rows="3"
+            auto-grow
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmReject">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2500" location="bottom end">
@@ -177,6 +201,7 @@ async function loadQuote() {
               shippingCost: proc?.shippingCost ?? null,
               certName: proc?.certName || null,
               tagDate: proc?.tagDate || null,
+              note: proc?.note || '',
             }
           })
         }
@@ -191,10 +216,27 @@ async function loadQuote() {
   }
 }
 
-async function changeStatus(newStatus: string) {
+const showRejectDialog = ref(false)
+const rejectionNote = ref('')
+
+function onStatusSelect(newStatus: string) {
   if (newStatus === quote.value.status) return
+  if (newStatus === 'Rejected') {
+    rejectionNote.value = ''
+    showRejectDialog.value = true
+    return
+  }
+  changeStatus(newStatus)
+}
+
+async function confirmReject() {
+  showRejectDialog.value = false
+  await changeStatus('Rejected', rejectionNote.value || undefined)
+}
+
+async function changeStatus(newStatus: string, note?: string) {
   try {
-    await api.patch(`/quotes/${route.params.id}/status`, { status: newStatus })
+    await api.patch(`/quotes/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
     quote.value.status = newStatus
     showSnack(`Status changed to ${newStatus}`, 'success')
   } catch {

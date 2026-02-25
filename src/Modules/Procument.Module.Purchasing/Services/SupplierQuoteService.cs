@@ -129,6 +129,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.UnitPrice = request.UnitPrice;
             record.TotalPrice = request.TotalPrice;
             record.TagDate = request.TagDate;
+            record.Note = request.Note;
             record.UserId = userId;
         }
         else
@@ -153,6 +154,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 UnitPrice = request.UnitPrice,
                 TotalPrice = request.TotalPrice,
                 TagDate = request.TagDate,
+                Note = request.Note,
                 UserId = userId
             };
             _db.Set<ProcumentRecord>().Add(record);
@@ -328,5 +330,6 @@ public class SupplierQuoteService : ISupplierQuoteService
         TotalPrice = r.TotalPrice,
         TagDate = r.TagDate,
         LeadTime = r.LeadTime,
+        Note = r.Note,
     };
 }

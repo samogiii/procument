@@ -11,6 +11,7 @@ public class Invoice : BaseEntity
     public DateTime? DueDate { get; set; }
     public DateTime? PaidDate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? RejectionNote { get; set; }
 
     // Foreign keys
     public long QuoteId { get; set; }

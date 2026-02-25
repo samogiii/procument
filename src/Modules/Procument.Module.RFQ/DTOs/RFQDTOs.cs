@@ -24,6 +24,12 @@ public class UpdateRFQItemRequest
     public string? Priority { get; set; }
     public string? Note { get; set; }
     public string? Condition { get; set; }
+    public string? Unit { get; set; }
+}
+
+public class UpdateStatusRequest
+{
+    public string Status { get; set; } = string.Empty;
 }
 
 public class UpdateExTypeRequest
@@ -40,6 +46,7 @@ public class AddRFQItemRequest
     public string? Priority { get; set; }
     public string? Note { get; set; }
     public string? Alt { get; set; }
+    public string? Unit { get; set; }
     public List<string> Alternatives { get; set; } = new();
 }
 
@@ -49,6 +56,7 @@ public class RFQResponse
 {
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string Status { get; set; } = "Open";
     public DateTime LeadTime { get; set; }
     public DateTime CreatedAt { get; set; }
     public string CustomerName { get; set; } = string.Empty;
@@ -75,6 +83,7 @@ public class RFQItemResponse
     public string? Priority { get; set; }
     public string? Remark { get; set; }
     public string? Note { get; set; }
+    public string? Unit { get; set; }
     public List<AlternativeResponse> Alternatives { get; set; } = new();
 }
 

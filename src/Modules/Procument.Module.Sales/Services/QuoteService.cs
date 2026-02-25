@@ -16,7 +16,7 @@ public interface IQuoteService
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
     Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null);
     Task<bool> DeleteAsync(long id);
-    Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin);
+    Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
 }
@@ -220,7 +220,7 @@ public class QuoteService : IQuoteService
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin)
+    public async Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null)
     {
         var allowedStatuses = new[] { "Draft", "Sent", "Accepted", "Rejected" };
         if (!allowedStatuses.Contains(newStatus)) return false;
@@ -228,11 +228,24 @@ public class QuoteService : IQuoteService
         var quote = await _db.Set<Quote>().FindAsync(id);
         if (quote == null) return false;
 
-        // Only owner or admin can change status
+        // Only admin can change to Accepted or Rejected
+        if ((newStatus == "Accepted" || newStatus == "Rejected") && !isAdmin) return false;
+
+        // Non-admin can only change their own quotes
         if (!isAdmin && quote.UserId != userId) return false;
 
         quote.Status = newStatus;
         quote.ModifyAt = DateTime.UtcNow;
+
+        if (newStatus == "Rejected")
+        {
+            quote.RejectionNote = rejectionNote;
+        }
+        else
+        {
+            quote.RejectionNote = null;
+        }
+
         await _db.SaveChangesAsync();
         return true;
     }
@@ -281,6 +294,8 @@ public class QuoteService : IQuoteService
         quote.TotalAmount = totalAmount;
         quote.ValidUntil = request.ValidUntil;
         quote.ModifyAt = DateTime.UtcNow;
+        quote.Status = "Draft";
+        quote.RejectionNote = null;
         quote.QuoteItems = newItems;
 
         await _db.SaveChangesAsync();
@@ -299,7 +314,10 @@ public class QuoteService : IQuoteService
         Type = q.Type,
         TypeAdditional = q.TypeAdditional,
         CustomerName = q.Customer.Name,
+        CustomerBillTo = q.Customer.BillTo,
+        CustomerShipTo = q.Customer.ShipTo,
         UserName = q.User?.Name,
+        RejectionNote = q.RejectionNote,
         Items = q.QuoteItems.Select(qi => new QuoteItemResponse
         {
             Id = qi.Id,

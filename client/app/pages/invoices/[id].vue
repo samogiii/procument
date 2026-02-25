@@ -5,8 +5,8 @@
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Proforma Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
-        <!-- Status Chip with Dropdown -->
-        <v-menu>
+        <!-- Status Chip with Dropdown (admin only) -->
+        <v-menu v-if="isAdmin">
           <template #activator="{ props: menuProps }">
             <v-chip
               :color="statusColor(invoice.status)"
@@ -18,15 +18,27 @@
               {{ invoice.status || '—' }}
             </v-chip>
           </template>
-          <v-list density="compact" style="min-width: 140px">
-             <v-list-item v-for="s in ['Pending', 'Paid', 'Overdue', 'Cancelled']" :key="s" :value="s" @click="updateStatus(s)">
-               <v-list-item-title>{{ s }}</v-list-item-title>
-             </v-list-item>
+          <v-list density="compact" style="min-width: 180px">
+            <v-list-subheader>Change Status</v-list-subheader>
+            <v-list-item
+              v-for="s in invoiceStatuses"
+              :key="s.value"
+              :value="s.value"
+              :active="invoice.status === s.value"
+              @click="onStatusSelect(s.value)"
+            >
+              <template #prepend>
+                <v-icon :icon="s.icon" :color="s.color" size="18" />
+              </template>
+              <v-list-item-title>{{ s.label }}</v-list-item-title>
+            </v-list-item>
           </v-list>
         </v-menu>
+        <v-chip v-else :color="statusColor(invoice.status)" size="default">{{ invoice.status || '—' }}</v-chip>
 
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
+        <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
       </div>
     </div>
 
@@ -77,9 +89,33 @@
       <AuditLogViewer :entity-name="'Invoice'" :entity-id="route.params.id as string" />
     </v-dialog>
 
+    <!-- Rejection Note Dialog -->
+    <v-dialog v-model="showRejectDialog" max-width="450" persistent>
+      <v-card>
+        <v-card-title class="text-h6">Reject Proforma Invoice</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-3">Please provide a reason for rejecting this invoice:</p>
+          <v-textarea
+            v-model="rejectionNote"
+            label="Rejection Reason"
+            variant="outlined"
+            rows="3"
+            auto-grow
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmReject">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
+
+    <InvoicePdfGenerator v-model="showPdf" :invoice="invoice" />
   </div>
 </template>
 
@@ -97,6 +133,15 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
+const showPdf = ref(false)
+
+const invoiceStatuses = [
+  { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
+  { value: 'Pending', label: 'Pending', icon: 'mdi-clock-outline', color: 'warning' },
+  { value: 'Paid', label: 'Paid', icon: 'mdi-check-circle', color: 'success' },
+  { value: 'Overdue', label: 'Overdue', icon: 'mdi-alert', color: 'error' },
+  { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
+]
 
 const itemHeaders = [
   { title: 'Part Number', key: 'partNumberName' },
@@ -119,9 +164,27 @@ async function loadInvoice() {
   }
 }
 
-async function updateStatus(newStatus: string) {
+const showRejectDialog = ref(false)
+const rejectionNote = ref('')
+
+function onStatusSelect(newStatus: string) {
+  if (newStatus === invoice.value.status) return
+  if (newStatus === 'Rejected') {
+    rejectionNote.value = ''
+    showRejectDialog.value = true
+    return
+  }
+  updateStatus(newStatus)
+}
+
+async function confirmReject() {
+  showRejectDialog.value = false
+  await updateStatus('Rejected', rejectionNote.value || undefined)
+}
+
+async function updateStatus(newStatus: string, note?: string) {
   try {
-    await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus })
+    await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
     invoice.value.status = newStatus
     showSnack(`Status updated to ${newStatus}`, 'success')
   } catch {

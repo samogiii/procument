@@ -23,6 +23,7 @@ public class UpdatePOItemRequest
 public class UpdatePOStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public string? RejectionNote { get; set; }
 }
 
 // ──── Response DTOs ────
@@ -38,6 +39,7 @@ public class POResponse
     public string SupplierName { get; set; } = string.Empty;
     public long? InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
+    public string? RejectionNote { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
 }
 
@@ -54,6 +56,54 @@ public class POItemResponse
     public string? Condition { get; set; }
     public long? SupplierId { get; set; }
     public string? SupplierName { get; set; }
+    public List<TrackNumberResponse> TrackNumbers { get; set; } = new();
+}
+
+// ──── Import Detail DTOs ────
+
+public class POImportDetailResponse
+{
+    public long Id { get; set; }
+    public long PurchaseOrderId { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public string? BankAddress { get; set; }
+    public string? BankCity { get; set; }
+    public string? BankCountry { get; set; }
+    public string? FedExAccount { get; set; }
+    public string? CourierName { get; set; }
+    public string? Notes { get; set; }
+}
+
+public class SavePOImportDetailRequest
+{
+    public string? BankName { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public string? BankAddress { get; set; }
+    public string? BankCity { get; set; }
+    public string? BankCountry { get; set; }
+    public string? FedExAccount { get; set; }
+    public string? CourierName { get; set; }
+    public string? Notes { get; set; }
+}
+
+// ──── Track Number DTOs ────
+
+public class TrackNumberResponse
+{
+    public long Id { get; set; }
+    public long POItemId { get; set; }
+    public string TrackNumber { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SaveTrackNumberRequest
+{
+    public string TrackNumber { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? Notes { get; set; }
 }
 
 /// <summary>Unassigned POItem response — enriched with ExType, customer, supplier info.</summary>

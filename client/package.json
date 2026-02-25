@@ -12,12 +12,14 @@
   "dependencies": {
     "@mdi/font": "^7.4.47",
     "@pinia/nuxt": "^0.11.3",
+    "apexcharts": "^5.6.0",
     "html2pdf.js": "^0.14.0",
     "nuxt": "^4.3.1",
     "pinia": "^3.0.4",
     "sass-embedded": "^1.97.3",
     "vue": "^3.5.28",
     "vue-router": "^4.6.4",
+    "vue3-apexcharts": "^1.10.0",
     "vuetify": "^3.11.8",
     "vuetify-nuxt-module": "^0.19.5"
   }

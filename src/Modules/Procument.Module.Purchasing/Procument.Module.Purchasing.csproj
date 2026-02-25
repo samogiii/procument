@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Procument.Shared\Procument.Shared.csproj" />
     <ProjectReference Include="..\Procument.Module.Catalog\Procument.Module.Catalog.csproj" />
+    <ProjectReference Include="..\Procument.Module.Identity\Procument.Module.Identity.csproj" />
     <ProjectReference Include="..\Procument.Module.RFQ\Procument.Module.RFQ.csproj" />
   </ItemGroup>
 

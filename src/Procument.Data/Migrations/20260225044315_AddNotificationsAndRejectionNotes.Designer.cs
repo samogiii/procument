@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260225044315_AddNotificationsAndRejectionNotes")]
+    partial class AddNotificationsAndRejectionNotes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -270,57 +273,6 @@ namespace Procument.Data.Migrations
                     b.ToTable("Users", (string)null);
                 });
 
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.POImportDetail", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("BankAccountNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("BankAddress")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("BankCity")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("BankCountry")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("BankName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("CourierName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("FedExAccount")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<long>("PurchaseOrderId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PurchaseOrderId")
-                        .IsUnique();
-
-                    b.ToTable("POImportDetails", (string)null);
-                });
-
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.POItem", b =>
                 {
                     b.Property<long>("Id")
@@ -366,40 +318,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("ProcumentId");
 
                     b.ToTable("POItems", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.POItemTrackNumber", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Carrier")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<long>("POItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("TrackNumber")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("POItemId");
-
-                    b.ToTable("POItemTrackNumbers", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
@@ -985,17 +903,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.POImportDetail", b =>
-                {
-                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithOne("ImportDetail")
-                        .HasForeignKey("Procument.Module.Purchasing.Entities.POImportDetail", "PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PurchaseOrder");
-                });
-
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.POItem", b =>
                 {
                     b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PurchaseOrder")
@@ -1018,17 +925,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("ProcumentRecord");
 
                     b.Navigation("PurchaseOrder");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.POItemTrackNumber", b =>
-                {
-                    b.HasOne("Procument.Module.Purchasing.Entities.POItem", "POItem")
-                        .WithMany("TrackNumbers")
-                        .HasForeignKey("POItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("POItem");
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
@@ -1214,11 +1110,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("PartNumbers");
                 });
 
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.POItem", b =>
-                {
-                    b.Navigation("TrackNumbers");
-                });
-
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
                 {
                     b.Navigation("POItems");
@@ -1226,8 +1117,6 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrder", b =>
                 {
-                    b.Navigation("ImportDetail");
-
                     b.Navigation("POItems");
                 });
 
