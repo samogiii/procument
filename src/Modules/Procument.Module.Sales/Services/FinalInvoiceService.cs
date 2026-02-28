@@ -14,6 +14,7 @@ public interface IFinalInvoiceService
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> UpdateAsync(long id, UpdateFinalInvoiceRequest request);
     Task<bool> CanCreateFinalInvoice(long proformaInvoiceId);
+    Task<List<EligibleProformaResponse>> GetEligibleProformasAsync();
 }
 
 public class FinalInvoiceService : IFinalInvoiceService
@@ -48,24 +49,37 @@ public class FinalInvoiceService : IFinalInvoiceService
         return fi == null ? null : MapToResponse(fi);
     }
 
-    /// <summary>Check if all POs for this proforma invoice are 'Completed'.</summary>
+    public async Task<List<EligibleProformaResponse>> GetEligibleProformasAsync()
+    {
+        var finalInvoiceProformaIds = await _db.Set<FinalInvoice>().Select(f => f.ProformaInvoiceId).ToListAsync();
+
+        var eligibleProformas = await _db.Set<Invoice>()
+            .Include(i => i.Customer)
+            .Where(i => !finalInvoiceProformaIds.Contains(i.Id))
+            .Where(i => _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && po.Status == "Completed"))
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync();
+
+        return eligibleProformas.Select(i => new EligibleProformaResponse
+        {
+            Id = i.Id,
+            InvoiceNumber = i.InvoiceNumber,
+            CustomerName = i.Customer?.Name ?? "",
+            TotalAmount = i.TotalAmount
+        }).ToList();
+    }
+
+    /// <summary>Check if proforma has at least one Completed PO and no existing final invoice.</summary>
     public async Task<bool> CanCreateFinalInvoice(long proformaInvoiceId)
     {
-        // Check if a final invoice already exists for this proforma
         var exists = await _db.Set<FinalInvoice>()
             .AnyAsync(fi => fi.ProformaInvoiceId == proformaInvoiceId);
         if (exists) return false;
 
-        // Get all POs linked to this proforma invoice
-        var pos = await _db.Set<PurchaseOrder>()
-            .Where(po => po.InvoiceId == proformaInvoiceId)
-            .ToListAsync();
+        var hasCompletedPo = await _db.Set<PurchaseOrder>()
+            .AnyAsync(po => po.InvoiceId == proformaInvoiceId && po.Status == "Completed");
 
-        // Must have at least one PO
-        if (pos.Count == 0) return false;
-
-        // All POs must be 'Completed'
-        return pos.All(po => po.Status == "Completed");
+        return hasCompletedPo;
     }
 
     /// <summary>Create a Final Invoice from a proforma invoice, pulling in items and track numbers from POs.</summary>

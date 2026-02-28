@@ -6,7 +6,7 @@ using Procument.Module.Sales.Services;
 namespace Procument.Module.Sales.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/final-invoices")]
 [Authorize]
 public class FinalInvoicesController : ControllerBase
 {
@@ -29,6 +29,13 @@ public class FinalInvoicesController : ControllerBase
     {
         var result = await _service.GetByIdAsync(id);
         return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("eligible-proformas")]
+    public async Task<IActionResult> GetEligibleProformas()
+    {
+        var result = await _service.GetEligibleProformasAsync();
+        return Ok(result);
     }
 
     /// <summary>Check if a final invoice can be created for the given proforma invoice.</summary>

@@ -54,3 +54,11 @@ public class UpdateFinalInvoiceRequest
     public string? Notes { get; set; }
     public DateTime? DueDate { get; set; }
 }
+
+public class EligibleProformaResponse
+{
+    public long Id { get; set; }
+    public string InvoiceNumber { get; set; } = "";
+    public string CustomerName { get; set; } = "";
+    public decimal TotalAmount { get; set; }
+}

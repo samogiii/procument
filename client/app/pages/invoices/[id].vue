@@ -39,7 +39,6 @@
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
-        <v-btn v-if="canCreateFinalInvoice" prepend-icon="mdi-file-document-plus" size="small" color="success" :loading="creatingFinalInvoice" @click="createFinalInvoice">Create Final Invoice</v-btn>
       </div>
     </div>
 
@@ -160,36 +159,8 @@ onMounted(async () => {
 async function loadInvoice() {
   try {
     invoice.value = await api.get(`/invoices/${route.params.id}`)
-    // Check if final invoice can be created
-    await checkFinalInvoiceEligibility()
   } catch {
     showSnack('Failed to load proforma invoice', 'error')
-  }
-}
-
-// Final Invoice creation
-const canCreateFinalInvoice = ref(false)
-const creatingFinalInvoice = ref(false)
-
-async function checkFinalInvoiceEligibility() {
-  try {
-    const res = await api.get<{ eligible: boolean }>(`/final-invoices/check-eligibility/${route.params.id}`)
-    canCreateFinalInvoice.value = res.eligible
-  } catch {
-    canCreateFinalInvoice.value = false
-  }
-}
-
-async function createFinalInvoice() {
-  creatingFinalInvoice.value = true
-  try {
-    const result = await api.post<any>('/final-invoices', { proformaInvoiceId: Number(route.params.id) })
-    showSnack('Final invoice created!', 'success')
-    navigateTo(`/final-invoices/${result.id}`)
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Failed to create final invoice', 'error')
-  } finally {
-    creatingFinalInvoice.value = false
   }
 }
 
