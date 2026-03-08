@@ -8,6 +8,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
 using Procument.Shared.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Controllers;
 
@@ -18,11 +19,13 @@ public class PurchaseOrdersController : ControllerBase
 {
     private readonly IPurchaseOrderService _poService;
     private readonly DbContext _db;
+    private readonly IFinalInvoiceLockGuard _lockGuard;
 
-    public PurchaseOrdersController(IPurchaseOrderService poService, DbContext db)
+    public PurchaseOrdersController(IPurchaseOrderService poService, DbContext db, IFinalInvoiceLockGuard lockGuard)
     {
         _poService = poService;
         _db = db;
+        _lockGuard = lockGuard;
     }
 
     /// <summary>Get all purchase orders.</summary>
@@ -63,6 +66,9 @@ public class PurchaseOrdersController : ControllerBase
     [Auditable("PurchaseOrder", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdatePOStatusRequest request)
     {
+        if (await _lockGuard.IsPurchaseOrderLocked(id))
+            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+
         bool isAdmin = User.IsInRole("Admin");
 
         // Get PO info for notification
@@ -72,24 +78,20 @@ public class PurchaseOrdersController : ControllerBase
         var success = await _poService.UpdateStatusAsync(id, request.Status, isAdmin, request.RejectionNote);
         if (!success) return BadRequest("Status change not allowed.");
 
-        // Notify all non-admin users about PO status changes
-        if (request.Status == "Rejected" || request.Status == "Accepted" || request.Status == "Completed")
+        // Notify all non-admin users about key PO status changes
+        if (request.Status == "Completed" || request.Status == "Cancelled")
         {
             var expertIds = await _db.Set<User>().Where(u => u.Role != "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
             foreach (var uid in expertIds)
             {
-                var msg = request.Status == "Rejected"
-                    ? $"PO {po.PONumber} has been rejected."
-                    : $"PO {po.PONumber} status changed to {request.Status}.";
                 _db.Set<Notification>().Add(new Notification
                 {
                     UserId = uid,
-                    Type = request.Status == "Rejected" ? "Rejection" : "StatusChange",
+                    Type = "StatusChange",
                     EntityName = "PurchaseOrder",
                     EntityId = id,
                     EntityNumber = po.PONumber,
-                    Message = msg,
-                    RejectionNote = request.RejectionNote
+                    Message = $"PO {po.PONumber} status changed to {request.Status}.",
                 });
             }
             await _db.SaveChangesAsync();

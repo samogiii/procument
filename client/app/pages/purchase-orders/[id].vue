@@ -4,26 +4,26 @@
       <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-1 flex-shrink-0" size="small" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">PO {{ po.poNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
-      <v-menu v-if="isAdmin">
+      <v-menu :disabled="isLocked">
         <template #activator="{ props: menuProps }">
           <v-chip
             :color="poStatusColor"
             v-bind="menuProps"
             class="cursor-pointer"
-            append-icon="mdi-chevron-down"
+            :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'"
             size="default"
           >
             {{ po.status || '—' }}
           </v-chip>
         </template>
-        <v-list density="compact" style="min-width: 160px">
+        <v-list density="compact" style="min-width: 200px">
           <v-list-subheader>Change Status</v-list-subheader>
           <v-list-item
             v-for="s in poStatuses"
             :key="s.value"
             :value="s.value"
             :active="po.status === s.value"
-            @click="onStatusSelect(s.value)"
+            @click="changeStatus(s.value)"
           >
             <template #prepend>
               <v-icon :icon="s.icon" :color="s.color" size="18" />
@@ -32,7 +32,6 @@
           </v-list-item>
         </v-list>
       </v-menu>
-      <v-chip v-else :color="poStatusColor" size="default">{{ po.status || '—' }}</v-chip>
       <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
     </div>
 
@@ -209,28 +208,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Rejection Note Dialog -->
-    <v-dialog v-model="showRejectDialog" max-width="450" persistent>
-      <v-card>
-        <v-card-title class="text-h6">Reject Purchase Order</v-card-title>
-        <v-card-text>
-          <p class="text-body-2 text-medium-emphasis mb-3">Please provide a reason for rejecting this PO:</p>
-          <v-textarea
-            v-model="rejectionNote"
-            label="Rejection Reason"
-            variant="outlined"
-            rows="3"
-            auto-grow
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
-          <v-btn color="error" variant="flat" @click="confirmReject">Reject</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
@@ -249,16 +226,23 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const poStatuses = [
-  { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
   { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
-  { value: 'Accepted', label: 'Accepted', icon: 'mdi-check-circle', color: 'success' },
-  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
-  { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle-outline', color: 'error' },
+  { value: 'Accept', label: 'Accept', icon: 'mdi-check-circle', color: 'success' },
+  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'warning' },
+  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'teal' },
+  { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
+  { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
+  { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
+  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'orange' },
+  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'green' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
 ]
 
 const isAdmin = computed(() => authStore.isAdmin)
 const showPdf = ref(false)
+
+const entityId = computed(() => String(route.params.id))
+const { isLocked, checkLock } = useFinalInvoiceLock('po', entityId)
 
 const poStatusColor = computed(() => {
   const found = poStatuses.find(s => s.value === po.value.status)
@@ -360,31 +344,14 @@ async function deleteTrack(item: any, trackId: number) {
 // ── Load Data ──
 onMounted(async () => {
   try { po.value = await api.get(`/purchase-orders/${route.params.id}`) } catch {}
-  await loadImportDetail()
+  await Promise.all([loadImportDetail(), checkLock()])
 })
 
 // ── Status ──
-const showRejectDialog = ref(false)
-const rejectionNote = ref('')
-
-function onStatusSelect(newStatus: string) {
+async function changeStatus(newStatus: string) {
   if (newStatus === po.value.status) return
-  if (newStatus === 'Rejected') {
-    rejectionNote.value = ''
-    showRejectDialog.value = true
-    return
-  }
-  changeStatus(newStatus)
-}
-
-async function confirmReject() {
-  showRejectDialog.value = false
-  await changeStatus('Rejected', rejectionNote.value || undefined)
-}
-
-async function changeStatus(newStatus: string, note?: string) {
   try {
-    await api.patch(`/purchase-orders/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
+    await api.patch(`/purchase-orders/${route.params.id}/status`, { status: newStatus })
     po.value.status = newStatus
     showSnack(`Status changed to ${newStatus}`, 'success')
   } catch {

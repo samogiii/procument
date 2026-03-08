@@ -1,0 +1,5 @@
+# Environment secrets
+.env
+
+# Docker volumes
+sqlserver-data/

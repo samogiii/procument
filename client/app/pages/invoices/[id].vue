@@ -6,13 +6,13 @@
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Status Chip with Dropdown (admin only) -->
-        <v-menu v-if="isAdmin">
+        <v-menu v-if="isAdmin" :disabled="isLocked">
           <template #activator="{ props: menuProps }">
             <v-chip
               :color="statusColor(invoice.status)"
               v-bind="menuProps"
               class="cursor-pointer"
-              append-icon="mdi-chevron-down"
+              :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'"
               size="default"
             >
               {{ invoice.status || '—' }}
@@ -34,11 +34,20 @@
             </v-list-item>
           </v-list>
         </v-menu>
-        <v-chip v-else :color="statusColor(invoice.status)" size="default">{{ invoice.status || '—' }}</v-chip>
+        <v-chip v-else :color="statusColor(invoice.status)" size="default" :append-icon="isLocked ? 'mdi-lock' : undefined">{{ invoice.status || '—' }}</v-chip>
 
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn
+          v-if="canCreateFinal"
+          prepend-icon="mdi-receipt-text-check"
+          size="small"
+          color="success"
+          variant="flat"
+          :loading="creatingFinal"
+          @click="createFinalInvoice"
+        >Create Final Invoice</v-btn>
       </div>
     </div>
 
@@ -134,6 +143,11 @@ const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
 const showPdf = ref(false)
+const canCreateFinal = ref(false)
+const creatingFinal = ref(false)
+
+const entityId = computed(() => String(route.params.id))
+const { isLocked, checkLock } = useFinalInvoiceLock('invoice', entityId)
 
 const invoiceStatuses = [
   { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
@@ -154,6 +168,7 @@ const itemHeaders = [
 
 onMounted(async () => {
   await loadInvoice()
+  await Promise.all([checkFinalEligibility(), checkLock()])
 })
 
 async function loadInvoice() {
@@ -161,6 +176,28 @@ async function loadInvoice() {
     invoice.value = await api.get(`/invoices/${route.params.id}`)
   } catch {
     showSnack('Failed to load proforma invoice', 'error')
+  }
+}
+
+async function checkFinalEligibility() {
+  try {
+    const res = await api.get<any>(`/final-invoices/check-eligibility/${route.params.id}`)
+    canCreateFinal.value = res?.eligible === true
+  } catch {
+    canCreateFinal.value = false
+  }
+}
+
+async function createFinalInvoice() {
+  creatingFinal.value = true
+  try {
+    const result = await api.post<any>('/final-invoices', { proformaInvoiceId: Number(route.params.id) })
+    showSnack(`Final Invoice ${result.invoiceNumber} created!`, 'success')
+    navigateTo(`/final-invoices/${result.id}`)
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to create final invoice', 'error')
+  } finally {
+    creatingFinal.value = false
   }
 }
 

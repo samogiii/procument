@@ -6,13 +6,13 @@
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Status Chip with Dropdown (admin only) -->
-        <v-menu v-if="isAdmin">
+        <v-menu v-if="isAdmin" :disabled="isLocked">
           <template #activator="{ props: menuProps }">
             <v-chip
               :color="statusColor(quote.status)"
               v-bind="menuProps"
               class="cursor-pointer"
-              append-icon="mdi-chevron-down"
+              :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'"
               size="default"
             >
               {{ quote.status || '—' }}
@@ -34,7 +34,7 @@
             </v-list-item>
           </v-list>
         </v-menu>
-        <v-chip v-else :color="statusColor(quote.status)" size="default">{{ quote.status || '—' }}</v-chip>
+        <v-chip v-else :color="statusColor(quote.status)" size="default" :append-icon="isLocked ? 'mdi-lock' : undefined">{{ quote.status || '—' }}</v-chip>
 
         <v-btn prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
@@ -144,6 +144,9 @@ const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
 
+const entityId = computed(() => String(route.params.id))
+const { isLocked, checkLock } = useFinalInvoiceLock('quote', entityId)
+
 const statuses = [
   { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
   { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
@@ -161,7 +164,10 @@ const itemHeaders = [
   { title: 'Total Price', key: 'totalPrice' },
 ]
 
-onMounted(() => loadQuote())
+onMounted(async () => {
+  await loadQuote()
+  await checkLock()
+})
 
 async function loadQuote() {
   try {

@@ -23,6 +23,11 @@
           Warehouse
           <v-chip v-if="warehouseItemCount" size="x-small" color="success" variant="tonal" class="ml-2">{{ warehouseItemCount }}</v-chip>
         </v-tab>
+        <v-tab value="vendor">
+          <v-icon start size="18">mdi-truck-outline</v-icon>
+          Vendor
+          <v-chip v-if="vendorItemCount" size="x-small" color="info" variant="tonal" class="ml-2">{{ vendorItemCount }}</v-chip>
+        </v-tab>
         <v-tab value="customer">
           <v-icon start size="18">mdi-account-group</v-icon>
           Customer
@@ -58,7 +63,7 @@
                     <th>PO Number</th>
                     <th>Supplier</th>
                     <th style="width: 120px;">Total Amount</th>
-                    <th style="width: 100px;">Status</th>
+                    <th style="width: 180px;">Status</th>
                     <th style="width: 100px;">Items</th>
                     <th style="width: 140px;">Created</th>
                     <th style="width: 80px;"></th>
@@ -70,10 +75,29 @@
                     <td class="cell-pn">{{ po.poNumber }}</td>
                     <td>{{ po.supplierName || '—' }}</td>
                     <td class="text-right cell-price">${{ po.totalAmount?.toFixed(2) || '0.00' }}</td>
-                    <td>
-                      <v-chip :color="po.status === 'Draft' ? 'grey' : po.status === 'Sent' ? 'info' : po.status === 'Accepted' ? 'success' : 'error'" size="x-small" variant="tonal">
-                        {{ po.status }}
-                      </v-chip>
+                    <td @click.stop>
+                      <v-menu :disabled="po._locked">
+                        <template #activator="{ props: menuProps }">
+                          <v-chip :color="poStatusColor(po.status)" size="x-small" variant="tonal" v-bind="menuProps" class="cursor-pointer" :append-icon="po._locked ? 'mdi-lock' : 'mdi-chevron-down'">
+                            {{ po.status }}
+                          </v-chip>
+                        </template>
+                        <v-list density="compact" style="min-width: 200px">
+                          <v-list-subheader>Change Status</v-list-subheader>
+                          <v-list-item
+                            v-for="s in poStatusOptions"
+                            :key="s.value"
+                            :value="s.value"
+                            :active="po.status === s.value"
+                            @click="changePOStatus(po, s.value)"
+                          >
+                            <template #prepend>
+                              <v-icon :icon="s.icon" :color="s.color" size="18" />
+                            </template>
+                            <v-list-item-title>{{ s.label }}</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
                     </td>
                     <td class="text-center">{{ po.items?.length || 0 }}</td>
                     <td style="color: #94a3b8; font-size: 12px;">{{ po.createdAt ? new Date(po.createdAt).toLocaleDateString() : '—' }}</td>
@@ -146,6 +170,77 @@
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        </v-tabs-window-item>
+
+        <!-- ═══════════ VENDOR TAB ═══════════ -->
+        <v-tabs-window-item value="vendor">
+          <div class="pa-4">
+            <p class="text-body-2 text-medium-emphasis mb-4">
+              All <strong>Ex Vendor</strong> items grouped by customer, then by supplier.
+            </p>
+
+            <div v-if="Object.keys(vendorGroups).length === 0" class="text-center pa-8">
+              <v-icon icon="mdi-truck-outline" size="48" color="grey" class="mb-2" />
+              <p class="text-body-2 text-medium-emphasis">No vendor items found.</p>
+            </div>
+
+            <div v-for="(supplierMap, customerName) in vendorGroups" :key="customerName" class="mb-6">
+              <div class="d-flex align-center gap-2 mb-3">
+                <v-icon icon="mdi-account" size="20" color="info" />
+                <h3 class="text-subtitle-1 font-weight-bold">{{ customerName }}</h3>
+              </div>
+
+              <div v-for="(items, supplierName) in supplierMap" :key="supplierName" class="ml-4 mb-4">
+                <div class="d-flex flex-wrap align-center gap-2 mb-2">
+                  <v-icon icon="mdi-truck-delivery" size="18" color="warning" />
+                  <span class="text-body-2 font-weight-medium">{{ supplierName }}</span>
+                  <v-chip size="x-small" color="info" variant="tonal">{{ items.length }} item(s)</v-chip>
+                  <v-spacer />
+                  <v-btn
+                    size="small"
+                    color="success"
+                    variant="tonal"
+                    prepend-icon="mdi-plus"
+                    :disabled="getSelectedFromGroup(items).length === 0"
+                    @click="createPOFromGroup(supplierName as string, items)"
+                  >
+                    Create PO ({{ getSelectedFromGroup(items).length }})
+                  </v-btn>
+                </div>
+
+                <div class="excel-container">
+                  <table class="po-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 40px;">
+                          <input type="checkbox" class="po-checkbox" :checked="isGroupAllSelected(items)" @change="toggleGroupAll(items)" />
+                        </th>
+                        <th>Part Number</th>
+                        <th>Alt P/N</th>
+                        <th>Condition</th>
+                        <th style="width: 80px;">Qty</th>
+                        <th style="width: 110px;">Unit Price</th>
+                        <th style="width: 110px;">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in items" :key="item.id" :class="{ 'selected-row': selections[item.id] }">
+                        <td class="text-center">
+                          <input type="checkbox" class="po-checkbox" :checked="selections[item.id]" @change="toggleSelect(item.id)" />
+                        </td>
+                        <td class="cell-pn">{{ item.partNumberName }}</td>
+                        <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
+                        <td>{{ item.condition || '—' }}</td>
+                        <td class="text-center">{{ item.qty }}</td>
+                        <td class="text-right cell-price">${{ item.unitPrice?.toFixed(2) || '0.00' }}</td>
+                        <td class="text-right cell-price">${{ item.totalPrice?.toFixed(2) || '0.00' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -313,9 +408,49 @@ const selections = ref<Record<number, boolean>>({})
 const activeTab = ref('orders')
 const purchaseOrders = ref<any[]>([])
 const saving = ref(false)
+
+const poStatusColorMap: Record<string, string> = {
+  'Sent': 'info',
+  'Accept': 'success',
+  'Waiting For Payment': 'warning',
+  'Payment Done': 'teal',
+  'Ship To Warehouse 1': 'indigo',
+  'Ship To Warehouse 2': 'deep-purple',
+  'Ship To Warehouse 3': 'blue-grey',
+  'Ship To Customer': 'orange',
+  'Completed': 'green',
+  'Cancelled': 'grey',
+}
+function poStatusColor(status: string) {
+  return poStatusColorMap[status] || 'grey'
+}
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+const poStatusOptions = [
+  { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
+  { value: 'Accept', label: 'Accept', icon: 'mdi-check-circle', color: 'success' },
+  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'warning' },
+  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'teal' },
+  { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
+  { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
+  { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
+  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'orange' },
+  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'green' },
+  { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
+]
+
+async function changePOStatus(po: any, newStatus: string) {
+  if (newStatus === po.status) return
+  try {
+    await api.patch(`/purchase-orders/${po.id}/status`, { status: newStatus })
+    po.status = newStatus
+    showSnack(`Status changed to ${newStatus}`, 'success')
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to change status', 'error')
+  }
+}
 
 // ── Warehouse tab: ExType=0, grouped by supplier ──
 const warehouseItems = computed(() => allItems.value.filter(i => i.exType === 0))
@@ -327,6 +462,22 @@ const warehouseGroups = computed(() => {
     const supplier = item.supplierName || 'Unknown Supplier'
     if (!groups[supplier]) groups[supplier] = []
     groups[supplier].push(item)
+  }
+  return groups
+})
+
+// ── Vendor tab: ExType=1, grouped by customer → supplier ──
+const vendorItems = computed(() => allItems.value.filter(i => i.exType === 1))
+const vendorItemCount = computed(() => vendorItems.value.length)
+
+const vendorGroups = computed(() => {
+  const groups: Record<string, Record<string, any[]>> = {}
+  for (const item of vendorItems.value) {
+    const customer = item.customerName || 'Unknown Customer'
+    const supplier = item.supplierName || 'Unknown Supplier'
+    if (!groups[customer]) groups[customer] = {}
+    if (!groups[customer][supplier]) groups[customer][supplier] = []
+    groups[customer][supplier].push(item)
   }
   return groups
 })
@@ -400,7 +551,17 @@ async function loadItems() {
 
 async function loadPurchaseOrders() {
   try {
-    purchaseOrders.value = await api.get<any[]>('/purchase-orders') || []
+    const pos = await api.get<any[]>('/purchase-orders') || []
+    purchaseOrders.value = pos
+    // Check lock status for each PO in parallel
+    await Promise.all(pos.map(async (po: any) => {
+      try {
+        const res = await api.get<any>(`/final-invoices/is-locked?entityType=po&entityId=${po.id}`)
+        po._locked = res?.locked === true
+      } catch {
+        po._locked = false
+      }
+    }))
   } catch {
     // silent
   }

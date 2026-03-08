@@ -9,6 +9,7 @@ using Procument.Shared.Entities;
 using System.Security.Claims;
 
 using Procument.Shared.Audit;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
 
@@ -19,11 +20,13 @@ public class QuotesController : ControllerBase
 {
     private readonly IQuoteService _quoteService;
     private readonly DbContext _db;
+    private readonly IFinalInvoiceLockGuard _lockGuard;
 
-    public QuotesController(IQuoteService quoteService, DbContext db)
+    public QuotesController(IQuoteService quoteService, DbContext db, IFinalInvoiceLockGuard lockGuard)
     {
         _quoteService = quoteService;
         _db = db;
+        _lockGuard = lockGuard;
     }
 
     /// <summary>Get all quotes (paginated).</summary>
@@ -70,6 +73,9 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateQuoteStatusRequest request)
     {
+        if (await _lockGuard.IsQuoteLocked(id))
+            return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
+
         var (userId, isAdmin) = GetUserContext();
         // Get quote info before update for notification
         var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);

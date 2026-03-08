@@ -142,7 +142,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             PONumber = poNumber,
             SupplierId = request.SupplierId,
             InvoiceId = request.InvoiceId,
-            Status = "Draft",
+            Status = "Sent",
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -172,20 +172,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return false;
 
-        // Only admin can change PO status
-        if (!isAdmin) return false;
-
         po.Status = newStatus;
-
-        if (newStatus == "Rejected")
-        {
-            po.RejectionNote = rejectionNote;
-        }
-        else
-        {
-            po.RejectionNote = null;
-        }
-
         await _db.SaveChangesAsync();
         return true;
     }

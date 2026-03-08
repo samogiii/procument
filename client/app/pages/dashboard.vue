@@ -397,6 +397,9 @@ const C = {
 const statusColors: Record<string, string> = {
   Draft: '#8B949E', Sent: '#29B6F6', Accepted: '#66BB6A', Rejected: '#EF5350',
   Completed: '#00BCD4', Cancelled: '#6B7280', Pending: '#FF6D00', Paid: '#66BB6A', Overdue: '#EF5350',
+  Accept: '#66BB6A', 'Waiting For Payment': '#FF9800', 'Payment Done': '#009688',
+  'Ship To Warehouse 1': '#3F51B5', 'Ship To Warehouse 2': '#673AB7', 'Ship To Warehouse 3': '#607D8B',
+  'Ship To Customer': '#FF5722',
 }
 
 // ─── Computed KPIs ───
@@ -575,7 +578,11 @@ function actionColor(action: string): string {
 }
 
 function poStatusColor(status: string): string {
-  const m: Record<string, string> = { Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error', Completed: 'secondary', Cancelled: 'grey' }
+  const m: Record<string, string> = {
+    Sent: 'info', Accept: 'success', 'Waiting For Payment': 'warning', 'Payment Done': 'teal',
+    'Ship To Warehouse 1': 'indigo', 'Ship To Warehouse 2': 'deep-purple', 'Ship To Warehouse 3': 'blue-grey',
+    'Ship To Customer': 'orange', Completed: 'green', Cancelled: 'grey',
+  }
   return m[status] || 'grey'
 }
 

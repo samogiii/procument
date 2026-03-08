@@ -6,9 +6,9 @@
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold d-flex align-center gap-2">
           RFQ #{{ route.params.id }}
-          <v-menu>
+          <v-menu :disabled="isLocked">
             <template #activator="{ props: menuProps }">
-              <v-chip :color="statusColor" size="small" class="ml-1 cursor-pointer" v-bind="menuProps" append-icon="mdi-chevron-down">{{ rfq.status || 'Open' }}</v-chip>
+              <v-chip :color="statusColor" size="small" class="ml-1 cursor-pointer" v-bind="menuProps" :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'">{{ rfq.status || 'Open' }}</v-chip>
             </template>
             <v-list density="compact" style="min-width: 160px">
               <v-list-subheader>Change Status</v-list-subheader>
@@ -792,6 +792,9 @@ const showPdf = ref(false)
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
+const entityId = computed(() => String(route.params.id))
+const { isLocked, checkLock } = useFinalInvoiceLock('rfq', entityId)
+
 const exTypeOptions = [
   { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
   { value: 1, label: 'Ex Vendor', icon: 'mdi-truck-outline', color: 'info' },
@@ -828,6 +831,7 @@ const totalQuotes = computed(() => supplierQuotes.value.length)
 
 onMounted(async () => {
   await loadData()
+  await checkLock()
 })
 
 async function loadData() {

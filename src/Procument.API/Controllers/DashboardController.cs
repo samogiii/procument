@@ -68,7 +68,7 @@ public class DashboardController : ControllerBase
         // ── PO stats ──
         var totalPOs = await pos.CountAsync();
         var totalPOValue = await pos.SumAsync(p => p.TotalAmount ?? 0);
-        var acceptedPOs = await pos.CountAsync(p => p.Status == "Accepted" || p.Status == "Completed");
+        var acceptedPOs = await pos.CountAsync(p => p.Status == "Completed" || p.Status == "Accept" || p.Status == "Payment Done");
 
         // ── Invoice stats ──
         var totalInvoices = await invoices.CountAsync();

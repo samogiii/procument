@@ -7,6 +7,7 @@ using Procument.Module.Sales.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
 using Procument.Shared.Entities;
+using Procument.Shared.Services;
 using System.Security.Claims;
 
 namespace Procument.Module.Sales.Controllers;
@@ -18,11 +19,13 @@ public class InvoicesController : ControllerBase
 {
     private readonly IInvoiceService _invoiceService;
     private readonly DbContext _db;
+    private readonly IFinalInvoiceLockGuard _lockGuard;
 
-    public InvoicesController(IInvoiceService invoiceService, DbContext db)
+    public InvoicesController(IInvoiceService invoiceService, DbContext db, IFinalInvoiceLockGuard lockGuard)
     {
         _invoiceService = invoiceService;
         _db = db;
+        _lockGuard = lockGuard;
     }
 
     [HttpGet]
@@ -54,6 +57,9 @@ public class InvoicesController : ControllerBase
     [Auditable("Invoice", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateInvoiceStatusRequest request)
     {
+        if (await _lockGuard.IsInvoiceLocked(id))
+            return BadRequest(new { message = "This Proforma Invoice is locked because a Final Invoice has been created." });
+
         var (userId, isAdmin) = GetUserContext();
         // Get invoice info for notification
         var invoice = await _invoiceService.GetByIdAsync(id, userId, isAdmin);

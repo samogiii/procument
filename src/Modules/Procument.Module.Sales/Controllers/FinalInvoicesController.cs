@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Services;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
 
@@ -11,10 +12,12 @@ namespace Procument.Module.Sales.Controllers;
 public class FinalInvoicesController : ControllerBase
 {
     private readonly IFinalInvoiceService _service;
+    private readonly IFinalInvoiceLockGuard _lockGuard;
 
-    public FinalInvoicesController(IFinalInvoiceService service)
+    public FinalInvoicesController(IFinalInvoiceService service, IFinalInvoiceLockGuard lockGuard)
     {
         _service = service;
+        _lockGuard = lockGuard;
     }
 
     [HttpGet]
@@ -22,6 +25,21 @@ public class FinalInvoicesController : ControllerBase
     {
         var result = await _service.GetAllAsync();
         return Ok(result);
+    }
+
+    /// <summary>Check if an entity is locked by a Final Invoice. entityType: rfq, quote, invoice, po</summary>
+    [HttpGet("is-locked")]
+    public async Task<IActionResult> IsLocked([FromQuery] string entityType, [FromQuery] long entityId)
+    {
+        var locked = entityType?.ToLower() switch
+        {
+            "rfq" => await _lockGuard.IsRfqLocked(entityId),
+            "quote" => await _lockGuard.IsQuoteLocked(entityId),
+            "invoice" => await _lockGuard.IsInvoiceLocked(entityId),
+            "po" => await _lockGuard.IsPurchaseOrderLocked(entityId),
+            _ => false
+        };
+        return Ok(new { locked });
     }
 
     [HttpGet("{id:long}")]

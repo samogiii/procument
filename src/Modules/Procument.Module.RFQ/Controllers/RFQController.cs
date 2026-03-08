@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Services;
+using Procument.Shared.Services;
 
 namespace Procument.Module.RFQ.Controllers;
 
@@ -11,10 +12,12 @@ namespace Procument.Module.RFQ.Controllers;
 public class RFQsController : ControllerBase
 {
     private readonly IRFQService _rfqService;
+    private readonly IFinalInvoiceLockGuard _lockGuard;
 
-    public RFQsController(IRFQService rfqService)
+    public RFQsController(IRFQService rfqService, IFinalInvoiceLockGuard lockGuard)
     {
         _rfqService = rfqService;
+        _lockGuard = lockGuard;
     }
 
     /// <summary>Create a new RFQ. Auto-creates customer and part numbers if they don't exist.</summary>
@@ -83,6 +86,9 @@ public class RFQsController : ControllerBase
     [HttpPatch("{id:long}/status")]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateStatusRequest request)
     {
+        if (await _lockGuard.IsRfqLocked(id))
+            return BadRequest(new { message = "This RFQ is locked because a Final Invoice has been created." });
+
         var success = await _rfqService.UpdateStatusAsync(id, request.Status);
         return success ? Ok() : NotFound();
     }
