@@ -26,6 +26,7 @@ public class CustomersController : ControllerBase
             {
                 c.Id,
                 c.Name,
+                c.CustomerCode,
                 c.Email,
                 c.Phone,
                 c.ShipTo,
@@ -60,6 +61,7 @@ public class CustomersController : ControllerBase
         var entity = new Customer
         {
             Name = dto.Name,
+            CustomerCode = dto.CustomerCode,
             Email = dto.Email,
             Phone = dto.Phone,
             ShipTo = dto.ShipTo,
@@ -79,6 +81,7 @@ public class CustomersController : ControllerBase
         if (entity == null) return NotFound();
 
         entity.Name = dto.Name;
+        entity.CustomerCode = dto.CustomerCode;
         entity.Email = dto.Email;
         entity.Phone = dto.Phone;
         entity.ShipTo = dto.ShipTo;
@@ -102,6 +105,7 @@ public class CustomersController : ControllerBase
 public class CustomerDto
 {
     public string Name { get; set; } = string.Empty;
+    public string? CustomerCode { get; set; }
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? ShipTo { get; set; }

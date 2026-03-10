@@ -354,6 +354,7 @@ public class RFQService : IRFQService
         LeadTime = rfq.LeadTime,
         CreatedAt = rfq.CreatedAt,
         CustomerName = rfq.Customer.Name,
+        CustomerCode = rfq.Customer.CustomerCode,
         CustomerId = rfq.CustomerId,
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,

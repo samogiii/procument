@@ -105,6 +105,7 @@ public class AppDbContext : DbContext
       entity.ToTable("Customers");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.Name).HasMaxLength(300);
+      entity.Property(e => e.CustomerCode).HasMaxLength(100);
       entity.Property(e => e.Email).HasMaxLength(200);
       entity.Property(e => e.Phone).HasMaxLength(50);
       entity.Property(e => e.ShipTo).HasMaxLength(500);

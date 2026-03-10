@@ -237,6 +237,7 @@ public class InvoiceService : IInvoiceService
         QuoteId = i.QuoteId,
         CustomerId = i.CustomerId,
         CustomerName = i.Customer?.Name ?? "",
+        CustomerCode = i.Customer?.CustomerCode,
         CustomerBillTo = i.Customer?.BillTo,
         CustomerShipTo = i.Customer?.ShipTo,
         RejectionNote = i.RejectionNote,

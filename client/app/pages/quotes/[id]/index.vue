@@ -46,7 +46,10 @@
     <!-- Stat Cards -->
     <v-row class="mb-6">
       <v-col cols="12" md="3">
-        <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="quote.customerName" />
+        <StatCard icon="mdi-account-outline" color="primary" label="Customer">
+          <template v-if="isAdmin">{{ quote.customerName }}<span v-if="quote.customerCode" class="text-medium-emphasis ml-1">({{ quote.customerCode }})</span></template>
+          <template v-else>{{ quote.customerCode || '—' }}</template>
+        </StatCard>
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">

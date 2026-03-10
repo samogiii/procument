@@ -60,6 +60,7 @@ public class RFQResponse
     public DateTime LeadTime { get; set; }
     public DateTime CreatedAt { get; set; }
     public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerCode { get; set; }
     public long CustomerId { get; set; }
     public string? UserName { get; set; }
     public long? UserId { get; set; }

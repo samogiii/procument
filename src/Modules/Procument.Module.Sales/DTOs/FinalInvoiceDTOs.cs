@@ -16,6 +16,7 @@ public class FinalInvoiceResponse
     public string ProformaInvoiceNumber { get; set; } = "";
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
+    public string? CustomerCode { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
     public List<FinalInvoiceItemResponse> Items { get; set; } = new();
@@ -60,5 +61,6 @@ public class EligibleProformaResponse
     public long Id { get; set; }
     public string InvoiceNumber { get; set; } = "";
     public string CustomerName { get; set; } = "";
+    public string? CustomerCode { get; set; }
     public decimal TotalAmount { get; set; }
 }

@@ -94,7 +94,7 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:3000",
-                "http://192.168.3.3:3000",
+                "http://192.168.3.150:3000",
                 "http://localhost",
                 "http://frontend:3000"
               )
@@ -107,7 +107,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // ─── Seed Data ───
-await DataSeeder.SeedAsync(app.Services);
+//await DataSeeder.SeedAsync(app.Services);
 
 // ─── Middleware Pipeline ───
 if (app.Environment.IsDevelopment())
@@ -119,6 +119,23 @@ if (app.Environment.IsDevelopment())
                .WithTheme(ScalarTheme.DeepSpace)
                .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
     });
+
+    // ─── DANGER: Reset Database Endpoint ───
+    // Only available in Development mode for safety
+    app.MapPost("/api/dev/reset-database", async (IServiceProvider sp) =>
+    {
+        try
+        {
+            await Procument.API.Services.DatabaseResetter.HardResetAndSeedAdminAsync(sp);
+            return Results.Ok(new { message = "Database successfully reset and Admin user created." });
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to reset database: {ex.Message}");
+        }
+    })
+    .WithName("ResetDatabase")
+    .WithOpenApi();
 }
 
 if (app.Environment.IsDevelopment())

@@ -11,7 +11,7 @@
         >
           Perms
         </v-btn>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
+        <v-btn v-if="isAdmin" color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
           New RFQ
         </v-btn>
       </template>
@@ -56,6 +56,10 @@
               {{ item.priority || 'Normal' }}
             </v-chip>
           </template> -->
+          <template #item.customerName="{ item }">
+            <template v-if="isAdmin">{{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span></template>
+            <template v-else>{{ item.customerCode || '—' }}</template>
+          </template>
           <template #item.itemCount="{ item }">
             <v-chip size="small" color="secondary">{{ item.items?.length || 0 }} parts</v-chip>
           </template>

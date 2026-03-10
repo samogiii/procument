@@ -35,6 +35,7 @@
       @save="save"
     >
       <v-text-field v-model="form.name" label="Name" class="mb-2" />
+      <v-text-field v-model="form.customerCode" label="Customer Code" class="mb-2" />
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
       <v-text-field v-model="form.shipTo" label="Ship To" class="mb-2" />
@@ -56,12 +57,13 @@ const {
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', email: '', phone: '', shipTo: '', billTo: '' }),
-  searchFields: ['name', 'email', 'phone'],
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '' }),
+  searchFields: ['name', 'customerCode', 'email', 'phone'],
 })
 
 const headers = [
   { title: 'Name', key: 'name' },
+  { title: 'Code', key: 'customerCode' },
   { title: 'Email', key: 'email' },
   { title: 'Phone', key: 'phone' },
   { title: 'Ship To', key: 'shipTo' },

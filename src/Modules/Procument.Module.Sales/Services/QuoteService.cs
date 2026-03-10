@@ -314,6 +314,7 @@ public class QuoteService : IQuoteService
         Type = q.Type,
         TypeAdditional = q.TypeAdditional,
         CustomerName = q.Customer.Name,
+        CustomerCode = q.Customer.CustomerCode,
         CustomerBillTo = q.Customer.BillTo,
         CustomerShipTo = q.Customer.ShipTo,
         UserName = q.User?.Name,

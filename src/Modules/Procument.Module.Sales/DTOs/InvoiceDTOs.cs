@@ -36,6 +36,7 @@ public class InvoiceResponse
     public long QuoteId { get; set; }
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerCode { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
     public string? RejectionNote { get; set; }

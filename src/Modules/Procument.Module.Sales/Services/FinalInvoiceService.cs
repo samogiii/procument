@@ -65,6 +65,7 @@ public class FinalInvoiceService : IFinalInvoiceService
             Id = i.Id,
             InvoiceNumber = i.InvoiceNumber,
             CustomerName = i.Customer?.Name ?? "",
+            CustomerCode = i.Customer?.CustomerCode,
             TotalAmount = i.TotalAmount
         }).ToList();
     }
@@ -203,6 +204,7 @@ public class FinalInvoiceService : IFinalInvoiceService
         ProformaInvoiceNumber = fi.ProformaInvoice?.InvoiceNumber ?? "",
         CustomerId = fi.CustomerId,
         CustomerName = fi.Customer?.Name ?? "",
+        CustomerCode = fi.Customer?.CustomerCode,
         CustomerBillTo = fi.Customer?.BillTo,
         CustomerShipTo = fi.Customer?.ShipTo,
         Items = fi.Items.Select(i => new FinalInvoiceItemResponse

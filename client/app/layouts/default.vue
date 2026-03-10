@@ -179,15 +179,19 @@ watch(mobile, (isMobile) => {
   if (isMobile) rail.value = false
 })
 
-const navItems = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard' },
-  { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs' },
-  { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes' },
-  { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices' },
-  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices' },
-  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders' },
-  { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog' },
+const allNavItems = [
+  { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false },
+  { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false },
+  { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false },
+  { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true },
+  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true },
+  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true },
+  { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true },
 ]
+
+const navItems = computed(() =>
+  allNavItems.filter(item => !item.adminOnly || authStore.isAdmin)
+)
 
 const pageTitle = computed(() => {
   const name = route.name as string | undefined

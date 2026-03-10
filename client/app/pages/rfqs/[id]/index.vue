@@ -41,7 +41,10 @@
             </v-avatar>
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Customer</p>
-              <p class="text-body-2 font-weight-medium mb-0">{{ rfq.customerName || '—' }}</p>
+              <p class="text-body-2 font-weight-medium mb-0">
+                <template v-if="isAdmin">{{ rfq.customerName }}<span v-if="rfq.customerCode" class="text-medium-emphasis ml-1">({{ rfq.customerCode }})</span></template>
+                <template v-else>{{ rfq.customerCode || '—' }}</template>
+              </p>
             </div>
           </div>
         </v-card>
