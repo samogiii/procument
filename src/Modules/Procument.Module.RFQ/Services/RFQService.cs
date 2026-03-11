@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
 using Procument.Module.Catalog.Entities;
@@ -18,6 +19,7 @@ public interface IRFQService
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
     Task<bool> UpdateStatusAsync(long rfqId, string status);
+    Task<string> DeleteRFQItem(long id);
 }
 
 public class RFQService : IRFQService
@@ -376,4 +378,23 @@ public class RFQService : IRFQService
             Alternatives = i.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         }).ToList()
     };
+
+    public async Task<string> DeleteRFQItem(long id)
+    {
+        var item = await _db.Set<RFQItem>().FindAsync(id);
+        if (item == null) throw new Exception("Not found");
+        var hasQuotes = await _db.Database
+            .SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM QuoteItems WHERE RFQItemId = {id}")
+            .SingleAsync();
+
+        if (hasQuotes > 0)
+            throw new Exception( "Cannot delete this item because it has linked quote items.");
+
+        _db.Set<RFQItem>().Remove(item);
+        await _db.SaveChangesAsync();
+
+
+        return "Done";
+
+    }
 }

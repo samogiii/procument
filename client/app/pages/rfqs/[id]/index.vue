@@ -238,6 +238,7 @@
               <th style="min-width: 200px;">Alternatives</th>
               <th style="min-width: 200px;">Note</th>
               <th style="min-width: 120px;">Procurements</th>
+              <th v-if="isAdmin" style="min-width: 60px; text-align: center;"></th>
             </tr>
           </thead>
           <tbody>
@@ -335,11 +336,21 @@
                     {{ getQuoteCount(item.id) }} supplier{{ getQuoteCount(item.id) !== 1 ? 's' : '' }}
                   </span>
                 </td>
+                <td v-if="isAdmin" class="text-center">
+                  <v-btn
+                    v-if="getQuoteCount(item.id) === 0"
+                    icon="mdi-delete-outline"
+                    variant="text"
+                    size="x-small"
+                    color="error"
+                    @click.stop="confirmDeleteItem(item)"
+                  />
+                </td>
               </tr>
 
               <!-- Expanded Detail Row -->
               <tr v-if="expandedRows.has(item.id)" class="detail-row">
-                <td :colspan="10" class="detail-cell">
+                <td :colspan="isAdmin ? 13 : 12" class="detail-cell">
                   <div class="quote-panel">
                     <div class="quote-header d-flex align-center justify-space-between mb-3">
                       <span class="text-caption text-uppercase font-weight-bold letter-spacing-wide" style="color: #60a5fa;">
@@ -754,6 +765,24 @@
 
     <RfqPdfGenerator v-model="showPdf" :rfq="rfq" />
 
+    <!-- Delete Item Confirmation -->
+    <v-dialog v-model="showDeleteItemConfirm" max-width="400">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-alert-circle-outline" color="error" class="mr-2" />
+          Delete Item?
+        </v-card-title>
+        <v-card-text>
+          Are you sure you want to delete <strong>{{ deleteItemTarget?.partNumberName }}</strong> from this RFQ? This cannot be undone.
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteItemConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" @click="doDeleteItem">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
@@ -961,6 +990,29 @@ async function removeQuote(itemId: number, qIdx: number) {
 
   const globalIdx = supplierQuotes.value.indexOf(quote)
   if (globalIdx > -1) supplierQuotes.value.splice(globalIdx, 1)
+}
+
+// ──── Delete RFQ Item ────
+const showDeleteItemConfirm = ref(false)
+const deleteItemTarget = ref<any>(null)
+
+function confirmDeleteItem(item: any) {
+  deleteItemTarget.value = item
+  showDeleteItemConfirm.value = true
+}
+
+async function doDeleteItem() {
+  if (!deleteItemTarget.value) return
+  try {
+    await api.del(`/rfqs/items/${deleteItemTarget.value.id}`)
+    showSnack('Item deleted', 'success')
+    await loadData()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to delete item', 'error')
+  } finally {
+    showDeleteItemConfirm.value = false
+    deleteItemTarget.value = null
+  }
 }
 
 // ──── Supplier Name Autocomplete ────

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.RFQ.DTOs;
+using Procument.Module.RFQ.Entities;
 using Procument.Module.RFQ.Services;
 using Procument.Shared.Services;
 
@@ -80,6 +82,15 @@ public class RFQsController : ControllerBase
     {
         var result = await _rfqService.AddItemAsync(id, request);
         return result == null ? NotFound() : Ok(result);
+    }
+
+    /// <summary>Delete an RFQ item if it has no linked quote items. Admin only.</summary>
+    [HttpDelete("items/{itemId:long}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteItem(long itemId)
+    {
+        var item =await  _rfqService.DeleteRFQItem(itemId);
+        return NoContent();
     }
 
     /// <summary>Update the status of an RFQ.</summary>
