@@ -20,17 +20,27 @@
     <!-- RFQ List -->
     <v-card class="glass-card">
       <v-card-text>
-        <v-text-field
-          v-model="search"
-          prepend-inner-icon="mdi-magnify"
-          label="Search RFQs..."
-          single-line
-          hide-details
-          class="mb-4"
-        />
+        <div class="d-flex flex-wrap gap-3 mb-4">
+          <v-text-field
+            v-model="search"
+            prepend-inner-icon="mdi-magnify"
+            label="Search RFQs..."
+            single-line
+            hide-details
+            class="flex-grow-1"
+            style="min-width: 180px;"
+          />
+          <v-select
+            v-model="statusFilter"
+            :items="rfqStatusOptions"
+            label="Status"
+            hide-details
+            style="min-width: 120px; max-width: 160px;"
+          />
+        </div>
         <v-data-table
           :headers="headers"
-          :items="items"
+          :items="filteredItems"
           :search="search"
           :loading="loading"
           :items-per-page="10"
@@ -59,6 +69,38 @@
           <template #item.customerName="{ item }">
             <template v-if="isAdmin">{{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span></template>
             <template v-else>{{ item.customerCode || '—' }}</template>
+          </template>
+          <template #item.status="{ item }">
+            <v-chip
+              size="small"
+              :color="item.status === 'Closed' ? 'success' : item.status === 'In Progress' ? 'warning' : 'info'"
+              variant="tonal"
+            >
+              {{ item.status || 'Open' }}
+            </v-chip>
+          </template>
+          <template #item.experts="{ item }">
+            <div class="d-flex flex-wrap gap-1">
+              <v-chip
+                v-if="item.userName"
+                size="x-small"
+                color="warning"
+                variant="tonal"
+                prepend-icon="mdi-account-star"
+              >
+                {{ item.userName }}
+              </v-chip>
+              <v-chip
+                v-for="user in [...(item.views || []), ...(item.edits || [])].filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i && u.id !== item.userId)"
+                :key="user.id"
+                size="x-small"
+                color="primary"
+                variant="tonal"
+              >
+                {{ user.name }}
+              </v-chip>
+              <span v-if="!item.userName && !(item.views?.length || item.edits?.length)" class="text-medium-emphasis">—</span>
+            </div>
           </template>
           <template #item.itemCount="{ item }">
             <v-chip size="small" color="secondary">{{ item.items?.length || 0 }} parts</v-chip>
@@ -428,8 +470,11 @@ import { VTextField } from 'vuetify/components'
 const api = useApi()
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
+const rfqStatusOptions = ['All', 'Open', 'In Progress', 'Closed']
+const statusFilter = ref((route.query.status as string) || 'All')
 
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
@@ -452,12 +497,18 @@ const showBulkPerms = ref(false)
 const search = ref('')
 const loading = ref(false)
 const items = ref<any[]>([])
+const filteredItems = computed(() => {
+  if (!statusFilter.value || statusFilter.value === 'All') return items.value
+  return items.value.filter((item: any) => (item.status || 'Open') === statusFilter.value)
+})
 
 const headers = [
   { title: 'ID', key: 'id', width: '80px' },
   { title: 'Name', key: 'name' },
   { title: 'Customer', key: 'customerName' },
-  { title: 'Priority', key: 'priority', width: '100px' },
+  { title: 'Status', key: 'status', width: '110px' },
+  { title: 'Experts', key: 'experts', sortable: false },
+  // { title: 'Priority', key: 'priority', width: '100px' },
   { title: 'Lead Time', key: 'leadTime' },
   { title: 'Parts', key: 'itemCount', sortable: false },
   { title: 'Created', key: 'createdAt' },
@@ -876,6 +927,6 @@ async function submitRfq() {
   background-color: rgba(239, 68, 68, 0.2) !important;
 }
 :deep(.lead-time-urgent-row td) {
-  color: #fca5a5 !important;
+  color: rgb(var(--v-theme-error)) !important;
 }
 </style>

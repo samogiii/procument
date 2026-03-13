@@ -41,7 +41,7 @@
       <!-- KPI Cards -->
       <v-row class="mb-2">
         <v-col v-for="s in statCards" :key="s.title" cols="6" sm="4" :md="isAdmin ? 2 : 3">
-          <v-card class="glass-card pa-4 text-center" :style="{ borderTop: '3px solid ' + s.borderColor }">
+          <v-card class="glass-card pa-4 text-center cursor-pointer" :style="{ borderTop: '3px solid ' + s.borderColor }" @click="navigateTo(s.to)">
             <v-icon :icon="s.icon" :color="s.color" size="28" class="mb-2" />
             <div class="text-h5 font-weight-bold">{{ s.value }}</div>
             <div class="text-caption text-medium-emphasis">{{ s.title }}</div>
@@ -52,7 +52,7 @@
       <!-- Financial Highlights -->
       <v-row class="mb-2">
         <v-col cols="12" sm="6" md="3">
-          <v-card class="glass-card pa-4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/quotes')">
             <div class="d-flex align-center mb-2">
               <v-avatar color="success" size="36" variant="tonal"><v-icon icon="mdi-cash-multiple" size="20" /></v-avatar>
               <div class="ml-3">
@@ -60,11 +60,11 @@
                 <div class="text-h6 font-weight-bold">${{ fmtNum(d.totalQuoteValue) }}</div>
               </div>
             </div>
-            <div class="text-caption text-success">Accepted: ${{ fmtNum(d.acceptedQuoteValue) }}</div>
+            <div class="text-caption text-success clickable-sub" @click.stop="navigateTo('/quotes?status=Accepted')">Accepted: ${{ fmtNum(d.acceptedQuoteValue) }}</div>
           </v-card>
         </v-col>
         <v-col cols="12" sm="6" md="3">
-          <v-card class="glass-card pa-4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/purchase-orders')">
             <div class="d-flex align-center mb-2">
               <v-avatar color="info" size="36" variant="tonal"><v-icon icon="mdi-package-variant" size="20" /></v-avatar>
               <div class="ml-3">
@@ -76,7 +76,7 @@
           </v-card>
         </v-col>
         <v-col cols="12" sm="6" md="3">
-          <v-card class="glass-card pa-4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/invoices')">
             <div class="d-flex align-center mb-2">
               <v-avatar color="warning" size="36" variant="tonal"><v-icon icon="mdi-receipt-text" size="20" /></v-avatar>
               <div class="ml-3">
@@ -84,7 +84,7 @@
                 <div class="text-h6 font-weight-bold">${{ fmtNum(d.totalInvoiceValue) }}</div>
               </div>
             </div>
-            <div class="text-caption text-warning">Paid: ${{ fmtNum(d.paidInvoiceValue) }}</div>
+            <div class="text-caption text-warning clickable-sub" @click.stop="navigateTo('/invoices?status=Paid')">Paid: ${{ fmtNum(d.paidInvoiceValue) }}</div>
           </v-card>
         </v-col>
         <v-col cols="12" sm="6" md="3">
@@ -386,13 +386,19 @@ watch(activeTab, (tab) => {
 
 const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-// ─── Theme colors ───
-const C = {
+// ─── Theme colors (reactive) ───
+const { isDark } = useAppTheme()
+const C = computed(() => isDark.value ? {
   bg: '#0D1117', surface: '#161B22', surfaceVar: '#1C2333',
   primary: '#1565C0', secondary: '#00BCD4', accent: '#FF6D00',
   error: '#EF5350', warning: '#FF6D00', info: '#29B6F6', success: '#66BB6A',
   text: '#E6EDF3', muted: '#8B949E',
-}
+} : {
+  bg: '#F5F7FA', surface: '#FFFFFF', surfaceVar: '#EEF2F6',
+  primary: '#1565C0', secondary: '#0097A7', accent: '#E65100',
+  error: '#D32F2F', warning: '#E65100', info: '#0288D1', success: '#2E7D32',
+  text: '#1A2332', muted: '#64748b',
+})
 
 const statusColors: Record<string, string> = {
   Draft: '#8B949E', Sent: '#29B6F6', Accepted: '#66BB6A', Rejected: '#EF5350',
@@ -405,14 +411,15 @@ const statusColors: Record<string, string> = {
 // ─── Computed KPIs ───
 const statCards = computed(() => {
   const v = d.value
+  const c = C.value
   const base = [
-    { title: 'RFQs', value: v.totalRfqs ?? 0, icon: 'mdi-file-document-outline', color: 'primary', borderColor: C.primary },
-    { title: 'Quotes', value: v.totalQuotes ?? 0, icon: 'mdi-currency-usd', color: 'info', borderColor: C.info },
-    { title: 'Invoices', value: v.totalInvoices ?? 0, icon: 'mdi-receipt-text-outline', color: 'warning', borderColor: C.warning },
-    { title: 'POs', value: v.totalPOs ?? 0, icon: 'mdi-package-variant-closed', color: 'secondary', borderColor: C.secondary },
-    { title: 'Pending RFQs', value: v.pendingRfqs ?? 0, icon: 'mdi-file-clock-outline', color: 'error', borderColor: C.error },
+    { title: 'RFQs', value: v.totalRfqs ?? 0, icon: 'mdi-file-document-outline', color: 'primary', borderColor: c.primary, to: '/rfqs' },
+    { title: 'Quotes', value: v.totalQuotes ?? 0, icon: 'mdi-currency-usd', color: 'info', borderColor: c.info, to: '/quotes' },
+    { title: 'Invoices', value: v.totalInvoices ?? 0, icon: 'mdi-receipt-text-outline', color: 'warning', borderColor: c.warning, to: '/invoices' },
+    { title: 'POs', value: v.totalPOs ?? 0, icon: 'mdi-package-variant-closed', color: 'secondary', borderColor: c.secondary, to: '/purchase-orders' },
+    { title: 'Pending RFQs', value: v.pendingRfqs ?? 0, icon: 'mdi-file-clock-outline', color: 'error', borderColor: c.error, to: '/rfqs?status=Open' },
   ]
-  if (isAdmin.value) base.push({ title: 'Users', value: v.totalUsers ?? 0, icon: 'mdi-account-group', color: 'success', borderColor: C.success })
+  if (isAdmin.value) base.push({ title: 'Users', value: v.totalUsers ?? 0, icon: 'mdi-account-group', color: 'success', borderColor: c.success, to: '/users' })
   return base
 })
 
@@ -423,13 +430,16 @@ const collectionRate = computed(() => {
 })
 
 // ─── Chart base config ───
-const darkChartBase = {
-  chart: { background: 'transparent', foreColor: C.text, toolbar: { show: false }, animations: { enabled: true, easing: 'easeinout', speed: 800, dynamicAnimation: { speed: 400 } } },
-  theme: { mode: 'dark' as const },
-  grid: { borderColor: '#21262d', strokeDashArray: 4 },
-  tooltip: { theme: 'dark', style: { fontSize: '12px' } },
-  legend: { labels: { colors: C.muted }, fontSize: '12px' },
-}
+const chartBase = computed(() => {
+  const c = C.value
+  return {
+    chart: { background: 'transparent', foreColor: c.text, toolbar: { show: false }, animations: { enabled: true, easing: 'easeinout', speed: 800, dynamicAnimation: { speed: 400 } } },
+    theme: { mode: (isDark.value ? 'dark' : 'light') as 'dark' | 'light' },
+    grid: { borderColor: isDark.value ? '#21262d' : '#e2e8f0', strokeDashArray: 4 },
+    tooltip: { theme: isDark.value ? 'dark' : 'light', style: { fontSize: '12px' } },
+    legend: { labels: { colors: c.muted }, fontSize: '12px' },
+  }
+})
 
 // ─── Revenue Trend (area) ───
 function getMonthLabels(data: any[]) {
@@ -438,14 +448,16 @@ function getMonthLabels(data: any[]) {
 
 const revenueTrendOpts = computed(() => {
   const labels = getMonthLabels(d.value.monthlyQuotes || [])
+  const base = chartBase.value
+  const c = C.value
   return {
-    ...darkChartBase,
-    chart: { ...darkChartBase.chart, type: 'area', height: 300, sparkline: { enabled: false } },
-    xaxis: { categories: labels, labels: { style: { colors: C.muted, fontSize: '11px' } } },
-    yaxis: { labels: { style: { colors: C.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
+    ...base,
+    chart: { ...base.chart, type: 'area', height: 300, sparkline: { enabled: false } },
+    xaxis: { categories: labels, labels: { style: { colors: c.muted, fontSize: '11px' } } },
+    yaxis: { labels: { style: { colors: c.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
     stroke: { curve: 'smooth', width: 3 },
     fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 100] } },
-    colors: [C.success, C.info, C.warning],
+    colors: [c.success, c.info, c.warning],
     dataLabels: { enabled: false },
   }
 })
@@ -466,12 +478,14 @@ function buildDonut(dist: any[], title: string) {
   const labels = (dist || []).map((s: any) => s.status || 'Unknown')
   const series = (dist || []).map((s: any) => s.count)
   const colors = labels.map((l: string) => statusColors[l] || '#6B7280')
+  const base = chartBase.value
+  const c = C.value
   const opts = {
-    ...darkChartBase,
-    chart: { ...darkChartBase.chart, type: 'donut' },
+    ...base,
+    chart: { ...base.chart, type: 'donut' },
     labels, colors,
-    plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'Total', color: C.muted, fontSize: '13px', formatter: (w: any) => w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0) } } } } },
-    stroke: { width: 2, colors: [C.surface] },
+    plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'Total', color: c.muted, fontSize: '13px', formatter: (w: any) => w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0) } } } } },
+    stroke: { width: 2, colors: [c.surface] },
     dataLabels: { enabled: false },
   }
   return { opts, series }
@@ -487,12 +501,14 @@ const invoiceDonutSeries = computed(() => buildDonut(d.value.invoiceStatusDistri
 // ─── Volume Bar ───
 const volumeBarOpts = computed(() => {
   const labels = getMonthLabels(d.value.monthlyQuotes || [])
+  const base = chartBase.value
+  const c = C.value
   return {
-    ...darkChartBase,
-    chart: { ...darkChartBase.chart, type: 'bar', stacked: true },
-    xaxis: { categories: labels, labels: { style: { colors: C.muted, fontSize: '11px' } } },
-    yaxis: { labels: { style: { colors: C.muted } } },
-    colors: [C.success, C.info, C.warning],
+    ...base,
+    chart: { ...base.chart, type: 'bar', stacked: true },
+    xaxis: { categories: labels, labels: { style: { colors: c.muted, fontSize: '11px' } } },
+    yaxis: { labels: { style: { colors: c.muted } } },
+    colors: [c.success, c.info, c.warning],
     plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
     dataLabels: { enabled: false },
   }
@@ -507,12 +523,14 @@ const volumeBarSeries = computed(() => [
 // ─── Per-User Bar (admin) ───
 const userBarOpts = computed(() => {
   const users = d.value.userQuoteStats || []
+  const base = chartBase.value
+  const c = C.value
   return {
-    ...darkChartBase,
-    chart: { ...darkChartBase.chart, type: 'bar' },
-    xaxis: { categories: users.map((u: any) => u.userName), labels: { style: { colors: C.muted, fontSize: '11px' } } },
-    yaxis: { labels: { style: { colors: C.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
-    colors: [C.primary, C.success, C.error],
+    ...base,
+    chart: { ...base.chart, type: 'bar' },
+    xaxis: { categories: users.map((u: any) => u.userName), labels: { style: { colors: c.muted, fontSize: '11px' } } },
+    yaxis: { labels: { style: { colors: c.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
+    colors: [c.primary, c.success, c.error],
     plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
     dataLabels: { enabled: false },
   }
@@ -530,12 +548,14 @@ const userBarSeries = computed(() => {
 // ─── Top Suppliers Bar (admin) ───
 const supplierBarOpts = computed(() => {
   const sups = d.value.topSuppliers || []
+  const base = chartBase.value
+  const c = C.value
   return {
-    ...darkChartBase,
-    chart: { ...darkChartBase.chart, type: 'bar' },
-    xaxis: { categories: sups.map((s: any) => s.supplierName || 'Unknown'), labels: { style: { colors: C.muted, fontSize: '11px' }, rotate: -30, trim: true, maxHeight: 80 } },
-    yaxis: { labels: { style: { colors: C.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
-    colors: [C.secondary],
+    ...base,
+    chart: { ...base.chart, type: 'bar' },
+    xaxis: { categories: sups.map((s: any) => s.supplierName || 'Unknown'), labels: { style: { colors: c.muted, fontSize: '11px' }, rotate: -30, trim: true, maxHeight: 80 } },
+    yaxis: { labels: { style: { colors: c.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
+    colors: [c.secondary],
     plotOptions: { bar: { borderRadius: 4, columnWidth: '50%', distributed: true } },
     dataLabels: { enabled: false },
     legend: { show: false },
@@ -605,3 +625,17 @@ function formatTime(ts: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 </script>
+
+<style scoped>
+.clickable-sub {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 0.15s;
+}
+.clickable-sub:hover {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  text-decoration: underline;
+}
+</style>

@@ -92,10 +92,15 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowClient", policy =>
     {
-        policy.SetIsOriginAllowed(origin => true) // Allows any origin
+        policy.WithOrigins("http://192.168.37.100:3000")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
+        policy.WithOrigins("http://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+
     });
 });
 

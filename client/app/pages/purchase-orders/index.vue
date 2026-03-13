@@ -71,7 +71,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="(po, idx) in purchaseOrders" :key="po.id" class="cursor-pointer" @click="$router.push(`/purchase-orders/${po.id}`)">
-                    <td class="text-center" style="color: #64748b;">{{ idx + 1 }}</td>
+                    <td class="text-center text-medium-emphasis">{{ idx + 1 }}</td>
                     <td class="cell-pn">{{ po.poNumber }}</td>
                     <td>{{ po.supplierName || '—' }}</td>
                     <td class="text-right cell-price">${{ po.totalAmount?.toFixed(2) || '0.00' }}</td>
@@ -100,7 +100,7 @@
                       </v-menu>
                     </td>
                     <td class="text-center">{{ po.items?.length || 0 }}</td>
-                    <td style="color: #94a3b8; font-size: 12px;">{{ po.createdAt ? new Date(po.createdAt).toLocaleDateString() : '—' }}</td>
+                    <td class="text-medium-emphasis" style="font-size: 12px;">{{ po.createdAt ? new Date(po.createdAt).toLocaleDateString() : '—' }}</td>
                     <td class="text-center">
                       <v-btn icon="mdi-arrow-right" variant="text" size="x-small" density="compact" :to="`/purchase-orders/${po.id}`" />
                     </td>
@@ -356,7 +356,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="(item, idx) in editableItems" :key="item.id">
-                    <td class="text-center" style="color: #64748b;">{{ idx + 1 }}</td>
+                    <td class="text-center text-medium-emphasis">{{ idx + 1 }}</td>
                     <td class="cell-pn">{{ item.partNumberName }}</td>
                     <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
                     <td>{{ item.condition || '—' }}</td>
@@ -376,7 +376,7 @@
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colspan="7" class="text-right" style="font-weight: 600; padding: 10px 12px; color: #94a3b8;">
+                    <td colspan="7" class="text-right text-medium-emphasis" style="font-weight: 600; padding: 10px 12px;">
                       Grand Total
                     </td>
                     <td class="text-right" style="font-weight: 700; color: #4ade80; padding: 10px 12px; font-size: 15px;">
@@ -622,7 +622,7 @@ function showSnack(text: string, color: string) {
 .excel-container {
   overflow-x: auto;
   border-radius: 8px;
-  border: 1px solid rgba(51, 65, 85, 0.5);
+  border: 1px solid var(--card-border);
 }
 
 .po-table {
@@ -632,21 +632,21 @@ function showSnack(text: string, color: string) {
 }
 
 .po-table thead th {
-  background: rgba(30, 41, 59, 0.8);
-  color: #94a3b8;
+  background: var(--toolbar-bg);
+  color: rgb(var(--v-theme-on-surface), 0.6);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 10px 12px;
-  border-bottom: 2px solid rgba(51, 65, 85, 0.8);
+  border-bottom: 2px solid var(--excel-border);
   text-align: left;
   white-space: nowrap;
 }
 
 .po-table tbody td {
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  border-bottom: 1px solid var(--card-border);
   font-size: 13px;
   vertical-align: middle;
 }
@@ -655,18 +655,18 @@ function showSnack(text: string, color: string) {
   transition: background-color 0.15s;
 }
 .po-table tbody tr:hover {
-  background: rgba(30, 41, 59, 0.4);
+  background: var(--row-hover);
 }
 .po-table tbody tr.selected-row {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--cell-hover);
 }
 
 .po-table tfoot td {
-  border-top: 2px solid rgba(51, 65, 85, 0.6);
+  border-top: 2px solid var(--excel-border);
 }
 
 .cell-pn {
-  color: #60a5fa;
+  color: var(--pn-color);
   font-weight: 600;
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
   font-size: 13px;
@@ -690,8 +690,8 @@ function showSnack(text: string, color: string) {
   width: 100%;
   height: 32px;
   border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.4);
-  color: white;
+  background: var(--row-hover);
+  color: rgb(var(--v-theme-on-surface));
   padding: 4px 8px;
   font-size: 13px;
   border-radius: 4px;
@@ -699,11 +699,11 @@ function showSnack(text: string, color: string) {
   transition: all 0.15s;
 }
 .edit-input:hover {
-  border-color: rgba(51, 65, 85, 0.6);
+  border-color: var(--card-border);
 }
 .edit-input:focus {
-  background: rgba(15, 23, 42, 0.8);
-  border-color: #3b82f6;
+  background: var(--toolbar-bg);
+  border-color: rgb(var(--v-theme-primary));
 }
 
 .text-center { text-align: center; }

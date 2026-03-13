@@ -31,6 +31,7 @@ public class CustomersController : ControllerBase
                 c.Phone,
                 c.ShipTo,
                 c.BillTo,
+                c.Base,
                 c.IsActive,
                 c.CreatedAt
             })
@@ -66,6 +67,7 @@ public class CustomersController : ControllerBase
             Phone = dto.Phone,
             ShipTo = dto.ShipTo,
             BillTo = dto.BillTo,
+            Base = dto.Base,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -86,6 +88,7 @@ public class CustomersController : ControllerBase
         entity.Phone = dto.Phone;
         entity.ShipTo = dto.ShipTo;
         entity.BillTo = dto.BillTo;
+        entity.Base = dto.Base;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -110,6 +113,7 @@ public class CustomerDto
     public string? Phone { get; set; }
     public string? ShipTo { get; set; }
     public string? BillTo { get; set; }
+    public int? Base { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════

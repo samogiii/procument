@@ -8,13 +8,34 @@ interface User {
     token: string
 }
 
+function getTokenExpiry(token: string): number | null {
+    try {
+        const parts = token.split('.')
+        if (parts.length < 2) return null
+        const payload = JSON.parse(atob(parts[1]!))
+        return payload.exp ? payload.exp * 1000 : null
+    } catch {
+        return null
+    }
+}
+
 export const useAuthStore = defineStore('auth', {
     state: () => ({
         user: null as User | null,
     }),
 
     getters: {
-        isAuthenticated: (state) => !!state.user?.token,
+        tokenExpiry: (state): number | null => {
+            if (!state.user?.token) return null
+            return getTokenExpiry(state.user.token)
+        },
+        isTokenExpired(): boolean {
+            if (!this.tokenExpiry) return true
+            return Date.now() >= this.tokenExpiry
+        },
+        isAuthenticated(): boolean {
+            return !!this.user?.token && !this.isTokenExpired
+        },
         isAdmin: (state) => state.user?.role === 'Admin',
         userInitials: (state) => {
             if (!state.user?.name) return '?'

@@ -248,20 +248,20 @@ onMounted(() => loadItems())
 .bulk-table th,
 .bulk-table td {
   padding: 4px 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--card-border);
   font-size: 0.82rem;
 }
 .bulk-table th {
   text-align: left;
-  color: rgba(255, 255, 255, 0.5);
+  opacity: 0.6;
   font-weight: 600;
   font-size: 0.72rem;
   text-transform: uppercase;
 }
 .bulk-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--row-hover);
+  border: 1px solid var(--card-border);
   border-radius: 4px;
   padding: 4px 8px;
   color: inherit;
@@ -269,6 +269,6 @@ onMounted(() => loadItems())
 }
 .bulk-input:focus {
   outline: none;
-  border-color: #60a5fa;
+  border-color: rgb(var(--v-theme-primary));
 }
 </style>

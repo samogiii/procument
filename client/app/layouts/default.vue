@@ -121,7 +121,13 @@
             </div>
           </v-card>
         </v-menu>
-        <v-btn icon="mdi-cog-outline" variant="text" size="small" class="ml-1" />
+        <v-btn
+          :icon="appTheme.isDark.value ? 'mdi-weather-sunny' : 'mdi-weather-night'"
+          variant="text"
+          size="small"
+          class="ml-1"
+          @click="appTheme.toggle()"
+        />
       </template>
     </v-app-bar>
 
@@ -173,6 +179,8 @@ const drawer = ref(!mobile.value)
 const rail = ref(false)
 const route = useRoute()
 const authStore = useAuthStore()
+const appTheme = useAppTheme()
+appTheme.init()
 
 watch(mobile, (isMobile) => {
   drawer.value = !isMobile
@@ -215,6 +223,7 @@ const rejections = ref<any[]>([])
 const showRejectionModal = ref(false)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let tokenCheckTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadNotifications() {
   try {
@@ -287,9 +296,18 @@ onMounted(() => {
     loadRejections()
     pollTimer = setInterval(loadNotifications, 30000)
   }
+
+  // Periodic token expiry check — every 30s
+  tokenCheckTimer = setInterval(() => {
+    if (authStore.user?.token && authStore.isTokenExpired) {
+      authStore.logout()
+      navigateTo('/login')
+    }
+  }, 30000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (tokenCheckTimer) clearInterval(tokenCheckTimer)
 })
 </script>

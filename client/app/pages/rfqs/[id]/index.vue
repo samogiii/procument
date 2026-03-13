@@ -1,5 +1,5 @@
 <template>
-  <div class="rfq-single-view">
+  <div  class="rfq-single-view">
     <!-- Header Bar -->
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
       <v-btn icon="mdi-arrow-left" variant="text" to="/rfqs" class="mr-1 flex-shrink-0" size="small" />
@@ -209,15 +209,26 @@
           >
             Add Quote
           </v-btn>
+          
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="secondary"
+            prepend-icon="mdi-content-copy"
+            @click="copyAllPartNumbers"
+          >
+            Copy All P/N
+          </v-btn>
           <v-btn
             size="small"
             variant="tonal"
             color="primary"
             prepend-icon="mdi-content-save"
             :loading="saving"
-            @click="saveAll"
+            @click="saveAll" 
+            
           >
-            Save All
+            Save All (Ctrl + Shift + S)
           </v-btn>
         </div>
       </div>
@@ -253,7 +264,10 @@
                   />
                 </td>
                 <td class="cell-number">{{ idx + 1 }}</td>
-                <td class="cell-pn">{{ item.partNumberName }}</td>
+                <td class="cell-pn cell-copyable" @click.stop="copyPartNumber(item.partNumberName)" :title="'Click to copy: ' + item.partNumberName">
+                  {{ item.partNumberName }}
+                  <v-icon icon="mdi-content-copy" size="12" class="copy-icon ml-1" />
+                </td>
                 <td class="cell-pn">{{ item.description }}</td>
                 <td>
                   <input
@@ -476,6 +490,8 @@
                                 <option value="EASA">EASA</option>
                                 <option value="CAAC">CAAC</option>
                                 <option value="Dual">Dual</option>
+                                <option value="Dual">MFG COC</option>
+                                <option value="Dual">Vendor COC</option>
                                 <option value="No Cert">No Cert</option>
                               </select>
                             </td>
@@ -484,7 +500,7 @@
                                 type="date"
                                 class="quote-input"
                                 v-model="quote.tagDate"
-                                :min="today"
+                                :max="today"
                               />
                             </td>
                             <td>
@@ -860,11 +876,24 @@ async function changeRfqStatus(newStatus: string) {
 const totalQuotes = computed(() => supplierQuotes.value.length)
 
 // ──── Data Loading ────
-
 onMounted(async () => {
   await loadData()
   await checkLock()
 })
+function handleKeydown(e: KeyboardEvent) {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    saveAll()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
 
 async function loadData() {
   loading.value = true
@@ -909,6 +938,8 @@ async function loadData() {
     loading.value = false
   }
 }
+
+
 
 // ──── ExType ────
 
@@ -1262,6 +1293,34 @@ async function removeAlternative(item: any, alt: any) {
   }
 }
 
+// ──── Copy Part Numbers ────
+
+function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text)
+  } else {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+}
+
+function copyPartNumber(pn: string) {
+  copyToClipboard(pn)
+  showSnack(`Copied: ${pn}`, 'success')
+}
+
+function copyAllPartNumbers() {
+  const allPNs = editableItems.value.map(i => i.partNumberName).join('\n')
+  copyToClipboard(allPNs)
+  showSnack(`Copied ${editableItems.value.length} part numbers`, 'success')
+}
+
 // ──── Helpers ────
 
 function toggleExpand(itemId: number) {
@@ -1287,25 +1346,25 @@ function showSnack(text: string, color: string) {
 
 /* Info Cards */
 .info-card {
-  background: rgba(30, 41, 59, 0.6) !important;
-  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  background: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
   backdrop-filter: blur(8px);
   transition: border-color 0.2s;
 }
 .info-card:hover {
-  border-color: rgba(59, 130, 246, 0.3) !important;
+  border-color: var(--card-hover-border) !important;
 }
 
 /* Excel Card */
 .excel-card {
-  background: rgba(22, 27, 34, 0.9) !important;
-  border: 1px solid rgba(51, 65, 85, 0.6) !important;
+  background: var(--excel-bg) !important;
+  border: 1px solid var(--excel-border) !important;
   overflow: hidden;
 }
 
 .excel-toolbar {
-  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
-  background: rgba(30, 41, 59, 0.4);
+  border-bottom: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
 }
 
 .excel-container {
@@ -1321,14 +1380,14 @@ function showSnack(text: string, color: string) {
 }
 
 .excel-grid thead th {
-  background: rgba(30, 41, 59, 0.8);
-  color: #94a3b8;
+  background: var(--toolbar-bg);
+  color: rgb(var(--v-theme-on-surface), 0.6);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 10px 12px;
-  border-bottom: 2px solid rgba(51, 65, 85, 0.8);
+  border-bottom: 2px solid var(--excel-border);
   text-align: left;
   position: sticky;
   top: 0;
@@ -1339,7 +1398,7 @@ function showSnack(text: string, color: string) {
 .excel-grid tbody td {
   padding: 0 12px;
   height: 42px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  border-bottom: 1px solid var(--card-border);
   font-size: 13px;
   vertical-align: middle;
 }
@@ -1350,10 +1409,10 @@ function showSnack(text: string, color: string) {
   cursor: default;
 }
 .master-row:hover {
-  background: rgba(30, 41, 59, 0.4);
+  background: var(--row-hover);
 }
 .master-row.expanded {
-  background: rgba(30, 41, 59, 0.6);
+  background: var(--toolbar-bg);
   border-bottom: none;
 }
 
@@ -1363,20 +1422,36 @@ function showSnack(text: string, color: string) {
   transition: background-color 0.15s;
 }
 .cell-expand:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--cell-hover);
 }
 
 .cell-number {
   text-align: center;
-  color: #64748b;
+  opacity: 0.5;
   font-size: 12px;
 }
 
 .cell-pn {
-  color: #60a5fa;
+  color: var(--pn-color);
   font-weight: 600;
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
   font-size: 13px;
+}
+
+.cell-copyable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.cell-copyable:hover {
+  background: var(--cell-hover);
+}
+.cell-copyable .copy-icon {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.cell-copyable:hover .copy-icon {
+  opacity: 0.6;
 }
 
 .cell-alternatives {
@@ -1393,8 +1468,8 @@ function showSnack(text: string, color: string) {
   width: 100%;
   height: 32px;
   border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.3);
-  color: #e2e8f0;
+  background: var(--row-hover);
+  color: rgb(var(--v-theme-on-surface));
   padding: 4px 8px;
   font-size: 12px;
   border-radius: 4px;
@@ -1403,15 +1478,15 @@ function showSnack(text: string, color: string) {
   transition: all 0.15s;
 }
 .item-input:hover {
-  border-color: rgba(51, 65, 85, 0.5);
+  border-color: var(--card-border);
 }
 .item-input:focus {
-  background: rgba(15, 23, 42, 0.7);
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+  background: var(--toolbar-bg);
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 0 1px var(--card-hover-border);
 }
 .item-input::placeholder {
-  color: #475569;
+  opacity: 0.4;
 }
 .item-select {
   cursor: pointer;
@@ -1424,8 +1499,8 @@ function showSnack(text: string, color: string) {
 }
 .detail-cell {
   padding: 0 !important;
-  background: rgba(15, 23, 42, 0.6);
-  border-bottom: 2px solid rgba(59, 130, 246, 0.3) !important;
+  background: var(--toolbar-bg);
+  border-bottom: 2px solid var(--card-hover-border) !important;
 }
 
 @keyframes slideDown {
@@ -1470,27 +1545,27 @@ function showSnack(text: string, color: string) {
 }
 
 .quote-grid thead th {
-  color: #64748b;
+  opacity: 0.6;
   font-size: 10px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  border-bottom: 1px solid var(--card-border);
   text-align: left;
   white-space: nowrap;
 }
 
 .quote-grid tbody td {
   padding: 3px 4px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.2);
+  border-bottom: 1px solid var(--card-border);
 }
 
 .quote-row {
   transition: background-color 0.15s;
 }
 .quote-row:hover {
-  background: rgba(51, 65, 85, 0.2);
+  background: var(--row-hover);
 }
 
 /* Quote Inputs — Excel-like cells */
@@ -1498,8 +1573,8 @@ function showSnack(text: string, color: string) {
   width: 100%;
   height: 32px;
   border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.4);
-  color: #e2e8f0;
+  background: var(--row-hover);
+  color: rgb(var(--v-theme-on-surface));
   padding: 4px 8px;
   font-size: 12px;
   border-radius: 4px;
@@ -1508,15 +1583,15 @@ function showSnack(text: string, color: string) {
   transition: all 0.15s;
 }
 .quote-input:hover {
-  border-color: rgba(51, 65, 85, 0.6);
+  border-color: var(--card-border);
 }
 .quote-input:focus {
-  background: rgba(15, 23, 42, 0.8);
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+  background: var(--toolbar-bg);
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 0 1px var(--card-hover-border);
 }
 .quote-input::placeholder {
-  color: #475569;
+  opacity: 0.4;
   font-style: italic;
 }
 
@@ -1540,7 +1615,7 @@ function showSnack(text: string, color: string) {
 }
 
 .empty-quotes {
-  border: 1px dashed rgba(51, 65, 85, 0.5);
+  border: 1px dashed var(--card-border);
   border-radius: 8px;
 }
 </style>

@@ -83,6 +83,7 @@
 
 <script setup lang="ts">
 const api = useApi()
+const route = useRoute()
 
 const props = withDefaults(defineProps<{
   /** Page title */
@@ -120,7 +121,8 @@ const selected = computed({
 })
 
 const search = ref('')
-const statusFilter = ref('All')
+const initialStatus = (route.query.status as string) || 'All'
+const statusFilter = ref(initialStatus)
 const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)

@@ -10,4 +10,5 @@ public class Customer : AuditableEntity
     public string? Phone { get; set; }
     public string? ShipTo { get; set; }
     public string? BillTo { get; set; }
+    public int? Base { get; set; }
 }

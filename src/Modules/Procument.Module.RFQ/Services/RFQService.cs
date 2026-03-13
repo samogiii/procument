@@ -202,7 +202,47 @@ public class RFQService : IRFQService
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 
-        return rfqs.Select(MapToResponse).ToList();
+        var responses = rfqs.Select(MapToResponse).ToList();
+
+        // Batch-load permissions for all RFQs
+        var rfqIds = rfqs.Select(r => r.Id.ToString()).ToList();
+        var allPermissions = await _db.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIds.Contains(p.EntityId))
+            .ToListAsync();
+
+        foreach (var resp in responses)
+        {
+            var perms = allPermissions.Where(p => p.EntityId == resp.Id.ToString()).ToList();
+
+            resp.Views = perms
+                .Where(p => p.Permission == "View")
+                .Select(p => new UserResponse
+                {
+                    Id = p.User.Id,
+                    Name = p.User.Name,
+                    Email = p.User.Email,
+                    Role = p.User.Role,
+                    IsActive = p.User.IsActive,
+                    CreatedAt = p.User.CreatedAt
+                })
+                .ToList();
+
+            resp.Edits = perms
+                .Where(p => p.Permission == "Edit")
+                .Select(p => new UserResponse
+                {
+                    Id = p.User.Id,
+                    Name = p.User.Name,
+                    Email = p.User.Email,
+                    Role = p.User.Role,
+                    IsActive = p.User.IsActive,
+                    CreatedAt = p.User.CreatedAt
+                })
+                .ToList();
+        }
+
+        return responses;
     }
 
     // ──── Update Item ────

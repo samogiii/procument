@@ -81,7 +81,7 @@
                 />
               </td>
               <td class="cell-pn">{{ item.partNumberName }}</td>
-              <td style="font-size: 13px; color: #94a3b8;">{{ item.description || '—' }}</td>
+              <td class="text-medium-emphasis" style="font-size: 13px;">{{ item.description || '—' }}</td>
               <td style="font-size: 12px;">{{ item.condition || 'N/A' }}</td>
               <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
               <td>
@@ -258,13 +258,13 @@ function showSnack(text: string, color: string) {
 }
 
 .toolbar-card {
-  background: rgba(30, 41, 59, 0.6) !important;
-  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  background: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
 }
 
 .excel-card {
-  background: rgba(22, 27, 34, 0.9) !important;
-  border: 1px solid rgba(51, 65, 85, 0.6) !important;
+  background: var(--excel-bg) !important;
+  border: 1px solid var(--excel-border) !important;
   overflow: hidden;
 }
 
@@ -280,14 +280,14 @@ function showSnack(text: string, color: string) {
 }
 
 .excel-grid thead th {
-  background: rgba(30, 41, 59, 0.8);
-  color: #94a3b8;
+  background: var(--toolbar-bg);
+  color: rgb(var(--v-theme-on-surface), 0.6);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 10px 12px;
-  border-bottom: 2px solid rgba(51, 65, 85, 0.8);
+  border-bottom: 2px solid var(--excel-border);
   text-align: left;
   white-space: nowrap;
 }
@@ -295,7 +295,7 @@ function showSnack(text: string, color: string) {
 .excel-grid tbody td {
   padding: 0 12px;
   height: 46px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  border-bottom: 1px solid var(--card-border);
   font-size: 13px;
   vertical-align: middle;
 }
@@ -304,14 +304,14 @@ function showSnack(text: string, color: string) {
   transition: background-color 0.15s;
 }
 .quote-row:hover {
-  background: rgba(30, 41, 59, 0.4);
+  background: var(--row-hover);
 }
 .quote-row.selected-row {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--cell-hover);
 }
 
 .cell-pn {
-  color: #60a5fa;
+  color: var(--pn-color);
   font-weight: 600;
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
   font-size: 13px;
@@ -328,8 +328,8 @@ function showSnack(text: string, color: string) {
   width: 100%;
   height: 32px;
   border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.4);
-  color: white;
+  background: var(--row-hover);
+  color: rgb(var(--v-theme-on-surface));
   padding: 4px 8px;
   font-size: 13px;
   text-align: center;
@@ -338,11 +338,11 @@ function showSnack(text: string, color: string) {
   transition: all 0.15s;
 }
 .inv-qty-input:hover:not(:disabled) {
-  border-color: rgba(51, 65, 85, 0.6);
+  border-color: var(--card-border);
 }
 .inv-qty-input:focus {
-  background: rgba(15, 23, 42, 0.8);
-  border-color: #3b82f6;
+  background: var(--toolbar-bg);
+  border-color: rgb(var(--v-theme-primary));
 }
 .inv-qty-input:disabled {
   opacity: 0.4;
@@ -353,8 +353,8 @@ function showSnack(text: string, color: string) {
   width: 100%;
   height: 32px;
   border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.4);
-  color: white;
+  background: var(--row-hover);
+  color: rgb(var(--v-theme-on-surface));
   padding: 4px 8px;
   font-size: 11px;
   border-radius: 4px;
@@ -362,18 +362,18 @@ function showSnack(text: string, color: string) {
   transition: all 0.15s;
 }
 .inv-date-input:hover:not(:disabled) {
-  border-color: rgba(51, 65, 85, 0.6);
+  border-color: var(--card-border);
 }
 .inv-date-input:focus {
-  background: rgba(15, 23, 42, 0.8);
-  border-color: #3b82f6;
+  background: var(--toolbar-bg);
+  border-color: rgb(var(--v-theme-primary));
 }
 .inv-date-input:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .inv-date-input::-webkit-calendar-picker-indicator {
-  filter: invert(1);
+  filter: var(--date-picker-invert);
   opacity: 0.6;
   cursor: pointer;
 }

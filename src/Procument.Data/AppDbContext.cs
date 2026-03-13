@@ -110,6 +110,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Phone).HasMaxLength(50);
       entity.Property(e => e.ShipTo).HasMaxLength(500);
       entity.Property(e => e.BillTo).HasMaxLength(500);
+      entity.Property(e => e.Base).IsRequired(false);
     });
 
     modelBuilder.Entity<Supplier>(entity =>

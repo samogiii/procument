@@ -8,15 +8,27 @@
 
     <v-card class="glass-card">
       <v-card-text>
-        <v-text-field
-          v-model="search"
-          prepend-inner-icon="mdi-magnify"
-          label="Search customers..."
-          single-line
-          hide-details
-          class="mb-4"
-        />
-        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" items-per-page="15" hover>
+        <div class="d-flex align-center gap-3 mb-4">
+          <v-text-field
+            v-model="search"
+            prepend-inner-icon="mdi-magnify"
+            label="Search customers..."
+            single-line
+            hide-details
+            style="flex: 1"
+          />
+          <v-text-field
+            v-if="isAdmin"
+            v-model.number="baseFilter"
+            prepend-inner-icon="mdi-filter-outline"
+            label="Filter by Base"
+            type="number"
+            clearable
+            hide-details
+            style="max-width: 180px"
+          />
+        </div>
+        <v-data-table :headers="headers" :items="displayedItems" :loading="loading" items-per-page="15" hover>
           <template #item.isActive="{ item }">
             <StatusChip :status="item.isActive ? 'Active' : 'Inactive'" />
           </template>
@@ -39,7 +51,8 @@
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
       <v-text-field v-model="form.shipTo" label="Ship To" class="mb-2" />
-      <v-text-field v-model="form.billTo" label="Bill To" />
+      <v-text-field v-model="form.billTo" label="Bill To" class="mb-2" />
+      <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" />
     </CrudDialog>
 
     <ConfirmDialog
@@ -52,25 +65,41 @@
 </template>
 
 <script setup lang="ts">
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
+
 const {
   items, loading, saving, search, showDialog, editingId, form,
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '' }),
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '', base: null as number | null }),
   searchFields: ['name', 'customerCode', 'email', 'phone'],
 })
 
-const headers = [
-  { title: 'Name', key: 'name' },
-  { title: 'Code', key: 'customerCode' },
-  { title: 'Email', key: 'email' },
-  { title: 'Phone', key: 'phone' },
-  { title: 'Ship To', key: 'shipTo' },
-  { title: 'Bill To', key: 'billTo' },
-  { title: 'Status', key: 'isActive', width: '100px' },
-  { title: '', key: 'actions', sortable: false, width: '100px' },
-]
+const baseFilter = ref<number | null>(null)
+
+const displayedItems = computed(() => {
+  if (baseFilter.value == null) return filteredItems.value
+  return filteredItems.value.filter((c: any) => c.base === baseFilter.value)
+})
+
+const headers = computed(() => {
+  const h = [
+    { title: 'Name', key: 'name' },
+    { title: 'Code', key: 'customerCode' },
+    { title: 'Email', key: 'email' },
+    { title: 'Phone', key: 'phone' },
+    { title: 'Ship To', key: 'shipTo' },
+    { title: 'Bill To', key: 'billTo' },
+    { title: 'Status', key: 'isActive', width: '100px' },
+    { title: '', key: 'actions', sortable: false, width: '100px' },
+  ]
+  if (isAdmin.value) {
+    h.splice(6, 0, { title: 'Base', key: 'base', width: '100px' })
+  }
+  return h
+})
 
 // ─── Delete with confirmation ───
 const showConfirm = ref(false)

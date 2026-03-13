@@ -1,8 +1,8 @@
 <template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
-    <v-card class="d-flex flex-column" style="background: #1a1a2e;">
+    <v-card class="d-flex flex-column" color="background">
       <!-- ── Toolbar ── -->
-      <v-toolbar color="rgba(30,30,60,0.95)" density="compact">
+      <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">
           RFQ PDF — {{ rfq.name || `#${rfq.id}` }}
@@ -71,7 +71,7 @@
       <v-divider />
 
       <!-- ── Live Preview ── -->
-      <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: #12121f;">
+      <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
         <div
           ref="pdfContent"
           class="pdf-page"
@@ -323,7 +323,7 @@ async function downloadPdf() {
   width: 210mm;
   min-height: 297mm;
   background: #fff;
-  box-shadow: 0 4px 40px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 40px rgba(0,0,0,0.2);
   border-radius: 4px;
   overflow: hidden;
 }
