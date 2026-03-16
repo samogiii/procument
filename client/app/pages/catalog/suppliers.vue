@@ -16,7 +16,7 @@
           hide-details
           class="mb-4"
         />
-        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" items-per-page="15" hover>
+        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" :items-per-page="50" hover>
           <template #item.isActive="{ item }">
             <StatusChip :status="item.isActive ? 'Active' : 'Inactive'" />
           </template>

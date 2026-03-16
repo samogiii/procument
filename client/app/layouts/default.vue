@@ -96,7 +96,7 @@
               <v-list-item
                 v-for="n in notifications"
                 :key="n.id"
-                :class="{ 'bg-surface-variant': !n.isRead }"
+                :class="{ 'bg-info': !n.isRead }"
                 class="py-2"
                 @click="onNotificationClick(n)"
               >
@@ -190,6 +190,8 @@ watch(mobile, (isMobile) => {
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false },
+  { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
+  { title: 'Procument', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true },

@@ -11,6 +11,7 @@ public class RFQItem : BaseEntity
     public string? Unit { get; set; }
     public string? Priority { get; set; }
     public string? Note { get; set; }
+    public bool IsHighlighted { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

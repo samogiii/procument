@@ -50,14 +50,14 @@
         </v-card>
       </v-col>
       <v-col cols="12" md="3">
-        <v-card class="info-card pa-4" :style="isLeadTimeUrgent(rfq.leadTime) ? 'border: 1px solid #ef4444 !important;' : ''">
+        <v-card class="info-card pa-4" :style="isLeadTimeUrgent(rfq.leadTime) ? '' : ''">
           <div class="d-flex align-center gap-3">
             <v-avatar :color="isLeadTimeUrgent(rfq.leadTime) ? 'error' : 'info'" variant="tonal" size="40">
               <v-icon :icon="isLeadTimeUrgent(rfq.leadTime) ? 'mdi-alert' : 'mdi-clock-outline'" size="20" />
             </v-avatar>
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Lead Time</p>
-              <p class="text-body-2 font-weight-medium mb-0" :style="isLeadTimeUrgent(rfq.leadTime) ? 'color: #ef4444;' : ''">
+              <p class="text-body-2 font-weight-medium mb-0" :style="isLeadTimeUrgent(rfq.leadTime) ? '' : ''">
                 {{ rfq.leadTime ? new Date(rfq.leadTime).toLocaleDateString() : '—' }}
                 <v-icon v-if="isLeadTimeUrgent(rfq.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
               </p>
@@ -72,8 +72,33 @@
               <v-icon icon="mdi-account-outline" size="20" />
             </v-avatar>
             <div>
-              <p class="text-caption text-medium-emphasis mb-0">Assigned To</p>
+              <p class="text-caption text-medium-emphasis mb-0">Created By</p>
               <p class="text-body-2 font-weight-medium mb-0">{{ rfq.userName || '—' }}</p>
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="3">
+        <v-card class="info-card pa-4">
+          <div class="d-flex align-center gap-3">
+            <v-avatar color="success" variant="tonal" size="40">
+              <v-icon icon="mdi-account-group-outline" size="20" />
+            </v-avatar>
+            <div>
+              <p class="text-caption text-medium-emphasis mb-0">Assigned Users</p>
+              <div class="d-flex flex-wrap gap-1 mt-1" v-if="assignedUsers.length">
+                <v-chip
+                  v-for="user in assignedUsers"
+                  :key="user.id"
+                  size="x-small"
+                  color="primary"
+                  variant="tonal"
+                  prepend-icon="mdi-account"
+                >
+                  {{ user.name }}
+                </v-chip>
+              </div>
+              <p v-else class="text-body-2 font-weight-medium mb-0">—</p>
             </div>
           </div>
         </v-card>
@@ -190,7 +215,7 @@
           </v-menu> -->
           <VBtn prepend-icon="mdi-history" @click="showAudit = true" size="small" variant="tonal" color="secondary" v-if="isAdmin">Audit</VBtn>
           <VBtn v-if="isAdmin" prepend-icon="mdi-shield-account" @click="showPermissions = true" size="small" variant="tonal" color="secondary">Perms</VBtn>
-          <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+          <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
           <v-btn
             size="small"
             variant="tonal"
@@ -218,6 +243,15 @@
             @click="copyAllPartNumbers"
           >
             Copy All P/N
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="tonal"
+            :color="rfq.isUnread ? 'blue' : 'grey'"
+            :prepend-icon="rfq.isUnread ? 'mdi-email-mark-as-unread' : 'mdi-email-open-outline'"
+            @click="toggleUnread"
+          >
+            {{ rfq.isUnread ? 'Unread' : 'Mark Unread' }}
           </v-btn>
           <v-btn
             size="small"
@@ -255,12 +289,22 @@
           <tbody>
             <template v-for="(item, idx) in editableItems" :key="item.id">
               <!-- Master Row — editable fields -->
-              <tr class="master-row" :class="{ 'expanded': expandedRows.has(item.id) }">
-                <td class="cell-expand" @click="toggleExpand(item.id)">
+              <tr class="master-row" :data-item-id="item.id" :class="{ 'expanded': expandedRows.has(item.id), 'highlighted-row': item.isHighlighted }">
+                <td class="cell-expand" style="display: flex; align-items: center; gap: 2px;">
                   <v-icon
                     :icon="expandedRows.has(item.id) ? 'mdi-chevron-down' : 'mdi-chevron-right'"
                     size="18"
                     :color="expandedRows.has(item.id) ? 'primary' : 'grey'"
+                    @click="toggleExpand(item.id)"
+                    class="cursor-pointer"
+                  />
+                  <v-icon
+                    icon="mdi-pencil"
+                    size="16"
+                    :color="item.isHighlighted ? 'warning' : 'grey'"
+                    class="cursor-pointer highlight-pen"
+                    :title="item.isHighlighted ? 'Remove highlight' : 'Highlight this item'"
+                    @click.stop="toggleHighlight(item)"
                   />
                 </td>
                 <td class="cell-number">{{ idx + 1 }}</td>
@@ -475,13 +519,23 @@
                             </td>
                             <td>
                               <input
+                                v-if="focusedField === `price-${qIdx}-${item.id}`"
+                                :data-focus-key="`price-${qIdx}-${item.id}`"
                                 type="number"
                                 class="quote-input price-input"
                                 placeholder="0.00"
                                 v-model.number="quote.price"
                                 step="0.01"
                                 min="0"
+                                @blur="focusedField = ''"
                               />
+                              <span
+                                v-else
+                                class="quote-input price-display"
+                                @click="focusField(`price-${qIdx}-${item.id}`)"
+                              >
+                                {{ quote.price ? '$' + formatPrice(quote.price) : '' }}
+                              </span>
                             </td>
                             <td>
                               <select class="quote-input quote-select" v-model="quote.certName">
@@ -490,8 +544,8 @@
                                 <option value="EASA">EASA</option>
                                 <option value="CAAC">CAAC</option>
                                 <option value="Dual">Dual</option>
-                                <option value="Dual">MFG COC</option>
-                                <option value="Dual">Vendor COC</option>
+                                <option value="MFG COC">MFG COC</option>
+                                <option value="Vendor COC">Vendor COC</option>
                                 <option value="No Cert">No Cert</option>
                               </select>
                             </td>
@@ -505,13 +559,23 @@
                             </td>
                             <td>
                               <input
+                                v-if="focusedField === `ship-${qIdx}-${item.id}`"
+                                :data-focus-key="`ship-${qIdx}-${item.id}`"
                                 type="number"
                                 class="quote-input price-input"
                                 placeholder="0.00"
                                 v-model.number="quote.shippingCost"
                                 step="0.01"
                                 min="0"
+                                @blur="focusedField = ''"
                               />
+                              <span
+                                v-else
+                                class="quote-input price-display"
+                                @click="focusField(`ship-${qIdx}-${item.id}`)"
+                              >
+                                {{ quote.shippingCost ? '$' + formatPrice(quote.shippingCost) : '' }}
+                              </span>
                             </td>
                             <td>
                               <input
@@ -826,6 +890,7 @@ const supplierQuotes = ref<any[]>([])
 const linkedSuppliers = ref<Record<number, { id: number; name: string }[]>>({})
 const supplierSuggestions = ref<{ id: number; name: string }[]>([])
 const expandedRows = ref(new Set<number>())
+const focusedField = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const snackbar = ref(false)
@@ -862,6 +927,14 @@ const statusColor = computed(() => {
   return found?.color || 'primary'
 })
 
+const assignedUsers = computed(() => {
+  const views = rfq.value.views || []
+  const edits = rfq.value.edits || []
+  const all = [...views, ...edits]
+  const unique = all.filter((u: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === u.id) === i)
+  return unique
+})
+
 async function changeRfqStatus(newStatus: string) {
   if (newStatus === rfq.value.status) return
   try {
@@ -879,6 +952,17 @@ const totalQuotes = computed(() => supplierQuotes.value.length)
 onMounted(async () => {
   await loadData()
   await checkLock()
+  await markAsRead()
+
+  // Auto-expand item if navigated from RFQ Items page
+  const targetItemId = Number(route.query.itemId)
+  if (targetItemId) {
+    expandedRows.value.add(targetItemId)
+    nextTick(() => {
+      const row = document.querySelector(`[data-item-id="${targetItemId}"]`)
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
 })
 function handleKeydown(e: KeyboardEvent) {
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
@@ -916,6 +1000,7 @@ async function loadData() {
       condition: i.condition || '',
       priority: i.priority || '',
       remark: i.remark || '',
+      isHighlighted: i.isHighlighted || false,
       alternatives: (i.alternatives || []).map((a: any) => ({ id: a.id, name: a.name }))
     }))
     supplierQuotes.value = quotesData.map((q: any) => ({ ...q }))
@@ -952,6 +1037,45 @@ async function changeExType(newType: number) {
   } catch {
     showSnack('Failed to update ExType', 'error')
   }
+}
+
+// ──── Highlight Toggle ────
+function toggleHighlight(item: any) {
+  item.isHighlighted = !item.isHighlighted
+}
+
+// ──── Unread Toggle ────
+async function markAsRead() {
+  if (!rfq.value.isUnread) return
+  try {
+    await api.patch(`/rfqs/${route.params.id}/mark-read`, {})
+    rfq.value.isUnread = false
+  } catch {}
+}
+
+async function toggleUnread() {
+  try {
+    if (rfq.value.isUnread) {
+      await api.patch(`/rfqs/${route.params.id}/mark-read`, {})
+      rfq.value.isUnread = false
+      showSnack('Marked as read', 'success')
+    } else {
+      await api.patch(`/rfqs/${route.params.id}/mark-unread`, {})
+      rfq.value.isUnread = true
+      showSnack('Marked as unread', 'info')
+    }
+  } catch {
+    showSnack('Failed to update read status', 'error')
+  }
+}
+
+// ──── Focus Field (for formatted price inputs) ────
+function focusField(key: string) {
+  focusedField.value = key
+  nextTick(() => {
+    const input = document.querySelector(`[data-focus-key="${key}"]`) as HTMLInputElement
+    input?.focus()
+  })
 }
 
 // ──── Quote Management ────
@@ -1077,7 +1201,8 @@ async function saveAll() {
         note: item.note,
         qty: item.qty,
         condition: item.condition || null,
-        unit: item.unit || null
+        unit: item.unit || null,
+        isHighlighted: item.isHighlighted || false
       }))
       // Save fleet/remark on the part number
       if ( item.remark) {
@@ -1415,6 +1540,24 @@ function showSnack(text: string, color: string) {
   background: var(--toolbar-bg);
   border-bottom: none;
 }
+.master-row.highlighted-row {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border-left: 3px solid #fbbf24;
+}
+.master-row.highlighted-row:hover {
+  background: rgba(251, 191, 36, 0.18) !important;
+}
+.highlight-pen {
+  opacity: 0.4;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.highlight-pen:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+.highlighted-row .highlight-pen {
+  opacity: 1;
+}
 
 .cell-expand {
   text-align: center;
@@ -1593,6 +1736,16 @@ function showSnack(text: string, color: string) {
 .quote-input::placeholder {
   opacity: 0.4;
   font-style: italic;
+}
+.price-display {
+  display: flex;
+  align-items: center;
+  cursor: text;
+  color: #4ade80;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 13px;
+  min-height: 32px;
+  padding: 0 8px;
 }
 
 .quote-select {

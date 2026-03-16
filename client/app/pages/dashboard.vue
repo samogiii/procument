@@ -254,7 +254,7 @@
             density="compact"
             hover
             class="po-items-table"
-            :items-per-page="25"
+            :items-per-page="50"
             :sort-by="[{ key: 'poNumber', order: 'desc' }]"
           >
             <template #item.poNumber="{ item }">
@@ -266,19 +266,19 @@
               <v-chip :color="poStatusColor(item.poStatus)" size="x-small" variant="flat">{{ item.poStatus }}</v-chip>
             </template>
             <template #item.buyPrice="{ item }">
-              ${{ Number(item.buyPrice || 0).toFixed(2) }}
+              ${{ formatPrice(item.buyPrice) }}
             </template>
             <template #item.totalBuyPrice="{ item }">
-              ${{ Number(item.totalBuyPrice || 0).toFixed(2) }}
+              ${{ formatPrice(item.totalBuyPrice) }}
             </template>
             <template #item.sellPrice="{ item }">
               <span :class="item.sellPrice ? '' : 'text-medium-emphasis'">
-                {{ item.sellPrice ? '$' + Number(item.sellPrice).toFixed(2) : '—' }}
+                {{ item.sellPrice ? '$' + formatPrice(item.sellPrice) : '—' }}
               </span>
             </template>
             <template #item.totalSellPrice="{ item }">
               <span :class="item.totalSellPrice ? '' : 'text-medium-emphasis'">
-                {{ item.totalSellPrice ? '$' + Number(item.totalSellPrice).toFixed(2) : '—' }}
+                {{ item.totalSellPrice ? '$' + formatPrice(item.totalSellPrice) : '—' }}
               </span>
             </template>
             <template #item.altPart="{ item }">

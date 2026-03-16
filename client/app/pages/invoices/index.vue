@@ -7,13 +7,44 @@
     detail-route="/invoices"
     show-select
     v-model="selectedInvoices"
+    :custom-filter="applyFilters"
   >
+    <template #filters>
+      <v-select
+        v-model="customerFilter"
+        :items="customerOptions"
+        label="Customer"
+        hide-details
+        multiple
+        chips
+        closable-chips
+        clearable
+        style="min-width: 140px; max-width: 260px;"
+      />
+      <!-- <v-text-field
+        v-model="dateFrom"
+        label="From"
+        type="date"
+        hide-details
+        clearable
+        style="min-width: 130px; max-width: 160px;"
+      />
+      <v-text-field
+        v-model="dateTo"
+        label="To"
+        type="date"
+        hide-details
+        clearable
+        style="min-width: 130px; max-width: 160px;"
+      /> -->
+    </template>
+
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />
     </template>
 
     <template #item.totalAmount="{ item }">
-      ${{ item.totalAmount?.toLocaleString() || '0' }}
+      ${{ formatPrice(item.totalAmount) }}
     </template>
 
     <template #item.actions="{ item }">
@@ -100,6 +131,40 @@ const loadingQuotes = ref(false)
 const availableQuotes = ref<any[]>([])
 const selectedQuote = ref<any>(null)
 const selectedInvoices = ref<number[]>([])
+
+const customerFilter = ref<string[]>([])
+const dateFrom = ref<string | null>(null)
+const dateTo = ref<string | null>(null)
+
+const customers = ref<any[]>([])
+
+onMounted(async () => {
+  try {
+    const res = await api.get<any>('/invoices?pageSize=9999')
+    const items = Array.isArray(res) ? res : (res.items || res.Items || [])
+    const custSet = new Set<string>()
+    items.forEach((inv: any) => { if (inv.customerName) custSet.add(inv.customerName) })
+    customers.value = Array.from(custSet).sort()
+  } catch {}
+})
+
+const customerOptions = computed(() => customers.value)
+
+function applyFilters(items: any[]) {
+  let result = items
+  if (customerFilter.value?.length) {
+    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+  }
+  if (dateFrom.value) {
+    const from = new Date(dateFrom.value).getTime()
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
+  }
+  if (dateTo.value) {
+    const to = new Date(dateTo.value).getTime() + 86400000
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
+  }
+  return result
+}
 
 const headers = [
   { title: 'Proforma Invoice #', key: 'invoiceNumber' },

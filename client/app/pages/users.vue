@@ -23,6 +23,7 @@
           :search="search"
           :loading="loading"
           density="comfortable"
+          :items-per-page="50"
           hover
         >
           <template #item.role="{ item }">

@@ -25,6 +25,7 @@ public class UpdateRFQItemRequest
     public string? Note { get; set; }
     public string? Condition { get; set; }
     public string? Unit { get; set; }
+    public bool IsHighlighted { get; set; }
 }
 
 public class UpdateStatusRequest
@@ -67,6 +68,8 @@ public class RFQResponse
     public string? Notes { get; set; }
     public int? ExType { get; set; }
 
+    public bool IsUnread { get; set; }
+
     public List<RFQItemResponse> Items { get; set; } = new();
     public List<UserResponse> Views { get; set; } = new();
     public List<UserResponse> Edits { get; set; } = new();
@@ -85,6 +88,7 @@ public class RFQItemResponse
     public string? Remark { get; set; }
     public string? Note { get; set; }
     public string? Unit { get; set; }
+    public bool IsHighlighted { get; set; }
     public List<AlternativeResponse> Alternatives { get; set; } = new();
 }
 

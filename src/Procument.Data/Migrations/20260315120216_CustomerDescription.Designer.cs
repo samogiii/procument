@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260315120216_CustomerDescription")]
+    partial class CustomerDescription
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -610,9 +613,6 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<bool>("IsHighlighted")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Note")
                         .HasColumnType("nvarchar(max)");
 
@@ -638,36 +638,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("RFQId");
 
                     b.ToTable("RFQItems", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.RFQ.Entities.RFQUserRead", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("bit");
-
-                    b.Property<long>("RFQId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("RFQId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("RFQUserReads", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.FinalInvoice", b =>
@@ -1266,25 +1236,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("PartNumber");
 
                     b.Navigation("RFQ");
-                });
-
-            modelBuilder.Entity("Procument.Module.RFQ.Entities.RFQUserRead", b =>
-                {
-                    b.HasOne("Procument.Module.RFQ.Entities.RFQHeader", "RFQ")
-                        .WithMany()
-                        .HasForeignKey("RFQId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Identity.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("RFQ");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.FinalInvoice", b =>

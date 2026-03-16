@@ -16,17 +16,22 @@
             :label="searchPlaceholder"
             single-line
             hide-details
-            class="flex-grow-1"
+            class="flex-grow-1 mx-2"
             style="min-width: 180px;"
           />
           <v-select
             v-if="statusOptions?.length"
             v-model="statusFilter"
-            :items="statusOptions"
+            :items="filteredStatusOptions"
             label="Status"
             hide-details
-            style="min-width: 120px; max-width: 160px;"
+            multiple
+            chips
+            closable-chips
+            clearable
+            style="min-width: 120px; max-width: 220px;"
           />
+          <slot name="filters" />
         </div>
 
         <!-- Server-side data table -->
@@ -106,9 +111,11 @@ const props = withDefaults(defineProps<{
   showSelect?: boolean
   /** Selected items model value */
   modelValue?: any[]
+  /** Custom client-side filter function applied after status filter */
+  customFilter?: (items: any[]) => any[]
 }>(), {
   serverSide: false,
-  itemsPerPage: 10,
+  itemsPerPage: 50,
   searchPlaceholder: 'Search...',
   showSelect: false,
   modelValue: () => [],
@@ -121,17 +128,27 @@ const selected = computed({
 })
 
 const search = ref('')
-const initialStatus = (route.query.status as string) || 'All'
-const statusFilter = ref(initialStatus)
+const initialStatus = route.query.status ? [route.query.status as string] : []
+const statusFilter = ref<string[]>(initialStatus)
 const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)
 
+const filteredStatusOptions = computed(() =>
+  (props.statusOptions || []).filter(s => s !== 'All')
+)
+
 const filteredClientItems = computed(() => {
-  if (!statusFilter.value || statusFilter.value === 'All') return internalItems.value
-  return internalItems.value.filter((item: any) => item.status === statusFilter.value)
+  let result = internalItems.value
+  if (statusFilter.value?.length) {
+    result = result.filter((item: any) => statusFilter.value.includes(item.status))
+  }
+  if (props.customFilter) {
+    result = props.customFilter(result)
+  }
+  return result
 })
-const lastServerOptions = ref<any>({ page: 1, itemsPerPage: 10 })
+const lastServerOptions = ref<any>({ page: 1, itemsPerPage: 50 })
 
 // ─── Server-side loading ───
 async function loadServerItems(options: any) {
@@ -142,7 +159,9 @@ async function loadServerItems(options: any) {
     params.append('page', options.page)
     params.append('pageSize', options.itemsPerPage)
     if (search.value) params.append('search', search.value)
-    if (statusFilter.value && statusFilter.value !== 'All') params.append('status', statusFilter.value)
+    if (statusFilter.value?.length) {
+      statusFilter.value.forEach(s => params.append('status', s))
+    }
 
     const url = `${props.apiUrl}?${params.toString()}`
     const res = await api.get<any>(url)

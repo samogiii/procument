@@ -17,7 +17,7 @@
           hide-details
           class="mb-4"
         />
-        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" items-per-page="15" hover>
+        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" :items-per-page="50" hover>
           <template #item.alternatives="{ item }">
             <div v-if="item.alternatives?.length" class="d-flex flex-wrap gap-1">
               <v-chip v-for="alt in item.alternatives" :key="alt.id" size="x-small" color="warning" variant="tonal">

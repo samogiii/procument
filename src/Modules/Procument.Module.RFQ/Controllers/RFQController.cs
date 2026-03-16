@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.RFQ.Services;
+using Procument.Shared.Entities;
 using Procument.Shared.Services;
 
 namespace Procument.Module.RFQ.Controllers;
@@ -15,11 +16,13 @@ public class RFQsController : ControllerBase
 {
     private readonly IRFQService _rfqService;
     private readonly IFinalInvoiceLockGuard _lockGuard;
+    private readonly DbContext _db;
 
-    public RFQsController(IRFQService rfqService, IFinalInvoiceLockGuard lockGuard)
+    public RFQsController(IRFQService rfqService, IFinalInvoiceLockGuard lockGuard, DbContext db)
     {
         _rfqService = rfqService;
         _lockGuard = lockGuard;
+        _db = db;
     }
 
     /// <summary>Create a new RFQ. Auto-creates customer and part numbers if they don't exist.</summary>
@@ -111,4 +114,51 @@ public class RFQsController : ControllerBase
         var success = await _rfqService.UpdateExTypeAsync(id, request.ExType);
         return success ? Ok() : NotFound();
     }
+
+    /// <summary>Mark an RFQ as read for the current user.</summary>
+    [HttpPatch("{id:long}/mark-read")]
+    public async Task<IActionResult> MarkRead(long id)
+    {
+        var (userId, _) = GetUserContext();
+        var record = await _db.Set<RFQUserRead>()
+            .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == userId);
+
+        if (record != null)
+        {
+            record.IsRead = true;
+            record.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok();
+    }
+
+    /// <summary>Mark an RFQ as unread for the current user.</summary>
+    [HttpPatch("{id:long}/mark-unread")]
+    public async Task<IActionResult> MarkUnread(long id)
+    {
+        var (userId, _) = GetUserContext();
+        var record = await _db.Set<RFQUserRead>()
+            .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == userId);
+
+        if (record != null)
+        {
+            record.IsRead = false;
+            record.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            _db.Set<RFQUserRead>().Add(new RFQUserRead
+            {
+                RFQId = id,
+                UserId = userId,
+                IsRead = false,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
 }
+///TODO Fix Service later

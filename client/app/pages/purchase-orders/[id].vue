@@ -32,7 +32,7 @@
           </v-list-item>
         </v-list>
       </v-menu>
-      <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+      <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
     </div>
 
     <v-row class="mb-6">
@@ -41,7 +41,7 @@
       </v-col>
       <v-col cols="12" md="4">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
-          ${{ po.totalAmount?.toLocaleString() || '0' }}
+          ${{ formatPrice(po.totalAmount) }}
         </StatCard>
       </v-col>
       <v-col cols="12" md="4">
@@ -137,8 +137,8 @@
                 </td>
                 <td class="font-weight-medium">{{ item.partNumberName || '—' }}</td>
                 <td>{{ item.qty }}</td>
-                <td>${{ item.unitPrice?.toFixed(2) }}</td>
-                <td class="font-weight-bold">${{ item.totalPrice?.toFixed(2) }}</td>
+                <td>${{ formatPrice(item.unitPrice) }}</td>
+                <td class="font-weight-bold">${{ formatPrice(item.totalPrice) }}</td>
                 <td>{{ item.condition || '—' }}</td>
                 <td>
                   <v-chip size="x-small" color="primary" variant="tonal">

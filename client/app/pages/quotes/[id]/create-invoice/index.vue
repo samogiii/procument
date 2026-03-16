@@ -19,7 +19,7 @@
             {{ selectedCount }} item{{ selectedCount !== 1 ? 's' : '' }} selected
           </v-chip>
           <span class="text-body-2 text-medium-emphasis" v-if="selectedTotal > 0">
-            Total: <strong style="color: #4ade80;">${{ selectedTotal.toFixed(2) }}</strong>
+            Total: <strong style="color: #4ade80;">${{ formatPrice(selectedTotal) }}</strong>
           </span>
         </div>
         <div class="d-flex flex-wrap align-center gap-2">
@@ -104,10 +104,10 @@
                 />
               </td>
               <td style="color: #4ade80; font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                ${{ item.unitPrice.toFixed(2) }}
+                ${{ formatPrice(item.unitPrice) }}
               </td>
               <td style="color: #4ade80; font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                ${{ (selections[item.id]?.qty * item.unitPrice || 0).toFixed(2) }}
+                ${{ formatPrice(selections[item.id]?.qty * item.unitPrice || 0) }}
               </td>
             </tr>
             <tr v-if="quoteItems.length === 0 && !loading">

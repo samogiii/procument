@@ -6,12 +6,54 @@
       <v-btn prepend-icon="mdi-plus" color="primary" @click="showAddDialog = true">Create Final Invoice</v-btn>
     </div>
 
+    <v-card class="glass-card">
+      <v-card-text>
+        <div class="d-flex flex-wrap gap-3 mb-4">
+          <v-text-field
+            v-model="search"
+            prepend-inner-icon="mdi-magnify"
+            label="Search..."
+            single-line
+            hide-details
+            class="flex-grow-1"
+            style="min-width: 180px;"
+          />
+          <v-select
+            v-model="customerFilter"
+            :items="customerOptions"
+            label="Customer"
+            hide-details
+            class="mx-2"
+            multiple
+            chips
+            closable-chips
+            clearable
+            style="min-width: 140px; max-width: 260px;"
+          />
+          <!-- <v-text-field
+            v-model="dateFrom"
+            label="From"
+            type="date"
+            hide-details
+            clearable
+            style="min-width: 130px; max-width: 160px;"
+          />
+          <v-text-field
+            v-model="dateTo"
+            label="To"
+            type="date"
+            hide-details
+            clearable
+            style="min-width: 130px; max-width: 160px;"
+          /> -->
+        </div>
     <v-data-table
       :headers="headers"
-      :items="invoices"
+      :items="filteredInvoices"
+      :search="search"
       :loading="loading"
-      class="glass-card"
       density="comfortable"
+      :items-per-page="50"
       hover
       @click:row="(_: any, { item }: any) => navigateTo(`/final-invoices/${item.id}`)"
     >
@@ -19,12 +61,14 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.totalAmount="{ item }">
-        ${{ item.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) }}
+        ${{ formatPrice(item.totalAmount) }}
       </template>
       <template #item.createdAt="{ item }">
         {{ new Date(item.createdAt).toLocaleDateString() }}
       </template>
     </v-data-table>
+      </v-card-text>
+    </v-card>
 
     <v-dialog v-model="showAddDialog" max-width="500">
       <v-card class="glass-card">
@@ -75,6 +119,32 @@
 const api = useApi()
 const invoices = ref<any[]>([])
 const loading = ref(false)
+const search = ref('')
+const customerFilter = ref<string[]>([])
+const dateFrom = ref<string | null>(null)
+const dateTo = ref<string | null>(null)
+
+const customerOptions = computed(() => {
+  const set = new Set<string>()
+  invoices.value.forEach((inv: any) => { if (inv.customerName) set.add(inv.customerName) })
+  return Array.from(set).sort()
+})
+
+const filteredInvoices = computed(() => {
+  let result = invoices.value
+  if (customerFilter.value?.length) {
+    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+  }
+  if (dateFrom.value) {
+    const from = new Date(dateFrom.value).getTime()
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
+  }
+  if (dateTo.value) {
+    const to = new Date(dateTo.value).getTime() + 86400000
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
+  }
+  return result
+})
 
 const headers = [
   { title: 'Invoice #', key: 'invoiceNumber', sortable: true },
@@ -118,7 +188,7 @@ watch(showAddDialog, async (val) => {
       const data = await api.get<any[]>('/final-invoices/eligible-proformas')
       eligibleProformas.value = data.map((p: any) => ({
         ...p,
-        displayText: `${p.invoiceNumber} - ${p.customerName} ($${p.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 })})`
+        displayText: `${p.invoiceNumber} - ${p.customerName} ($${formatPrice(p.totalAmount)})`
       }))
     } catch {
       showSnack('Failed to load eligible proformas', 'error')

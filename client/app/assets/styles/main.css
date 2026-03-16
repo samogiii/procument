@@ -125,14 +125,23 @@ body {
 }
 
 /* ─── Responsive Tables ─── */
-.v-table__wrapper,
-.v-data-table__wrapper {
-  overflow-x: auto !important;
+.v-data-table {
+  max-width: 100%;
+}
+
+/* ─── Sticky Table Headers ─── */
+/* The table wrapper becomes the scroll container so sticky works inside it */
+.v-data-table > .v-table__wrapper {
+  max-height: calc(100vh - 200px);
+  overflow: auto !important;
   -webkit-overflow-scrolling: touch;
 }
 
-.v-data-table {
-  max-width: 100%;
+.v-data-table thead th {
+  position: sticky !important;
+  top: 0;
+  z-index: 2;
+  background: rgb(var(--v-theme-surface)) !important;
 }
 
 /* ─── Responsive Dialogs ─── */

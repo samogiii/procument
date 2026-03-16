@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
   // RFQ
   public DbSet<RFQHeader> RFQs => Set<RFQHeader>();
   public DbSet<RFQItem> RFQItems => Set<RFQItem>();
+  public DbSet<RFQUserRead> RFQUserReads => Set<RFQUserRead>();
 
   // Sales
   public DbSet<Quote> Quotes => Set<Quote>();
@@ -212,6 +213,13 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.RFQId);
+    });
+
+    modelBuilder.Entity<RFQUserRead>(entity =>
+    {
+      entity.ToTable("RFQUserReads");
+      entity.HasKey(e => e.Id);
+      entity.HasIndex(e => new { e.RFQId, e.UserId }).IsUnique();
     });
 
     // ───────────────────────────────────────────

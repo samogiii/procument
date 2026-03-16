@@ -80,7 +80,7 @@ watch(model, async (open) => {
   }
 })
 
-const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmt = (n: number) => formatPrice(n)
 
 const renderedHtml = computed(() => {
   const d = pdfData.value

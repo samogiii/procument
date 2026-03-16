@@ -29,7 +29,7 @@
         class="bg-transparent"
         expand-on-click
         item-value="id"
-        :items-per-page="10"
+        :items-per-page="50"
       >
         <!-- User Column -->
         <template #item.userName="{ item }">

@@ -28,7 +28,7 @@
             style="max-width: 180px"
           />
         </div>
-        <v-data-table :headers="headers" :items="displayedItems" :loading="loading" items-per-page="15" hover>
+        <v-data-table :headers="headers" :items="displayedItems" :loading="loading" :items-per-page="50" hover>
           <template #item.isActive="{ item }">
             <StatusChip :status="item.isActive ? 'Active' : 'Inactive'" />
           </template>
@@ -52,6 +52,7 @@
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
       <v-text-field v-model="form.shipTo" label="Ship To" class="mb-2" />
       <v-text-field v-model="form.billTo" label="Bill To" class="mb-2" />
+      <v-textarea v-model="form.description" label="Description" rows="3" auto-grow class="mb-2" />
       <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" />
     </CrudDialog>
 
@@ -73,8 +74,8 @@ const {
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '', base: null as number | null }),
-  searchFields: ['name', 'customerCode', 'email', 'phone'],
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '', description: '', base: null as number | null }),
+  searchFields: ['name', 'customerCode', 'email', 'phone', 'description'],
 })
 
 const baseFilter = ref<number | null>(null)
@@ -92,6 +93,7 @@ const headers = computed(() => {
     { title: 'Phone', key: 'phone' },
     { title: 'Ship To', key: 'shipTo' },
     { title: 'Bill To', key: 'billTo' },
+    { title: 'Description', key: 'description' },
     { title: 'Status', key: 'isActive', width: '100px' },
     { title: '', key: 'actions', sortable: false, width: '100px' },
   ]

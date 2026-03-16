@@ -9,6 +9,7 @@ using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
 using Procument.Shared.Entities;
 using Procument.Shared.Services;
+using Procument.Module.RFQ.Entities;
 
 namespace Procument.Module.Purchasing.Controllers;
 
@@ -53,11 +54,63 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     /// <summary>Create a new purchase order.</summary>
+    /// TODO fix service later
     [HttpPost]
     [Auditable("PurchaseOrder", "Create", CaptureBody = true)]
     public async Task<ActionResult<POResponse>> Create([FromBody] CreatePORequest request)
     {
         var result = await _poService.CreateAsync(request);
+
+        // Mark related RFQs as unread for all assigned users
+        try
+        {
+            var rfqIds = await _db.Set<POItem>()
+                .Where(i => i.POId == result.Id && i.ProcumentId != null)
+                .Select(i => i.ProcumentRecord!.RFQItem.RFQId)
+                .Distinct()
+                .ToListAsync();
+
+            foreach (var rfqId in rfqIds)
+            {
+                // Get RFQ owner
+                var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+                var userIds = new HashSet<long>();
+                if (rfq?.UserId != null) userIds.Add(rfq.UserId.Value);
+
+                // Get users with permissions on this RFQ
+                var permUserIds = await _db.Set<EntityPermission>()
+                    .Where(p => p.EntityName == "RFQ" && p.EntityId == rfqId.ToString())
+                    .Select(p => p.UserId)
+                    .ToListAsync();
+                foreach (var uid in permUserIds) userIds.Add(uid);
+
+                foreach (var uid in userIds)
+                {
+                    var existing = await _db.Set<RFQUserRead>()
+                        .FirstOrDefaultAsync(r => r.RFQId == rfqId && r.UserId == uid);
+
+                    if (existing != null)
+                    {
+                        existing.IsRead = false;
+                        existing.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        _db.Set<RFQUserRead>().Add(new RFQUserRead
+                        {
+                            RFQId = rfqId,
+                            UserId = uid,
+                            IsRead = false,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
+            await _db.SaveChangesAsync();
+        }
+        catch { /* Don't fail PO creation if unread marking fails */ }
+
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 

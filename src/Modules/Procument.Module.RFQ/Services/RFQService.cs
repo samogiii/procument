@@ -7,6 +7,7 @@ using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
+using Procument.Shared.Entities;
 
 namespace Procument.Module.RFQ.Services;
 
@@ -135,6 +136,11 @@ public class RFQService : IRFQService
 
         var response = MapToResponse(rfq);
 
+        // Populate IsUnread
+        var readRecord = await _db.Set<RFQUserRead>()
+            .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == userId);
+        response.IsUnread = readRecord != null && !readRecord.IsRead;
+
         // Populate Permissions
         var permissions = await _permissionService.GetPermissionsForEntityAsync("RFQ", id.ToString());
 
@@ -204,6 +210,18 @@ public class RFQService : IRFQService
 
         var responses = rfqs.Select(MapToResponse).ToList();
 
+        // Batch-load unread status for current user
+        var rfqIdsLong = rfqs.Select(r => r.Id).ToList();
+        var unreadRecords = await _db.Set<RFQUserRead>()
+            .Where(r => r.UserId == userId && rfqIdsLong.Contains(r.RFQId) && !r.IsRead)
+            .Select(r => r.RFQId)
+            .ToListAsync();
+
+        foreach (var resp in responses)
+        {
+            resp.IsUnread = unreadRecords.Contains(resp.Id);
+        }
+
         // Batch-load permissions for all RFQs
         var rfqIds = rfqs.Select(r => r.Id.ToString()).ToList();
         var allPermissions = await _db.Set<EntityPermission>()
@@ -262,6 +280,7 @@ public class RFQService : IRFQService
         item.Note = request.Note;
         item.Condition = request.Condition;
         item.Unit = request.Unit;
+        item.IsHighlighted = request.IsHighlighted;
 
         await _db.SaveChangesAsync();
 
@@ -277,6 +296,7 @@ public class RFQService : IRFQService
             Note = item.Note,
             Unit = item.Unit,
             Condition = item.Condition,
+            IsHighlighted = item.IsHighlighted,
             Remark = item.PartNumber.Remark,
             Alternatives = item.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
@@ -363,6 +383,7 @@ public class RFQService : IRFQService
             Unit = item.Unit,
             Priority = item.Priority,
             Condition = item.Condition,
+            IsHighlighted = item.IsHighlighted,
             Remark = partNumber.Remark,
             Alternatives = partNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
@@ -414,6 +435,7 @@ public class RFQService : IRFQService
             Note = i.Note,
             Unit = i.Unit,
             Condition = i.Condition,
+            IsHighlighted = i.IsHighlighted,
             Remark = i.PartNumber.Remark,
             Alternatives = i.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         }).ToList()

@@ -74,7 +74,7 @@
                     <td class="text-center text-medium-emphasis">{{ idx + 1 }}</td>
                     <td class="cell-pn">{{ po.poNumber }}</td>
                     <td>{{ po.supplierName || '—' }}</td>
-                    <td class="text-right cell-price">${{ po.totalAmount?.toFixed(2) || '0.00' }}</td>
+                    <td class="text-right cell-price">${{ formatPrice(po.totalAmount) }}</td>
                     <td @click.stop>
                       <v-menu :disabled="po._locked">
                         <template #activator="{ props: menuProps }">
@@ -165,8 +165,8 @@
                       <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
                       <td>{{ item.condition || '—' }}</td>
                       <td class="text-center">{{ item.qty }}</td>
-                      <td class="text-right cell-price">${{ item.unitPrice?.toFixed(2) || '0.00' }}</td>
-                      <td class="text-right cell-price">${{ item.totalPrice?.toFixed(2) || '0.00' }}</td>
+                      <td class="text-right cell-price">${{ formatPrice(item.unitPrice) }}</td>
+                      <td class="text-right cell-price">${{ formatPrice(item.totalPrice) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -235,8 +235,8 @@
                         <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
                         <td>{{ item.condition || '—' }}</td>
                         <td class="text-center">{{ item.qty }}</td>
-                        <td class="text-right cell-price">${{ item.unitPrice?.toFixed(2) || '0.00' }}</td>
-                        <td class="text-right cell-price">${{ item.totalPrice?.toFixed(2) || '0.00' }}</td>
+                        <td class="text-right cell-price">${{ formatPrice(item.unitPrice) }}</td>
+                        <td class="text-right cell-price">${{ formatPrice(item.totalPrice) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -306,8 +306,8 @@
                         <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
                         <td>{{ item.condition || '—' }}</td>
                         <td class="text-center">{{ item.qty }}</td>
-                        <td class="text-right cell-price">${{ item.unitPrice?.toFixed(2) || '0.00' }}</td>
-                        <td class="text-right cell-price">${{ item.totalPrice?.toFixed(2) || '0.00' }}</td>
+                        <td class="text-right cell-price">${{ formatPrice(item.unitPrice) }}</td>
+                        <td class="text-right cell-price">${{ formatPrice(item.totalPrice) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -370,7 +370,7 @@
                       <input type="number" class="edit-input text-right" v-model.number="item.editUnitPrice" step="0.01" min="0" />
                     </td>
                     <td class="text-right cell-price">
-                      ${{ ((item.editQty || 0) * (item.editUnitPrice || 0)).toFixed(2) }}
+                      ${{ formatPrice((item.editQty || 0) * (item.editUnitPrice || 0)) }}
                     </td>
                   </tr>
                 </tbody>
@@ -380,7 +380,7 @@
                       Grand Total
                     </td>
                     <td class="text-right" style="font-weight: 700; color: #4ade80; padding: 10px 12px; font-size: 15px;">
-                      ${{ editTotal.toFixed(2) }}
+                      ${{ formatPrice(editTotal) }}
                     </td>
                   </tr>
                 </tfoot>

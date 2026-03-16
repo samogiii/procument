@@ -104,10 +104,6 @@ public class QuoteService : IQuoteService
             .FirstOrDefaultAsync(r => r.Id == request.RFQId)
             ?? throw new KeyNotFoundException("RFQ not found.");
 
-        // Generate quote number
-        var quoteCount = await _db.Set<Quote>().CountAsync() + 1;
-        var quoteNumber = $"QT-{quoteCount:D5}";
-
         // Build quote items
         var quoteItems = new List<QuoteItem>();
         decimal totalAmount = 0;
@@ -138,7 +134,7 @@ public class QuoteService : IQuoteService
 
         var quote = new Quote
         {
-            QuoteNumber = quoteNumber,
+            QuoteNumber = string.Empty, // Will be set after SaveChanges using the auto-increment Id
             RFQId = request.RFQId,
             CustomerId = rfq.CustomerId,
             UserId = userId,
@@ -150,6 +146,10 @@ public class QuoteService : IQuoteService
         };
 
         _db.Set<Quote>().Add(quote);
+        await _db.SaveChangesAsync();
+
+        // Set quote number based on auto-increment Id
+        quote.QuoteNumber = $"QT-{quote.Id}";
         await _db.SaveChangesAsync();
 
         return await GetByIdAsync(quote.Id, userId, true)

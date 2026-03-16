@@ -65,7 +65,7 @@ function onLogoUpload(files: File[] | File | null) {
   reader.readAsDataURL(file)
 }
 
-const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmt = (n: number) => formatPrice(n)
 
 const renderedHtml = computed(() => {
   const q = props.quote

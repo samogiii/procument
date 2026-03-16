@@ -36,10 +36,10 @@
         </v-menu>
         <v-chip v-else :color="statusColor(quote.status)" size="default" :append-icon="isLocked ? 'mdi-lock' : undefined">{{ quote.status || '—' }}</v-chip>
 
-        <v-btn prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
+        <v-btn v-if="quote.status !== 'Sent' && quote.status !== 'Accepted'" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn v-if="quote.status === 'Accepted'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn v-if="isAdmin && quote.status === 'Accepted'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
       </div>
     </div>
 
@@ -53,7 +53,7 @@
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
-          ${{ quote.totalAmount?.toLocaleString() || '0' }}
+          ${{ formatPrice(quote.totalAmount) }}
         </StatCard>
       </v-col>
       <v-col cols="12" md="3">
@@ -71,20 +71,32 @@
       </v-col>
     </v-row>
 
+    <!-- Rejection Note -->
+    <v-alert
+      v-if="quote.status === 'Rejected' && quote.rejectionNote"
+      type="error"
+      variant="tonal"
+      class="mb-6"
+      icon="mdi-close-circle-outline"
+    >
+      <div class="font-weight-bold mb-1">Rejection Reason</div>
+      {{ quote.rejectionNote }}
+    </v-alert>
+
     <!-- Line Items -->
     <v-card class="glass-card">
       <v-card-title>Line Items</v-card-title>
       <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable">
+        <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable" :items-per-page="50">
           <template #item.alt="{ item: row }">
             <span v-if="(row as any).alt" style="color: #fbbf24;">{{ (row as any).alt }}</span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
           <template #item.unitPrice="{ item: row }">
-            ${{ (row as any).unitPrice?.toFixed(2) || '0.00' }}
+            ${{ formatPrice((row as any).unitPrice) }}
           </template>
           <template #item.totalPrice="{ item: row }">
-            <strong style="color: #4ade80;">${{ (row as any).totalPrice?.toFixed(2) || '0.00' }}</strong>
+            <strong style="color: #4ade80;">${{ formatPrice((row as any).totalPrice) }}</strong>
           </template>
         </v-data-table>
       </v-card-text>
@@ -247,6 +259,7 @@ async function changeStatus(newStatus: string, note?: string) {
   try {
     await api.patch(`/quotes/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
     quote.value.status = newStatus
+    quote.value.rejectionNote = note || null
     showSnack(`Status changed to ${newStatus}`, 'success')
   } catch {
     showSnack('Failed to change status', 'error')

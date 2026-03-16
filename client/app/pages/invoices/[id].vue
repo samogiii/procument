@@ -38,7 +38,7 @@
 
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
         <v-btn
           v-if="canCreateFinal"
           prepend-icon="mdi-receipt-text-check"
@@ -57,7 +57,7 @@
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
-          ${{ invoice.totalAmount?.toLocaleString() || '0' }}
+          ${{ formatPrice(invoice.totalAmount) }}
         </StatCard>
       </v-col>
       <v-col cols="12" md="3">
@@ -72,18 +72,30 @@
       </v-col>
     </v-row>
 
+    <!-- Rejection Note -->
+    <v-alert
+      v-if="invoice.status === 'Rejected' && invoice.rejectionNote"
+      type="error"
+      variant="tonal"
+      class="mb-6"
+      icon="mdi-close-circle-outline"
+    >
+      <div class="font-weight-bold mb-1">Rejection Reason</div>
+      {{ invoice.rejectionNote }}
+    </v-alert>
+
     <v-card class="glass-card">
       <v-card-title>Line Items</v-card-title>
       <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="invoice.items || []" density="comfortable">
+        <v-data-table :headers="itemHeaders" :items="invoice.items || []" density="comfortable" :items-per-page="50">
           <template #item.expectedDeliveryDate="{ item }: { item: any }">
             {{ item.expectedDeliveryDate ? new Date(item.expectedDeliveryDate).toLocaleDateString() : '—' }}
           </template>
           <template #item.unitPrice="{ item }: { item: any }">
-            ${{ item.unitPrice?.toFixed(2) }}
+            ${{ formatPrice(item.unitPrice) }}
           </template>
           <template #item.totalPrice="{ item }: { item: any }">
-            ${{ item.totalPrice?.toFixed(2) }}
+            ${{ formatPrice(item.totalPrice) }}
           </template>
         </v-data-table>
       </v-card-text>
@@ -223,6 +235,7 @@ async function updateStatus(newStatus: string, note?: string) {
   try {
     await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
     invoice.value.status = newStatus
+    invoice.value.rejectionNote = note || null
     showSnack(`Status updated to ${newStatus}`, 'success')
   } catch {
     showSnack('Failed to update status', 'error')

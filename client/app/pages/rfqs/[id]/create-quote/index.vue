@@ -23,7 +23,7 @@
             {{ selectedCount }} item{{ selectedCount !== 1 ? 's' : '' }} selected
           </v-chip>
           <span class="text-body-2 text-medium-emphasis" v-if="selectedTotal > 0">
-            Total: <strong style="color: #4ade80;">${{ selectedTotal.toFixed(2) }}</strong>
+            Total: <strong style="color: #4ade80;">${{ formatPrice(selectedTotal) }}</strong>
           </span>
         </div>
         <div class="d-flex flex-wrap align-center gap-2">
@@ -140,10 +140,10 @@
                           <td style="padding-left: 8px; font-size: 12px;">{{ record.condition || 'N/A' }}</td>
                           <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
                           <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                            ${{ record.price?.toFixed(2) || '0.00' }}
+                            ${{ formatPrice(record.price) }}
                           </td>
                           <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                            ${{ (record.shippingCost ?? 0).toFixed(2) }}
+                            ${{ formatPrice(record.shippingCost ?? 0) }}
                           </td>
                           <td>
                             <input
@@ -173,10 +173,10 @@
                             />
                           </td>
                           <td class="computed-cell">
-                            ${{ calcUnitPrice(record).toFixed(2) }}
+                            ${{ formatPrice(calcUnitPrice(record)) }}
                           </td>
                           <td class="computed-cell total-cell">
-                            ${{ calcTotalPrice(record).toFixed(2) }}
+                            ${{ formatPrice(calcTotalPrice(record)) }}
                           </td>
                           <!-- <td>
                             <input

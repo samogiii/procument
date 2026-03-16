@@ -27,35 +27,100 @@
             label="Search RFQs..."
             single-line
             hide-details
-            class="flex-grow-1"
+            class="flex-grow-1 mx-2"
             style="min-width: 180px;"
+
+          />
+          <v-autocomplete
+            v-model="partNumberFilter"
+            :items="partNumberOptions"
+            label="Part Number"
+            variant="outlined"
+            hide-details
+            single-line
+            multiple
+            chips
+            closable-chips
+            clearable
+            class="mx-2"
+            style="min-width: 160px; max-width: 260px;"
           />
           <v-select
             v-model="statusFilter"
             :items="rfqStatusOptions"
             label="Status"
             hide-details
-            style="min-width: 120px; max-width: 160px;"
+            multiple
+            chips
+            closable-chips
+            clearable
+            class="mr-2"
+            style="min-width: 120px; max-width: 200px;"
           />
+          <v-select
+            v-model="userFilter"
+            :items="userOptions"
+            item-title="name"
+            item-value="id"
+            label="User"
+            hide-details
+            multiple
+            chips
+            closable-chips
+            clearable
+            class="mx-2"
+            style="min-width: 140px; max-width: 240px;"
+          />
+          <v-select
+            v-model="customerFilter"
+            :items="customerOptions"
+            label="Customer"
+            hide-details
+            multiple
+            chips
+            closable-chips
+            clearable
+            style="min-width: 140px; max-width: 260px;"
+          />
+          
+          <!-- <v-text-field
+            v-model="dateFrom"
+            label="From"
+            type="date"
+            hide-details
+            clearable
+            style="min-width: 130px; max-width: 160px;"
+          />
+          <v-text-field
+            v-model="dateTo"
+            label="To"
+            type="date"
+            hide-details
+            clearable
+            style="min-width: 130px; max-width: 160px;"
+          /> -->
         </div>
         <v-data-table
           :headers="headers"
           :items="filteredItems"
           :search="search"
           :loading="loading"
-          :items-per-page="10"
+          :items-per-page="50"
           hover
           :row-props="getRowProps"
           @click:row="goToRfq"
         >
+          <template #item.id="{ item }">
+            <div class="d-flex align-center gap-1">
+              <v-icon v-if="item.isUnread" icon="mdi-circle" size="10" color="blue" />
+              {{ item.id }}
+            </div>
+          </template>
           <template #item.createdAt="{ item }">
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.leadTime="{ item }">
-            <span :style="isLeadTimeUrgent(item.leadTime) ? 'color: #ef4444; font-weight: 600;' : ''">
-              {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
-            </span>
+            {{ new Date(item.leadTime).toLocaleDateString() }}
           </template>
           <!-- <template #item.priority="{ item }">
             <v-chip
@@ -79,27 +144,19 @@
               {{ item.status || 'Open' }}
             </v-chip>
           </template>
-          <template #item.experts="{ item }">
+          <template #item.assignedUsers="{ item }">
             <div class="d-flex flex-wrap gap-1">
               <v-chip
-                v-if="item.userName"
-                size="x-small"
-                color="warning"
-                variant="tonal"
-                prepend-icon="mdi-account-star"
-              >
-                {{ item.userName }}
-              </v-chip>
-              <v-chip
-                v-for="user in [...(item.views || []), ...(item.edits || [])].filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i && u.id !== item.userId)"
+                v-for="user in [...(item.views || []), ...(item.edits || [])].filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i)"
                 :key="user.id"
                 size="x-small"
                 color="primary"
                 variant="tonal"
+                prepend-icon="mdi-account"
               >
                 {{ user.name }}
               </v-chip>
-              <span v-if="!item.userName && !(item.views?.length || item.edits?.length)" class="text-medium-emphasis">—</span>
+              <span v-if="!(item.views?.length || item.edits?.length)" class="text-medium-emphasis">—</span>
             </div>
           </template>
           <template #item.itemCount="{ item }">
@@ -473,8 +530,8 @@ const router = useRouter()
 const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
-const rfqStatusOptions = ['All', 'Open', 'In Progress', 'Closed']
-const statusFilter = ref((route.query.status as string) || 'All')
+const rfqStatusOptions = ['Open', 'In Progress', 'Closed']
+const statusFilter = ref<string[]>(route.query.status ? [route.query.status as string] : [])
 
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
@@ -484,9 +541,7 @@ function isLeadTimeUrgent(dateStr: string) {
 }
 
 function getRowProps({ item }: { item: any }) {
-  if (isLeadTimeUrgent(item.leadTime)) {
-    return { class: 'lead-time-urgent-row' }
-  }
+  if (item.isUnread) return { class: 'unread-rfq-row' }
   return {}
 }
 
@@ -497,9 +552,66 @@ const showBulkPerms = ref(false)
 const search = ref('')
 const loading = ref(false)
 const items = ref<any[]>([])
+const userFilter = ref<number[]>([])
+const customerFilter = ref<string[]>([])
+const partNumberFilter = ref<string[]>([])
+const dateFrom = ref<string | null>(null)
+const dateTo = ref<string | null>(null)
+
+const userOptions = computed(() => {
+  const map = new Map<number, string>()
+  items.value.forEach((item: any) => {
+    ;[...(item.views || []), ...(item.edits || [])].forEach((u: any) => {
+      if (u.id && u.name) map.set(u.id, u.name)
+    })
+  })
+  return Array.from(map, ([id, name]) => ({ id, name }))
+})
+
+const customerOptions = computed(() => {
+  const set = new Set<string>()
+  items.value.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
+  return Array.from(set).sort()
+})
+
+const partNumberOptions = computed(() => {
+  const set = new Set<string>()
+  items.value.forEach((item: any) => {
+    ;(item.items || []).forEach((ri: any) => {
+      if (ri.partNumberName) set.add(ri.partNumberName)
+    })
+  })
+  return Array.from(set).sort()
+})
+
 const filteredItems = computed(() => {
-  if (!statusFilter.value || statusFilter.value === 'All') return items.value
-  return items.value.filter((item: any) => (item.status || 'Open') === statusFilter.value)
+  let result = items.value
+  if (statusFilter.value?.length) {
+    result = result.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
+  }
+  if (userFilter.value?.length) {
+    result = result.filter((item: any) => {
+      const allUsers = [...(item.views || []), ...(item.edits || [])]
+      return allUsers.some((u: any) => userFilter.value.includes(u.id))
+    })
+  }
+  if (customerFilter.value?.length) {
+    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+  }
+  if (partNumberFilter.value?.length) {
+    result = result.filter((item: any) =>
+      (item.items || []).some((ri: any) => partNumberFilter.value.includes(ri.partNumberName))
+    )
+  }
+  if (dateFrom.value) {
+    const from = new Date(dateFrom.value).getTime()
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
+  }
+  if (dateTo.value) {
+    const to = new Date(dateTo.value).getTime() + 86400000
+    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
+  }
+  return result
 })
 
 const headers = [
@@ -507,7 +619,7 @@ const headers = [
   { title: 'Name', key: 'name' },
   { title: 'Customer', key: 'customerName' },
   { title: 'Status', key: 'status', width: '110px' },
-  { title: 'Experts', key: 'experts', sortable: false },
+  { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
   // { title: 'Priority', key: 'priority', width: '100px' },
   { title: 'Lead Time', key: 'leadTime' },
   { title: 'Parts', key: 'itemCount', sortable: false },
@@ -520,7 +632,10 @@ async function loadItems() {
   loading.value = true
   try {
     const res = await api.get<any[]>('/rfqs')
-    items.value = res || []
+    items.value = (res || []).map((rfq: any) => ({
+      ...rfq,
+      partNumbers: (rfq.items || []).map((ri: any) => ri.partNumberName).filter(Boolean).join(', '),
+    }))
   } catch {}
   finally { loading.value = false }
 }
@@ -919,14 +1034,14 @@ async function submitRfq() {
 </script>
 
 <style scoped>
-:deep(.lead-time-urgent-row) {
-  background-color: rgba(239, 68, 68, 0.12) !important;
-  border-left: 3px solid #ef4444;
+:deep(.unread-rfq-row) {
+  background-color: rgba(66, 165, 245, 0.12) !important;
+  border-left: 3px solid #42a5f5;
 }
-:deep(.lead-time-urgent-row:hover) {
-  background-color: rgba(239, 68, 68, 0.2) !important;
+:deep(.unread-rfq-row:hover) {
+  background-color: rgba(66, 165, 245, 0.2) !important;
 }
-:deep(.lead-time-urgent-row td) {
-  color: rgb(var(--v-theme-error)) !important;
+:deep(.unread-rfq-row td:first-child) {
+  font-weight: 700;
 }
 </style>

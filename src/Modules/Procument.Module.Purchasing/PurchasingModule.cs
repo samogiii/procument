@@ -9,6 +9,7 @@ public static class PurchasingModule
     {
         services.AddScoped<ISupplierQuoteService, SupplierQuoteService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+        services.AddScoped<IProcumentPageService, ProcumentPageService>();
         return services;
     }
 }

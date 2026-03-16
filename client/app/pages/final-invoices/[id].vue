@@ -19,7 +19,7 @@
         </v-list>
       </v-menu>
       <v-chip v-else :color="statusColor(inv.status)" size="default">{{ inv.status || '—' }}</v-chip>
-      <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+      <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
     </div>
 
     <v-row class="mb-6">
@@ -28,7 +28,7 @@
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
-          ${{ inv.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0' }}
+          ${{ formatPrice(inv.totalAmount) }}
         </StatCard>
       </v-col>
       <v-col cols="12" md="3">
@@ -82,13 +82,14 @@
         :headers="itemHeaders"
         :items="inv.items || []"
         density="comfortable"
+        :items-per-page="50"
         class="rounded-b-lg"
       >
         <template #item.unitPrice="{ item }: { item: any }">
-          ${{ item.unitPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) }}
+          ${{ formatPrice(item.unitPrice) }}
         </template>
         <template #item.totalPrice="{ item }: { item: any }">
-          ${{ item.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) }}
+          ${{ formatPrice(item.totalPrice) }}
         </template>
       </v-data-table>
     </v-card>
