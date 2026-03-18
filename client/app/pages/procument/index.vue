@@ -68,6 +68,17 @@
             clearable
             style="min-width: 140px; max-width: 260px;"
           />
+          <v-btn
+            v-if="hasActiveFilters"
+            variant="tonal"
+            color="error"
+            size="small"
+            prepend-icon="mdi-filter-off"
+            class="align-self-center"
+            @click="clearFilters"
+          >
+            Clear
+          </v-btn>
         </div>
 
         <v-data-table
@@ -339,7 +350,14 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const today = new Date().toISOString().split('T')[0]
 
-const search = ref('')
+const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procument', {
+  search: '',
+  status: [] as string[],
+  user: [] as number[],
+  customer: [] as string[],
+  partNumber: [] as string[],
+})
+const search = pf.search
 const loading = ref(false)
 const allItems = ref<any[]>([])
 const editableQuotes = ref<Record<number, any[]>>({})
@@ -358,10 +376,10 @@ function showSnack(text: string, color = 'success') {
 }
 
 // ── Filters ──
-const statusFilter = ref<string[]>([])
-const userFilter = ref<number[]>([])
-const customerFilter = ref<string[]>([])
-const partNumberFilter = ref<string[]>([])
+const statusFilter = pf.status
+const userFilter = pf.user
+const customerFilter = pf.customer
+const partNumberFilter = pf.partNumber
 const statusOptions = ['Open', 'In Progress', 'Quoted', 'Completed', 'Cancelled']
 
 const headers = [

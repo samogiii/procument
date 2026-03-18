@@ -11,14 +11,15 @@
       <!-- Controls -->
       <v-container fluid class="flex-shrink-0 py-4">
         <v-row dense align="center">
+          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyLocation" label="Location" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="companyLocation" label="Address" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
@@ -43,11 +44,58 @@
 const props = defineProps<{ quote: any }>()
 const model = defineModel<boolean>({ default: false })
 
-const companyName = ref('Your Company Name')
-const companyLocation = ref('Selangor, Malaysia')
-const companyPhone = ref('+86 130 0214 1119')
-const companyWebsite = ref('www.company.com')
-const companyEmail = ref('info@company.com')
+const companyPresets: Record<string, { name: string; location: string; phone: string; website: string; email: string }> = {
+  'Horizon Aviation Trading LLC - SPC': {
+    name: 'Horizon Aviation Trading LLC - SPC',
+    location: 'Horizon Group of Companies 1303, 13th Floor, 3 Sails Tower Corniche St, Abu Dhabi, UAE',
+    phone: '+971 505141719',
+    website: 'https://horizon-avex.com/',
+    email: 'sales@horizon-avex.com',
+  },
+  'Didit Developments Ltd': {
+    name: 'Didit Developments Ltd',
+    location: 'Viglen House Business Centre, Alpterton Lane, Wemb, London HA0 1HD, United Kingdom',
+    phone: '+44 7722223340',
+    website: 'www.diditsolution.com',
+    email: 'sales@diditsolution.com',
+  },
+  'Synair (HK) Supply Limited': {
+    name: 'Synair (HK) Supply Limited',
+    location: 'Flat/Rm D9 8/F Universal Industrial Centre, 19-25 Shan Mei Street, Shatin NT, Hong Kong',
+    phone: '+86-18075746425',
+    website: 'www.SYNAIR.aero',
+    email: 'sales@synair.com',
+  },
+  'Shenzhen Yunleifei Technology Co., LTD': {
+    name: 'Shenzhen Yunleifei Technology Co., LTD',
+    location: 'No. 416, Building B, Guancheng Community, Guanhu Street, Longhua District, Shenzhen, China',
+    phone: '+86 13879958620',
+    website: '',
+    email: 'aviation@yunleifei.com',
+  },
+}
+const presetKeys = Object.keys(companyPresets)
+const companyPresetOptions = [...presetKeys, 'Custom']
+const selectedPreset = ref<string>(presetKeys[0] || 'Custom')
+
+const firstPreset = companyPresets[presetKeys[0] ?? ''] ?? { name: '', location: '', phone: '', website: '', email: '' }
+const companyName = ref(firstPreset.name)
+const companyLocation = ref(firstPreset.location)
+const companyPhone = ref(firstPreset.phone)
+const companyWebsite = ref(firstPreset.website)
+const companyEmail = ref(firstPreset.email)
+
+watch(selectedPreset, (val) => {
+  if (!val) return
+  const preset = companyPresets[val]
+  if (preset) {
+    companyName.value = preset.name
+    companyLocation.value = preset.location
+    companyPhone.value = preset.phone
+    companyWebsite.value = preset.website
+    companyEmail.value = preset.email
+  }
+})
 const footerText = ref('If you have any questions about this quotation, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
@@ -69,7 +117,11 @@ const fmt = (n: number) => formatPrice(n)
 
 const renderedHtml = computed(() => {
   const q = props.quote
-  const items: any[] = q.items || []
+  const items: any[] = [...(q.items || [])].sort((a: any, b: any) => {
+    const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : (a.rfqItemId ?? Infinity)
+    const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : (b.rfqItemId ?? Infinity)
+    return aRef - bRef
+  })
   const logo = logoDataUrl.value
 
   const logoImg = logo
@@ -86,18 +138,29 @@ const renderedHtml = computed(() => {
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : '#f7f8fa'
+    // Build detail tags for sub-row (Cert, Tag Date, Note)
+    const details: string[] = []
+    if (it.alt) details.push(`<span style="margin-right:16px;"><strong>Alt:</strong> ${it.alt}</span>`)
+    if (it.certName) details.push(`<span style="margin-right:16px;"><strong>Cert:</strong> ${it.certName}</span>`)
+    
+    if (it.tagDate) details.push(`<span style="margin-right:16px;"><strong>Tag Date:</strong> ${new Date(it.tagDate).getFullYear()}</span>`)
+    if (it.note) details.push(`<span><strong>Note:</strong> ${it.note}</span>`)
+    const detailRow = details.length > 0 ? `
+    <tr style="background:${bg};">
+      <td colspan="9" style="padding:2px 12px 8px 44px; font-size:10px; color:#6b7280; border-bottom:1px solid #e5e7eb;">${details.join('')}</td>
+    </tr>` : ''
     return `
     <tr style="background:${bg};">
-      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
-      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumberName || '—'}</td>
-      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.qty}</td>
-      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
-      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
-      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.note || ''}</td>
-    </tr>`
+      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${i + 1}</td>
+      
+      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:#1a2744; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.partNumberName || '—'}</td>
+      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; max-width:120px; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.description || '—'}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.qty}</td>
+      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#1a2744; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.condition || '—'}</td>
+      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.leadTime || '—'}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; color:#1a2744; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">$${fmt(Number(it.unitPrice))}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">$${fmt(Number(it.totalPrice))}</td>
+    </tr>${detailRow}`
   }).join('')
 
   return `
@@ -105,11 +168,16 @@ const renderedHtml = computed(() => {
 
       <!-- ═══ Header ═══ -->
       <div style="padding:28px 40px 20px 40px; display:flex; justify-content:space-between; align-items:flex-start;">
-        <div style="display:flex; align-items:center; gap:16px;">
+        <div style="display:flex; align-items:flex-start; gap:16px;">
           ${logoImg}
           <div>
             <div style="font-size:20px; font-weight:700; color:#1a2744; letter-spacing:0.3px;">${companyName.value}</div>
-            <div style="font-size:9.5px; color:#6b7280; margin-top:3px; line-height:1.6;">${companyLocation.value}<br/>Tel: ${companyPhone.value} &nbsp;|&nbsp; ${companyWebsite.value}</div>
+            <div style="font-size:9px; color:#6b7280; margin-top:4px; line-height:1.7;">
+              ${companyLocation.value ? `<div>Add: ${companyLocation.value}</div>` : ''}
+              ${companyPhone.value ? `<div>Tel: ${companyPhone.value}</div>` : ''}
+              ${companyWebsite.value ? `<div>Website: ${companyWebsite.value}</div>` : ''}
+              ${companyEmail.value ? `<div>Email: ${companyEmail.value}</div>` : ''}
+            </div>
           </div>
         </div>
         <div style="text-align:right;">
@@ -125,7 +193,7 @@ const renderedHtml = computed(() => {
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${quoteDate}</div>
         <div><span style="font-weight:600; color:#1a2744;">Valid Until:</span> ${validUntil}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Prepared By:</span> ${q.userName || '—'}</div>
+        <div><span style="font-weight:600; color:#1a2744;">RFQ:</span> ${q.rfqName || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
 
@@ -149,14 +217,14 @@ const renderedHtml = computed(() => {
           <thead>
             <tr style="background:#1a2744;">
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">#</th>
+              
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">Qty</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">CD</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Cert</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Lead Time</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Note</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

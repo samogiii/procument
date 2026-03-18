@@ -6,6 +6,7 @@
     :status-options="['All', 'Draft', 'Sent', 'Accepted', 'Rejected']"
     detail-route="/quotes"
     :custom-filter="applyFilters"
+    page-key="quotes"
   >
     <template #actions>
       <v-btn
@@ -74,8 +75,24 @@
       ${{ formatPrice(item.totalAmount) }}
     </template>
 
+    <template #item.createdAt="{ item }">
+      {{ item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—' }}
+    </template>
+
     <template #item.actions="{ item }">
       <v-btn icon="mdi-eye" variant="text" size="small" :to="`/quotes/${item.id}`" />
+    </template>
+
+    <template #tfoot="{ items }">
+      <tr>
+        <td colspan="3" class="text-right font-weight-bold" style="padding: 10px 12px; font-size: 13px;">
+          Total
+        </td>
+        <td class="font-weight-bold" style="padding: 10px 12px; font-size: 13px; color: #4ade80;">
+          ${{ formatPrice(items.reduce((sum: number, q: any) => sum + (Number(q.totalAmount) || 0), 0)) }}
+        </td>
+        <td colspan="4"></td>
+      </tr>
     </template>
   </DataListPage>
 
@@ -135,9 +152,11 @@ function applyFilters(items: any[]) {
 
 const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
+  { title: 'RFQ Name', key: 'rfqName' },
   { title: 'Customer', key: 'customerName' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
+  { title: 'Created', key: 'createdAt' },
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 </script>

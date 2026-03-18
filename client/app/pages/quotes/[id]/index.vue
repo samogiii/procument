@@ -211,7 +211,7 @@ async function loadQuote() {
           procMap[r.id] = r
         })
 
-        // Enrich quote items
+        // Enrich quote items and sort by RFQ ref (1, 2, 3…)
         if (q.items) {
           q.items = q.items.map((qi: any) => {
             const proc = qi.procumentRecordId ? procMap[qi.procumentRecordId] : null
@@ -224,6 +224,10 @@ async function loadQuote() {
               tagDate: proc?.tagDate || null,
               note: proc?.note || '',
             }
+          }).sort((a: any, b: any) => {
+            const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : Infinity
+            const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : Infinity
+            return aRef - bRef
           })
         }
       } catch {

@@ -8,6 +8,7 @@
     show-select
     v-model="selectedInvoices"
     :custom-filter="applyFilters"
+    page-key="invoices"
   >
     <template #filters>
       <v-select

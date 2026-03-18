@@ -48,6 +48,7 @@ public class QuoteResponse
     public string? CustomerShipTo { get; set; }
     public string? UserName { get; set; }
     public string? RejectionNote { get; set; }
+    public string? RFQName { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();
 }
 
@@ -64,4 +65,9 @@ public class QuoteItemResponse
     public decimal TotalPrice { get; set; }
     public string? Condition { get; set; }
     public int? LeadTimeDays { get; set; }
+    public string? LeadTime { get; set; }
+    public string? Note { get; set; }
+    public string? RFQReference { get; set; }
+    public string? TagDate { get; set; }
+    public string? CertName { get; set; }
 }

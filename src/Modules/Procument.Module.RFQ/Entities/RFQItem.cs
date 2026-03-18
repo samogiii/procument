@@ -17,6 +17,7 @@ public class RFQItem : BaseEntity
     public long RFQId { get; set; }
     public long PartNumberId { get; set; }
 
+
     // Navigation
     public RFQHeader RFQ { get; set; } = null!;
     public PartNumber PartNumber { get; set; } = null!;

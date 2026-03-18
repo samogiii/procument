@@ -51,8 +51,14 @@ public class QuoteService : IQuoteService
         var quotes = await _db.Set<Quote>()
             .Include(q => q.Customer)
             .Include(q => q.User)
+            .Include(q => q.RFQ)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.RFQItem)
+                    .ThenInclude(ri => ri!.RFQ)
             .Where(q => q.RFQId == rfqId)
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
@@ -65,8 +71,14 @@ public class QuoteService : IQuoteService
         var quote = await _db.Set<Quote>()
             .Include(q => q.Customer)
             .Include(q => q.User)
+            .Include(q => q.RFQ)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.RFQItem)
+                    .ThenInclude(ri => ri!.RFQ)
             .FirstOrDefaultAsync(q => q.Id == id);
 
         if (quote == null) return null;
@@ -165,7 +177,15 @@ public class QuoteService : IQuoteService
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .Include(q => q.Customer)
-            .Include(q => q.User);
+            .Include(q => q.User)
+            .Include(q => q.RFQ)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.PartNumber)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.RFQItem)
+                    .ThenInclude(ri => ri!.RFQ);
 
         if (!string.IsNullOrEmpty(status))
         {
@@ -319,7 +339,8 @@ public class QuoteService : IQuoteService
         CustomerShipTo = q.Customer.ShipTo,
         UserName = q.User?.Name,
         RejectionNote = q.RejectionNote,
-        Items = q.QuoteItems.Select(qi => new QuoteItemResponse
+        RFQName = q.RFQ?.Name,
+        Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
         {
             Id = qi.Id,
             PartNumberName = qi.PartNumber?.Name ?? "",
@@ -331,7 +352,12 @@ public class QuoteService : IQuoteService
             UnitPrice = qi.UnitPrice,
             TotalPrice = qi.TotalPrice,
             Condition = qi.Condition,
-            LeadTimeDays = qi.LeadTimeDays
+            LeadTimeDays = qi.LeadTimeDays,
+            LeadTime = qi.ProcumentRecord?.LeadTime,
+            Note = qi.ProcumentRecord?.Note,
+            RFQReference = qi.RFQItem?.RFQ?.Name,
+            TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
+            CertName = qi.ProcumentRecord?.CertName
         }).ToList()
     };
 

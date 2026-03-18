@@ -32,6 +32,17 @@
             style="min-width: 120px; max-width: 220px;"
           />
           <slot name="filters" />
+          <v-btn
+            v-if="hasDlpActiveFilters"
+            variant="tonal"
+            color="error"
+            size="small"
+            prepend-icon="mdi-filter-off"
+            class="align-self-center"
+            @click="clearDlpFilters"
+          >
+            Clear
+          </v-btn>
         </div>
 
         <!-- Server-side data table -->
@@ -70,12 +81,16 @@
           @click:row="onRowClick"
           :class="{ 'clickable-rows': !!detailRoute }"
         >
-          <template v-for="name in Object.keys($slots).filter(k => k !== 'default' && k !== 'actions')" :key="name" #[name]="slotProps">
+          <template v-for="name in Object.keys($slots).filter(k => k !== 'default' && k !== 'actions' && k !== 'tfoot')" :key="name" #[name]="slotProps">
             <slot :name="name" v-bind="slotProps ?? {}" />
           </template>
 
           <template v-if="detailRoute && !$slots['item.actions']" #item.actions="{ item }">
             <v-btn icon="mdi-eye" variant="text" size="small" :to="`${detailRoute}/${item.id}`" />
+          </template>
+
+          <template v-if="$slots.tfoot" #tfoot>
+            <slot name="tfoot" :items="searchFilteredItems" />
           </template>
         </v-data-table>
       </v-card-text>
@@ -113,6 +128,8 @@ const props = withDefaults(defineProps<{
   modelValue?: any[]
   /** Custom client-side filter function applied after status filter */
   customFilter?: (items: any[]) => any[]
+  /** Unique key for persisting filters in localStorage. If not set, filters are not persisted. */
+  pageKey?: string
 }>(), {
   serverSide: false,
   itemsPerPage: 50,
@@ -127,9 +144,21 @@ const selected = computed({
   set: (val) => emit('update:modelValue', val)
 })
 
-const search = ref('')
+// If pageKey is provided, persist search + status to localStorage
+const _pf = props.pageKey
+  ? usePageFilters(props.pageKey, { search: '', status: [] as string[] })
+  : null
+
+const search = _pf ? _pf.filters.search : ref('')
+const statusFilter = _pf ? _pf.filters.status : ref<string[]>([])
+const clearDlpFilters = _pf ? _pf.clearFilters : () => {}
+const hasDlpActiveFilters = _pf ? _pf.hasActiveFilters : computed(() => false)
+
+// If URL has ?status=X, apply it once on load (overrides saved)
 const initialStatus = route.query.status ? [route.query.status as string] : []
-const statusFilter = ref<string[]>(initialStatus)
+if (initialStatus.length && statusFilter.value.length === 0) {
+  statusFilter.value = initialStatus
+}
 const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)
@@ -148,6 +177,19 @@ const filteredClientItems = computed(() => {
   }
   return result
 })
+
+const searchFilteredItems = computed(() => {
+  let result = filteredClientItems.value
+  const q = search.value?.toLowerCase().trim()
+  if (q) {
+    result = result.filter((item: any) =>
+      Object.values(item).some((val: any) =>
+        val != null && String(val).toLowerCase().includes(q)
+      )
+    )
+  }
+  return result
+})
 const lastServerOptions = ref<any>({ page: 1, itemsPerPage: 50 })
 
 // ─── Server-side loading ───
@@ -160,7 +202,7 @@ async function loadServerItems(options: any) {
     params.append('pageSize', options.itemsPerPage)
     if (search.value) params.append('search', search.value)
     if (statusFilter.value?.length) {
-      statusFilter.value.forEach(s => params.append('status', s))
+      statusFilter.value.forEach((s: string) => params.append('status', s))
     }
 
     const url = `${props.apiUrl}?${params.toString()}`

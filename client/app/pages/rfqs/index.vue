@@ -83,22 +83,17 @@
             style="min-width: 140px; max-width: 260px;"
           />
           
-          <!-- <v-text-field
-            v-model="dateFrom"
-            label="From"
-            type="date"
-            hide-details
-            clearable
-            style="min-width: 130px; max-width: 160px;"
-          />
-          <v-text-field
-            v-model="dateTo"
-            label="To"
-            type="date"
-            hide-details
-            clearable
-            style="min-width: 130px; max-width: 160px;"
-          /> -->
+          <v-btn
+            v-if="hasActiveFilters"
+            variant="tonal"
+            color="error"
+            size="small"
+            prepend-icon="mdi-filter-off"
+            class="align-self-center"
+            @click="clearFilters"
+          >
+            Clear
+          </v-btn>
         </div>
         <v-data-table
           :headers="headers"
@@ -531,7 +526,17 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const rfqStatusOptions = ['Open', 'In Progress', 'Closed']
-const statusFilter = ref<string[]>(route.query.status ? [route.query.status as string] : [])
+const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
+  search: '',
+  status: [] as string[],
+  user: [] as number[],
+  customer: [] as string[],
+  partNumber: [] as string[],
+})
+// If URL has ?status=X, apply it once on load
+if (route.query.status && pf.status.value.length === 0) {
+  pf.status.value = [route.query.status as string]
+}
 
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
@@ -549,12 +554,13 @@ const isAdmin = computed(() => authStore.isAdmin)
 const showBulkPerms = ref(false)
 
 // ── List state ──
-const search = ref('')
+const search = pf.search
 const loading = ref(false)
 const items = ref<any[]>([])
-const userFilter = ref<number[]>([])
-const customerFilter = ref<string[]>([])
-const partNumberFilter = ref<string[]>([])
+const statusFilter = pf.status
+const userFilter = pf.user
+const customerFilter = pf.customer
+const partNumberFilter = pf.partNumber
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
