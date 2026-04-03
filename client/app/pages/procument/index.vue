@@ -141,10 +141,10 @@
             </div>
           </template>
           <template #item.leadTime="{ item }">
-            <span :class="{ 'text-error font-weight-bold': isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
+            <span :class="{ 'text-error font-weight-bold': (item.rfqStatus == 'Open' || item.rfqStatus == 'In Progress')  && isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
               {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="warning" class="ml-1" title="Lead time expires within 3 days" />
-              <v-icon v-else-if="isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="14" color="error" class="ml-1" title="Lead time has expired" />
+              <v-icon v-if="(item.rfqStatus == 'Open' || item.rfqStatus == 'In Progress')  && isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="warning" class="ml-1" title="Lead time expires within 3 days" />
+              <v-icon v-else-if="(item.rfqStatus == 'Open' || item.rfqStatus == 'In Progress')  && isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="14" color="error" class="ml-1" title="Lead time has expired" />
             </span>
           </template>
           <template #item.customerName="{ item }">
@@ -474,8 +474,8 @@ function isLeadTimeExpired(dateStr: string) {
 
 function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
-  if (isLeadTimeUrgent(item.leadTime)) classes.push('lead-time-urgent-row')
-  if (isLeadTimeExpired(item.leadTime)) classes.push('lead-time-expired-row')
+  if ((item.rfqStatus == 'Open' || item.rfqStatus == 'In Progress')  && isLeadTimeUrgent(item.leadTime)) classes.push('lead-time-urgent-row')
+  if ((item.rfqStatus == 'Open' || item.rfqStatus == 'In Progress')  && isLeadTimeExpired(item.leadTime)) classes.push('lead-time-expired-row')
   if (item.isHighlighted) classes.push('highlighted-row')
   if (expandedArray.value.includes(item.rfqItemId)) classes.push('expanded-row')
   return classes.length ? { class: classes.join(' ') } : {}

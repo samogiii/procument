@@ -115,10 +115,10 @@
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.leadTime="{ item }">
-            <span :class="{ 'text-error font-weight-bold': isLeadTimeExpired(item.leadTime) }">
+            <span :class="{ 'text-error font-weight-bold': (item.status == 'Open' || item.status == 'In Progress') && isLeadTimeExpired(item.leadTime) }">
               {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="16" color="warning" class="ml-1" title="Lead time expires within 3 days" />
-              <v-icon v-else-if="isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="16" color="error" class="ml-1" title="Lead time has expired" />
+              <v-icon v-if="isLeadTimeUrgent(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')" icon="mdi-alert" size="16" color="warning" class="ml-1" title="Lead time expires within 3 days" />
+              <v-icon v-else-if="isLeadTimeExpired(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')" icon="mdi-alert-circle" size="16" color="error" class="ml-1" title="Lead time has expired" />
             </span>
           </template>
           <!-- <template #item.priority="{ item }">
@@ -558,7 +558,7 @@ function isLeadTimeExpired(dateStr: string) {
 function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
   if (item.isUnread) classes.push('unread-rfq-row')
-  if (isLeadTimeExpired(item.leadTime)) classes.push('lead-time-expired-row')
+  if (isLeadTimeExpired(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')) classes.push('lead-time-expired-row')
   return classes.length ? { class: classes.join(' ') } : {}
 }
 

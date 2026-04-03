@@ -60,8 +60,8 @@ public class PermissionsController : ControllerBase
                 }
                 await _db.SaveChangesAsync();
 
-                // Automatically change status to In Progress if currently Open
-                await _db.Database.ExecuteSqlInterpolatedAsync($"UPDATE RFQs SET Status = 'In Progress' WHERE Id = {rfqId} AND Status = 'Open'");
+                // Automatically change status to In Progress if currently Open or Draft
+                await _db.Database.ExecuteSqlInterpolatedAsync($"UPDATE RFQs SET Status = 'In Progress' WHERE Id = {rfqId} AND Status IN ('Open', 'Draft')");
             }
             catch { /* Don't fail assignment if unread marking fails */ }
         }

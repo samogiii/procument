@@ -72,7 +72,7 @@
             variant="outlined"
             style="min-width: 150px; max-width: 180px;"
           />
-          <v-text-field
+          <!-- <v-text-field
             v-model.number="finalPriceOverride"
             label="Final Price"
             type="number"
@@ -84,7 +84,7 @@
             min="0"
             :placeholder="formatPrice(selectedTotal)"
             style="min-width: 130px; max-width: 160px;"
-          />
+          /> -->
           <v-btn
             color="success"
             prepend-icon="mdi-check"
@@ -206,6 +206,7 @@
                               placeholder="1"
                               v-model.number="record.coef_1"
                               step="0.01"
+                              @input="record.customUnitPrice = null"
                             />
                           </td>
                           <td>
@@ -215,6 +216,7 @@
                               placeholder="1"
                               v-model.number="record.coef_2"
                               step="0.01"
+                              @input="record.customUnitPrice = null"
                             />
                           </td>
                           <td>
@@ -224,6 +226,7 @@
                               placeholder="1"
                               v-model.number="record.coef_3"
                               step="0.01"
+                              @input="record.customUnitPrice = null"
                             />
                           </td>
                           <td>
@@ -288,10 +291,14 @@ const expandedRows = ref(new Set<number>())
 const validUntil = ref('')
 const finalPriceOverride = ref<number | null>(null)
 
-// Global coefs applied to all records
-const globalCoef1 = ref<number>(1)
-const globalCoef2 = ref<number>(1)
-const globalCoef3 = ref<number>(1)
+// Global coefs applied to all records (bulk setter)
+const globalCoef1 = ref<number | null>(null)
+const globalCoef2 = ref<number | null>(null)
+const globalCoef3 = ref<number | null>(null)
+
+watch(globalCoef1, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_1 = val; r.customUnitPrice = null }) })
+watch(globalCoef2, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_2 = val; r.customUnitPrice = null }) })
+watch(globalCoef3, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_3 = val; r.customUnitPrice = null }) })
 
 // selections: simple map of recordId → selected boolean
 const selections = ref<Record<number, boolean>>({})
@@ -322,16 +329,7 @@ const backUrl = computed(() =>
     : `/rfqs/${route.params.id}`
 )
 
-// Watch global coefs → push to all procurement records
-watch([globalCoef1, globalCoef2, globalCoef3], ([c1, c2, c3]) => {
-  procurementRecords.value.forEach(r => {
-    r.coef_1 = c1
-    r.coef_2 = c2
-    r.coef_3 = c3
-    r.customTotalPrice = null
-    r.customUnitPrice = null
-  })
-})
+// Global coefs multiply with row coefs continuously now
 
 onMounted(async () => {
   await loadData()
@@ -484,6 +482,13 @@ async function loadExistingQuote() {
           )
           if (exactMatch) {
             selections.value[exactMatch.id] = true
+            
+            // Restore manual overrides
+            const calc = calcUnitPrice(exactMatch)
+            if (qi.unitPrice && Math.abs(Number(qi.unitPrice) - calc) > 0.001) {
+              exactMatch.customUnitPrice = Number(qi.unitPrice)
+            }
+            
             continue
           }
         }
@@ -497,14 +502,6 @@ async function loadExistingQuote() {
         }
       }
       selections.value = { ...selections.value }
-
-      // Pre-fill global coefs from first selected record
-      const firstSelected = procurementRecords.value.find(r => selections.value[r.id])
-      if (firstSelected) {
-        globalCoef1.value = firstSelected.coef_1 ?? 1
-        globalCoef2.value = firstSelected.coef_2 ?? 1
-        globalCoef3.value = firstSelected.coef_3 ?? 1
-      }
     }
   } catch {
     showSnack('Failed to load existing quote for editing', 'error')
