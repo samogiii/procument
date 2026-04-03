@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
@@ -31,7 +32,8 @@ public class ProcumentPageService : IProcumentPageService
             .Include(r => r.Customer)
             .Include(r => r.User)
             .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber);
+                .ThenInclude(i => i.PartNumber)
+                    .ThenInclude(pn => pn.Alternatives);
 
         // 2. Permission filter for non-admins
         if (!isAdmin)
@@ -132,6 +134,9 @@ public class ProcumentPageService : IProcumentPageService
                     CreatedAt = rfq.CreatedAt,
                     AssignedUsers = assignedUsers,
                     SupplierQuotes = quotes,
+                    Alternatives = (item.PartNumber.Alternatives ?? new List<Alternative>())
+                        .Select(a => new ProcumentPageAltResponse { Id = a.Id, Name = a.Name })
+                        .ToList(),
                 });
             }
         }

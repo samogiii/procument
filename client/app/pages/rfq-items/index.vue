@@ -94,7 +94,7 @@
           <template #item.status="{ item }">
             <v-chip
               size="small"
-              :color="item.status === 'Closed' ? 'success' : item.status === 'In Progress' ? 'warning' : 'info'"
+              :color="rfqStatusColor(item.status || 'Open')"
               variant="tonal"
             >
               {{ item.status || 'Open' }}
@@ -116,9 +116,10 @@
             </div>
           </template>
           <template #item.leadTime="{ item }">
-            <span :style="isLeadTimeUrgent(item.leadTime) ? ' font-weight: 600;' : ''">
+            <span :class="{ 'text-error font-weight-bold': isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
               {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
+              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="warning" class="ml-1" title="Lead time expires within 3 days" />
+              <v-icon v-else-if="isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="14" color="error" class="ml-1" title="Lead time has expired" />
             </span>
           </template>
           <template #item.createdAt="{ item }">
@@ -136,6 +137,7 @@
 <script setup lang="ts">
 const api = useApi()
 const authStore = useAuthStore()
+const { statusColor: rfqStatusColor } = useStatusColor()
 
 // Guard: admin only
 // if (!authStore.isAdmin) {
@@ -157,7 +159,7 @@ const userFilter = pf.user
 const customerFilter = pf.customer
 const partNumberFilter = pf.partNumber
 
-const statusOptions = ['Open', 'In Progress', 'Closed']
+const statusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -217,7 +219,13 @@ const filteredItems = computed(() => {
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
   const diff = new Date(dateStr).getTime() - Date.now()
-  return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000
+  const daysLeft = diff / (1000 * 60 * 60 * 24)
+  return daysLeft >= 0 && daysLeft <= 3
+}
+
+function isLeadTimeExpired(dateStr: string) {
+  if (!dateStr) return false
+  return new Date(dateStr).getTime() < Date.now()
 }
 
 onMounted(async () => {

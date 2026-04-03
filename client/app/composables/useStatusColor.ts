@@ -17,11 +17,15 @@ const STATUS_COLORS: Record<string, string> = {
 
     // Purchase Order
     Received: 'success',
-    Cancelled: 'error',
 
     // RFQ
-    Quoted: 'warning',
+    Open: 'light-blue',
+    'In Progress': 'amber',
+    'No Quote': 'deep-purple',
+    Quoted: 'orange',
+    Closed: 'blue-grey',
     Completed: 'success',
+    Cancelled: 'error',
 
     // General
     Active: 'success',

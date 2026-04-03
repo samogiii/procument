@@ -115,7 +115,11 @@
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.leadTime="{ item }">
-            {{ new Date(item.leadTime).toLocaleDateString() }}
+            <span :class="{ 'text-error font-weight-bold': isLeadTimeExpired(item.leadTime) }">
+              {{ new Date(item.leadTime).toLocaleDateString() }}
+              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="16" color="warning" class="ml-1" title="Lead time expires within 3 days" />
+              <v-icon v-else-if="isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="16" color="error" class="ml-1" title="Lead time has expired" />
+            </span>
           </template>
           <!-- <template #item.priority="{ item }">
             <v-chip
@@ -133,7 +137,7 @@
           <template #item.status="{ item }">
             <v-chip
               size="small"
-              :color="item.status === 'Closed' ? 'success' : item.status === 'In Progress' ? 'warning' : 'info'"
+              :color="rfqStatusColor(item.status || 'Open')"
               variant="tonal"
             >
               {{ item.status || 'Open' }}
@@ -512,7 +516,7 @@
     </v-dialog>
 
     <!-- Bulk Permission Manager -->
-    <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" />
+    <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" @update:model-value="(v) => !v && loadItems()" />
   </div>
 </template>
 
@@ -525,7 +529,8 @@ const router = useRouter()
 const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
-const rfqStatusOptions = ['Open', 'In Progress', 'Closed']
+const { statusColor: rfqStatusColor } = useStatusColor()
+const rfqStatusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
@@ -542,12 +547,19 @@ function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
   const diff = new Date(dateStr).getTime() - Date.now()
   const daysLeft = diff / (1000 * 60 * 60 * 24)
-  return daysLeft >= 0 && daysLeft <= 5
+  return daysLeft >= 0 && daysLeft <= 3
+}
+
+function isLeadTimeExpired(dateStr: string) {
+  if (!dateStr) return false
+  return new Date(dateStr).getTime() < Date.now()
 }
 
 function getRowProps({ item }: { item: any }) {
-  if (item.isUnread) return { class: 'unread-rfq-row' }
-  return {}
+  const classes: string[] = []
+  if (item.isUnread) classes.push('unread-rfq-row')
+  if (isLeadTimeExpired(item.leadTime)) classes.push('lead-time-expired-row')
+  return classes.length ? { class: classes.join(' ') } : {}
 }
 
 const isAdmin = computed(() => authStore.isAdmin)
@@ -641,6 +653,7 @@ async function loadItems() {
     items.value = (res || []).map((rfq: any) => ({
       ...rfq,
       partNumbers: (rfq.items || []).map((ri: any) => ri.partNumberName).filter(Boolean).join(', '),
+      altPartNumbers: (rfq.items || []).flatMap((ri: any) => (ri.alternatives || []).map((a: any) => a.name)).filter(Boolean).join(', '),
     }))
   } catch {}
   finally { loading.value = false }
@@ -1049,5 +1062,15 @@ async function submitRfq() {
 }
 :deep(.unread-rfq-row td:first-child) {
   font-weight: 700;
+}
+:deep(.lead-time-expired-row) {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-left: 3px solid #ef4444;
+}
+:deep(.lead-time-expired-row) td {
+  color: #ef4444 !important;
+}
+:deep(.lead-time-expired-row:hover) {
+  background-color: rgba(239, 68, 68, 0.2) !important;
 }
 </style>

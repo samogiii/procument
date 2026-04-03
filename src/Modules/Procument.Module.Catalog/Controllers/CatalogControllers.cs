@@ -261,7 +261,7 @@ public class PartNumbersController : ControllerBase
 
         var results = await _db.Set<PartNumber>()
             .Include(p => p.Alternatives)
-            .Where(p => p.Name.Contains(q))
+            .Where(p => p.Name.Contains(q) || p.Alternatives.Any(a => a.Name.Contains(q)))
             .OrderBy(p => p.Name)
             .Take(10)
             .Select(p => new

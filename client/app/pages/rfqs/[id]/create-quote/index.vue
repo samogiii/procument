@@ -226,18 +226,18 @@
                               step="0.01"
                             />
                           </td>
-                          <td class="computed-cell">
-                            ${{ formatPrice(calcUnitPrice(record)) }}
-                          </td>
                           <td>
                             <input
                               type="number"
-                              class="coef-input total-price-input"
-                              :value="calcTotalPrice(record)"
+                              class="coef-input unit-price-input"
+                              :value="getUnitPrice(record)"
                               step="0.01"
                               min="0"
-                              @input="onTotalPriceInput(record, $event)"
+                              @input="onUnitPriceInput(record, $event)"
                             />
+                          </td>
+                          <td class="computed-cell total-cell">
+                            ${{ formatPrice(calcTotalPrice(record)) }}
                           </td>
                         </tr>
                       </tbody>
@@ -329,6 +329,7 @@ watch([globalCoef1, globalCoef2, globalCoef3], ([c1, c2, c3]) => {
     r.coef_2 = c2
     r.coef_3 = c3
     r.customTotalPrice = null
+    r.customUnitPrice = null
   })
 })
 
@@ -384,6 +385,7 @@ async function loadData() {
       coef_2: r.coef_2 ?? 1,
       coef_3: r.coef_3 ?? 1,
       customTotalPrice: null,
+      customUnitPrice: null,
     }))
 
     // Initialize all selections to false
@@ -411,19 +413,23 @@ function calcUnitPrice(q: any): number {
   return (price + (shipping / qty)) * c1 * c2 * c3
 }
 
-function calcTotalPrice(q: any): number {
-  if (q.customTotalPrice != null && Number(q.customTotalPrice) > 0) {
-    return Number(q.customTotalPrice)
+function getUnitPrice(q: any): number {
+  if (q.customUnitPrice != null && Number(q.customUnitPrice) > 0) {
+    return Number(q.customUnitPrice)
   }
-  return calcUnitPrice(q) * (Number(q.qty) || 1)
+  return calcUnitPrice(q)
 }
 
-function onTotalPriceInput(record: any, event: Event) {
+function calcTotalPrice(q: any): number {
+  return getUnitPrice(q) * (Number(q.qty) || 1)
+}
+
+function onUnitPriceInput(record: any, event: Event) {
   const val = parseFloat((event.target as HTMLInputElement).value)
   if (!isNaN(val) && val > 0) {
-    record.customTotalPrice = val
+    record.customUnitPrice = val
   } else {
-    record.customTotalPrice = null
+    record.customUnitPrice = null
   }
 }
 
@@ -519,10 +525,8 @@ async function saveQuote() {
   try {
     // 1. Save coefs/unitPrice/totalPrice back to procurement records
     const quotesToUpdate = selected.map(r => {
-      const effectiveTotal = calcTotalPrice(r)
-      const effectiveUnit = (r.customTotalPrice != null && Number(r.customTotalPrice) > 0)
-        ? Number(r.customTotalPrice) / (Number(r.qty) || 1)
-        : calcUnitPrice(r)
+      const effectiveUnit = getUnitPrice(r)
+      const effectiveTotal = effectiveUnit * (Number(r.qty) || 1)
       return {
         id: r.id,
         rfqItemId: r.rfqItemId,
@@ -555,14 +559,11 @@ async function saveQuote() {
 
     // 2. Create/update the sales quote
     const items = selected.map(r => {
-      const effectiveUnit = (r.customTotalPrice != null && Number(r.customTotalPrice) > 0)
-        ? Number(r.customTotalPrice) / (Number(r.qty) || 1)
-        : calcUnitPrice(r)
       return {
         rfqItemId: r.rfqItemId,
         procumentRecordId: r.id,
         qty: r.qty,
-        unitPrice: effectiveUnit,
+        unitPrice: getUnitPrice(r),
         condition: r.condition || null,
         alt: r.alt || null,
         leadTimeDays: null
@@ -765,9 +766,9 @@ function showSnack(text: string, color: string) {
   box-shadow: 0 0 0 1px var(--card-hover-border);
 }
 
-/* Editable Total Price input */
-.total-price-input {
-  color: #4ade80 !important;
+/* Editable Unit Price input */
+.unit-price-input {
+  color: #60a5fa !important;
   font-weight: 600;
   text-align: right;
 }

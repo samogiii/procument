@@ -151,6 +151,11 @@
                             <th style="width: 100px;">Total Price</th>
                             <th style="width: 80px;">Cert</th>
                             <th style="width: 90px;">Tag Date</th>
+                            <th style="width: 100px;">Shipping Cost</th>
+                            <th style="width: 110px;">Shipping Point</th>
+                            <th style="width: 90px;">Lead Time</th>
+                            <th style="width: 140px;">Notes</th>
+                            <th style="width: 140px;">My Note</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -192,6 +197,11 @@
                             </td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.certName || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.tagDate || '—' }}</td>
+                            <td class="mono-cell text-right pr-2">{{ rec.shippingCost ? '$' + formatPrice(rec.shippingCost) : '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.shippingPoint || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.leadTime || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.note">{{ rec.note || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.myNotes">{{ rec.myNotes || '—' }}</td>
                           </tr>
                         </tbody>
                       </table>

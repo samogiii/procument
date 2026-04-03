@@ -114,7 +114,7 @@
           <template #item.status="{ item }">
             <v-chip
               size="small"
-              :color="item.rfqStatus === 'Closed' ? 'success' : item.rfqStatus === 'In Progress' ? 'warning' : 'info'"
+              :color="rfqStatusColor(item.rfqStatus || 'Open')"
               variant="tonal"
             >
               {{ item.rfqStatus || 'Open' }}
@@ -141,9 +141,10 @@
             </div>
           </template>
           <template #item.leadTime="{ item }">
-            <span :style="isLeadTimeUrgent(item.leadTime) ? ' font-weight: 600;' : ''">
+            <span :class="{ 'text-error font-weight-bold': isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
               {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
+              <v-icon v-if="isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="warning" class="ml-1" title="Lead time expires within 3 days" />
+              <v-icon v-else-if="isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="14" color="error" class="ml-1" title="Lead time has expired" />
             </span>
           </template>
           <template #item.customerName="{ item }">
@@ -190,6 +191,7 @@
                           <th>Shipping Point</th>
                           <th>LeadTime</th>
                           <th>Note</th>
+                          <th>My Notes</th>
                           <th style="width: 90px;"></th>
                         </tr>
                       </thead>
@@ -294,7 +296,26 @@
                             <input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="quote.leadTime" />
                           </td>
                           <td>
-                            <input type="text" class="quote-input" placeholder="Note..." v-model="quote.note" />
+                            <VTextarea
+                              type="text"
+                              rows="2"
+                              placeholder="Note..."
+                              v-model="quote.note"
+                              hide-details
+                              density="compact"
+                              variant="plain"
+                            />
+                          </td>
+                          <td>
+                            <VTextarea
+                              type="text"
+                              rows="2"
+                              placeholder="My Notes..."
+                              v-model="quote.myNotes"
+                              hide-details
+                              density="compact"
+                              variant="plain"
+                            />
                           </td>
                           <td class="text-center" style="white-space: nowrap;">
                             <v-btn
@@ -346,7 +367,7 @@
 <script setup lang="ts">
 const api = useApi()
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.isAdmin)
+const { statusColor: rfqStatusColor } = useStatusColor()
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -380,7 +401,8 @@ const statusFilter = pf.status
 const userFilter = pf.user
 const customerFilter = pf.customer
 const partNumberFilter = pf.partNumber
-const statusOptions = ['Open', 'In Progress', 'Quoted', 'Completed', 'Cancelled']
+const isAdmin = computed(() => authStore.isAdmin)
+const statusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -441,12 +463,19 @@ const filteredItems = computed(() => {
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
   const diff = new Date(dateStr).getTime() - Date.now()
-  return diff > 0 && diff < 5 * 24 * 60 * 60 * 1000
+  const daysLeft = diff / (1000 * 60 * 60 * 24)
+  return daysLeft >= 0 && daysLeft <= 3
+}
+
+function isLeadTimeExpired(dateStr: string) {
+  if (!dateStr) return false
+  return new Date(dateStr).getTime() < Date.now()
 }
 
 function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
   if (isLeadTimeUrgent(item.leadTime)) classes.push('lead-time-urgent-row')
+  if (isLeadTimeExpired(item.leadTime)) classes.push('lead-time-expired-row')
   if (item.isHighlighted) classes.push('highlighted-row')
   if (expandedArray.value.includes(item.rfqItemId)) classes.push('expanded-row')
   return classes.length ? { class: classes.join(' ') } : {}
@@ -459,7 +488,13 @@ async function loadData() {
   loading.value = true
   try {
     const data = await api.get<any[]>('/procument-page')
-    allItems.value = data || []
+    allItems.value = (data || []).map((item: any) => ({
+      ...item,
+      altPartNumbers: [
+        ...(item.alternatives || []).map((a: any) => a.name),
+        ...(item.supplierQuotes || []).map((q: any) => q.alt),
+      ].filter(Boolean).join(', '),
+    }))
 
     // Initialize editable quotes from server data
     const quotesMap: Record<number, any[]> = {}
@@ -510,6 +545,7 @@ function addQuoteRow(item: any) {
     unit: 'EA',
     leadTime: '',
     note: '',
+    myNotes: '',
     _saving: false,
   })
   // Ensure expanded
@@ -602,8 +638,17 @@ function focusField(key: string) {
 
 <style scoped>
 :deep(.lead-time-urgent-row) {
-  /* background-color: rgba(239, 68, 68, 0.12) !important; */
-  /* border-left: 3px solid #ef4444; */
+  background-color: rgba(255, 193, 7, 0.08) !important;
+}
+:deep(.lead-time-expired-row) {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-left: 3px solid #ef4444;
+}
+:deep(.lead-time-expired-row) td {
+  color: #ef4444 !important;
+}
+:deep(.lead-time-expired-row:hover) {
+  background-color: rgba(239, 68, 68, 0.2) !important;
 }
 :deep(.highlighted-row) {
   background-color: rgba(251, 191, 36, 0.12) !important;

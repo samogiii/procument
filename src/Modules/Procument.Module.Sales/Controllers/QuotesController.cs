@@ -168,7 +168,11 @@ public class QuotesController : ControllerBase
             .Include(qi => qi.PartNumber)
             .Include(qi => qi.Quote)
                 .ThenInclude(quote => quote.Customer)
-            .Where(qi => qi.PartNumber != null && qi.PartNumber.Name.Contains(q));
+            .Where(qi => qi.PartNumber != null && (
+                qi.PartNumber.Name.Contains(q) ||
+                qi.Alt != null && qi.Alt.Contains(q) ||
+                qi.PartNumber.Alternatives.Any(a => a.Name.Contains(q))
+            ));
 
         if (!isAdmin)
         {

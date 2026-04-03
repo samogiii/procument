@@ -21,6 +21,13 @@ public class ProcumentPageItemResponse
     public DateTime CreatedAt { get; set; }
     public List<ProcumentPageUserResponse> AssignedUsers { get; set; } = new();
     public List<SupplierQuoteResponse> SupplierQuotes { get; set; } = new();
+    public List<ProcumentPageAltResponse> Alternatives { get; set; } = new();
+}
+
+public class ProcumentPageAltResponse
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = string.Empty;
 }
 
 public class ProcumentPageUserResponse

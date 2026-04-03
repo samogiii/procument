@@ -869,7 +869,7 @@
     </v-dialog>
 
     <!-- Permission Dialog -->
-    <v-dialog v-model="showPermissions" max-width="600">
+    <v-dialog v-model="showPermissions" max-width="600" @update:model-value="(v) => !v && loadData()">
       <PermissionManager :entity-name="'RFQ'" :entity-id="route.params.id as string" />
     </v-dialog>
 
@@ -915,7 +915,7 @@ function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
   const diff = new Date(dateStr).getTime() - Date.now()
   const daysLeft = diff / (1000 * 60 * 60 * 24)
-  return daysLeft >= 0 && daysLeft <= 5
+  return daysLeft >= 0 && daysLeft <= 3
 }
 
 // State
@@ -951,9 +951,11 @@ const exTypeOptions = [
 ]
 
 const rfqStatuses = [
-  { value: 'Open', label: 'Open', icon: 'mdi-folder-open-outline', color: 'primary' },
-  { value: 'In Progress', label: 'In Progress', icon: 'mdi-progress-clock', color: 'info' },
-  { value: 'Quoted', label: 'Quoted', icon: 'mdi-file-document-check-outline', color: 'warning' },
+  { value: 'Open', label: 'Open', icon: 'mdi-folder-open-outline', color: 'light-blue' },
+  { value: 'In Progress', label: 'In Progress', icon: 'mdi-progress-clock', color: 'amber' },
+  { value: 'No Quote', label: 'No Quote', icon: 'mdi-file-remove-outline', color: 'deep-purple' },
+  { value: 'Quoted', label: 'Quoted', icon: 'mdi-file-document-check-outline', color: 'orange' },
+  { value: 'Closed', label: 'Closed', icon: 'mdi-lock-outline', color: 'blue-grey' },
   { value: 'Completed', label: 'Completed', icon: 'mdi-check-circle-outline', color: 'success' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-close-circle-outline', color: 'error' },
 ]

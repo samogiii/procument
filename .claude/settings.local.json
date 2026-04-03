@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Quote* -o -type d -name *Supplier*)",
+      "Bash(grep -i \"\\\\.cs$\")"
+    ]
+  }
+}
