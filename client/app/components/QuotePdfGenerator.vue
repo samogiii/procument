@@ -265,9 +265,11 @@ async function downloadPdf() {
   generating.value = true
   try {
     const html2pdf = (await import('html2pdf.js')).default
+    const q = props.quote
+    const safeFileName = `${q.quoteNumber || 'Quote'}-${q.rfqName || 'RFQ'}-${q.customerName || 'Customer'}.pdf`.replace(/[^a-zA-Z0-9-_\.]/g, '-')
     await html2pdf().set({
       margin: 0,
-      filename: `${props.quote.quoteNumber || 'Quote'}.pdf`,
+      filename: safeFileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },

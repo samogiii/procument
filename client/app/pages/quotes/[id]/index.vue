@@ -68,6 +68,11 @@
         />
       </v-col>
       <v-col cols="12" md="3">
+        <StatCard icon="mdi-send-clock" color="info" label="Sent At"
+          :value="quote.sentAt ? new Date(quote.sentAt).toLocaleDateString() : undefined"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
         <StatCard icon="mdi-file-document-outline" color="info" label="RFQ">
           <nuxt-link v-if="quote.rfqId" :to="`/rfqs/${quote.rfqId}`" class="text-primary text-decoration-none">
             {{ quote.rfqName || `RFQ #${quote.rfqId}` }}
@@ -91,11 +96,27 @@
 
     <!-- Line Items -->
     <v-card class="glass-card">
-      <v-card-title>Line Items</v-card-title>
+      <v-card-title class="d-flex align-center">
+        Line Items
+        <v-spacer />
+        <v-switch
+          v-if="isAdmin && allRfqItems.length > 0"
+          v-model="showAllItems"
+          label="Show all RFQ items (including unselected)"
+          color="primary"
+          hide-details
+          density="compact"
+          class="mr-4"
+        />
+      </v-card-title>
       <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable" :items-per-page="50">
+        <v-data-table :headers="itemHeaders" :items="displayedItems" density="comfortable" :items-per-page="50">
           <template #item.alt="{ item: row }">
             <span v-if="(row as any).alt" style="color: #fbbf24;">{{ (row as any).alt }}</span>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+          <template #item.shippingCost="{ item: row }">
+            <span v-if="(row as any).shippingCost != null" class="text-medium-emphasis">${{ formatPrice((row as any).shippingCost) }}</span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
           <template #item.buyPrice="{ item: row }">
@@ -110,7 +131,28 @@
             ${{ formatPrice((row as any).unitPrice) }}
           </template>
           <template #item.totalPrice="{ item: row }">
-            <strong style="color: #4ade80;">${{ formatPrice((row as any).totalPrice) }}</strong>
+            <strong :class="(row as any).isUnselected ? 'text-medium-emphasis' : ''" :style="(row as any).isUnselected ? '' : 'color: #4ade80;'">${{ formatPrice((row as any).totalPrice) }}</strong>
+          </template>
+          <template #tfoot="{ items }">
+            <tr v-if="isAdmin && items.length > 0" class="totals-row">
+              <td colspan="6" class="text-right font-weight-bold pr-4" style="padding: 12px;">Totals:</td>
+              <td class="font-weight-bold" style="padding: 12px; color: #fb923c;">
+                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.buyPrice) || 0), 0)) }}
+                <div class="text-caption text-medium-emphasis">Total Buy</div>
+              </td>
+              <td class="font-weight-bold" style="padding: 12px; color: #4ade80;">
+                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.unitPrice) || 0), 0)) }}
+                <div class="text-caption text-medium-emphasis">Total Unit</div>
+              </td>
+              <td class="font-weight-bold" style="padding: 12px; color: #60a5fa;">
+                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.totalPrice) || 0), 0)) }}
+                <div class="text-caption text-medium-emphasis">Total Sell</div>
+              </td>
+              <td class="font-weight-bold" style="padding: 12px; color: #a78bfa;">
+                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.shippingCost) || 0), 0)) }}
+                <div class="text-caption text-medium-emphasis">Total Ship</div>
+              </td>
+            </tr>
           </template>
         </v-data-table>
       </v-card-text>
@@ -164,6 +206,8 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
+const allRfqItems = ref<any[]>([])
+const showAllItems = ref(false)
 const showPermissions = ref(false)
 const showAudit = ref(false)
 const showPdf = ref(false)
@@ -172,6 +216,36 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
+
+const displayedItems = computed(() => {
+  if (!showAllItems.value) return quote.value.items || []
+  // Merge quote items with all RFQ items, marking unselected ones
+  const quoteItemIds = new Set((quote.value.items || []).map((i: any) => i.rfqItemId))
+  const allItems = [...(quote.value.items || [])]
+  allRfqItems.value.forEach((rfqItem: any) => {
+    if (!quoteItemIds.has(rfqItem.id)) {
+      allItems.push({
+        rfqItemId: rfqItem.id,
+        rfqRef: rfqItem.rfqRef,
+        partNumberName: rfqItem.partNumberName,
+        alt: rfqItem.alt,
+        condition: rfqItem.condition,
+        qty: rfqItem.qty,
+        supplierName: null,
+        buyPrice: null,
+        unitPrice: null,
+        totalPrice: null,
+        shippingCost: null,
+        isUnselected: true,
+      })
+    }
+  })
+  return allItems.sort((a: any, b: any) => {
+    const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : Infinity
+    const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : Infinity
+    return aRef - bRef
+  })
+})
 
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('quote', entityId)
@@ -193,6 +267,7 @@ const itemHeaders = [
   { title: 'Buy Price', key: 'buyPrice' },
   { title: 'Unit Price', key: 'unitPrice' },
   { title: 'Total Price', key: 'totalPrice' },
+  { title: 'Shipping', key: 'shippingCost' },
 ]
 
 onMounted(async () => {
@@ -212,6 +287,16 @@ async function loadQuote() {
           api.get<any[]>(`/rfqs/${q.rfqId}/supplier-quotes`)
         ])
         q.rfqName = rfq.name || `RFQ #${q.rfqId}`
+
+        // Store all RFQ items for the "show all" toggle
+        allRfqItems.value = (rfq.items || []).map((item: any, idx: number) => ({
+          id: item.id,
+          rfqRef: idx + 1,
+          partNumberName: item.partNumberName,
+          alt: item.alt,
+          condition: item.condition,
+          qty: item.qty,
+        }))
 
         // Build a map of rfqItemId → row index (1-based) and rfqItemId → description
         const refMap: Record<number, number> = {}
