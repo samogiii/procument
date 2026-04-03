@@ -51,6 +51,7 @@ public class QuoteResponse
     public string? RejectionNote { get; set; }
     public string? RFQName { get; set; }
     public decimal? FinalPrice { get; set; }
+    public DateTime? SentAt { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();
 }
 
@@ -74,4 +75,5 @@ public class QuoteItemResponse
     public string? CertName { get; set; }
     public decimal? BuyPrice { get; set; }
     public string? SupplierName { get; set; }
+    public double? ShippingCost { get; set; }
 }

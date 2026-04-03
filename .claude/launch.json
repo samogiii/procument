@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend (Nuxt)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "client", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Backend API (.NET)",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/Procument.API", "--launch-profile", "http"],
+      "port": 5184
+    }
+  ]
+}

@@ -23,6 +23,7 @@ public class ProcumentRecord : BaseEntity
     public double? TotalPrice { get; set; }
     public DateOnly? TagDate { get; set; }
     public string? Note { get; set; }
+    public string? MyNotes { get; set; }
 
     // Foreign keys
     public long RFQItemId { get; set; }

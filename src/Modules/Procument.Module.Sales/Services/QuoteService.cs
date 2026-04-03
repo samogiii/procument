@@ -55,7 +55,8 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.ProcumentRecord)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Supplier)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ)
@@ -75,7 +76,8 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.ProcumentRecord)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Supplier)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ)
@@ -193,7 +195,8 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.ProcumentRecord)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Supplier)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ);
@@ -267,6 +270,11 @@ public class QuoteService : IQuoteService
 
         quote.Status = newStatus;
         quote.ModifyAt = DateTime.UtcNow;
+
+        if (newStatus == "Sent")
+        {
+            quote.SentAt = DateTime.UtcNow;
+        }
 
         if (newStatus == "Rejected")
         {
@@ -353,6 +361,7 @@ public class QuoteService : IQuoteService
         RejectionNote = q.RejectionNote,
         RFQName = q.RFQ?.Name,
         FinalPrice = q.FinalPrice,
+        SentAt = q.SentAt,
         Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
         {
             Id = qi.Id,
@@ -372,7 +381,8 @@ public class QuoteService : IQuoteService
             TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
             CertName = qi.ProcumentRecord?.CertName,
             BuyPrice = qi.ProcumentRecord?.Price,
-            SupplierName = qi.ProcumentRecord?.SupplierName
+            SupplierName = qi.ProcumentRecord?.Supplier?.Name,
+            ShippingCost = qi.ProcumentRecord?.ShippingCost
         }).ToList()
     };
 
