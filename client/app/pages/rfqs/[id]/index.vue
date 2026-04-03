@@ -485,6 +485,7 @@
                             
                             <th style="min-width: 80px;">LeadTime</th>
                             <th style="min-width: 160px;">Note</th>
+                            <th style="min-width: 160px;">My Notes</th>
                             <th style="min-width: 60px;"></th>
                           </tr>
                         </thead>
@@ -621,11 +622,19 @@
                               />
                             </td>
                             <td>
-                              <input
+                              <VTextarea
                                 type="text"
-                                class="quote-input"
+                                rows="2"
                                 placeholder="Note..."
                                 v-model="quote.note"
+                              />
+                            </td>
+                            <td>
+                              <VTextarea
+                                type="text"
+                                rows="2"
+                                placeholder="My Notes..."
+                                v-model="quote.myNotes"
                               />
                             </td>
                             <td class="text-center">
@@ -1041,7 +1050,7 @@ async function loadData() {
       isHighlighted: i.isHighlighted || false,
       alternatives: (i.alternatives || []).map((a: any) => ({ id: a.id, name: a.name }))
     }))
-    supplierQuotes.value = quotesData.map((q: any) => ({ ...q }))
+    supplierQuotes.value = quotesData.map((q: any) => ({ ...q, myNotes: q.myNotes || '' }))
 
     // Load linked suppliers for each unique part number
     const partIds = [...new Set(editableItems.value.map(i => i.partNumberId))]
@@ -1145,6 +1154,8 @@ function addQuoteRowWithSupplier(itemId: number, supplierName: string, qty: numb
     shippingPoint: '',
     unit: '-',
     leadTime: '',
+    note: '',
+    myNotes: '',
   })
 }
 
@@ -1164,6 +1175,8 @@ function addQuoteRow(itemId: number) {
     shippingPoint: '',
     unit: 'EA',
     leadTime: '',
+    note: '',
+    myNotes: '',
   })
 }
 
@@ -1273,6 +1286,7 @@ async function saveAll() {
         unit: q.unit || null,
         leadTime: q.leadTime || null,
         note: q.note || null,
+        myNotes: q.myNotes || null,
       }))
 
     if (quotesToSave.length > 0) {

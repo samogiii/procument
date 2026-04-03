@@ -196,6 +196,7 @@ const headers = [
   { title: 'Customer', key: 'customerName' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
+  { title: 'Sent At', key: 'sentAt' },
   { title: 'Created', key: 'createdAt' },
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]

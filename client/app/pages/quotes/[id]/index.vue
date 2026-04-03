@@ -68,6 +68,11 @@
         />
       </v-col>
       <v-col cols="12" md="3">
+        <StatCard icon="mdi-send-clock" color="info" label="Sent At"
+          :value="quote.sentAt ? new Date(quote.sentAt).toLocaleDateString() : undefined"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
         <StatCard icon="mdi-file-document-outline" color="info" label="RFQ">
           <nuxt-link v-if="quote.rfqId" :to="`/rfqs/${quote.rfqId}`" class="text-primary text-decoration-none">
             {{ quote.rfqName || `RFQ #${quote.rfqId}` }}
@@ -275,6 +280,36 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
+
+const displayedItems = computed(() => {
+  if (!showAllItems.value) return quote.value.items || []
+  // Merge quote items with all RFQ items, marking unselected ones
+  const quoteItemIds = new Set((quote.value.items || []).map((i: any) => i.rfqItemId))
+  const allItems = [...(quote.value.items || [])]
+  allRfqItems.value.forEach((rfqItem: any) => {
+    if (!quoteItemIds.has(rfqItem.id)) {
+      allItems.push({
+        rfqItemId: rfqItem.id,
+        rfqRef: rfqItem.rfqRef,
+        partNumberName: rfqItem.partNumberName,
+        alt: rfqItem.alt,
+        condition: rfqItem.condition,
+        qty: rfqItem.qty,
+        supplierName: null,
+        buyPrice: null,
+        unitPrice: null,
+        totalPrice: null,
+        shippingCost: null,
+        isUnselected: true,
+      })
+    }
+  })
+  return allItems.sort((a: any, b: any) => {
+    const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : Infinity
+    const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : Infinity
+    return aRef - bRef
+  })
+})
 
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('quote', entityId)
