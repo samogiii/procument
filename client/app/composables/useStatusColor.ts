@@ -19,6 +19,10 @@ const STATUS_COLORS: Record<string, string> = {
     Received: 'success',
     Cancelled: 'error',
 
+    // RFQ
+    Quoted: 'warning',
+    Completed: 'success',
+
     // General
     Active: 'success',
     Inactive: 'grey',

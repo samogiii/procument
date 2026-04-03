@@ -225,7 +225,33 @@
           >
             Add Item
           </v-btn>
+          <v-tooltip v-if="rfq.status === 'Quoted'" location="bottom" text="A quote has already been created for this RFQ">
+            <template #activator="{ props: tp }">
+              <span v-bind="tp">
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  color="success"
+                  prepend-icon="mdi-check-circle"
+                  disabled
+                >
+                  Quoted
+                </v-btn>
+              </span>
+            </template>
+          </v-tooltip>
           <v-btn
+            v-if="existingQuoteId && rfq.status === 'Quoted'"
+            size="small"
+            variant="tonal"
+            color="primary"
+            prepend-icon="mdi-eye"
+            :to="`/quotes/${existingQuoteId}`"
+          >
+            View Quote
+          </v-btn>
+          <v-btn
+            v-if="rfq.status !== 'Quoted'"
             size="small"
             variant="tonal"
             color="success"
@@ -885,6 +911,7 @@ function isLeadTimeUrgent(dateStr: string) {
 
 // State
 const rfq = ref<any>({})
+const existingQuoteId = ref<number | null>(null)
 const editableItems = ref<any[]>([])
 const supplierQuotes = ref<any[]>([])
 const linkedSuppliers = ref<Record<number, { id: number; name: string }[]>>({})
@@ -987,6 +1014,17 @@ async function loadData() {
       api.get<any[]>(`/rfqs/${route.params.id}/supplier-quotes`)
     ])
     rfq.value = rfqData
+
+    // Load existing quote ID if RFQ is Quoted
+    if (rfqData.status === 'Quoted') {
+      try {
+        const quotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
+        if (quotes && quotes.length > 0) {
+          existingQuoteId.value = quotes[0].id
+        }
+      } catch {}
+    }
+
     // Create editable copies of items
     editableItems.value = (rfqData.items || []).map((i: any) => ({
       id: i.id,

@@ -9,6 +9,7 @@ public class CreateQuoteRequest
 {
     public long RFQId { get; set; }
     public DateTime? ValidUntil { get; set; }
+    public decimal? FinalPrice { get; set; }
     public List<CreateQuoteItemRequest> Items { get; set; } = new();
 }
 
@@ -49,6 +50,7 @@ public class QuoteResponse
     public string? UserName { get; set; }
     public string? RejectionNote { get; set; }
     public string? RFQName { get; set; }
+    public decimal? FinalPrice { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();
 }
 
@@ -70,4 +72,6 @@ public class QuoteItemResponse
     public string? RFQReference { get; set; }
     public string? TagDate { get; set; }
     public string? CertName { get; set; }
+    public decimal? BuyPrice { get; set; }
+    public string? SupplierName { get; set; }
 }

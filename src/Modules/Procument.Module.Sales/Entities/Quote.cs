@@ -17,6 +17,7 @@ public class Quote : BaseEntity
     public int? Type { get; set; }
     public string? TypeAdditional { get; set; }
     public string? RejectionNote { get; set; }
+    public decimal? FinalPrice { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

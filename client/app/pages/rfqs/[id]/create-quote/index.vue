@@ -37,6 +37,19 @@
             variant="outlined"
             style="min-width: 150px; max-width: 180px;"
           />
+          <v-text-field
+            v-model.number="finalPriceOverride"
+            label="Final Price"
+            type="number"
+            density="compact"
+            hide-details
+            variant="outlined"
+            prefix="$"
+            step="0.01"
+            min="0"
+            :placeholder="formatPrice(selectedTotal)"
+            style="min-width: 130px; max-width: 160px;"
+          />
           <v-btn
             color="success"
             prepend-icon="mdi-check"
@@ -142,8 +155,16 @@
                           <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
                             ${{ formatPrice(record.price) }}
                           </td>
-                          <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                            ${{ formatPrice(record.shippingCost ?? 0) }}
+                          <td>
+                            <input
+                              type="number"
+                              class="coef-input"
+                              placeholder="0.00"
+                              v-model.number="record.shippingCost"
+                              step="0.01"
+                              min="0"
+                              style="text-align: right;"
+                            />
                           </td>
                           <td>
                             <input
@@ -237,6 +258,7 @@ const rfqItems = ref<any[]>([])
 const procurementRecords = ref<any[]>([])
 const expandedRows = ref(new Set<number>())
 const validUntil = ref('')
+const finalPriceOverride = ref<number | null>(null)
 
 // selections: simple map of recordId → selected boolean
 const selections = ref<Record<number, boolean>>({})
@@ -269,6 +291,18 @@ const backUrl = computed(() =>
 
 onMounted(async () => {
   await loadData()
+
+  // Guard: if RFQ already has a quote and not in edit mode, redirect to existing quote
+  if (!isEditMode.value) {
+    try {
+      const existingQuotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
+      if (existingQuotes && existingQuotes.length > 0) {
+        showSnack('A quote already exists for this RFQ. Redirecting...', 'warning')
+        setTimeout(() => router.push(`/quotes/${existingQuotes[0].id}`), 800)
+        return
+      }
+    } catch {}
+  }
 
   // If editing, load existing quote and pre-select items
   if (editQuoteId.value) {
@@ -371,9 +405,12 @@ async function loadExistingQuote() {
     existingQuote.value = await api.get<any>(`/quotes/${editQuoteId.value}`)
     const eq = existingQuote.value
 
-    // Pre-fill validUntil
+    // Pre-fill validUntil, finalPrice
     if (eq.validUntil) {
       validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0] as string
+    }
+    if (eq.finalPrice != null) {
+      finalPriceOverride.value = eq.finalPrice
     }
 
     // Pre-select procurement records that match quote items
@@ -461,6 +498,7 @@ async function saveQuote() {
     const payload = {
       rfqId: Number(route.params.id),
       validUntil: validUntil.value || null,
+      finalPrice: finalPriceOverride.value || null,
       items
     }
 
@@ -471,10 +509,15 @@ async function saveQuote() {
         router.push(`/quotes/${editQuoteId.value}`)
       }, 500)
     } else {
-      await api.post('/quotes', payload)
+      const created = await api.post<any>('/quotes', payload)
       showSnack('Quote created successfully', 'success')
+      const newQuoteId = created?.id || created?.Id
       setTimeout(() => {
-        router.push(`/rfqs/${route.params.id}`)
+        if (newQuoteId) {
+          router.push(`/quotes/${newQuoteId}`)
+        } else {
+          router.push(`/rfqs/${route.params.id}`)
+        }
       }, 500)
     }
   } catch {

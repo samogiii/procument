@@ -190,7 +190,7 @@ watch(mobile, (isMobile) => {
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false },
-  { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
+  // { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
   { title: 'Procument', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true },

@@ -44,22 +44,39 @@
         clearable
         style="min-width: 140px; max-width: 260px;"
       />
-      <!-- <v-text-field
-        v-model="dateFrom"
-        label="From"
-        type="date"
-        hide-details
-        clearable
-        style="min-width: 130px; max-width: 160px;"
-      />
-      <v-text-field
-        v-model="dateTo"
-        label="To"
-        type="date"
-        hide-details
-        clearable
-        style="min-width: 130px; max-width: 160px;"
-      /> -->
+      <div style="min-width: 220px; max-width: 320px; position: relative;" class="mx-2">
+        <v-text-field
+          v-model="pnSearch"
+          label="Search by P/N"
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          clearable
+          density="compact"
+          variant="outlined"
+          @update:model-value="searchByPN"
+        />
+        <v-card
+          v-if="pnResults.length > 0"
+          class="pn-results-dropdown"
+          elevation="8"
+        >
+          <v-list density="compact">
+            <v-list-item
+              v-for="r in pnResults"
+              :key="r.quoteId + '-' + r.partNumberName"
+              :to="`/quotes/${r.quoteId}`"
+            >
+              <v-list-item-title class="text-body-2">
+                <strong>{{ r.partNumberName }}</strong>
+                <span class="text-medium-emphasis ml-2">→ {{ r.quoteNumber }}</span>
+              </v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ r.customerName }} · {{ r.status }}
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card>
+      </div>
     </template>
 
     <template #item.customerName="{ item }">
@@ -105,10 +122,33 @@ const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const showBulkPerms = ref(false)
 
-const userFilter = ref<string[]>([])
-const customerFilter = ref<string[]>([])
+const { filters: pf } = usePageFilters('quotes-extra', {
+  user: [] as string[],
+  customer: [] as string[],
+})
+const userFilter = pf.user
+const customerFilter = pf.customer
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
+
+// P/N Search
+const pnSearch = ref('')
+const pnResults = ref<any[]>([])
+let pnDebounce: any = null
+function searchByPN(val: string | null) {
+  clearTimeout(pnDebounce)
+  if (!val || val.length < 2) {
+    pnResults.value = []
+    return
+  }
+  pnDebounce = setTimeout(async () => {
+    try {
+      pnResults.value = await api.get<any[]>(`/quotes/search-by-pn?q=${encodeURIComponent(val)}`)
+    } catch {
+      pnResults.value = []
+    }
+  }, 300)
+}
 
 const users = ref<any[]>([])
 const customers = ref<any[]>([])
@@ -160,3 +200,15 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 </script>
+
+<style scoped>
+.pn-results-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  max-height: 300px;
+  overflow-y: auto;
+}
+</style>

@@ -57,6 +57,12 @@
         </StatCard>
       </v-col>
       <v-col cols="12" md="3">
+        <StatCard icon="mdi-cash-check" color="info" label="Final Price">
+          <span v-if="quote.finalPrice != null">${{ formatPrice(quote.finalPrice) }}</span>
+          <span v-else class="text-medium-emphasis">—</span>
+        </StatCard>
+      </v-col>
+      <v-col cols="12" md="3">
         <StatCard icon="mdi-calendar" color="warning" label="Valid Until"
           :value="quote.validUntil ? new Date(quote.validUntil).toLocaleDateString() : undefined"
         />
@@ -90,6 +96,14 @@
         <v-data-table :headers="itemHeaders" :items="quote.items || []" density="comfortable" :items-per-page="50">
           <template #item.alt="{ item: row }">
             <span v-if="(row as any).alt" style="color: #fbbf24;">{{ (row as any).alt }}</span>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+          <template #item.buyPrice="{ item: row }">
+            <span v-if="(row as any).buyPrice != null" class="text-medium-emphasis">${{ formatPrice((row as any).buyPrice) }}</span>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+          <template #item.supplierName="{ item: row }">
+            <span v-if="(row as any).supplierName">{{ (row as any).supplierName }}</span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
           <template #item.unitPrice="{ item: row }">
@@ -175,6 +189,8 @@ const itemHeaders = [
   { title: 'Alt P/N', key: 'alt' },
   { title: 'Condition', key: 'condition' },
   { title: 'Qty', key: 'qty' },
+  { title: 'Supplier', key: 'supplierName' },
+  { title: 'Buy Price', key: 'buyPrice' },
   { title: 'Unit Price', key: 'unitPrice' },
   { title: 'Total Price', key: 'totalPrice' },
 ]

@@ -64,8 +64,15 @@ public class QuotesController : ControllerBase
         var (userId, isAdmin) = GetUserContext();
         if (userId == 0) return Unauthorized("User ID not found in token.");
 
-        var result = await _quoteService.CreateAsync(request, userId);
-        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        try
+        {
+            var result = await _quoteService.CreateAsync(request, userId);
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>Update quote status.</summary>
@@ -147,6 +154,42 @@ public class QuotesController : ControllerBase
         var (userId, isAdmin) = GetUserContext();
         var success = await _quoteService.UpdateQuoteTypeAsync(id, request.QuoteType,request.TypeAdditional, userId, isAdmin);
         return success ? Ok() : NotFound();
+    }
+
+    /// <summary>Search quotes by part number name.</summary>
+    [HttpGet("search-by-pn")]
+    public async Task<ActionResult> SearchByPartNumber([FromQuery] string q)
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
+            return Ok(Array.Empty<object>());
+
+        var (userId, isAdmin) = GetUserContext();
+        var query = _db.Set<QuoteItem>()
+            .Include(qi => qi.PartNumber)
+            .Include(qi => qi.Quote)
+                .ThenInclude(quote => quote.Customer)
+            .Where(qi => qi.PartNumber != null && qi.PartNumber.Name.Contains(q));
+
+        if (!isAdmin)
+        {
+            query = query.Where(qi => qi.Quote.UserId == userId);
+        }
+
+        var results = await query
+            .Select(qi => new
+            {
+                QuoteId = qi.Quote.Id,
+                QuoteNumber = qi.Quote.QuoteNumber,
+                PartNumberName = qi.PartNumber!.Name,
+                CustomerName = qi.Quote.Customer.Name,
+                Status = qi.Quote.Status,
+                TotalAmount = qi.Quote.TotalAmount
+            })
+            .Distinct()
+            .Take(20)
+            .ToListAsync();
+
+        return Ok(results);
     }
 
     /// <summary>Delete a quote.</summary>

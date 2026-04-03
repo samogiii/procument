@@ -116,6 +116,12 @@ public class QuoteService : IQuoteService
             .FirstOrDefaultAsync(r => r.Id == request.RFQId)
             ?? throw new KeyNotFoundException("RFQ not found.");
 
+        // Prevent duplicate quotes: if RFQ already has a quote, block creation
+        var existingQuote = await _db.Set<Quote>()
+            .AnyAsync(q => q.RFQId == request.RFQId);
+        if (existingQuote)
+            throw new InvalidOperationException("A quote has already been created for this RFQ.");
+
         // Build quote items
         var quoteItems = new List<QuoteItem>();
         decimal totalAmount = 0;
@@ -150,7 +156,8 @@ public class QuoteService : IQuoteService
             RFQId = request.RFQId,
             CustomerId = rfq.CustomerId,
             UserId = userId,
-            TotalAmount = totalAmount,
+            TotalAmount = request.FinalPrice ?? totalAmount,
+            FinalPrice = request.FinalPrice,
             ValidUntil = request.ValidUntil,
             Status = "Draft",
             CreatedAt = DateTime.UtcNow,
@@ -162,6 +169,10 @@ public class QuoteService : IQuoteService
 
         // Set quote number based on auto-increment Id
         quote.QuoteNumber = $"QT-{quote.Id}";
+
+        // Set RFQ status to Quoted
+        rfq.Status = "Quoted";
+
         await _db.SaveChangesAsync();
 
         return await GetByIdAsync(quote.Id, userId, true)
@@ -311,7 +322,8 @@ public class QuoteService : IQuoteService
             });
         }
 
-        quote.TotalAmount = totalAmount;
+        quote.TotalAmount = request.FinalPrice ?? totalAmount;
+        quote.FinalPrice = request.FinalPrice;
         quote.ValidUntil = request.ValidUntil;
         quote.ModifyAt = DateTime.UtcNow;
         quote.Status = "Draft";
@@ -340,6 +352,7 @@ public class QuoteService : IQuoteService
         UserName = q.User?.Name,
         RejectionNote = q.RejectionNote,
         RFQName = q.RFQ?.Name,
+        FinalPrice = q.FinalPrice,
         Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
         {
             Id = qi.Id,
@@ -357,7 +370,9 @@ public class QuoteService : IQuoteService
             Note = qi.ProcumentRecord?.Note,
             RFQReference = qi.RFQItem?.RFQ?.Name,
             TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
-            CertName = qi.ProcumentRecord?.CertName
+            CertName = qi.ProcumentRecord?.CertName,
+            BuyPrice = qi.ProcumentRecord?.Price,
+            SupplierName = qi.ProcumentRecord?.SupplierName
         }).ToList()
     };
 
