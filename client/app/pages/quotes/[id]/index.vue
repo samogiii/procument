@@ -94,67 +94,128 @@
       {{ quote.rejectionNote }}
     </v-alert>
 
-    <!-- Line Items -->
+    <!-- All RFQ Items + Procurement Records -->
     <v-card class="glass-card">
-      <v-card-title class="d-flex align-center">
-        Line Items
-        <v-spacer />
-        <v-switch
-          v-if="isAdmin && allRfqItems.length > 0"
-          v-model="showAllItems"
-          label="Show all RFQ items (including unselected)"
-          color="primary"
-          hide-details
-          density="compact"
-          class="mr-4"
-        />
+      <v-card-title class="d-flex align-center gap-2">
+        RFQ Items
+        <v-chip size="x-small" color="success" variant="tonal" class="ml-1">
+          {{ selectedProcIds.size }} selected
+        </v-chip>
       </v-card-title>
-      <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="displayedItems" density="comfortable" :items-per-page="50">
-          <template #item.alt="{ item: row }">
-            <span v-if="(row as any).alt" style="color: #fbbf24;">{{ (row as any).alt }}</span>
-            <span v-else class="text-medium-emphasis">—</span>
-          </template>
-          <template #item.shippingCost="{ item: row }">
-            <span v-if="(row as any).shippingCost != null" class="text-medium-emphasis">${{ formatPrice((row as any).shippingCost) }}</span>
-            <span v-else class="text-medium-emphasis">—</span>
-          </template>
-          <template #item.buyPrice="{ item: row }">
-            <span v-if="(row as any).buyPrice != null" class="text-medium-emphasis">${{ formatPrice((row as any).buyPrice) }}</span>
-            <span v-else class="text-medium-emphasis">—</span>
-          </template>
-          <template #item.supplierName="{ item: row }">
-            <span v-if="(row as any).supplierName">{{ (row as any).supplierName }}</span>
-            <span v-else class="text-medium-emphasis">—</span>
-          </template>
-          <template #item.unitPrice="{ item: row }">
-            ${{ formatPrice((row as any).unitPrice) }}
-          </template>
-          <template #item.totalPrice="{ item: row }">
-            <strong :class="(row as any).isUnselected ? 'text-medium-emphasis' : ''" :style="(row as any).isUnselected ? '' : 'color: #4ade80;'">${{ formatPrice((row as any).totalPrice) }}</strong>
-          </template>
-          <template #tfoot="{ items }">
-            <tr v-if="isAdmin && items.length > 0" class="totals-row">
-              <td colspan="6" class="text-right font-weight-bold pr-4" style="padding: 12px;">Totals:</td>
-              <td class="font-weight-bold" style="padding: 12px; color: #fb923c;">
-                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.buyPrice) || 0), 0)) }}
-                <div class="text-caption text-medium-emphasis">Total Buy</div>
-              </td>
-              <td class="font-weight-bold" style="padding: 12px; color: #4ade80;">
-                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.unitPrice) || 0), 0)) }}
-                <div class="text-caption text-medium-emphasis">Total Unit</div>
-              </td>
-              <td class="font-weight-bold" style="padding: 12px; color: #60a5fa;">
-                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.totalPrice) || 0), 0)) }}
-                <div class="text-caption text-medium-emphasis">Total Sell</div>
-              </td>
-              <td class="font-weight-bold" style="padding: 12px; color: #a78bfa;">
-                ${{ formatPrice(items.reduce((sum: number, i: any) => sum + (Number(i.shippingCost) || 0), 0)) }}
-                <div class="text-caption text-medium-emphasis">Total Ship</div>
-              </td>
-            </tr>
-          </template>
-        </v-data-table>
+      <v-card-text class="pa-0">
+        <div class="detail-table-wrap">
+          <table class="detail-master-grid">
+            <thead>
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th style="min-width: 140px;">Part Number</th>
+                <th>Description</th>
+                <th style="width: 70px;">Qty</th>
+                <th style="width: 90px;">Condition</th>
+                <th style="width: 100px;">Suppliers</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="(item, idx) in allRfqItems" :key="item.id">
+                <!-- Master Row -->
+                <tr class="master-row" :class="{ 'master-row-inactive': !itemHasSelection(item.id) }">
+                  <td class="cell-number">{{ idx + 1 }}</td>
+                  <td class="cell-pn" :class="{ 'cell-pn-inactive': !itemHasSelection(item.id) }">{{ item.partNumberName }}</td>
+                  <td class="text-medium-emphasis" style="padding-left: 12px; font-size: 13px;">{{ item.description || '—' }}</td>
+                  <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
+                  <td style="padding-left: 12px; font-size: 13px;">{{ item.condition || 'N/A' }}</td>
+                  <td class="cell-status">
+                    <span :class="getProcRecords(item.id).length > 0 ? 'text-success' : 'text-medium-emphasis'">
+                      {{ getProcRecords(item.id).length }} price{{ getProcRecords(item.id).length !== 1 ? 's' : '' }}
+                    </span>
+                  </td>
+                </tr>
+
+                <!-- Detail: All procurement records for this item -->
+                <tr v-if="getProcRecords(item.id).length > 0" class="detail-sub-row">
+                  <td :colspan="6" class="detail-sub-cell">
+                    <div class="proc-panel">
+                      <table class="proc-grid">
+                        <thead>
+                          <tr>
+                            <th style="width: 28px;"></th>
+                            <th style="min-width: 90px;">Supplier</th>
+                            <th style="width: 120px;">Alt P/N</th>
+                            <th style="width: 80px;">Cond</th>
+                            <th style="width: 60px;">Qty</th>
+                            <th style="width: 100px;">Buy Price</th>
+                            <th style="width: 65px;">Coef 1</th>
+                            <th style="width: 65px;">Coef 2</th>
+                            <th style="width: 65px;">Coef 3</th>
+                            <th style="width: 100px;">Unit Price</th>
+                            <th style="width: 100px;">Total Price</th>
+                            <th style="width: 80px;">Cert</th>
+                            <th style="width: 90px;">Tag Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr
+                            v-for="rec in getProcRecords(item.id)"
+                            :key="rec.id"
+                            class="proc-row"
+                            :class="selectedProcIds.has(rec.id) ? 'selected-proc-row' : 'unselected-proc-row'"
+                          >
+                            <td class="text-center">
+                              <v-icon
+                                v-if="selectedProcIds.has(rec.id)"
+                                icon="mdi-check-circle"
+                                color="success"
+                                size="16"
+                              />
+                              <v-icon
+                                v-else
+                                icon="mdi-circle-outline"
+                                color="grey"
+                                size="16"
+                              />
+                            </td>
+                            <td style="padding-left: 8px; font-size: 13px;">{{ rec.supplierName }}</td>
+                            <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">{{ rec.alt || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.condition || 'N/A' }}</td>
+                            <td class="text-center" style="font-size: 13px;">{{ rec.qty }}</td>
+                            <td style="font-family: monospace; text-align: right; padding-right: 10px; font-size: 13px;" class="text-medium-emphasis">
+                              ${{ formatPrice(rec.price) }}
+                            </td>
+                            <td class="text-center mono-cell">{{ rec.coef_1 ?? '—' }}</td>
+                            <td class="text-center mono-cell">{{ rec.coef_2 ?? '—' }}</td>
+                            <td class="text-center mono-cell">{{ rec.coef_3 ?? '—' }}</td>
+                            <td class="mono-cell text-right pr-2">
+                              ${{ formatPrice(rec.unitPrice) }}
+                            </td>
+                            <td class="mono-cell text-right pr-2" :class="selectedProcIds.has(rec.id) ? 'total-selected' : ''">
+                              ${{ formatPrice(rec.totalPrice) }}
+                            </td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.certName || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.tagDate || '—' }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-else class="detail-sub-row">
+                  <td :colspan="6" class="detail-sub-cell">
+                    <div class="proc-panel empty-proc">
+                      <span class="text-caption text-medium-emphasis">No procurement records for this item.</span>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+
+              <tr v-if="!allRfqItems.length && !loading">
+                <td :colspan="6" class="text-center pa-8">
+                  <v-icon icon="mdi-file-document-outline" size="48" color="grey-darken-1" class="mb-3" />
+                  <p class="text-body-2 text-medium-emphasis">No RFQ items found</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </v-card-text>
     </v-card>
 
@@ -207,7 +268,10 @@ const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
 const allRfqItems = ref<any[]>([])
-const showAllItems = ref(false)
+const allProcRecords = ref<any[]>([])
+const selectedProcIds = ref(new Set<number>())
+const loading = ref(true)
+
 const showPermissions = ref(false)
 const showAudit = ref(false)
 const showPdf = ref(false)
@@ -257,29 +321,16 @@ const statuses = [
   { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
 ]
 
-const itemHeaders = [
-  { title: 'Ref.', key: 'rfqRef', width: '60px' },
-  { title: 'Part Number', key: 'partNumberName' },
-  { title: 'Alt P/N', key: 'alt' },
-  { title: 'Condition', key: 'condition' },
-  { title: 'Qty', key: 'qty' },
-  { title: 'Supplier', key: 'supplierName' },
-  { title: 'Buy Price', key: 'buyPrice' },
-  { title: 'Unit Price', key: 'unitPrice' },
-  { title: 'Total Price', key: 'totalPrice' },
-  { title: 'Shipping', key: 'shippingCost' },
-]
-
 onMounted(async () => {
   await loadQuote()
   await checkLock()
 })
 
 async function loadQuote() {
+  loading.value = true
   try {
     const q = await api.get<any>(`/quotes/${route.params.id}`)
 
-    // Fetch the RFQ and procurement records to enrich quote items
     if (q.rfqId) {
       try {
         const [rfq, procRecords] = await Promise.all([
@@ -288,49 +339,25 @@ async function loadQuote() {
         ])
         q.rfqName = rfq.name || `RFQ #${q.rfqId}`
 
-        // Store all RFQ items for the "show all" toggle
-        allRfqItems.value = (rfq.items || []).map((item: any, idx: number) => ({
+        // Build RFQ items list with enrichment
+        allRfqItems.value = (rfq.items || []).map((item: any) => ({
           id: item.id,
-          rfqRef: idx + 1,
           partNumberName: item.partNumberName,
-          alt: item.alt,
-          condition: item.condition,
+          description: item.description || '',
           qty: item.qty,
+          condition: item.condition || '',
         }))
 
-        // Build a map of rfqItemId → row index (1-based) and rfqItemId → description
-        const refMap: Record<number, number> = {}
-        const descMap: Record<number, string> = {}
-        ;(rfq.items || []).forEach((item: any, idx: number) => {
-          refMap[item.id] = idx + 1
-          descMap[item.id] = item.description || ''
-        })
+        // Store all procurement records
+        allProcRecords.value = procRecords || []
 
-        // Build a map of procurementRecordId → record details
-        const procMap: Record<number, any> = {}
-        ;(procRecords || []).forEach((r: any) => {
-          procMap[r.id] = r
+        // Build the set of selected procurement record IDs from quote items
+        const ids = new Set<number>()
+        ;(q.items || []).forEach((qi: any) => {
+          if (qi.procumentRecordId) ids.add(qi.procumentRecordId)
         })
+        selectedProcIds.value = ids
 
-        // Enrich quote items and sort by RFQ ref (1, 2, 3…)
-        if (q.items) {
-          q.items = q.items.map((qi: any) => {
-            const proc = qi.procumentRecordId ? procMap[qi.procumentRecordId] : null
-            return {
-              ...qi,
-              rfqRef: qi.rfqItemId ? refMap[qi.rfqItemId] || '—' : '—',
-              description: qi.rfqItemId ? descMap[qi.rfqItemId] || '' : '',
-              shippingCost: proc?.shippingCost ?? null,
-              certName: proc?.certName || null,
-              tagDate: proc?.tagDate || null,
-              note: proc?.note || '',
-            }
-          }).sort((a: any, b: any) => {
-            const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : Infinity
-            const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : Infinity
-            return aRef - bRef
-          })
-        }
       } catch {
         // RFQ fetch failed, continue without enrichment
       }
@@ -339,7 +366,17 @@ async function loadQuote() {
     quote.value = q
   } catch {
     showSnack('Failed to load quote', 'error')
+  } finally {
+    loading.value = false
   }
+}
+
+function getProcRecords(rfqItemId: number) {
+  return allProcRecords.value.filter(r => r.rfqItemId === rfqItemId)
+}
+
+function itemHasSelection(rfqItemId: number) {
+  return getProcRecords(rfqItemId).some(r => selectedProcIds.value.has(r.id))
 }
 
 const showRejectDialog = ref(false)
@@ -385,3 +422,140 @@ function showSnack(text: string, color: string) {
   snackbar.value = true
 }
 </script>
+
+<style scoped>
+.detail-table-wrap {
+  overflow-x: auto;
+}
+
+.detail-master-grid {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.detail-master-grid thead th {
+  background: var(--toolbar-bg, rgba(0,0,0,0.04));
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  border-bottom: 2px solid var(--excel-border, rgba(0,0,0,0.08));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.detail-master-grid tbody td {
+  padding: 0 12px;
+  height: 40px;
+  border-bottom: 1px solid var(--card-border, rgba(0,0,0,0.08));
+  vertical-align: middle;
+}
+
+/* Master rows */
+.master-row {
+  background: var(--toolbar-bg, rgba(0,0,0,0.02));
+}
+.master-row-inactive {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.cell-number {
+  text-align: center;
+  opacity: 0.5;
+  font-size: 12px;
+}
+.cell-pn {
+  color: var(--pn-color, #60a5fa);
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 13px;
+}
+.cell-pn-inactive {
+  color: var(--v-medium-emphasis-opacity, rgba(0,0,0,0.38)) !important;
+}
+.cell-status {
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Detail sub-row */
+.detail-sub-row {}
+.detail-sub-cell {
+  padding: 0 !important;
+  background: var(--excel-bg, rgba(0,0,0,0.01));
+  border-bottom: 2px solid var(--card-hover-border, rgba(0,0,0,0.12)) !important;
+}
+
+/* Procurement panel */
+.proc-panel {
+  padding: 10px 16px 10px 48px;
+  border-left: 3px solid #3b82f6;
+  margin-left: 16px;
+}
+.empty-proc {
+  padding: 10px 16px 10px 48px;
+}
+
+/* Procurement grid */
+.proc-grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+.proc-grid thead th {
+  opacity: 0.55;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--card-border, rgba(0,0,0,0.08));
+  text-align: left;
+  white-space: nowrap;
+}
+.proc-grid tbody td {
+  padding: 3px 4px;
+  height: 36px;
+  border-bottom: 1px solid var(--card-border, rgba(0,0,0,0.06));
+  vertical-align: middle;
+}
+
+.proc-row {
+  transition: background-color 0.15s;
+}
+
+/* Selected: green highlight */
+.selected-proc-row {
+  background: rgba(74, 222, 128, 0.10);
+  border-left: 3px solid #4ade80;
+}
+.selected-proc-row:hover {
+  background: rgba(74, 222, 128, 0.16);
+}
+
+/* Unselected: muted */
+.unselected-proc-row {
+  opacity: 0.45;
+}
+.unselected-proc-row:hover {
+  opacity: 0.65;
+  background: var(--row-hover);
+}
+
+.mono-cell {
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.total-selected {
+  color: #4ade80 !important;
+  font-weight: 600;
+  opacity: 1 !important;
+}
+.text-right { text-align: right; }
+.pr-2 { padding-right: 8px !important; }
+.text-center { text-align: center; }
+</style>
