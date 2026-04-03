@@ -161,8 +161,7 @@
                           <th style="width: 75px;">Coef 2</th>
                           <th style="width: 75px;">Coef 3</th>
                           <th style="width: 110px;">Unit Price</th>
-                          <th style="width: 110px;">Total Price</th>
-                          <th style="width: 120px;">Custom Total</th>
+                          <th style="width: 120px;">Total Price</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -230,19 +229,14 @@
                           <td class="computed-cell">
                             ${{ formatPrice(calcUnitPrice(record)) }}
                           </td>
-                          <td class="computed-cell total-cell">
-                            ${{ formatPrice(calcBaseTotalPrice(record)) }}
-                          </td>
-                          <!-- Custom Total Price override -->
                           <td>
                             <input
                               type="number"
-                              class="coef-input custom-total-input"
-                              placeholder="override"
-                              v-model.number="record.customTotalPrice"
+                              class="coef-input total-price-input"
+                              :value="calcTotalPrice(record)"
                               step="0.01"
                               min="0"
-                              :title="record.customTotalPrice != null ? 'Custom total active' : 'Override total price'"
+                              @input="onTotalPriceInput(record, $event)"
                             />
                           </td>
                         </tr>
@@ -328,7 +322,7 @@ const backUrl = computed(() =>
     : `/rfqs/${route.params.id}`
 )
 
-// Watch global coefs → push to all procurement records and reset custom overrides
+// Watch global coefs → push to all procurement records
 watch([globalCoef1, globalCoef2, globalCoef3], ([c1, c2, c3]) => {
   procurementRecords.value.forEach(r => {
     r.coef_1 = c1
@@ -417,17 +411,20 @@ function calcUnitPrice(q: any): number {
   return (price + (shipping / qty)) * c1 * c2 * c3
 }
 
-// Base total (from coefs), ignoring custom override
-function calcBaseTotalPrice(q: any): number {
-  return calcUnitPrice(q) * (Number(q.qty) || 1)
-}
-
-// Effective total: uses custom override if set, otherwise calculated
 function calcTotalPrice(q: any): number {
   if (q.customTotalPrice != null && Number(q.customTotalPrice) > 0) {
     return Number(q.customTotalPrice)
   }
-  return calcBaseTotalPrice(q)
+  return calcUnitPrice(q) * (Number(q.qty) || 1)
+}
+
+function onTotalPriceInput(record: any, event: Event) {
+  const val = parseFloat((event.target as HTMLInputElement).value)
+  if (!isNaN(val) && val > 0) {
+    record.customTotalPrice = val
+  } else {
+    record.customTotalPrice = null
+  }
 }
 
 // ──── Record helpers ────
@@ -768,14 +765,11 @@ function showSnack(text: string, color: string) {
   box-shadow: 0 0 0 1px var(--card-hover-border);
 }
 
-/* Custom Total Price input — amber tint to distinguish it */
-.custom-total-input {
-  color: #fbbf24 !important;
+/* Editable Total Price input */
+.total-price-input {
+  color: #4ade80 !important;
+  font-weight: 600;
   text-align: right;
-}
-.custom-total-input:not(:placeholder-shown) {
-  border-color: rgba(251, 191, 36, 0.5);
-  background: rgba(251, 191, 36, 0.06);
 }
 
 .letter-spacing-wide {
