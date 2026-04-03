@@ -27,6 +27,41 @@
           </span>
         </div>
         <div class="d-flex flex-wrap align-center gap-2">
+          <!-- Global Coefs -->
+          <v-text-field
+            v-model.number="globalCoef1"
+            label="Coef 1"
+            type="number"
+            density="compact"
+            hide-details
+            variant="outlined"
+            step="0.01"
+            min="0"
+            style="min-width: 90px; max-width: 110px;"
+          />
+          <v-text-field
+            v-model.number="globalCoef2"
+            label="Coef 2"
+            type="number"
+            density="compact"
+            hide-details
+            variant="outlined"
+            step="0.01"
+            min="0"
+            style="min-width: 90px; max-width: 110px;"
+          />
+          <v-text-field
+            v-model.number="globalCoef3"
+            label="Coef 3"
+            type="number"
+            density="compact"
+            hide-details
+            variant="outlined"
+            step="0.01"
+            min="0"
+            style="min-width: 90px; max-width: 110px;"
+          />
+          <v-divider vertical class="mx-1" style="height: 32px;" />
           <v-text-field
             v-model="validUntil"
             label="Valid Until"
@@ -127,8 +162,7 @@
                           <th style="width: 75px;">Coef 3</th>
                           <th style="width: 110px;">Unit Price</th>
                           <th style="width: 110px;">Total Price</th>
-                          <!-- <th style="width: 130px;">Sell Price ($)</th> -->
-                          
+                          <th style="width: 120px;">Custom Total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -197,20 +231,20 @@
                             ${{ formatPrice(calcUnitPrice(record)) }}
                           </td>
                           <td class="computed-cell total-cell">
-                            ${{ formatPrice(calcTotalPrice(record)) }}
+                            ${{ formatPrice(calcBaseTotalPrice(record)) }}
                           </td>
-                          <!-- <td>
+                          <!-- Custom Total Price override -->
+                          <td>
                             <input
                               type="number"
-                              class="sell-price-input"
-                              :value="selections[record.id]?.sellPrice ?? calcUnitPrice(record)"
+                              class="coef-input custom-total-input"
+                              placeholder="override"
+                              v-model.number="record.customTotalPrice"
                               step="0.01"
                               min="0"
-                              :disabled="!selections[record.id]?.selected"
-                              @input="updateSellPrice(record.id, $event)"
+                              :title="record.customTotalPrice != null ? 'Custom total active' : 'Override total price'"
                             />
-                          </td> -->
-                          
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -260,6 +294,11 @@ const expandedRows = ref(new Set<number>())
 const validUntil = ref('')
 const finalPriceOverride = ref<number | null>(null)
 
+// Global coefs applied to all records
+const globalCoef1 = ref<number>(1)
+const globalCoef2 = ref<number>(1)
+const globalCoef3 = ref<number>(1)
+
 // selections: simple map of recordId → selected boolean
 const selections = ref<Record<number, boolean>>({})
 
@@ -288,6 +327,16 @@ const backUrl = computed(() =>
     ? `/quotes/${editQuoteId.value}`
     : `/rfqs/${route.params.id}`
 )
+
+// Watch global coefs → push to all procurement records and reset custom overrides
+watch([globalCoef1, globalCoef2, globalCoef3], ([c1, c2, c3]) => {
+  procurementRecords.value.forEach(r => {
+    r.coef_1 = c1
+    r.coef_2 = c2
+    r.coef_3 = c3
+    r.customTotalPrice = null
+  })
+})
 
 onMounted(async () => {
   await loadData()
@@ -340,6 +389,7 @@ async function loadData() {
       coef_1: r.coef_1 ?? 1,
       coef_2: r.coef_2 ?? 1,
       coef_3: r.coef_3 ?? 1,
+      customTotalPrice: null,
     }))
 
     // Initialize all selections to false
@@ -367,9 +417,17 @@ function calcUnitPrice(q: any): number {
   return (price + (shipping / qty)) * c1 * c2 * c3
 }
 
+// Base total (from coefs), ignoring custom override
+function calcBaseTotalPrice(q: any): number {
+  return calcUnitPrice(q) * (Number(q.qty) || 1)
+}
+
+// Effective total: uses custom override if set, otherwise calculated
 function calcTotalPrice(q: any): number {
-  const qty = Number(q.qty) || 1
-  return calcUnitPrice(q) * qty
+  if (q.customTotalPrice != null && Number(q.customTotalPrice) > 0) {
+    return Number(q.customTotalPrice)
+  }
+  return calcBaseTotalPrice(q)
 }
 
 // ──── Record helpers ────
@@ -436,6 +494,14 @@ async function loadExistingQuote() {
         }
       }
       selections.value = { ...selections.value }
+
+      // Pre-fill global coefs from first selected record
+      const firstSelected = procurementRecords.value.find(r => selections.value[r.id])
+      if (firstSelected) {
+        globalCoef1.value = firstSelected.coef_1 ?? 1
+        globalCoef2.value = firstSelected.coef_2 ?? 1
+        globalCoef3.value = firstSelected.coef_3 ?? 1
+      }
     }
   } catch {
     showSnack('Failed to load existing quote for editing', 'error')
@@ -455,27 +521,33 @@ async function saveQuote() {
   saving.value = true
   try {
     // 1. Save coefs/unitPrice/totalPrice back to procurement records
-    const quotesToUpdate = selected.map(r => ({
-      id: r.id,
-      rfqItemId: r.rfqItemId,
-      supplierName: r.supplierName,
-      qty: r.qty,
-      price: r.price,
-      condition: r.condition,
-      alt: r.alt,
-      unit: r.unit || null,
-      leadTime: r.leadTime || null,
-      note: r.note || null,
-      certName: r.certName || null,
-      tagDate: r.tagDate || null,
-      shippingCost: r.shippingCost ?? null,
-      shippingPoint: r.shippingPoint || null,
-      coef_1: r.coef_1 ?? 1,
-      coef_2: r.coef_2 ?? 1,
-      coef_3: r.coef_3 ?? 1,
-      unitPrice: calcUnitPrice(r),
-      totalPrice: calcTotalPrice(r),
-    }))
+    const quotesToUpdate = selected.map(r => {
+      const effectiveTotal = calcTotalPrice(r)
+      const effectiveUnit = (r.customTotalPrice != null && Number(r.customTotalPrice) > 0)
+        ? Number(r.customTotalPrice) / (Number(r.qty) || 1)
+        : calcUnitPrice(r)
+      return {
+        id: r.id,
+        rfqItemId: r.rfqItemId,
+        supplierName: r.supplierName,
+        qty: r.qty,
+        price: r.price,
+        condition: r.condition,
+        alt: r.alt,
+        unit: r.unit || null,
+        leadTime: r.leadTime || null,
+        note: r.note || null,
+        certName: r.certName || null,
+        tagDate: r.tagDate || null,
+        shippingCost: r.shippingCost ?? null,
+        shippingPoint: r.shippingPoint || null,
+        coef_1: r.coef_1 ?? 1,
+        coef_2: r.coef_2 ?? 1,
+        coef_3: r.coef_3 ?? 1,
+        unitPrice: effectiveUnit,
+        totalPrice: effectiveTotal,
+      }
+    })
 
     if (quotesToUpdate.length > 0) {
       await api.post(
@@ -485,15 +557,20 @@ async function saveQuote() {
     }
 
     // 2. Create/update the sales quote
-    const items = selected.map(r => ({
-      rfqItemId: r.rfqItemId,
-      procumentRecordId: r.id,
-      qty: r.qty,
-      unitPrice: calcUnitPrice(r),
-      condition: r.condition || null,
-      alt: r.alt || null,
-      leadTimeDays: null
-    }))
+    const items = selected.map(r => {
+      const effectiveUnit = (r.customTotalPrice != null && Number(r.customTotalPrice) > 0)
+        ? Number(r.customTotalPrice) / (Number(r.qty) || 1)
+        : calcUnitPrice(r)
+      return {
+        rfqItemId: r.rfqItemId,
+        procumentRecordId: r.id,
+        qty: r.qty,
+        unitPrice: effectiveUnit,
+        condition: r.condition || null,
+        alt: r.alt || null,
+        leadTimeDays: null
+      }
+    })
 
     const payload = {
       rfqId: Number(route.params.id),
@@ -691,6 +768,16 @@ function showSnack(text: string, color: string) {
   box-shadow: 0 0 0 1px var(--card-hover-border);
 }
 
+/* Custom Total Price input — amber tint to distinguish it */
+.custom-total-input {
+  color: #fbbf24 !important;
+  text-align: right;
+}
+.custom-total-input:not(:placeholder-shown) {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.06);
+}
+
 .letter-spacing-wide {
   letter-spacing: 0.1em;
 }
@@ -736,34 +823,6 @@ function showSnack(text: string, color: string) {
   height: 16px;
   accent-color: #3b82f6;
   cursor: pointer;
-}
-
-/* Sell Price Input */
-.sell-price-input {
-  width: 100%;
-  height: 32px;
-  border: 1px solid transparent;
-  background: var(--row-hover);
-  color: rgb(var(--v-theme-success));
-  padding: 4px 8px;
-  font-size: 13px;
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
-  text-align: right;
-  border-radius: 4px;
-  outline: none;
-  transition: all 0.15s;
-}
-.sell-price-input:hover:not(:disabled) {
-  border-color: var(--card-border);
-}
-.sell-price-input:focus {
-  background: var(--toolbar-bg);
-  border-color: rgb(var(--v-theme-primary));
-  box-shadow: 0 0 0 1px var(--card-hover-border);
-}
-.sell-price-input:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .empty-records {
