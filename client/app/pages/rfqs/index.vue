@@ -31,17 +31,14 @@
             style="min-width: 180px;"
 
           />
-          <v-autocomplete
-            v-model="partNumberFilter"
-            :items="partNumberOptions"
-            label="Part Number"
-            variant="outlined"
+          <v-text-field
+            v-model="pnSearch"
+            label="Search by P/N"
+            prepend-inner-icon="mdi-cog-outline"
             hide-details
-            single-line
-            multiple
-            chips
-            closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             class="mx-2"
             style="min-width: 160px; max-width: 260px;"
           />
@@ -537,6 +534,7 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   user: [] as number[],
   customer: [] as string[],
   partNumber: [] as string[],
+  pnSearch: '',
 })
 // If URL has ?status=X, apply it once on load
 if (route.query.status && pf.status.value.length === 0) {
@@ -573,6 +571,7 @@ const statusFilter = pf.status
 const userFilter = pf.user
 const customerFilter = pf.customer
 const partNumberFilter = pf.partNumber
+const pnSearch = pf.pnSearch
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
@@ -619,6 +618,13 @@ const filteredItems = computed(() => {
   if (partNumberFilter.value?.length) {
     result = result.filter((item: any) =>
       (item.items || []).some((ri: any) => partNumberFilter.value.includes(ri.partNumberName))
+    )
+  }
+  if (pnSearch.value?.trim()) {
+    const q = pnSearch.value.trim().toLowerCase()
+    result = result.filter((item: any) =>
+      (item.partNumbers || '').toLowerCase().includes(q) ||
+      (item.altPartNumbers || '').toLowerCase().includes(q)
     )
   }
   if (dateFrom.value) {

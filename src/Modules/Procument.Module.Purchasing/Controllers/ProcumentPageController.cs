@@ -26,6 +26,15 @@ public class ProcumentPageController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Get supplier suggestions for a part number based on history.</summary>
+    [HttpGet("suggestions")]
+    public async Task<ActionResult<SupplierSuggestionsResponse>> GetSuggestions(
+        [FromQuery] long partNumberId, [FromQuery] long rfqId)
+    {
+        var result = await _service.GetSuggestionsAsync(partNumberId, rfqId);
+        return Ok(result);
+    }
+
     private (long userId, bool isAdmin) GetUserContext()
     {
         var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);

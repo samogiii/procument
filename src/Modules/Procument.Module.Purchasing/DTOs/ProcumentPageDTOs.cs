@@ -35,3 +35,37 @@ public class ProcumentPageUserResponse
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
 }
+
+// ── Supplier Suggestions ──
+
+public class SupplierSuggestionsResponse
+{
+    public List<KnownSupplierDto> KnownSuppliers { get; set; } = new();
+    public List<RecentSupplierQuoteDto> RecentQuotes { get; set; } = new();
+}
+
+public class KnownSupplierDto
+{
+    public long SupplierId { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+}
+
+public class RecentSupplierQuoteDto
+{
+    public long SupplierId { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+    public double Qty { get; set; }
+    public decimal Price { get; set; }
+    public string? Condition { get; set; }
+    public string? Alt { get; set; }
+    public string? Unit { get; set; }
+    public string? LeadTime { get; set; }
+    public string? CertName { get; set; }
+    public DateOnly? TagDate { get; set; }
+    public double? ShippingCost { get; set; }
+    public string? ShippingPoint { get; set; }
+    public string? Note { get; set; }
+    public string? MyNotes { get; set; }
+    public long RFQId { get; set; }
+    public string RFQName { get; set; } = string.Empty;
+}

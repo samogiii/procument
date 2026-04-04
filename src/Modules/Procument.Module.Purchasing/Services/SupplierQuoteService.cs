@@ -130,6 +130,9 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.TagDate = request.TagDate;
             record.Note = request.Note;
             record.MyNotes = request.MyNotes;
+            record.Type = request.Type ?? "Procument";
+            record.FixPrice = request.FixPrice;
+            record.ParentProcumentId = request.ParentProcumentId;
             record.UserId = userId;
         }
         else
@@ -350,5 +353,10 @@ public class SupplierQuoteService : ISupplierQuoteService
         LeadTime = r.LeadTime,
         Note = r.Note,
         MyNotes = r.MyNotes,
+        Type = r.Type ?? "Procument",
+        FixPrice = r.FixPrice,
+        ParentProcumentId = r.ParentProcumentId,
+        ShopRecords = (r.ShopRecords ?? new List<ProcumentRecord>())
+            .Select(s => MapToResponse(s)).ToList(),
     };
 }

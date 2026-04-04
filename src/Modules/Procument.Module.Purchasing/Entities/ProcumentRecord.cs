@@ -25,6 +25,11 @@ public class ProcumentRecord : BaseEntity
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
 
+    // Shop fields
+    public string Type { get; set; } = "Procument";
+    public decimal? FixPrice { get; set; }
+    public long? ParentProcumentId { get; set; }
+
     // Foreign keys
     public long RFQItemId { get; set; }
     public long SupplierId { get; set; }
@@ -34,5 +39,7 @@ public class ProcumentRecord : BaseEntity
     public RFQItem RFQItem { get; set; } = null!;
     public Supplier Supplier { get; set; } = null!;
     public User? User { get; set; }
+    public ProcumentRecord? ParentProcument { get; set; }
+    public ICollection<ProcumentRecord> ShopRecords { get; set; } = new List<ProcumentRecord>();
     public ICollection<POItem> POItems { get; set; } = new List<POItem>();
 }

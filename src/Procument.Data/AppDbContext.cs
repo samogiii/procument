@@ -386,6 +386,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Alt).HasMaxLength(200);
       entity.Property(e => e.Condition).HasMaxLength(100);
       entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Type).HasMaxLength(50).HasDefaultValue("Procument");
+      entity.Property(e => e.FixPrice).HasColumnType("decimal(18,2)");
 
       entity.HasOne(e => e.RFQItem)
                 .WithMany()
@@ -402,9 +404,16 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+      entity.HasOne(e => e.ParentProcument)
+                .WithMany(e => e.ShopRecords)
+                .HasForeignKey(e => e.ParentProcumentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
       entity.HasIndex(e => e.RFQItemId);
       entity.HasIndex(e => e.SupplierId);
       entity.HasIndex(e => e.UserId);
+      entity.HasIndex(e => e.ParentProcumentId);
+      entity.HasIndex(e => e.Type);
     });
 
     modelBuilder.Entity<PurchaseOrder>(entity =>

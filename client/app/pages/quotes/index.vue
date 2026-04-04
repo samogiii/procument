@@ -44,39 +44,19 @@
         clearable
         style="min-width: 140px; max-width: 260px;"
       />
-      <div style="min-width: 220px; max-width: 320px; position: relative;" class="mx-2">
-        <v-text-field
-          v-model="pnSearch"
-          label="Search by P/N"
-          prepend-inner-icon="mdi-magnify"
-          hide-details
-          clearable
-          density="compact"
-          variant="outlined"
-          @update:model-value="searchByPN"
-        />
-        <v-card
-          v-if="pnResults.length > 0"
-          class="pn-results-dropdown"
-          elevation="8"
-        >
-          <v-list density="compact">
-            <v-list-item
-              v-for="r in pnResults"
-              :key="r.quoteId + '-' + r.partNumberName"
-              :to="`/quotes/${r.quoteId}`"
-            >
-              <v-list-item-title class="text-body-2">
-                <strong>{{ r.partNumberName }}</strong>
-                <span class="text-medium-emphasis ml-2">→ {{ r.quoteNumber }}</span>
-              </v-list-item-title>
-              <v-list-item-subtitle class="text-caption">
-                {{ r.customerName }} · {{ r.status }}
-              </v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
-        </v-card>
-      </div>
+      <v-text-field
+        v-model="pnSearch"
+        label="Search by P/N"
+        prepend-inner-icon="mdi-cog-outline"
+        hide-details
+        clearable
+        density="compact"
+        variant="outlined"
+        class="mx-2"
+        style="min-width: 180px; max-width: 280px;"
+        :loading="pnLoading"
+        @update:model-value="searchByPN"
+      />
     </template>
 
     <template #item.customerName="{ item }">
@@ -131,21 +111,27 @@ const customerFilter = pf.customer
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
-// P/N Search
+// P/N Search — filters datatable by matching quote IDs
 const pnSearch = ref('')
-const pnResults = ref<any[]>([])
+const pnMatchedQuoteIds = ref<Set<number> | null>(null)
+const pnLoading = ref(false)
 let pnDebounce: any = null
+
 function searchByPN(val: string | null) {
   clearTimeout(pnDebounce)
   if (!val || val.length < 2) {
-    pnResults.value = []
+    pnMatchedQuoteIds.value = null
     return
   }
+  pnLoading.value = true
   pnDebounce = setTimeout(async () => {
     try {
-      pnResults.value = await api.get<any[]>(`/quotes/search-by-pn?q=${encodeURIComponent(val)}`)
+      const results = await api.get<any[]>(`/quotes/search-by-pn?q=${encodeURIComponent(val)}`)
+      pnMatchedQuoteIds.value = new Set((results || []).map((r: any) => r.quoteId))
     } catch {
-      pnResults.value = []
+      pnMatchedQuoteIds.value = new Set()
+    } finally {
+      pnLoading.value = false
     }
   }, 300)
 }
@@ -187,6 +173,10 @@ function applyFilters(items: any[]) {
     const to = new Date(dateTo.value).getTime() + 86400000
     result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
   }
+  // P/N filter
+  if (pnMatchedQuoteIds.value !== null) {
+    result = result.filter((item: any) => pnMatchedQuoteIds.value!.has(item.id))
+  }
   return result
 }
 
@@ -201,15 +191,3 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 </script>
-
-<style scoped>
-.pn-results-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  max-height: 300px;
-  overflow-y: auto;
-}
-</style>

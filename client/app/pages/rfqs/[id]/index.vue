@@ -448,22 +448,63 @@
                       </v-btn>
                     </div>
 
-                    <!-- Linked Suppliers (from junction table) -->
-                    <!-- <div v-if="getLinkedSuppliers(item.partNumberId).length > 0" class="mb-3 d-flex flex-wrap align-center gap-1">
-                      <span class="text-caption text-medium-emphasis mr-1">Known suppliers:</span>
-                      <v-chip
-                        v-for="sup in getLinkedSuppliers(item.partNumberId)"
-                        :key="sup.id"
-                        size="small"
-                        color="teal"
-                        variant="tonal"
-                        prepend-icon="mdi-truck-outline"
-                        class="cursor-pointer"
-                        @click="addQuoteRowWithSupplier(item.id, sup.name, item.qty)"
+                    <!-- Supplier Suggestions -->
+                    <div
+                      v-if="getSuggestions(item.id).recentQuotes.length > 0 || getSuggestions(item.id).knownSuppliers.length > 0"
+                      class="suggestions-bar mb-3"
+                    >
+                      <div v-if="getSuggestions(item.id).recentQuotes.length > 0" class="d-flex flex-wrap align-center gap-2 mb-2">
+                        <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                          <v-icon icon="mdi-lightbulb-on-outline" size="14" color="amber" class="mr-1" />
+                          Recent suppliers:
+                        </span>
+                        <v-chip
+                          v-for="s in getSuggestions(item.id).recentQuotes"
+                          :key="'recent-' + s.supplierId"
+                          size="small"
+                          color="amber"
+                          variant="tonal"
+                          prepend-icon="mdi-flash"
+                          class="cursor-pointer"
+                          @click="applySuggestion(item, s)"
+                        >
+                          {{ s.supplierName }}
+                          <span class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
+                        </v-chip>
+                        <v-btn
+                          v-if="getSuggestions(item.id).recentQuotes.length > 1"
+                          size="x-small"
+                          variant="outlined"
+                          color="amber"
+                          prepend-icon="mdi-plus-box-multiple"
+                          @click="applyAllSuggestions(item)"
+                        >
+                          Add All
+                        </v-btn>
+                      </div>
+                      <div
+                        v-if="getSuggestions(item.id).knownSuppliers.filter((k: any) => !getSuggestions(item.id).recentQuotes.some((r: any) => r.supplierId === k.supplierId)).length > 0"
+                        class="d-flex flex-wrap align-center gap-2"
                       >
-                        {{ sup.name }}
-                      </v-chip>
-                    </div> -->
+                        <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                          <v-icon icon="mdi-account-group-outline" size="14" color="grey" class="mr-1" />
+                          Known suppliers:
+                        </span>
+                        <v-chip
+                          v-for="k in getSuggestions(item.id).knownSuppliers.filter((k: any) => !getSuggestions(item.id).recentQuotes.some((r: any) => r.supplierId === k.supplierId))"
+                          :key="'known-' + k.supplierId"
+                          size="x-small"
+                          color="grey"
+                          variant="tonal"
+                          prepend-icon="mdi-account"
+                        >
+                          {{ k.supplierName }}
+                        </v-chip>
+                      </div>
+                    </div>
+                    <div v-else-if="getSuggestions(item.id).loading" class="mb-3">
+                      <v-progress-linear indeterminate height="2" color="primary" />
+                    </div>
 
                     <div class="quote-grid-scroll" v-if="getItemQuotes(item.id).length > 0">
                       <table class="quote-grid">
@@ -922,6 +963,7 @@ const editableItems = ref<any[]>([])
 const supplierQuotes = ref<any[]>([])
 const linkedSuppliers = ref<Record<number, { id: number; name: string }[]>>({})
 const supplierSuggestions = ref<{ id: number; name: string }[]>([])
+const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 const expandedRows = ref(new Set<number>())
 const focusedField = ref('')
 const loading = ref(true)
@@ -1141,6 +1183,57 @@ function getQuoteCount(itemId: number) {
 
 function getLinkedSuppliers(partNumberId: number) {
   return linkedSuppliers.value[partNumberId] || []
+}
+
+async function loadItemSuggestions(item: any) {
+  const key = item.id
+  if (itemSuggestions.value[key] && !itemSuggestions.value[key].loading) return
+  itemSuggestions.value[key] = { knownSuppliers: [], recentQuotes: [], loading: true }
+  try {
+    const data = await api.get<any>(`/procument-page/suggestions?partNumberId=${item.partNumberId}&rfqId=${route.params.id}`)
+    itemSuggestions.value[key] = {
+      knownSuppliers: data.knownSuppliers || [],
+      recentQuotes: data.recentQuotes || [],
+      loading: false,
+    }
+  } catch {
+    itemSuggestions.value[key] = { knownSuppliers: [], recentQuotes: [], loading: false }
+  }
+}
+
+function getSuggestions(itemId: number) {
+  return itemSuggestions.value[itemId] || { knownSuppliers: [], recentQuotes: [], loading: false }
+}
+
+function applySuggestion(item: any, suggestion: any) {
+  const alreadyExists = supplierQuotes.value.some(
+    (q: any) => q.rfqItemId === item.id && q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase()
+  )
+  if (alreadyExists) return
+  supplierQuotes.value.push({
+    id: null,
+    rfqItemId: item.id,
+    supplierName: suggestion.supplierName,
+    qty: suggestion.qty || item.qty || 1,
+    price: suggestion.price || 0,
+    condition: suggestion.condition || 'NE',
+    alt: suggestion.alt || '',
+    certName: suggestion.certName || '',
+    tagDate: suggestion.tagDate || '',
+    shippingCost: suggestion.shippingCost ?? null,
+    shippingPoint: suggestion.shippingPoint || '',
+    unit: suggestion.unit || 'EA',
+    leadTime: suggestion.leadTime || '',
+    note: suggestion.note || '',
+    myNotes: suggestion.myNotes || '',
+  })
+}
+
+function applyAllSuggestions(item: any) {
+  const suggestions = getSuggestions(item.id)
+  for (const s of suggestions.recentQuotes) {
+    applySuggestion(item, s)
+  }
 }
 
 function addQuoteRowWithSupplier(itemId: number, supplierName: string, qty: number) {
@@ -1509,6 +1602,8 @@ function toggleExpand(itemId: number) {
     expandedRows.value.delete(itemId)
   } else {
     expandedRows.value.add(itemId)
+    const item = editableItems.value.find(i => i.id === itemId)
+    if (item) loadItemSuggestions(item)
   }
   expandedRows.value = new Set(expandedRows.value)
 }
@@ -1718,6 +1813,16 @@ function showSnack(text: string, color: string) {
   padding: 16px 20px 16px 56px;
   border-left: 3px solid #3b82f6;
   margin-left: 20px;
+}
+
+.suggestions-bar {
+  background: rgba(var(--v-theme-surface-variant), 0.25);
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.cursor-pointer {
+  cursor: pointer;
 }
 
 @media (max-width: 960px) {

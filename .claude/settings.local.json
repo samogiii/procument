@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Quote* -o -type d -name *Supplier*)",
       "Bash(grep -i \"\\\\.cs$\")",
-      "Bash(wc -l /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/index.vue)"
+      "Bash(wc -l /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/index.vue)",
+      "Bash(dotnet build:*)"
     ]
   }
 }

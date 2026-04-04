@@ -17,17 +17,14 @@
             class="flex-grow-1 mx-2"
             style="min-width: 180px;"
           />
-          <v-autocomplete
-            v-model="partNumberFilter"
-            :items="partNumberOptions"
-            label="Part Number"
-            variant="outlined"
+           <v-text-field
+            v-model="pnSearch"
+            label="Search by P/N"
+            prepend-inner-icon="mdi-cog-outline"
             hide-details
-            single-line
-            multiple
-            chips
-            closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             class="mx-2"
             style="min-width: 160px; max-width: 260px;"
           />
@@ -173,6 +170,66 @@
                     >
                       Add Supplier
                     </v-btn>
+                  </div>
+
+                  <!-- Supplier Suggestions -->
+                  <div
+                    v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 0 || getSuggestions(item.rfqItemId).knownSuppliers.length > 0"
+                    class="suggestions-bar mb-3"
+                  >
+                    <!-- Recent quotes (auto-fill capable) -->
+                    <div v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 0" class="d-flex flex-wrap align-center gap-2 mb-2">
+                      <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                        <v-icon icon="mdi-lightbulb-on-outline" size="14" color="amber" class="mr-1" />
+                        Recent suppliers:
+                      </span>
+                      <v-chip
+                        v-for="s in getSuggestions(item.rfqItemId).recentQuotes"
+                        :key="'recent-' + s.supplierId"
+                        size="small"
+                        color="amber"
+                        variant="tonal"
+                        prepend-icon="mdi-flash"
+                        class="cursor-pointer"
+                        @click.stop="applySuggestion(item, s)"
+                      >
+                        {{ s.supplierName }}
+                        <span class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
+                      </v-chip>
+                      <v-btn
+                        v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 1"
+                        size="x-small"
+                        variant="outlined"
+                        color="amber"
+                        prepend-icon="mdi-plus-box-multiple"
+                        @click.stop="applyAllSuggestions(item)"
+                      >
+                        Add All
+                      </v-btn>
+                    </div>
+                    <!-- Known suppliers (name only) -->
+                    <div
+                      v-if="getSuggestions(item.rfqItemId).knownSuppliers.filter((k: any) => !getSuggestions(item.rfqItemId).recentQuotes.some((r: any) => r.supplierId === k.supplierId)).length > 0"
+                      class="d-flex flex-wrap align-center gap-2"
+                    >
+                      <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                        <v-icon icon="mdi-account-group-outline" size="14" color="grey" class="mr-1" />
+                        Known suppliers:
+                      </span>
+                      <v-chip
+                        v-for="k in getSuggestions(item.rfqItemId).knownSuppliers.filter((k: any) => !getSuggestions(item.rfqItemId).recentQuotes.some((r: any) => r.supplierId === k.supplierId))"
+                        :key="'known-' + k.supplierId"
+                        size="x-small"
+                        color="grey"
+                        variant="tonal"
+                        prepend-icon="mdi-account"
+                      >
+                        {{ k.supplierName }}
+                      </v-chip>
+                    </div>
+                  </div>
+                  <div v-else-if="getSuggestions(item.rfqItemId).loading" class="mb-3">
+                    <v-progress-linear indeterminate height="2" color="primary" />
                   </div>
 
                   <div v-if="getEditableQuotes(item.rfqItemId).length > 0" style="overflow-x: auto;">
@@ -376,7 +433,7 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procumen
   status: [] as string[],
   user: [] as number[],
   customer: [] as string[],
-  partNumber: [] as string[],
+  pnSearch: '',
 })
 const search = pf.search
 const loading = ref(false)
@@ -385,6 +442,7 @@ const editableQuotes = ref<Record<number, any[]>>({})
 const expandedArray = ref<any[]>([])
 const focusedField = ref('')
 const supplierSuggestions = ref<{ id: number; name: string }[]>([])
+const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -400,7 +458,7 @@ function showSnack(text: string, color = 'success') {
 const statusFilter = pf.status
 const userFilter = pf.user
 const customerFilter = pf.customer
-const partNumberFilter = pf.partNumber
+const pnSearch = pf.pnSearch
 const isAdmin = computed(() => authStore.isAdmin)
 const statusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected']
 
@@ -454,8 +512,12 @@ const filteredItems = computed(() => {
   if (customerFilter.value?.length) {
     result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
   }
-  if (partNumberFilter.value?.length) {
-    result = result.filter((item: any) => partNumberFilter.value.includes(item.partNumberName))
+  if (pnSearch.value?.trim()) {
+    const q = pnSearch.value.trim().toLowerCase()
+    result = result.filter((item: any) =>
+      (item.partNumbers || '').toLowerCase().includes(q) ||
+      (item.altPartNumbers || '').toLowerCase().includes(q)
+    )
   }
   return result
 })
@@ -517,6 +579,82 @@ function toggleExpand(item: any) {
     expandedArray.value.splice(idx, 1)
   } else {
     expandedArray.value.push(id)
+    loadSuggestions(item)
+  }
+}
+
+async function loadSuggestions(item: any) {
+  const key = item.rfqItemId
+  if (itemSuggestions.value[key] && !itemSuggestions.value[key].loading) return // already loaded
+  itemSuggestions.value[key] = { knownSuppliers: [], recentQuotes: [], loading: true }
+  try {
+    const data = await api.get<any>(`/procument-page/suggestions?partNumberId=${item.partNumberId}&rfqId=${item.rfqId}`)
+    itemSuggestions.value[key] = {
+      knownSuppliers: data.knownSuppliers || [],
+      recentQuotes: data.recentQuotes || [],
+      loading: false,
+    }
+  } catch {
+    itemSuggestions.value[key] = { knownSuppliers: [], recentQuotes: [], loading: false }
+  }
+}
+
+function getSuggestions(rfqItemId: number) {
+  return itemSuggestions.value[rfqItemId] || { knownSuppliers: [], recentQuotes: [], loading: false }
+}
+
+function applySuggestion(item: any, suggestion: any) {
+  const key = item.rfqItemId
+  if (!editableQuotes.value[key]) {
+    editableQuotes.value[key] = []
+  }
+  // Check if this supplier is already added
+  const alreadyExists = editableQuotes.value[key].some(
+    (q: any) => q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase()
+  )
+  if (alreadyExists) {
+    showSnack(`${suggestion.supplierName} is already added`, 'warning')
+    return
+  }
+  editableQuotes.value[key].push({
+    id: null,
+    rfqItemId: item.rfqItemId,
+    supplierName: suggestion.supplierName,
+    qty: suggestion.qty || item.qty || 1,
+    price: suggestion.price || 0,
+    condition: suggestion.condition || 'NE',
+    alt: suggestion.alt || '',
+    certName: suggestion.certName || '',
+    tagDate: suggestion.tagDate || '',
+    shippingCost: suggestion.shippingCost ?? null,
+    shippingPoint: suggestion.shippingPoint || '',
+    unit: suggestion.unit || 'EA',
+    leadTime: suggestion.leadTime || '',
+    note: suggestion.note || '',
+    myNotes: suggestion.myNotes || '',
+    _saving: false,
+  })
+  if (!expandedArray.value.includes(item.rfqItemId)) {
+    expandedArray.value.push(item.rfqItemId)
+  }
+  showSnack(`${suggestion.supplierName} added from history`, 'success')
+}
+
+function applyAllSuggestions(item: any) {
+  const suggestions = getSuggestions(item.rfqItemId)
+  let added = 0
+  for (const s of suggestions.recentQuotes) {
+    const key = item.rfqItemId
+    const alreadyExists = (editableQuotes.value[key] || []).some(
+      (q: any) => q.supplierName?.toLowerCase() === s.supplierName?.toLowerCase()
+    )
+    if (!alreadyExists) {
+      applySuggestion(item, s)
+      added++
+    }
+  }
+  if (added === 0) {
+    showSnack('All suggested suppliers are already added', 'info')
   }
 }
 
@@ -665,6 +803,16 @@ function focusField(key: string) {
 
 .supplier-panel {
   border-top: 2px solid rgba(var(--v-theme-primary), 0.3);
+}
+
+.suggestions-bar {
+  background: rgba(var(--v-theme-surface-variant), 0.25);
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.cursor-pointer {
+  cursor: pointer;
 }
 
 .quote-grid th {

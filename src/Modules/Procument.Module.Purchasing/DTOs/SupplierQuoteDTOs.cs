@@ -22,6 +22,9 @@ public class SaveSupplierQuoteRequest
     public DateOnly? TagDate { get; set; }
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
+    public string Type { get; set; } = "Procument";
+    public decimal? FixPrice { get; set; }
+    public long? ParentProcumentId { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -52,4 +55,8 @@ public class SupplierQuoteResponse
     public DateOnly? TagDate { get; set; }
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
+    public string Type { get; set; } = "Procument";
+    public decimal? FixPrice { get; set; }
+    public long? ParentProcumentId { get; set; }
+    public List<SupplierQuoteResponse> ShopRecords { get; set; } = new();
 }
