@@ -156,6 +156,7 @@
                           <th style="width: 80px;">Cond</th>
                           <th style="width: 70px;">Qty</th>
                           <th style="width: 110px;">Buyer Price</th>
+                          <th style="width: 100px; color: #ff9800;">Fix Price</th>
                           <th style="width: 110px;">Shipping Cost</th>
                           <th style="width: 75px;">Coef 1</th>
                           <th style="width: 75px;">Coef 2</th>
@@ -169,7 +170,7 @@
                           v-for="record in getItemRecords(item.id)"
                           :key="record.id"
                           class="quote-row"
-                          :class="{ 'selected-row': selections[record.id] }"
+                          :class="{ 'selected-row': selections[record.id], 'shop-record-row': record.isShop }"
                         >
                           <td class="text-center">
                             <input
@@ -179,7 +180,10 @@
                               class="record-checkbox"
                             />
                           </td>
-                          <td style="padding-left: 8px; font-size: 13px;">{{ record.supplierName }}</td>
+                          <td style="padding-left: 8px; font-size: 13px;">
+                            {{ record.supplierName }}
+                            <v-chip v-if="record.isShop" size="x-small" color="warning" variant="tonal" class="ml-1">Shop</v-chip>
+                          </td>
                           <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">
                             {{ record.alt || '—' }}
                           </td>
@@ -187,6 +191,12 @@
                           <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
                           <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
                             ${{ formatPrice(record.price) }}
+                          </td>
+                          <td>
+                            <span v-if="record.isShop && record.fixPrice" class="computed-cell" style="color: #ff9800; font-weight: 600;">
+                              ${{ formatPrice(record.fixPrice) }}
+                            </span>
+                            <span v-else class="text-medium-emphasis" style="padding-left: 8px; font-size: 12px;">—</span>
                           </td>
                           <td>
                             <input
@@ -377,14 +387,31 @@ async function loadData() {
       condition: i.condition || ''
     }))
 
-    procurementRecords.value = (records || []).map((r: any) => ({
-      ...r,
-      coef_1: r.coef_1 ?? 1,
-      coef_2: r.coef_2 ?? 1,
-      coef_3: r.coef_3 ?? 1,
-      customTotalPrice: null,
-      customUnitPrice: null,
-    }))
+    // Flatten parent records + nested shop records into one list
+    const flatRecords: any[] = []
+    for (const r of records || []) {
+      flatRecords.push({
+        ...r,
+        coef_1: r.coef_1 ?? 1,
+        coef_2: r.coef_2 ?? 1,
+        coef_3: r.coef_3 ?? 1,
+        customTotalPrice: null,
+        customUnitPrice: null,
+        isShop: false,
+      })
+      for (const shop of r.shopRecords || []) {
+        flatRecords.push({
+          ...shop,
+          coef_1: shop.coef_1 ?? 1,
+          coef_2: shop.coef_2 ?? 1,
+          coef_3: shop.coef_3 ?? 1,
+          customTotalPrice: null,
+          customUnitPrice: null,
+          isShop: true,
+        })
+      }
+    }
+    procurementRecords.value = flatRecords
 
     // Initialize all selections to false
     const sel: Record<number, boolean> = {}
@@ -796,6 +823,11 @@ function showSnack(text: string, color: string) {
   border-bottom: 1px solid var(--card-border);
   height: 38px;
   vertical-align: middle;
+}
+
+.shop-record-row {
+  background: rgba(255, 152, 0, 0.04) !important;
+  border-left: 2px solid #ff9800;
 }
 
 .quote-row {

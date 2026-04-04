@@ -376,6 +376,15 @@
                           </td>
                           <td class="text-center" style="white-space: nowrap;">
                             <v-btn
+                              v-if="quote.condition === 'AR'"
+                              icon="mdi-wrench"
+                              size="x-small"
+                              variant="text"
+                              :color="isShopExpanded(quote.id, item.rfqItemId) ? 'warning' : 'grey'"
+                              @click.stop="toggleShop(quote.id, item.rfqItemId)"
+                              :title="'Shops (' + (quote.shopRecords || []).length + ')'"
+                            />
+                            <v-btn
                               icon="mdi-content-save"
                               size="x-small"
                               variant="text"
@@ -392,6 +401,187 @@
                               @click.stop="removeQuote(item, qIdx)"
                               title="Delete"
                             />
+                          </td>
+                        </tr>
+                        <!-- Shop Records sub-table (collapsible, for AR condition) -->
+                        <tr v-if="quote.condition === 'AR' && isShopExpanded(quote.id, item.rfqItemId)">
+                          <td :colspan="14" class="pa-0">
+                            <div class="shop-panel">
+                              <div class="d-flex align-center justify-space-between mb-2">
+                                <span class="text-caption text-uppercase font-weight-bold" style="color: #ff9800;">
+                                  <v-icon icon="mdi-wrench" size="14" class="mr-1" />
+                                  Shop Records ({{ (quote.shopRecords || []).length }})
+                                </span>
+                                <v-btn
+                                  size="x-small"
+                                  color="warning"
+                                  variant="flat"
+                                  prepend-icon="mdi-plus"
+                                  @click.stop="addShopRow(item, quote)"
+                                >
+                                  Add Shop
+                                </v-btn>
+                              </div>
+                              <table class="quote-grid" v-if="(quote.shopRecords || []).length > 0" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                  <tr>
+                                    <th>Supplier</th>
+                                    <th>Alt P/N</th>
+                                    <th>Qty</th>
+                                    <th>Unit</th>
+                                    <th>Cost Price ($)</th>
+                                    <th style="color: #ff9800;">Fix Price ($)</th>
+                                    <th>Cert Type</th>
+                                    <th>Tag Date</th>
+                                    <th>Shipping Cost</th>
+                                    <th>Shipping Point</th>
+                                    <th>LeadTime</th>
+                                    <th>Note</th>
+                                    <th>My Notes</th>
+                                    <th style="width: 70px;"></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr v-for="(shop, sIdx) in quote.shopRecords" :key="'shop-' + sIdx" class="shop-row">
+                                    <td>
+                                      <input
+                                        type="text"
+                                        class="quote-input"
+                                        placeholder="Shop name..."
+                                        v-model="shop.supplierName"
+                                        @input="searchSupplier(shop.supplierName)"
+                                        list="supplier-suggestions"
+                                      />
+                                    </td>
+                                    <td>
+                                      <input type="text" class="quote-input" placeholder="Same P/N" v-model="shop.alt" />
+                                    </td>
+                                    <td>
+                                      <input type="number" class="quote-input text-center" v-model.number="shop.qty" min="1" />
+                                    </td>
+                                    <td>
+                                      <select class="quote-input quote-select" v-model="shop.unit">
+                                        <option value="">—</option>
+                                        <option value="EA">EA</option>
+                                        <option value="Meter">METER</option>
+                                        <option value="Kg">KG</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <input
+                                        v-if="focusedField === `shop-price-${sIdx}-${quote.id}`"
+                                        :data-focus-key="`shop-price-${sIdx}-${quote.id}`"
+                                        type="number"
+                                        class="quote-input price-input"
+                                        placeholder="0.00"
+                                        v-model.number="shop.price"
+                                        step="0.01"
+                                        min="0"
+                                        @blur="focusedField = ''"
+                                      />
+                                      <span
+                                        v-else
+                                        class="quote-input price-display"
+                                        @click.stop="focusField(`shop-price-${sIdx}-${quote.id}`)"
+                                      >
+                                        {{ shop.price ? '$' + formatPrice(shop.price) : '' }}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <input
+                                        v-if="focusedField === `shop-fix-${sIdx}-${quote.id}`"
+                                        :data-focus-key="`shop-fix-${sIdx}-${quote.id}`"
+                                        type="number"
+                                        class="quote-input price-input"
+                                        style="color: #ff9800;"
+                                        placeholder="0.00"
+                                        v-model.number="shop.fixPrice"
+                                        step="0.01"
+                                        min="0"
+                                        @blur="focusedField = ''"
+                                      />
+                                      <span
+                                        v-else
+                                        class="quote-input price-display"
+                                        style="color: #ff9800;"
+                                        @click.stop="focusField(`shop-fix-${sIdx}-${quote.id}`)"
+                                      >
+                                        {{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <select class="quote-input quote-select" v-model="shop.certName">
+                                        <option value="">—</option>
+                                        <option value="FAA">FAA</option>
+                                        <option value="EASA">EASA</option>
+                                        <option value="CAAC">CAAC</option>
+                                        <option value="Dual">Dual</option>
+                                        <option value="MFG COC">MFG COC</option>
+                                        <option value="Vendor COC">Vendor COC</option>
+                                        <option value="No Cert">No Cert</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <input type="date" class="quote-input" v-model="shop.tagDate" :max="today" />
+                                    </td>
+                                    <td>
+                                      <input
+                                        v-if="focusedField === `shop-ship-${sIdx}-${quote.id}`"
+                                        :data-focus-key="`shop-ship-${sIdx}-${quote.id}`"
+                                        type="number"
+                                        class="quote-input price-input"
+                                        placeholder="0.00"
+                                        v-model.number="shop.shippingCost"
+                                        step="0.01"
+                                        min="0"
+                                        @blur="focusedField = ''"
+                                      />
+                                      <span
+                                        v-else
+                                        class="quote-input price-display"
+                                        @click.stop="focusField(`shop-ship-${sIdx}-${quote.id}`)"
+                                      >
+                                        {{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '' }}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <input type="text" class="quote-input" placeholder="City / Hub" v-model="shop.shippingPoint" />
+                                    </td>
+                                    <td>
+                                      <input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="shop.leadTime" />
+                                    </td>
+                                    <td>
+                                      <VTextarea rows="2" placeholder="Note..." v-model="shop.note" hide-details density="compact" variant="plain" />
+                                    </td>
+                                    <td>
+                                      <VTextarea rows="2" placeholder="My Notes..." v-model="shop.myNotes" hide-details density="compact" variant="plain" />
+                                    </td>
+                                    <td class="text-center" style="white-space: nowrap;">
+                                      <v-btn
+                                        icon="mdi-content-save"
+                                        size="x-small"
+                                        variant="text"
+                                        color="success"
+                                        :loading="shop._saving"
+                                        @click.stop="saveShopQuote(item, quote, shop)"
+                                        title="Save Shop"
+                                      />
+                                      <v-btn
+                                        icon="mdi-close"
+                                        size="x-small"
+                                        variant="text"
+                                        color="error"
+                                        @click.stop="removeShopQuote(item, quote, sIdx)"
+                                        title="Delete"
+                                      />
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                              <div v-else class="text-center pa-3">
+                                <p class="text-caption text-medium-emphasis">No shop records. Click "Add Shop" to start.</p>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       </tbody>
@@ -558,10 +748,14 @@ async function loadData() {
       ].filter(Boolean).join(', '),
     }))
 
-    // Initialize editable quotes from server data
+    // Initialize editable quotes from server data (with nested shop records)
     const quotesMap: Record<number, any[]> = {}
     for (const item of allItems.value) {
-      quotesMap[item.rfqItemId] = (item.supplierQuotes || []).map((q: any) => ({ ...q, _saving: false }))
+      quotesMap[item.rfqItemId] = (item.supplierQuotes || []).map((q: any) => ({
+        ...q,
+        _saving: false,
+        shopRecords: (q.shopRecords || []).map((s: any) => ({ ...s, _saving: false })),
+      }))
     }
     editableQuotes.value = quotesMap
   } catch (e) {
@@ -777,6 +971,107 @@ function focusField(key: string) {
     input?.focus()
   })
 }
+
+// ── Shop Records (AR condition) ──
+const expandedShops = ref<Set<string>>(new Set())
+
+function toggleShop(quoteId: number, rfqItemId: number) {
+  const key = `${quoteId}-${rfqItemId}`
+  if (expandedShops.value.has(key)) {
+    expandedShops.value.delete(key)
+  } else {
+    expandedShops.value.add(key)
+  }
+  expandedShops.value = new Set(expandedShops.value)
+}
+
+function isShopExpanded(quoteId: number, rfqItemId: number) {
+  return expandedShops.value.has(`${quoteId}-${rfqItemId}`)
+}
+
+function addShopRow(item: any, parentQuote: any) {
+  if (!parentQuote.shopRecords) parentQuote.shopRecords = []
+  parentQuote.shopRecords.push({
+    id: null,
+    rfqItemId: item.rfqItemId,
+    supplierName: '',
+    qty: item.qty || 1,
+    price: 0,
+    fixPrice: null,
+    condition: 'AR',
+    alt: '',
+    certName: '',
+    tagDate: '',
+    shippingCost: null,
+    shippingPoint: '',
+    unit: 'EA',
+    leadTime: '',
+    note: '',
+    myNotes: '',
+    type: 'Shop',
+    parentProcumentId: parentQuote.id,
+    _saving: false,
+  })
+  // Auto-expand shop section
+  const key = `${parentQuote.id}-${item.rfqItemId}`
+  expandedShops.value.add(key)
+  expandedShops.value = new Set(expandedShops.value)
+}
+
+async function saveShopQuote(item: any, parentQuote: any, shop: any) {
+  if (!shop.supplierName?.trim()) {
+    showSnack('Supplier name is required', 'error')
+    return
+  }
+  if (!parentQuote.id) {
+    showSnack('Save the parent procurement record first', 'error')
+    return
+  }
+  shop._saving = true
+  try {
+    const payload = {
+      id: shop.id || null,
+      rfqItemId: item.rfqItemId,
+      supplierName: shop.supplierName,
+      qty: shop.qty,
+      price: shop.price,
+      fixPrice: shop.fixPrice,
+      condition: 'AR',
+      alt: shop.alt,
+      certName: shop.certName || null,
+      tagDate: shop.tagDate || null,
+      shippingCost: shop.shippingCost ?? null,
+      shippingPoint: shop.shippingPoint || null,
+      unit: shop.unit || null,
+      leadTime: shop.leadTime || null,
+      note: shop.note || null,
+      myNotes: shop.myNotes || null,
+      type: 'Shop',
+      parentProcumentId: parentQuote.id,
+    }
+    const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)
+    if (result && (result as any).id) shop.id = (result as any).id
+    showSnack('Shop record saved', 'success')
+  } catch {
+    showSnack('Failed to save shop record', 'error')
+  } finally {
+    shop._saving = false
+  }
+}
+
+async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
+  const shop = parentQuote.shopRecords[sIdx]
+  if (shop.id) {
+    try {
+      await api.del(`/rfqs/${item.rfqId}/supplier-quotes/${shop.id}`)
+      showSnack('Shop record removed', 'success')
+    } catch {
+      showSnack('Failed to remove shop record', 'error')
+      return
+    }
+  }
+  parentQuote.shopRecords.splice(sIdx, 1)
+}
 </script>
 
 <style scoped>
@@ -875,5 +1170,15 @@ function focusField(key: string) {
   color: #4ade80;
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
   text-align: right;
+}
+
+.shop-panel {
+  background: rgba(255, 152, 0, 0.04);
+  border-left: 3px solid #ff9800;
+  margin-left: 20px;
+  padding: 10px 16px;
+}
+.shop-row td {
+  background: rgba(255, 152, 0, 0.02);
 }
 </style>
