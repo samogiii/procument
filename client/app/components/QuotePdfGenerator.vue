@@ -266,22 +266,87 @@ const renderedHtml = computed(() => {
 })
 
 const pdfContent = ref<HTMLElement | null>(null)
+  
+// async function downloadPdf() {
+//   if (!pdfContent.value) return
+//   generating.value = true
+//   try {
+//     const html2pdf = (await import('html2pdf.js')).default
+//     const q = props.quote
+//     const safeFileName = `${q.quoteNumber || 'Quote'}-${q.rfqName || 'RFQ'}-${q.customerName || 'Customer'}.pdf`.replace(/[^a-zA-Z0-9-_\.]/g, '-')
+//     await html2pdf().set({
+//       margin: 0,
+//       filename: safeFileName,
+//       image: { type: 'jpeg', quality: 0.98 },
+//       html2canvas: { scale: 2, useCORS: true, logging: false },
+//       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+//     }).from(pdfContent.value).save()
+//   } catch (err) { console.error('PDF generation failed:', err) }
+//   finally { generating.value = false }
+// }
+
 async function downloadPdf() {
-  if (!pdfContent.value) return
-  generating.value = true
+  // 1. Make sure we have HTML to send
+  if (!renderedHtml.value) return;
+  
+  generating.value = true;
+  
   try {
-    const html2pdf = (await import('html2pdf.js')).default
-    const q = props.quote
-    const safeFileName = `${q.quoteNumber || 'Quote'}-${q.rfqName || 'RFQ'}-${q.customerName || 'Customer'}.pdf`.replace(/[^a-zA-Z0-9-_\.]/g, '-')
-    await html2pdf().set({
-      margin: 0,
-      filename: safeFileName,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    }).from(pdfContent.value).save()
-  } catch (err) { console.error('PDF generation failed:', err) }
-  finally { generating.value = false }
+    // 2. Wrap your rendered HTML in standard document tags.
+    // This tells Puppeteer exactly how to handle the page structure.
+    const fullHtmlToRender = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          /* Reset margins to prevent unexpected white borders */
+          body, html { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        </style>
+      </head>
+      <body>
+        ${renderedHtml.value}
+      </body>
+      </html>
+    `;
+
+    // 3. Send the HTML to our new Nuxt backend endpoint
+    const response = await $fetch('/api/generate-pdf', {
+      method: 'POST',
+      body: { html: fullHtmlToRender },
+      responseType: 'blob' // This is CRITICAL. Without this, $fetch tries to parse it as JSON and fails.
+    });
+
+    // ADD THIS LINE TO DEBUG:
+    console.log("Downloaded File Size:", (response as Blob).size, "bytes");
+
+    
+
+    // 4. Trigger the download in the user's browser
+    const url = window.URL.createObjectURL(response as Blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Change this to match whatever variable holds your Quote Number
+    // (e.g., props.quote.quoteNumber)
+    const fileName = props.quote?.quoteNumber 
+      ? `${props.quote.quoteNumber}.pdf` 
+      : 'Quote.pdf';
+      
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    
+    // 5. Clean up memory
+    link.parentNode?.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+  } catch (err) { 
+    console.error('True PDF generation failed:', err);
+    // Optional: Add a UI toast notification here to alert the user of failure
+  } finally { 
+    generating.value = false;
+  }
 }
 </script>
 

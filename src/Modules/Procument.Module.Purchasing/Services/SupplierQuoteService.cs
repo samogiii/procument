@@ -56,7 +56,9 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         var records = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
-            .Where(r => r.RFQItem.RFQId == rfqId)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.Supplier)
+            .Where(r => r.RFQItem.RFQId == rfqId && (r.Type ?? "Procument") != "Shop")
             .ToListAsync();
 
         return records.Select(MapToResponse).ToList();
@@ -159,6 +161,9 @@ public class SupplierQuoteService : ISupplierQuoteService
                 TagDate = request.TagDate,
                 Note = request.Note,
                 MyNotes = request.MyNotes,
+                Type = request.Type ?? "Procument",
+                FixPrice = request.FixPrice,
+                ParentProcumentId = request.ParentProcumentId,
                 UserId = userId
             };
             _db.Set<ProcumentRecord>().Add(record);
@@ -299,6 +304,15 @@ public class SupplierQuoteService : ISupplierQuoteService
         if (!isAdmin && !hasPermission)
         {
             throw new UnauthorizedAccessException("User does not have permission to delete quotes from this RFQ.");
+        }
+
+        // Delete child shop records first (self-ref FK uses Restrict)
+        var shopRecords = await _db.Set<ProcumentRecord>()
+            .Where(s => s.ParentProcumentId == record.Id)
+            .ToListAsync();
+        if (shopRecords.Any())
+        {
+            _db.Set<ProcumentRecord>().RemoveRange(shopRecords);
         }
 
         _db.Set<ProcumentRecord>().Remove(record);

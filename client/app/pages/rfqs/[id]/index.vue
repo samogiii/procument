@@ -719,10 +719,11 @@
                                     <tr>
                                       <th>Supplier</th>
                                       <th>Alt P/N</th>
+                                      <th>Condition</th>
                                       <th>Qty</th>
                                       <th>Unit</th>
                                       <th>Cost Price ($)</th>
-                                      <th style="color: #ff9800;">Fix Price ($)</th>
+                                      <th style="color: #ff9800;">Repair Cost ($)</th>
                                       <th>Cert Type</th>
                                       <th>Tag Date</th>
                                       <th>Shipping Cost</th>
@@ -739,6 +740,14 @@
                                         <input type="text" class="quote-input" placeholder="Shop name..." v-model="shop.supplierName" @input="searchSupplier(shop.supplierName)" list="supplier-suggestions" />
                                       </td>
                                       <td><input type="text" class="quote-input" placeholder="Same P/N" v-model="shop.alt" /></td>
+                                      <td>
+                                        <select class="quote-input quote-select" v-model="shop.condition">
+                                          <option value="">—</option>
+                                          <option value="IN">IN</option>
+                                          <option value="RP">RP</option>
+                                          <option value="OH">OH</option>
+                                        </select>
+                                      </td>
                                       <td><input type="number" class="quote-input text-center" v-model.number="shop.qty" min="1" /></td>
                                       <td>
                                         <select class="quote-input quote-select" v-model="shop.unit">
@@ -1306,7 +1315,7 @@ function addShopRow(item: any, parentQuote: any) {
     qty: item.qty || 1,
     price: 0,
     fixPrice: null,
-    condition: 'AR',
+    condition: 'IN',
     alt: '',
     certName: '',
     tagDate: '',
@@ -1581,7 +1590,7 @@ async function saveAll() {
           qty: shop.qty,
           price: shop.price,
           fixPrice: shop.fixPrice,
-          condition: 'AR',
+          condition: shop.condition || 'IN',
           alt: shop.alt,
           certName: shop.certName || null,
           tagDate: shop.tagDate || null,

@@ -65,11 +65,13 @@ public class ProcumentPageService : IProcumentPageService
             .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
             .ToListAsync();
 
-        // Batch-load all supplier quotes (ProcumentRecords) for these RFQs
+        // Batch-load all supplier quotes (ProcumentRecords) for these RFQs, excluding shop records at top level
         var allRfqItemIds = rfqs.SelectMany(r => r.RFQItems.Select(i => i.Id)).ToList();
         var allSupplierQuotes = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
-            .Where(r => allRfqItemIds.Contains(r.RFQItemId))
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.Supplier)
+            .Where(r => allRfqItemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
             .ToListAsync();
 
         // 4. Build flat response
@@ -111,6 +113,39 @@ public class ProcumentPageService : IProcumentPageService
                         TagDate = q.TagDate,
                         LeadTime = q.LeadTime,
                         Note = q.Note,
+                        MyNotes = q.MyNotes,
+                        Type = q.Type ?? "Procument",
+                        FixPrice = q.FixPrice,
+                        ParentProcumentId = q.ParentProcumentId,
+                        ShopRecords = (q.ShopRecords ?? new List<ProcumentRecord>())
+                            .Select(s => new SupplierQuoteResponse
+                            {
+                                Id = s.Id,
+                                RFQItemId = s.RFQItemId,
+                                SupplierId = s.SupplierId,
+                                SupplierName = s.Supplier.Name,
+                                Qty = s.Qty,
+                                Price = s.Price,
+                                Condition = s.Condition,
+                                Alt = s.Alt,
+                                Unit = s.Unit,
+                                CertName = s.CertName,
+                                Coef_1 = s.Coef_1,
+                                Coef_2 = s.Coef_2,
+                                Coef_3 = s.Coef_3,
+                                ShippingPoint = s.ShippingPoint,
+                                ShippingCost = s.ShippingCost,
+                                UnitPrice = s.UnitPrice,
+                                TotalPrice = s.TotalPrice,
+                                TagDate = s.TagDate,
+                                LeadTime = s.LeadTime,
+                                Note = s.Note,
+                                MyNotes = s.MyNotes,
+                                Type = s.Type ?? "Shop",
+                                FixPrice = s.FixPrice,
+                                ParentProcumentId = s.ParentProcumentId,
+                            })
+                            .ToList(),
                     })
                     .ToList();
 
@@ -220,7 +255,7 @@ public class ProcumentPageService : IProcumentPageService
             .Include(r => r.Supplier)
             .Include(r => r.RFQItem)
                 .ThenInclude(ri => ri.RFQ)
-            .Where(r => relatedRfqItemIds.Contains(r.RFQItemId))
+            .Where(r => relatedRfqItemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 

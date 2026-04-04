@@ -144,6 +144,17 @@
                       <span class="text-caption text-uppercase font-weight-bold letter-spacing-wide" style="color: #60a5fa;">
                         Available Supplier Prices for {{ item.partNumberName }}
                       </span>
+                      <v-spacer />
+                      <v-btn
+                        v-if="hasShops(item.id)"
+                        size="x-small"
+                        :color="showShopsForItem[item.id] ? 'warning' : 'grey'"
+                        variant="tonal"
+                        prepend-icon="mdi-wrench"
+                        @click="toggleShopsForItem(item.id)"
+                      >
+                        {{ showShopsForItem[item.id] ? 'Hide Shops' : 'Show Shops' }}
+                      </v-btn>
                     </div>
 
                     <div class="quote-grid-scroll" v-if="getItemRecords(item.id).length > 0">
@@ -156,7 +167,7 @@
                           <th style="width: 80px;">Cond</th>
                           <th style="width: 70px;">Qty</th>
                           <th style="width: 110px;">Buyer Price</th>
-                          <th style="width: 100px; color: #ff9800;">Fix Price</th>
+                          <th style="width: 100px; color: #ff9800;">Repair Cost</th>
                           <th style="width: 110px;">Shipping Cost</th>
                           <th style="width: 75px;">Coef 1</th>
                           <th style="width: 75px;">Coef 2</th>
@@ -187,7 +198,9 @@
                           <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">
                             {{ record.alt || '—' }}
                           </td>
-                          <td style="padding-left: 8px; font-size: 12px;">{{ record.condition || 'N/A' }}</td>
+                          <td style="padding-left: 8px; font-size: 12px;">
+                            {{ record.isShop ? (record.condition || '—') : (record.condition || 'N/A') }}
+                          </td>
                           <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
                           <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
                             ${{ formatPrice(record.price) }}
@@ -312,6 +325,8 @@ watch(globalCoef3, (val) => { if (val != null) procurementRecords.value.forEach(
 
 // selections: simple map of recordId → selected boolean
 const selections = ref<Record<number, boolean>>({})
+// Track which items have their AR parent selected to show shops
+const showShopsForItem = ref<Record<number, boolean>>({})
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -365,9 +380,15 @@ onMounted(async () => {
   rfqItems.value.forEach(item => {
     if (getRecordCount(item.id) > 0) {
       expandedRows.value.add(item.id)
+      // Auto-show shops if item has AR records
+      const hasAR = procurementRecords.value.some(r => r.rfqItemId === item.id && r.condition === 'AR' && !r.isShop)
+      if (hasAR && hasShops(item.id)) {
+        showShopsForItem.value[item.id] = true
+      }
     }
   })
   expandedRows.value = new Set(expandedRows.value)
+  showShopsForItem.value = { ...showShopsForItem.value }
 })
 
 async function loadData() {
@@ -408,6 +429,7 @@ async function loadData() {
           customTotalPrice: null,
           customUnitPrice: null,
           isShop: true,
+          parentProcurementId: r.id,
         })
       }
     }
@@ -435,7 +457,15 @@ function calcUnitPrice(q: any): number {
   const c1 = Number(q.coef_1) || 1
   const c2 = Number(q.coef_2) || 1
   const c3 = Number(q.coef_3) || 1
-  return (price + (shipping / qty)) * c1 * c2 * c3
+
+  if (q.isShop) {
+    // For shop records: Unit Price = Cost Price + Repair Cost + Shipping Cost (per unit) * Coefs
+    const repairCost = Number(q.fixPrice) || 0
+    return (price + repairCost + (shipping / qty)) * c1 * c2 * c3
+  } else {
+    // For regular records: Unit Price = (price + shipping per unit) * Coefs
+    return (price + (shipping / qty)) * c1 * c2 * c3
+  }
 }
 
 function getUnitPrice(q: any): number {
@@ -461,7 +491,19 @@ function onUnitPriceInput(record: any, event: Event) {
 // ──── Record helpers ────
 
 function getItemRecords(itemId: number) {
-  return procurementRecords.value.filter(r => r.rfqItemId === itemId)
+  const records = procurementRecords.value.filter(r => r.rfqItemId === itemId)
+  // Only show shops if showShopsForItem is true for this item
+  const showShops = showShopsForItem.value[itemId] || false
+  return records.filter(r => !r.isShop || showShops)
+}
+
+function hasShops(itemId: number): boolean {
+  return procurementRecords.value.some(r => r.rfqItemId === itemId && r.isShop)
+}
+
+function toggleShopsForItem(itemId: number) {
+  showShopsForItem.value[itemId] = !showShopsForItem.value[itemId]
+  showShopsForItem.value = { ...showShopsForItem.value }
 }
 
 function getRecordCount(itemId: number) {
@@ -473,6 +515,12 @@ function toggleExpand(itemId: number) {
     expandedRows.value.delete(itemId)
   } else {
     expandedRows.value.add(itemId)
+    // Auto-show shops if item has AR records
+    const hasAR = procurementRecords.value.some(r => r.rfqItemId === itemId && r.condition === 'AR' && !r.isShop)
+    if (hasAR && hasShops(itemId)) {
+      showShopsForItem.value[itemId] = true
+      showShopsForItem.value = { ...showShopsForItem.value }
+    }
   }
   expandedRows.value = new Set(expandedRows.value)
 }
@@ -482,6 +530,12 @@ function toggleExpand(itemId: number) {
 function toggleSelection(record: any) {
   selections.value[record.id] = !selections.value[record.id]
   selections.value = { ...selections.value }
+
+  // Auto-show shops when an AR record is selected
+  if (record.condition === 'AR' && !record.isShop && selections.value[record.id]) {
+    showShopsForItem.value[record.rfqItemId] = true
+    showShopsForItem.value = { ...showShopsForItem.value }
+  }
 }
 
 // ──── Load existing quote for edit ────
