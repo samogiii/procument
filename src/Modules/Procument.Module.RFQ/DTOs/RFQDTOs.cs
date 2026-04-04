@@ -38,6 +38,11 @@ public class UpdateExTypeRequest
     public int? ExType { get; set; }
 }
 
+public class UpdateRFQNotesRequest
+{
+    public string? Notes { get; set; }
+}
+
 public class AddRFQItemRequest
 {
     public string PartNumberName { get; set; } = string.Empty;

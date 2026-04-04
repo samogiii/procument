@@ -8,6 +8,7 @@ public class EntityPermission : BaseEntity
     public string EntityName { get; set; } = string.Empty;
     public string EntityId { get; set; } = string.Empty;
     public string Permission { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation
     public User User { get; set; } = null!;

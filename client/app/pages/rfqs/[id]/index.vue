@@ -73,7 +73,12 @@
             </v-avatar>
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Created By</p>
-              <p class="text-body-2 font-weight-medium mb-0">{{ rfq.userName || '—' }}</p>
+              <p class="text-body-2 font-weight-medium mb-0">
+                {{ rfq.userName || '—' }}
+                <span class="text-caption text-medium-emphasis ml-1 font-weight-regular" v-if="rfq.createdAt">
+                  {{ new Date(rfq.createdAt).toLocaleDateString() }}
+                </span>
+              </p>
             </div>
           </div>
         </v-card>
@@ -84,19 +89,22 @@
             <v-avatar color="success" variant="tonal" size="40">
               <v-icon icon="mdi-account-group-outline" size="20" />
             </v-avatar>
-            <div>
+            <div style="flex: 1; min-width: 0;">
               <p class="text-caption text-medium-emphasis mb-0">Assigned Users</p>
-              <div class="d-flex flex-wrap gap-1 mt-1" v-if="assignedUsers.length">
-                <v-chip
-                  v-for="user in assignedUsers"
-                  :key="user.id"
-                  size="x-small"
-                  color="primary"
-                  variant="tonal"
-                  prepend-icon="mdi-account"
-                >
-                  {{ user.name }}
-                </v-chip>
+              <div class="d-flex flex-column gap-1 mt-1" v-if="assignedUsers.length">
+                <div v-for="user in assignedUsers" :key="user.id" class="d-flex align-center justify-space-between gap-2">
+                  <v-chip
+                    size="x-small"
+                    color="primary"
+                    variant="tonal"
+                    prepend-icon="mdi-account"
+                  >
+                    {{ user.name }}
+                  </v-chip>
+                  <span class="text-caption text-medium-emphasis" style="font-size: 10px !important;">
+                    {{ user.assignedAt ? new Date(user.assignedAt).toLocaleDateString() : '' }}
+                  </span>
+                </div>
               </div>
               <p v-else class="text-body-2 font-weight-medium mb-0">—</p>
             </div>
@@ -173,15 +181,23 @@
           </div>
         </v-card>
       </v-col> -->
-      <v-col cols="12" md="9" v-if="rfq.notes">
+      <v-col cols="12" md="9" v-if="rfq.notes || isAdmin">
         <v-card class="info-card pa-4">
           <div class="d-flex align-center gap-3">
             <v-avatar color="info" variant="tonal" size="40">
               <v-icon icon="mdi-note-text-outline" size="20" />
             </v-avatar>
-            <div>
-              <p class="text-caption text-medium-emphasis mb-0">Notes</p>
-              <p class="text-body-2 font-weight-medium mb-0">{{ rfq.notes }}</p>
+            <div class="flex-grow-1">
+              <div class="d-flex align-center justify-space-between w-100">
+                <p class="text-caption text-medium-emphasis mb-0">Notes</p>
+                <div class="d-flex align-center gap-2" v-if="isAdmin">
+                  <v-btn v-if="!isEditingNotes" size="x-small" variant="text" prepend-icon="mdi-pencil" @click="editNotes">Edit Note</v-btn>
+                  <v-btn v-if="isEditingNotes" size="x-small" color="primary" variant="tonal" prepend-icon="mdi-check" @click="saveNotes" :loading="isSavingNotes">Save</v-btn>
+                  <v-btn v-if="isEditingNotes" size="x-small" color="error" variant="text" prepend-icon="mdi-close" @click="cancelNotesEdit">Cancel</v-btn>
+                </div>
+              </div>
+              <p class="text-body-2 font-weight-medium mb-0" v-if="!isEditingNotes" style="white-space: pre-wrap;">{{ rfq.notes || '—' }}</p>
+              <v-textarea v-else v-model="editingNotesValue" rows="3" density="compact" hide-details variant="outlined" class="mt-2" placeholder="Enter RFQ notes here..."></v-textarea>
             </div>
           </div>
         </v-card>
@@ -1085,6 +1101,34 @@ async function changeExType(newType: number) {
     showSnack('ExType updated', 'success')
   } catch {
     showSnack('Failed to update ExType', 'error')
+  }
+}
+
+// ──── Edit RFQ Notes ────
+const isEditingNotes = ref(false)
+const isSavingNotes = ref(false)
+const editingNotesValue = ref('')
+
+function editNotes() {
+  editingNotesValue.value = rfq.value.notes || ''
+  isEditingNotes.value = true
+}
+
+function cancelNotesEdit() {
+  isEditingNotes.value = false
+}
+
+async function saveNotes() {
+  isSavingNotes.value = true
+  try {
+    await api.patch(`/rfqs/${route.params.id}/notes`, { notes: editingNotesValue.value })
+    rfq.value.notes = editingNotesValue.value
+    showSnack('Notes updated successfully', 'success')
+    isEditingNotes.value = false
+  } catch {
+    showSnack('Failed to update notes', 'error')
+  } finally {
+    isSavingNotes.value = false
   }
 }
 

@@ -115,6 +115,14 @@ public class RFQsController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    /// <summary>Update the Notes of an RFQ.</summary>
+    [HttpPatch("{id:long}/notes")]
+    public async Task<IActionResult> UpdateNotes(long id, [FromBody] UpdateRFQNotesRequest request)
+    {
+        var success = await _rfqService.UpdateNotesAsync(id, request.Notes);
+        return success ? Ok() : NotFound();
+    }
+
     /// <summary>Mark an RFQ as read for the current user.</summary>
     [HttpPatch("{id:long}/mark-read")]
     public async Task<IActionResult> MarkRead(long id)
