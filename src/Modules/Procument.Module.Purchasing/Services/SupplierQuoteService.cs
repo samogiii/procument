@@ -3,7 +3,6 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
-
 using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities; // for permissions
 
@@ -165,6 +164,23 @@ public class SupplierQuoteService : ISupplierQuoteService
         }
 
         await _db.SaveChangesAsync(); // Get ID
+
+        // ── If parent RFQ is Rejected, reset to In Progress and delete old quote ──
+        {
+            var rfqHeader = await _db.Set<RFQHeader>().FindAsync(rfqId);
+            if (rfqHeader != null && rfqHeader.Status == "Rejected")
+            {
+                rfqHeader.Status = "In Progress";
+
+                // Delete the rejected quote's items first, then the quote itself
+                await _db.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM QuoteItems WHERE QuoteId IN (SELECT Id FROM Quotes WHERE RFQId = {rfqId})");
+                await _db.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM Quotes WHERE RFQId = {rfqId}");
+
+                await _db.SaveChangesAsync();
+            }
+        }
 
         if (!request.Id.HasValue)
         {

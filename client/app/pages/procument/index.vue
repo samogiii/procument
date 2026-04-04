@@ -402,7 +402,7 @@ const userFilter = pf.user
 const customerFilter = pf.customer
 const partNumberFilter = pf.partNumber
 const isAdmin = computed(() => authStore.isAdmin)
-const statusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
+const statusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected']
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -576,12 +576,17 @@ async function saveQuote(item: any, quote: any) {
       unit: quote.unit || null,
       leadTime: quote.leadTime || null,
       note: quote.note || null,
+      myNotes: quote.myNotes || null,
     }
 
     const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)
     // Update the quote with the returned ID
     if (result && (result as any).id) {
       quote.id = (result as any).id
+    }
+    // If RFQ was Rejected, backend resets it to In Progress - update local state
+    if (item.rfqStatus === 'Rejected') {
+      item.rfqStatus = 'In Progress'
     }
     showSnack('Supplier quote saved', 'success')
   } catch (e) {

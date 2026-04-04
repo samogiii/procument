@@ -172,8 +172,8 @@ public class QuoteService : IQuoteService
         // Set quote number based on auto-increment Id
         quote.QuoteNumber = $"QT-{quote.Id}";
 
-        // Set RFQ status to Quoted
-        rfq.Status = "Quoted";
+        // Set RFQ status to Ready To Quote
+        rfq.Status = "Ready To Quote";
 
         await _db.SaveChangesAsync();
 
@@ -283,6 +283,19 @@ public class QuoteService : IQuoteService
         else
         {
             quote.RejectionNote = null;
+        }
+
+        // Cascade status to parent RFQ
+        var rfq = await _db.Set<RFQHeader>().FindAsync(quote.RFQId);
+        if (rfq != null)
+        {
+            rfq.Status = newStatus switch
+            {
+                "Sent" => "Sent",
+                "Accepted" => "Accepted",
+                "Rejected" => "Rejected",
+                _ => rfq.Status // no change for Draft
+            };
         }
 
         await _db.SaveChangesAsync();

@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
     // RFQ
     Open: 'light-blue',
     'In Progress': 'amber',
-    'No Quote': 'deep-purple',
+    'Ready To Quote': 'orange',
     Quoted: 'orange',
     Closed: 'blue-grey',
     Completed: 'success',

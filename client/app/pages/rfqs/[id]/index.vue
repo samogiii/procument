@@ -6,26 +6,7 @@
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold d-flex align-center gap-2">
           RFQ #{{ route.params.id }}
-          <v-menu :disabled="isLocked">
-            <template #activator="{ props: menuProps }">
-              <v-chip :color="statusColor" size="small" class="ml-1 cursor-pointer" v-bind="menuProps" :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'">{{ rfq.status || 'Open' }}</v-chip>
-            </template>
-            <v-list density="compact" style="min-width: 160px">
-              <v-list-subheader>Change Status</v-list-subheader>
-              <v-list-item
-                v-for="s in rfqStatuses"
-                :key="s.value"
-                :value="s.value"
-                :active="rfq.status === s.value"
-                @click="changeRfqStatus(s.value)"
-              >
-                <template #prepend>
-                  <v-icon :icon="s.icon" :color="s.color" size="18" />
-                </template>
-                <v-list-item-title>{{ s.label }}</v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
+          <v-chip :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
         </h1>
         <p class="text-caption text-medium-emphasis mt-1 text-truncate" v-if="rfq.name">{{ rfq.name }}</p>
       </div>
@@ -267,14 +248,14 @@
             View Quote
           </v-btn>
           <v-btn
-            v-if="rfq.status !== 'Quoted'"
+            v-if="!['Ready To Quote', 'Sent', 'Accepted'].includes(rfq.status)"
             size="small"
             variant="tonal"
             color="success"
             prepend-icon="mdi-plus"
             :to="`/rfqs/${route.params.id}/create-quote`"
           >
-            Add Quote
+            Add Commission
           </v-btn>
           
           <v-btn
@@ -966,20 +947,8 @@ const exTypeOptions = [
   { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
 ]
 
-const rfqStatuses = [
-  { value: 'Open', label: 'Open', icon: 'mdi-folder-open-outline', color: 'light-blue' },
-  { value: 'In Progress', label: 'In Progress', icon: 'mdi-progress-clock', color: 'amber' },
-  { value: 'No Quote', label: 'No Quote', icon: 'mdi-file-remove-outline', color: 'deep-purple' },
-  { value: 'Quoted', label: 'Quoted', icon: 'mdi-file-document-check-outline', color: 'orange' },
-  { value: 'Closed', label: 'Closed', icon: 'mdi-lock-outline', color: 'blue-grey' },
-  { value: 'Completed', label: 'Completed', icon: 'mdi-check-circle-outline', color: 'success' },
-  { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-close-circle-outline', color: 'error' },
-]
-
-const statusColor = computed(() => {
-  const found = rfqStatuses.find(s => s.value === rfq.value.status)
-  return found?.color || 'primary'
-})
+const { statusColor: getStatusColor } = useStatusColor()
+const statusColor = computed(() => getStatusColor(rfq.value.status))
 
 const assignedUsers = computed(() => {
   const views = rfq.value.views || []
@@ -988,17 +957,6 @@ const assignedUsers = computed(() => {
   const unique = all.filter((u: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === u.id) === i)
   return unique
 })
-
-async function changeRfqStatus(newStatus: string) {
-  if (newStatus === rfq.value.status) return
-  try {
-    await api.patch(`/rfqs/${route.params.id}/status`, { status: newStatus })
-    rfq.value.status = newStatus
-    showSnack(`Status changed to ${newStatus}`, 'success')
-  } catch {
-    showSnack('Failed to change status', 'error')
-  }
-}
 
 const totalQuotes = computed(() => supplierQuotes.value.length)
 

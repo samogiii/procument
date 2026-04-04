@@ -11,7 +11,7 @@
       </div>
       <v-spacer />
       <v-chip v-if="isEditMode" color="warning" variant="tonal" size="small" prepend-icon="mdi-pencil">
-        Editing Quote #{{ editQuoteId }}
+        Editing Commission #{{ editQuoteId }}
       </v-chip>
     </div>
 

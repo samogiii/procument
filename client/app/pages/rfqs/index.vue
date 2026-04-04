@@ -530,7 +530,7 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const { statusColor: rfqStatusColor } = useStatusColor()
-const rfqStatusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
+const rfqStatusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected']
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
