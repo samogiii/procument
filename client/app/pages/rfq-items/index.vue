@@ -171,8 +171,8 @@ const headers = [
   { title: 'Customer', key: 'customerName' },
   { title: 'Status', key: 'status', width: '110px' },
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
-  { title: 'Lead Time', key: 'leadTime' },
-  { title: 'Created', key: 'createdAt' },
+  { title: 'Deadline', key: 'leadTime' },
+  { title: 'Received Date', key: 'createdAt' },
 ]
 
 const partNumberOptions = computed(() => {

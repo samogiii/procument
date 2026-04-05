@@ -37,7 +37,7 @@
               <v-icon :icon="isLeadTimeUrgent(rfq.leadTime) ? 'mdi-alert' : 'mdi-clock-outline'" size="20" />
             </v-avatar>
             <div>
-              <p class="text-caption text-medium-emphasis mb-0">Lead Time</p>
+              <p class="text-caption text-medium-emphasis mb-0">Deadline</p>
               <p class="text-body-2 font-weight-medium mb-0" :style="isLeadTimeUrgent(rfq.leadTime) ? '' : ''">
                 {{ rfq.leadTime ? new Date(rfq.leadTime).toLocaleDateString() : '—' }}
                 <v-icon v-if="isLeadTimeUrgent(rfq.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
@@ -56,8 +56,12 @@
               <p class="text-caption text-medium-emphasis mb-0">Created By</p>
               <p class="text-body-2 font-weight-medium mb-0">
                 {{ rfq.userName || '—' }}
-                <span class="text-caption text-medium-emphasis ml-1 font-weight-regular" v-if="rfq.createdAt">
-                  {{ new Date(rfq.createdAt).toLocaleDateString() }}
+              </p>
+              <p class="text-caption text-medium-emphasis mb-0" v-if="rfq.createdAt">
+                {{ new Date(rfq.createdAt).toLocaleDateString() }}
+                &nbsp;·&nbsp;
+                <span class="font-weight-medium" style="color: rgba(var(--v-theme-on-surface),0.55);">
+                  {{ new Date(rfq.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                 </span>
               </p>
             </div>
@@ -450,7 +454,7 @@
 
                     <!-- Supplier Suggestions -->
                     <div
-                      v-if="getSuggestions(item.id).recentQuotes.length > 0 || getSuggestions(item.id).knownSuppliers.length > 0"
+                      v-if="getSuggestions(item.id).recentQuotes.length > 0 || getSuggestions(item.id).knownSuppliers.length > 0 || partAvailability[item.partNumberId]"
                       class="suggestions-bar mb-3"
                     >
                       <div v-if="getSuggestions(item.id).recentQuotes.length > 0" class="d-flex flex-wrap align-center gap-2 mb-2">
@@ -484,7 +488,7 @@
                       </div>
                       <div
                         v-if="getSuggestions(item.id).knownSuppliers.filter((k: any) => !getSuggestions(item.id).recentQuotes.some((r: any) => r.supplierId === k.supplierId)).length > 0"
-                        class="d-flex flex-wrap align-center gap-2"
+                        class="d-flex flex-wrap align-center gap-2 mb-2"
                       >
                         <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
                           <v-icon icon="mdi-account-group-outline" size="14" color="grey" class="mr-1" />
@@ -501,6 +505,60 @@
                           {{ k.supplierName }}
                         </v-chip>
                       </div>
+                      <!-- Availability chips (Inventory=green, CapList=blue, ILS=orange, FastImport=yellow, KnownSup=gray) -->
+                      <template v-if="partAvailability[item.partNumberId]">
+                        <div class="d-flex flex-wrap align-center gap-2 mt-1">
+                          <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                            <v-icon icon="mdi-database-search-outline" size="14" color="primary" class="mr-1" />
+                            In stock:
+                          </span>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].inventoryRecords"
+                            :key="'inv-' + rec.label"
+                            size="small"
+                            class="avail-chip avail-chip--inventory cursor-pointer"
+                            prepend-icon="mdi-archive-outline"
+                            :title="`Inventory · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
+                            @click="applyAvailability(item, rec)"
+                          >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].capListRecords"
+                            :key="'cap-' + rec.label"
+                            size="small"
+                            class="avail-chip avail-chip--caplist cursor-pointer"
+                            prepend-icon="mdi-format-list-checks"
+                            :title="`Cap List · ${rec.label}`"
+                            @click="applyAvailability(item, rec)"
+                          >{{ rec.label }}</v-chip>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].ilsRecords"
+                            :key="'ils-' + rec.condition"
+                            size="small"
+                            class="avail-chip avail-chip--ils cursor-pointer"
+                            prepend-icon="mdi-warehouse"
+                            :title="`ILS${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}${rec.certName ? ' · ' + rec.certName : ''}`"
+                            @click="applyAvailability(item, rec)"
+                          >ILS<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].fastImportRecords"
+                            :key="'fast-' + rec.label"
+                            size="small"
+                            class="avail-chip avail-chip--fast cursor-pointer"
+                            prepend-icon="mdi-flash"
+                            :title="`Past record · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
+                            @click="applyAvailability(item, rec)"
+                          >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].knownSupplierRecords"
+                            :key="'sup-' + rec.label"
+                            size="small"
+                            class="avail-chip avail-chip--supplier cursor-pointer"
+                            prepend-icon="mdi-account-outline"
+                            :title="`Known supplier · ${rec.label}`"
+                            @click="applyAvailability(item, rec)"
+                          >{{ rec.label }}</v-chip>
+                        </div>
+                      </template>
                     </div>
                     <div v-else-if="getSuggestions(item.id).loading" class="mb-3">
                       <v-progress-linear indeterminate height="2" color="primary" />
@@ -1081,6 +1139,9 @@ const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes
 const expandedRows = ref(new Set<number>())
 const focusedField = ref('')
 const loading = ref(true)
+
+// Part availability (Inventory=green, CapList=blue, ILS=orange, FastImport=yellow, KnownSuppliers=white-gray)
+const partAvailability = ref<Record<number, any>>({})
 const saving = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -1200,6 +1261,17 @@ async function loadData() {
       }
     }))
     linkedSuppliers.value = supplierMap
+
+    // Load part availability in background (non-blocking)
+    const allPartIds = editableItems.value.map(i => i.partNumberId).filter(Boolean)
+    if (allPartIds.length > 0) {
+      try {
+        const avail = await api.post<any[]>('/availability/parts', { partNumberIds: allPartIds })
+        const map: Record<number, any> = {}
+        for (const a of avail) map[a.partNumberId] = a
+        partAvailability.value = map
+      } catch {}
+    }
   } catch (e) {
     console.error('Failed to load RFQ:', e)
   } finally {
@@ -1403,6 +1475,31 @@ function applySuggestion(item: any, suggestion: any) {
     leadTime: suggestion.leadTime || '',
     note: suggestion.note || '',
     myNotes: suggestion.myNotes || '',
+  })
+}
+
+// Apply an availability record (Inventory / CapList / ILS / FastImport / KnownSupplier) as a new quote row
+function applyAvailability(item: any, rec: any) {
+  // Expand the row so the user sees the new entry
+  if (!expandedRows.value.has(item.id)) expandedRows.value.add(item.id)
+
+  supplierQuotes.value.push({
+    id: null,
+    rfqItemId: item.id,
+    supplierName: rec.label || '',
+    qty: rec.qty || item.qty || 1,
+    price: rec.price || 0,
+    condition: rec.condition || item.condition || 'NE',
+    alt: rec.altPartNumber || '',
+    certName: rec.certName || '',
+    tagDate: '',
+    shippingCost: null,
+    shippingPoint: '',
+    unit: 'EA',
+    leadTime: rec.leadTime || '',
+    note: '',
+    myNotes: '',
+    shopRecords: [],
   })
 }
 
@@ -2160,5 +2257,41 @@ function showSnack(text: string, color: string) {
 .empty-quotes {
   border: 1px dashed var(--card-border);
   border-radius: 8px;
+}
+
+/* Availability chips */
+.avail-chip {
+  font-size: 10px !important;
+  height: 18px !important;
+  border-radius: 4px !important;
+  transition: transform 0.1s, opacity 0.1s;
+}
+.avail-chip:hover { transform: scale(1.07); opacity: 0.9; }
+.avail-chip:active { transform: scale(0.96); }
+
+.avail-chip--inventory {
+  background: rgba(34, 197, 94, 0.12) !important;
+  color: #22c55e !important;
+  border: 1px solid rgba(34, 197, 94, 0.35) !important;
+}
+.avail-chip--caplist {
+  background: rgba(59, 130, 246, 0.12) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+.avail-chip--ils {
+  background: rgba(249, 115, 22, 0.12) !important;
+  color: #fb923c !important;
+  border: 1px solid rgba(249, 115, 22, 0.35) !important;
+}
+.avail-chip--fast {
+  background: rgba(234, 179, 8, 0.12) !important;
+  color: #facc15 !important;
+  border: 1px solid rgba(234, 179, 8, 0.35) !important;
+}
+.avail-chip--supplier {
+  background: rgba(148, 163, 184, 0.10) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(148, 163, 184, 0.25) !important;
 }
 </style>

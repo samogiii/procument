@@ -355,49 +355,65 @@ public class QuoteService : IQuoteService
         return await GetByIdAsync(quote.Id, userId, true);
     }
 
-    private static QuoteResponse MapToResponse(Quote q) => new()
+    private static QuoteResponse MapToResponse(Quote q)
     {
-        Id = q.Id,
-        QuoteNumber = q.QuoteNumber,
-        TotalAmount = q.TotalAmount,
-        Status = q.Status,
-        ValidUntil = q.ValidUntil,
-        CreatedAt = q.CreatedAt,
-        RFQId = q.RFQId,
-        Type = q.Type,
-        TypeAdditional = q.TypeAdditional,
-        CustomerName = q.Customer.Name,
-        CustomerCode = q.Customer.CustomerCode,
-        CustomerBillTo = q.Customer.BillTo,
-        CustomerShipTo = q.Customer.ShipTo,
-        UserName = q.User?.Name,
-        RejectionNote = q.RejectionNote,
-        RFQName = q.RFQ?.Name,
-        FinalPrice = q.FinalPrice,
-        SentAt = q.SentAt,
-        Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
+        // Build a 1-based row-number map: each distinct RFQItemId gets the rank
+        // of its position within the RFQ (ordered by RFQItemId ascending = insertion order)
+        var rfqItemRank = q.QuoteItems
+            .Where(qi => qi.RFQItemId.HasValue)
+            .Select(qi => qi.RFQItemId!.Value)
+            .Distinct()
+            .OrderBy(id => id)
+            .Select((id, idx) => new { id, rank = idx + 1 })
+            .ToDictionary(x => x.id, x => x.rank);
+
+        return new()
         {
-            Id = qi.Id,
-            PartNumberName = qi.PartNumber?.Name ?? "",
-            PartNumberId = qi.PartNumberId,
-            RFQItemId = qi.RFQItemId,
-            ProcumentRecordId = qi.ProcumentRecordId,
-            Alt = qi.Alt,
-            Qty = qi.Qty,
-            UnitPrice = qi.UnitPrice,
-            TotalPrice = qi.TotalPrice,
-            Condition = qi.Condition,
-            LeadTimeDays = qi.LeadTimeDays,
-            LeadTime = qi.ProcumentRecord?.LeadTime,
-            Note = qi.ProcumentRecord?.Note,
-            RFQReference = qi.RFQItem?.RFQ?.Name,
-            TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
-            CertName = qi.ProcumentRecord?.CertName,
-            BuyPrice = qi.ProcumentRecord?.Price,
-            SupplierName = qi.ProcumentRecord?.Supplier?.Name,
-            ShippingCost = qi.ProcumentRecord?.ShippingCost
-        }).ToList()
-    };
+            Id = q.Id,
+            QuoteNumber = q.QuoteNumber,
+            TotalAmount = q.TotalAmount,
+            Status = q.Status,
+            ValidUntil = q.ValidUntil,
+            CreatedAt = q.CreatedAt,
+            RFQId = q.RFQId,
+            Type = q.Type,
+            TypeAdditional = q.TypeAdditional,
+            CustomerName = q.Customer.Name,
+            CustomerCode = q.Customer.CustomerCode,
+            CustomerBillTo = q.Customer.BillTo,
+            CustomerShipTo = q.Customer.ShipTo,
+            CustomerBase = q.Customer.Base,
+            UserName = q.User?.Name,
+            RejectionNote = q.RejectionNote,
+            RFQName = q.RFQ?.Name,
+            FinalPrice = q.FinalPrice,
+            SentAt = q.SentAt,
+            Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
+            {
+                Id = qi.Id,
+                PartNumberName = qi.PartNumber?.Name ?? "",
+                PartNumberId = qi.PartNumberId,
+                RFQItemId = qi.RFQItemId,
+                ProcumentRecordId = qi.ProcumentRecordId,
+                Alt = qi.Alt,
+                Qty = qi.Qty,
+                UnitPrice = qi.UnitPrice,
+                TotalPrice = qi.TotalPrice,
+                Condition = qi.Condition,
+                LeadTimeDays = qi.LeadTimeDays,
+                LeadTime = qi.ProcumentRecord?.LeadTime,
+                Note = qi.ProcumentRecord?.Note,
+                RFQReference = qi.RFQItemId.HasValue && rfqItemRank.TryGetValue(qi.RFQItemId.Value, out var rank)
+                    ? rank.ToString()
+                    : null,
+                TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
+                CertName = qi.ProcumentRecord?.CertName,
+                BuyPrice = qi.ProcumentRecord?.Price,
+                SupplierName = qi.ProcumentRecord?.Supplier?.Name,
+                ShippingCost = qi.ProcumentRecord?.ShippingCost
+            }).ToList()
+        };
+    }
 
     public async Task<bool> UpdateQuoteTypeAsync(long id, int? newType,string? additional, long userId, bool isAdmin)
     {

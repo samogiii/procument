@@ -20,30 +20,6 @@
     </template>
 
     <template #filters>
-      <v-select
-        v-model="userFilter"
-        :items="userOptions"
-        label="User"
-        class="mx-2"
-        hide-details
-        multiple
-        chips
-        closable-chips
-        clearable
-        style="min-width: 140px; max-width: 240px;"
-      />
-      <v-select
-        v-model="customerFilter"
-        :items="customerOptions"
-        label="Customer"
-        hide-details
-        class="mx-2"
-        multiple
-        chips
-        closable-chips
-        clearable
-        style="min-width: 140px; max-width: 260px;"
-      />
       <v-text-field
         v-model="pnSearch"
         label="Search by P/N"
@@ -57,6 +33,45 @@
         :loading="pnLoading"
         @update:model-value="searchByPN"
       />
+      <v-autocomplete
+        v-model="userFilter"
+        :items="userOptions"
+        label="User"
+        hide-details
+        multiple
+        chips
+        closable-chips
+        clearable
+        density="compact"
+        variant="outlined"
+        class="mx-2"
+        style="min-width: 140px; max-width: 240px;"
+      />
+      <v-autocomplete
+        v-model="customerFilter"
+        :items="customerOptions"
+        label="Customer"
+        hide-details
+        multiple
+        chips
+        closable-chips
+        clearable
+        density="compact"
+        variant="outlined"
+        class="mx-2"
+        style="min-width: 140px; max-width: 260px;"
+      />
+      <v-btn
+            v-if="hasActiveFilters"
+            variant="tonal"
+            color="error"
+            size="small"
+            prepend-icon="mdi-filter-off"
+            class="align-self-center"
+            @click="clearFilters"
+          >
+            Clear
+          </v-btn>
     </template>
 
     <template #item.customerName="{ item }">
@@ -74,6 +89,10 @@
 
     <template #item.createdAt="{ item }">
       {{ item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—' }}
+    </template>
+
+    <template #item.sentAt="{ item }">
+      {{ item.sentAt ? new Date(item.sentAt).toLocaleString() : '—' }}
     </template>
 
     <template #item.actions="{ item }">
@@ -102,9 +121,11 @@ const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const showBulkPerms = ref(false)
 
-const { filters: pf } = usePageFilters('quotes-extra', {
+// Use a different key to avoid conflicts with DataListPage's search/status
+const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes-filters', {
   user: [] as string[],
   customer: [] as string[],
+  pnSearch: '',
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
@@ -112,7 +133,7 @@ const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
 // P/N Search — filters datatable by matching quote IDs
-const pnSearch = ref('')
+const pnSearch = pf.pnSearch
 const pnMatchedQuoteIds = ref<Set<number> | null>(null)
 const pnLoading = ref(false)
 let pnDebounce: any = null
@@ -179,7 +200,6 @@ function applyFilters(items: any[]) {
   }
   return result
 }
-
 const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
   { title: 'RFQ Name', key: 'rfqName' },

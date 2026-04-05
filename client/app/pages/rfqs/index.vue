@@ -31,17 +31,6 @@
             style="min-width: 180px;"
 
           />
-          <v-text-field
-            v-model="pnSearch"
-            label="Search by P/N"
-            prepend-inner-icon="mdi-cog-outline"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            class="mx-2"
-            style="min-width: 160px; max-width: 260px;"
-          />
           <v-select
             v-model="statusFilter"
             :items="rfqStatusOptions"
@@ -54,7 +43,18 @@
             class="mr-2"
             style="min-width: 120px; max-width: 200px;"
           />
-          <v-select
+          <v-text-field
+            v-model="pnSearch"
+            label="Search by P/N"
+            prepend-inner-icon="mdi-cog-outline"
+            hide-details
+            clearable
+            density="compact"
+            variant="outlined"
+            class="mx-2"
+            style="min-width: 160px; max-width: 260px;"
+          />
+          <v-autocomplete
             v-model="userFilter"
             :items="userOptions"
             item-title="name"
@@ -65,10 +65,12 @@
             chips
             closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
           />
-          <v-select
+          <v-autocomplete
             v-model="customerFilter"
             :items="customerOptions"
             label="Customer"
@@ -77,6 +79,8 @@
             chips
             closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             style="min-width: 140px; max-width: 260px;"
           />
           
@@ -215,21 +219,21 @@
                 </v-list-item>
               </template>
             </v-combobox>
-            <!-- Date -->
+            <!-- Received Date -->
             <v-text-field
               v-model="form.date"
-              label="Date *"
+              label="Received Date *"
               prepend-inner-icon="mdi-calendar"
               type="date"
               :max="today"
               :rules="[rules.required]"
               class="mb-3"
             />
-            <!-- Lead Time -->
+            <!-- Deadline -->
             <v-text-field
               v-model="form.leadTime"
-              label="Lead Time *"
-              prepend-inner-icon="mdi-calendar"
+              label="Deadline *"
+              prepend-inner-icon="mdi-calendar-clock"
               type="date"
               :min="today"
               :rules="[rules.required]"
@@ -645,9 +649,9 @@ const headers = [
   { title: 'Status', key: 'status', width: '110px' },
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
   // { title: 'Priority', key: 'priority', width: '100px' },
-  { title: 'Lead Time', key: 'leadTime' },
+  { title: 'Deadline', key: 'leadTime' },
   { title: 'Parts', key: 'itemCount', sortable: false },
-  { title: 'Created', key: 'createdAt' },
+  { title: 'Received Date', key: 'createdAt' },
 ]
 
 onMounted(() => loadItems())
@@ -846,8 +850,10 @@ async function importFromPaste() {
 
     const rows: ItemRow[] = []
     for (let i = startIdx; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line) continue
       // Excel copies as tab-separated
-      const cols = lines[i].split('\t')
+      const cols = line.split('\t')
       if (cols.length === 0 || !(cols[0] || '').trim()) continue
 
       const partNumber = (cols[0] || '').trim()
@@ -974,7 +980,7 @@ async function submitRfq() {
   }
 
   if (!form.value.leadTime) {
-    submitError.value = 'Lead Time is required.'
+    submitError.value = 'Deadline is required.'
     return
   }
 

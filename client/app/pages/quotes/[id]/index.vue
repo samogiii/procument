@@ -69,7 +69,7 @@
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-send-clock" color="info" label="Sent At"
-          :value="quote.sentAt ? new Date(quote.sentAt).toLocaleDateString() : undefined"
+          :value="quote.sentAt ? new Date(quote.sentAt).toLocaleString() : undefined"
         />
       </v-col>
       <v-col cols="12" md="3">

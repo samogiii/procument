@@ -17,17 +17,6 @@
             class="flex-grow-1 mx-2"
             style="min-width: 180px;"
           />
-           <v-text-field
-            v-model="pnSearch"
-            label="Search by P/N"
-            prepend-inner-icon="mdi-cog-outline"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            class="mx-2"
-            style="min-width: 160px; max-width: 260px;"
-          />
           <v-select
             v-model="statusFilter"
             :items="statusOptions"
@@ -40,7 +29,18 @@
             class="mr-2"
             style="min-width: 120px; max-width: 200px;"
           />
-          <v-select
+           <v-text-field
+            v-model="pnSearch"
+            label="Search by P/N"
+            prepend-inner-icon="mdi-cog-outline"
+            hide-details
+            clearable
+            density="compact"
+            variant="outlined"
+            class="mx-2"
+            style="min-width: 160px; max-width: 260px;"
+          />
+          <v-autocomplete
             v-model="userFilter"
             :items="userOptions"
             item-title="name"
@@ -51,10 +51,12 @@
             chips
             closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
           />
-          <v-select
+          <v-autocomplete
             v-model="customerFilter"
             :items="customerOptions"
             label="Customer"
@@ -63,6 +65,8 @@
             chips
             closable-chips
             clearable
+            density="compact"
+            variant="outlined"
             style="min-width: 140px; max-width: 260px;"
           />
           <v-btn
@@ -174,7 +178,7 @@
 
                   <!-- Supplier Suggestions -->
                   <div
-                    v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 0 || getSuggestions(item.rfqItemId).knownSuppliers.length > 0"
+                    v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 0 || getSuggestions(item.rfqItemId).knownSuppliers.length > 0 || partAvailability[item.partNumberId]"
                     class="suggestions-bar mb-3"
                   >
                     <!-- Recent quotes (auto-fill capable) -->
@@ -210,7 +214,7 @@
                     <!-- Known suppliers (name only) -->
                     <div
                       v-if="getSuggestions(item.rfqItemId).knownSuppliers.filter((k: any) => !getSuggestions(item.rfqItemId).recentQuotes.some((r: any) => r.supplierId === k.supplierId)).length > 0"
-                      class="d-flex flex-wrap align-center gap-2"
+                      class="d-flex flex-wrap align-center gap-2 mb-2"
                     >
                       <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
                         <v-icon icon="mdi-account-group-outline" size="14" color="grey" class="mr-1" />
@@ -227,6 +231,60 @@
                         {{ k.supplierName }}
                       </v-chip>
                     </div>
+                    <!-- Availability chips (Inventory=green, CapList=blue, ILS=orange, FastImport=yellow, KnownSup=gray) -->
+                    <template v-if="partAvailability[item.partNumberId]">
+                      <div class="d-flex flex-wrap align-center gap-2 mt-1">
+                        <span class="text-caption text-medium-emphasis" style="white-space: nowrap;">
+                          <v-icon icon="mdi-database-search-outline" size="14" color="primary" class="mr-1" />
+                          In stock:
+                        </span>
+                        <v-chip
+                          v-for="rec in partAvailability[item.partNumberId].inventoryRecords"
+                          :key="'inv-' + rec.label"
+                          size="small"
+                          class="avail-chip avail-chip--inventory cursor-pointer"
+                          prepend-icon="mdi-archive-outline"
+                          :title="`Inventory · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
+                          @click.stop="applyAvailability(item, rec)"
+                        >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                        <v-chip
+                          v-for="rec in partAvailability[item.partNumberId].capListRecords"
+                          :key="'cap-' + rec.label"
+                          size="small"
+                          class="avail-chip avail-chip--caplist cursor-pointer"
+                          prepend-icon="mdi-format-list-checks"
+                          :title="`Cap List · ${rec.label}`"
+                          @click.stop="applyAvailability(item, rec)"
+                        >{{ rec.label }}</v-chip>
+                        <v-chip
+                          v-for="rec in partAvailability[item.partNumberId].ilsRecords"
+                          :key="'ils-' + rec.condition"
+                          size="small"
+                          class="avail-chip avail-chip--ils cursor-pointer"
+                          prepend-icon="mdi-warehouse"
+                          :title="`ILS${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}${rec.certName ? ' · ' + rec.certName : ''}`"
+                          @click.stop="applyAvailability(item, rec)"
+                        >ILS<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                        <v-chip
+                          v-for="rec in partAvailability[item.partNumberId].fastImportRecords"
+                          :key="'fast-' + rec.label"
+                          size="small"
+                          class="avail-chip avail-chip--fast cursor-pointer"
+                          prepend-icon="mdi-flash"
+                          :title="`Past record · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
+                          @click.stop="applyAvailability(item, rec)"
+                        >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                        <v-chip
+                          v-for="rec in partAvailability[item.partNumberId].knownSupplierRecords"
+                          :key="'sup-' + rec.label"
+                          size="small"
+                          class="avail-chip avail-chip--supplier cursor-pointer"
+                          prepend-icon="mdi-account-outline"
+                          :title="`Known supplier · ${rec.label}`"
+                          @click.stop="applyAvailability(item, rec)"
+                        >{{ rec.label }}</v-chip>
+                      </div>
+                    </template>
                   </div>
                   <div v-else-if="getSuggestions(item.rfqItemId).loading" class="mb-3">
                     <v-progress-linear indeterminate height="2" color="primary" />
@@ -644,6 +702,7 @@ const expandedArray = ref<any[]>([])
 const focusedField = ref('')
 const supplierSuggestions = ref<{ id: number; name: string }[]>([])
 const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
+const partAvailability = ref<Record<number, any>>({})
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -674,8 +733,8 @@ const headers = [
   { title: 'Status', key: 'status', width: '110px' },
   { title: 'Suppliers', key: 'supplierCount', sortable: false, width: '120px' },
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
-  { title: 'Lead Time', key: 'leadTime' },
-  { title: 'Created', key: 'createdAt' },
+  { title: 'Deadline', key: 'leadTime' },
+  { title: 'Received Date', key: 'createdAt' },
 ]
 
 const partNumberOptions = computed(() => {
@@ -769,6 +828,17 @@ async function loadData() {
       }))
     }
     editableQuotes.value = quotesMap
+
+    // Load part availability in background
+    const allPartIds = [...new Set(allItems.value.map((i: any) => i.partNumberId).filter(Boolean))]
+    if (allPartIds.length > 0) {
+      try {
+        const avail = await api.post<any[]>('/availability/parts', { partNumberIds: allPartIds })
+        const map: Record<number, any> = {}
+        for (const a of avail) map[a.partNumberId] = a
+        partAvailability.value = map
+      } catch {}
+    }
   } catch (e) {
     console.error('Failed to load procument data:', e)
   } finally {
@@ -861,6 +931,32 @@ function applyAllSuggestions(item: any) {
   if (added === 0) {
     showSnack('All suggested suppliers are already added', 'info')
   }
+}
+
+function applyAvailability(item: any, rec: any) {
+  const key = item.rfqItemId
+  if (!editableQuotes.value[key]) editableQuotes.value[key] = []
+  if (!expandedArray.value.includes(key)) expandedArray.value.push(key)
+  editableQuotes.value[key].push({
+    id: null,
+    rfqItemId: item.rfqItemId,
+    supplierName: rec.label || '',
+    qty: rec.qty || item.qty || 1,
+    price: rec.price || 0,
+    condition: rec.condition || item.condition || 'NE',
+    alt: rec.altPartNumber || '',
+    certName: rec.certName || '',
+    tagDate: '',
+    shippingCost: null,
+    shippingPoint: '',
+    unit: 'EA',
+    leadTime: rec.leadTime || '',
+    note: '',
+    myNotes: '',
+    _saving: false,
+    shopRecords: [],
+  })
+  showSnack(`${rec.label} added`, 'success')
 }
 
 function getEditableQuotes(rfqItemId: number) {

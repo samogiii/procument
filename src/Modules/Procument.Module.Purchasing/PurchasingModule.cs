@@ -10,6 +10,10 @@ public static class PurchasingModule
         services.AddScoped<ISupplierQuoteService, SupplierQuoteService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IProcumentPageService, ProcumentPageService>();
+        services.AddScoped<IILSService, ILSService>();
+        services.AddScoped<ICapListService, CapListService>();
+        services.AddScoped<IInventoryService, InventoryService>();
+        services.AddScoped<IAvailabilityService, AvailabilityService>();
         return services;
     }
 }

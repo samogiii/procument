@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
   public DbSet<PartNumber> PartNumbers => Set<PartNumber>();
   public DbSet<Alternative> Alternatives => Set<Alternative>();
   public DbSet<PartNumberSupplier> PartNumberSuppliers => Set<PartNumberSupplier>();
+  public DbSet<CompanyPreset> CompanyPresets => Set<CompanyPreset>();
 
   // RFQ
   public DbSet<RFQHeader> RFQs => Set<RFQHeader>();
@@ -46,6 +47,9 @@ public class AppDbContext : DbContext
   public DbSet<POItem> POItems => Set<POItem>();
   public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
   public DbSet<POItemTrackNumber> POItemTrackNumbers => Set<POItemTrackNumber>();
+  public DbSet<ILSItem> ILSItems => Set<ILSItem>();
+  public DbSet<CapListItem> CapListItems => Set<CapListItem>();
+  public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -500,6 +504,99 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
       entity.HasIndex(e => e.POItemId);
+    });
+
+    modelBuilder.Entity<ILSItem>(entity =>
+    {
+      entity.ToTable("ILSItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Description).HasMaxLength(1000);
+      entity.Property(e => e.AltPartNumber).HasMaxLength(200);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ProcumentRecord)
+                .WithMany()
+                .HasForeignKey(e => e.ProcumentRecordId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.PartNumberId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<CapListItem>(entity =>
+    {
+      entity.ToTable("CapListItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Description).HasMaxLength(1000);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.Company)
+                .WithMany()
+                .HasForeignKey(e => e.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ProcumentRecord)
+                .WithMany()
+                .HasForeignKey(e => e.ProcumentRecordId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.PartNumberId);
+      entity.HasIndex(e => e.CompanyId);
+      entity.HasIndex(e => e.IsRepair);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<InventoryItem>(entity =>
+    {
+      entity.ToTable("InventoryItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Description).HasMaxLength(1000);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.Company)
+                .WithMany()
+                .HasForeignKey(e => e.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.PartNumberId);
+      entity.HasIndex(e => e.CompanyId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    // ───────────────────────────────────────────
+    // Company Presets
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<CompanyPreset>(entity =>
+    {
+      entity.ToTable("CompanyPresets");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.Location).HasMaxLength(1000);
+      entity.Property(e => e.Phone).HasMaxLength(100);
+      entity.Property(e => e.Website).HasMaxLength(300);
+      entity.Property(e => e.Email).HasMaxLength(200);
+      entity.Property(e => e.LogoMimeType).HasMaxLength(100);
+      entity.Property(e => e.PrimaryColor).HasMaxLength(20).HasDefaultValue("#1a2744");
+      entity.Property(e => e.AccentColor).HasMaxLength(20).HasDefaultValue("#2563eb");
+      entity.Property(e => e.CustomPdfHtml).HasColumnType("TEXT");
     });
 
     // ───────────────────────────────────────────

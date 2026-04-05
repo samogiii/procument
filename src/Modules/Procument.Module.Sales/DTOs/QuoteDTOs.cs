@@ -52,6 +52,7 @@ public class QuoteResponse
     public string? RFQName { get; set; }
     public decimal? FinalPrice { get; set; }
     public DateTime? SentAt { get; set; }
+    public int? CustomerBase { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();
 }
 

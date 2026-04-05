@@ -4,7 +4,23 @@
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Quote* -o -type d -name *Supplier*)",
       "Bash(grep -i \"\\\\.cs$\")",
       "Bash(wc -l /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/index.vue)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(sqlcmd -S localhost -E -No -d ProcumentDB -Q \":*)",
+      "Bash(npm install:*)",
+      "Bash(cmd /c \"cd C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client && npm install xlsx --save\")",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client && npm install xlsx --save 2>&1\")",
+      "Bash(powershell -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client''; npm install xlsx --save 2>&1\")",
+      "Bash(powershell -Command \"\\(Get-Content ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client\\\\app\\\\pages\\\\ils\\\\index.vue''\\).Count\")",
+      "Bash(powershell -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String -Pattern ''error|warning|Build succeeded|FAILED'' | Select-Object -Last 20\")",
+      "Bash(powershell -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String -Pattern ''error|Build succeeded|FAILED'' | Select-Object -Last 10\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(powershell -Command \"Select-String -Path ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client\\\\app\\\\pages\\\\rfqs\\\\[id]\\\\index.vue'' -Pattern ''editableItems|loadData|onMounted|partNumberId'' | Select-Object -First 20 | Format-Table LineNumber, Line -AutoSize\")",
+      "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\client\\\\app\\\\pages\\\\rfqs\\\\[id]\\\\index.vue'' | Select-String -Pattern ''editableItems|loadData|onMounted|script setup'' | ForEach-Object { ''{0}: {1}'' -f $_LineNumber, $_Line.Trim\\(\\) } | Select-Object -First 25\")",
+      "Bash(Select-Object -First 30)",
+      "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String -Pattern ''error CS|Build succeeded|FAILED'' | Select-Object -Last 5\")",
+      "Bash(powershell -NoProfile -Command \"Select-String -Path ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Modules\\\\Procument.Module.Sales\\\\DTOs\\\\QuoteDTOs.cs'' -Pattern ''Customer|Base'' | Select-Object -First 20 | ForEach-Object { $_LineNumber.ToString\\(\\) + '': '' + $_Line.Trim\\(\\) }\")",
+      "Bash(powershell -NoProfile -Command \"Get-Content ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Modules\\\\Procument.Module.Sales\\\\Services\\\\QuoteService.cs'' | Select-String -SimpleMatch ''CustomerName'',''CustomerCode'',''CustomerBill'',''MapToResponse'',''Customer'' | Select-Object -First 20 | ForEach-Object { $_Line.Trim\\(\\) }\")",
+      "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String ''error|Build succeeded|FAILED'' | Select-Object -Last 6 | ForEach-Object { $_Line }\")"
     ]
   }
 }
