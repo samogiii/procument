@@ -36,7 +36,7 @@
         </v-menu>
         <v-chip v-else :color="statusColor(quote.status)" size="default" :append-icon="isLocked ? 'mdi-lock' : undefined">{{ quote.status || '—' }}</v-chip>
 
-        <v-btn v-if="quote.status !== 'Sent' && quote.status !== 'Accepted'" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
+        <v-btn v-if="quote.status !== 'Sent' && quote.status !== 'Accepted' && quote.status !== 'Rejected'" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn v-if="isAdmin && quote.status === 'Accepted'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
@@ -82,17 +82,72 @@
       </v-col>
     </v-row>
 
-    <!-- Rejection Note -->
+    <!-- Rejection Note (current quote) -->
     <v-alert
       v-if="quote.status === 'Rejected' && quote.rejectionNote"
       type="error"
       variant="tonal"
-      class="mb-6"
+      class="mb-4"
       icon="mdi-close-circle-outline"
     >
       <div class="font-weight-bold mb-1">Rejection Reason</div>
       {{ quote.rejectionNote }}
     </v-alert>
+
+    <!-- Rejection History: show rejected quotes when current quote is active -->
+    <v-card
+      v-if="rejectedSiblings.length"
+      class="glass-card mb-5 border-s-4"
+      style="border-color: #ef4444 !important;"
+    >
+      <v-card-title
+        class="d-flex align-center gap-2 cursor-pointer py-3 px-4"
+        @click="showRejectionHistory = !showRejectionHistory"
+      >
+        <v-icon icon="mdi-history" color="error" size="20" />
+        <span class="text-body-1 font-weight-medium">Rejection History</span>
+        <v-chip size="x-small" color="error" variant="tonal">{{ rejectedSiblings.length }} rejected quote{{ rejectedSiblings.length > 1 ? 's' : '' }}</v-chip>
+        <v-spacer />
+        <v-icon :icon="showRejectionHistory ? 'mdi-chevron-up' : 'mdi-chevron-down'" size="20" />
+      </v-card-title>
+      <v-expand-transition>
+        <div v-if="showRejectionHistory">
+          <v-divider />
+          <v-card-text class="pa-0">
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th>Quote #</th>
+                  <th>Created</th>
+                  <th>Total</th>
+                  <th>Items</th>
+                  <th>Rejection Reason</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="rq in rejectedSiblings" :key="rq.id">
+                  <td>
+                    <v-chip size="x-small" color="error" variant="tonal">{{ rq.quoteNumber }}</v-chip>
+                  </td>
+                  <td class="text-caption text-medium-emphasis">
+                    {{ rq.createdAt ? new Date(rq.createdAt).toLocaleDateString() : '—' }}
+                  </td>
+                  <td class="text-caption">${{ formatPrice(rq.totalAmount) }}</td>
+                  <td class="text-caption">{{ rq.items?.length || 0 }} parts</td>
+                  <td class="text-caption text-error" style="max-width: 260px; white-space: normal;">
+                    {{ rq.rejectionNote || '—' }}
+                  </td>
+                  <td>
+                    <v-btn :to="`/quotes/${rq.id}`" size="x-small" variant="text" icon="mdi-open-in-new" />
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+          </v-card-text>
+        </div>
+      </v-expand-transition>
+    </v-card>
 
     <!-- All RFQ Items + Procurement Records -->
     <v-card class="glass-card">
@@ -282,6 +337,10 @@ const allProcRecords = ref<any[]>([])
 const selectedProcIds = ref(new Set<number>())
 const loading = ref(true)
 
+// Rejection history — other rejected quotes for the same RFQ
+const rejectedSiblings = ref<any[]>([])
+const showRejectionHistory = ref(false)
+
 const showPermissions = ref(false)
 const showAudit = ref(false)
 const showPdf = ref(false)
@@ -343,11 +402,16 @@ async function loadQuote() {
 
     if (q.rfqId) {
       try {
-        const [rfq, procRecords] = await Promise.all([
+        const [rfq, procRecords, allRfqQuotes] = await Promise.all([
           api.get<any>(`/rfqs/${q.rfqId}`),
-          api.get<any[]>(`/rfqs/${q.rfqId}/supplier-quotes`)
+          api.get<any[]>(`/rfqs/${q.rfqId}/supplier-quotes`),
+          api.get<any[]>(`/quotes/by-rfq/${q.rfqId}`).catch(() => []),
         ])
         q.rfqName = rfq.name || `RFQ #${q.rfqId}`
+
+        // Collect rejected sibling quotes (not this quote)
+        rejectedSiblings.value = (allRfqQuotes || [])
+          .filter((sq: any) => sq.status === 'Rejected' && sq.id !== q.id)
 
         // Build RFQ items list with enrichment
         allRfqItems.value = (rfq.items || []).map((item: any) => ({

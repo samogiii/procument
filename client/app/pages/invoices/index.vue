@@ -191,8 +191,8 @@ async function fetchQuotes(search: string) {
     // Let's call twice: Accepted and Sent.
     
     const [sent, accepted] = await Promise.all([
-      api.get<any>('/quotes', { query: { status: 'Sent', pageSize: 50 }, params: { status: 'Sent', pageSize: 50 } }), // Try both or check nuxt $fetch. $fetch uses 'query' or 'params'.
-      api.get<any>('/quotes', { query: { status: 'Accepted', pageSize: 50 } })
+      api.get<any>('/quotes', { query: { status: 'Sent', pageSize: 5000 }, params: { status: 'Sent', pageSize: 5000 } }), // Try both or check nuxt $fetch. $fetch uses 'query' or 'params'.
+      api.get<any>('/quotes', { query: { status: 'Accepted', pageSize: 5000 } })
     ])
     
     availableQuotes.value = [...(sent.items || []), ...(accepted.items || [])]

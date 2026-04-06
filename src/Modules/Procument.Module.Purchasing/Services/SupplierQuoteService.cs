@@ -173,26 +173,14 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         await _db.SaveChangesAsync(); // Get ID
 
-        // ── If parent RFQ is Rejected, reset to In Progress and delete old quote ──
+        // ── If parent RFQ is Rejected, reset to In Progress (but keep the rejected quote as history) ──
         {
             var rfqHeader = await _db.Set<RFQHeader>().FindAsync(rfqId);
             if (rfqHeader != null && rfqHeader.Status == "Rejected")
             {
                 rfqHeader.Status = "In Progress";
-
-                // Delete the rejected quote's items first, then the quote itself
-                await _db.Database.ExecuteSqlInterpolatedAsync(
-                    $"DELETE FROM QuoteItems WHERE QuoteId IN (SELECT Id FROM Quotes WHERE RFQId = {rfqId})");
-                await _db.Database.ExecuteSqlInterpolatedAsync(
-                    $"DELETE FROM Quotes WHERE RFQId = {rfqId}");
-
                 await _db.SaveChangesAsync();
             }
-        }
-
-        if (!request.Id.HasValue)
-        {
-            // audit handled by controller middleware
         }
 
         // ── Auto-link supplier to part number in junction table ──

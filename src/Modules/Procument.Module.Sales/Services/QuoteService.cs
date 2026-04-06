@@ -118,10 +118,11 @@ public class QuoteService : IQuoteService
             .FirstOrDefaultAsync(r => r.Id == request.RFQId)
             ?? throw new KeyNotFoundException("RFQ not found.");
 
-        // Prevent duplicate quotes: if RFQ already has a quote, block creation
-        var existingQuote = await _db.Set<Quote>()
-            .AnyAsync(q => q.RFQId == request.RFQId);
-        if (existingQuote)
+        // Prevent duplicate active quotes: block only if a non-rejected quote exists.
+        // Rejected quotes are kept for history; a new quote can be created after rejection.
+        var hasActiveQuote = await _db.Set<Quote>()
+            .AnyAsync(q => q.RFQId == request.RFQId && q.Status != "Rejected");
+        if (hasActiveQuote)
             throw new InvalidOperationException("A quote has already been created for this RFQ.");
 
         // Build quote items
@@ -308,6 +309,10 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
             .FirstOrDefaultAsync(q => q.Id == id);
         if (quote == null) return null;
+
+        // Rejected quotes are historical records — they cannot be edited.
+        // Create a new quote instead.
+        if (quote.Status == "Rejected") return null;
 
         // Only owner or admin can edit
         if (!isAdmin && quote.UserId != userId) return null;

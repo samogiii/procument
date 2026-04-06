@@ -30,8 +30,11 @@ public class PdfController : ControllerBase
                 page.MarginBottom(10);
                 page.DefaultTextStyle(x => x.FontSize(10).FontColor(primary));
 
-                page.Header().Element(h => ComposeHeader(h, req, primary, accent));
-                page.Content().Element(c => ComposeContent(c, req, primary, accent, sym));
+                page.Content().Column(col =>
+                {
+                    col.Item().Element(h => ComposeHeader(h, req, primary, accent));
+                    col.Item().Element(c => ComposeContent(c, req, primary, accent, sym));
+                });
                 page.Footer().Element(f => ComposeFooter(f, req, primary));
             });
         });
@@ -98,7 +101,7 @@ public class PdfController : ControllerBase
             {
                 void Meta(string label, string? value)
                 {
-                    row.RelativeItem().Text(t =>
+                    row.RelativeItem().AlignCenter().Text(t =>
                     {
                         t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
                         t.Span(value ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);
@@ -115,12 +118,12 @@ public class PdfController : ControllerBase
             {
                 void AddressBox(string title, string? name, string? address)
                 {
-                    row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(c =>
+                    row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).AlignCenter().Column(c =>
                     {
-                        c.Item().Text(t => t.Span(title).Bold().FontSize(8).FontColor(accent).LetterSpacing(0.1f));
-                        c.Item().PaddingTop(4).Text(t => t.Span(name ?? "—").Bold().FontSize(10).FontColor(primary));
+                        c.Item().AlignCenter().Text(t => t.Span(title).Bold().FontSize(8).FontColor(accent).LetterSpacing(0.1f));
+                        c.Item().AlignCenter().PaddingTop(4).Text(t => t.Span(name ?? "—").Bold().FontSize(10).FontColor(primary));
                         if (!string.IsNullOrEmpty(address))
-                            c.Item().PaddingTop(2).Text(t => t.Span(address).FontSize(9).FontColor(Colors.Grey.Darken1));
+                            c.Item().AlignCenter().PaddingTop(2).Text(t => t.Span(address).FontSize(9).FontColor(Colors.Grey.Darken1));
                     });
                 }
                 AddressBox("BILL TO", req.CustomerName, req.CustomerBillTo);
@@ -160,70 +163,102 @@ public class PdfController : ControllerBase
     {
         var items = req.Items ?? [];
 
-        container.Table(table =>
+        container.Column(outer =>
         {
-            table.ColumnsDefinition(c =>
+            // Header row
+            outer.Item().Row(hr =>
             {
-                c.ConstantColumn(30);   // Ref
-                c.ConstantColumn(22);   // #
-                c.RelativeColumn(3);    // Part Number
-                c.RelativeColumn(2.5f); // Description
-                c.ConstantColumn(30);   // Qty
-                c.ConstantColumn(30);   // Cond
-                c.ConstantColumn(55);   // Lead Time
-                c.ConstantColumn(60);   // Unit Price
-                c.ConstantColumn(65);   // Total
+                string[] headers = ["#", "Ref", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total"];
+                float[] widths = [22, 30, 0, 0, 30, 30, 55, 60, 65];
+                float[] rels = [0, 0, 3, 2.5f, 0, 0, 0, 0, 0];
+
+                for (int h = 0; h < headers.Length; h++)
+                {
+                    var label = headers[h];
+                    var w = widths[h];
+                    var rel = rels[h];
+                    var cell = w > 0 ? (IContainer)hr.ConstantItem(w) : hr.RelativeItem(rel);
+                    cell.Background(primary).Padding(6)
+                        .AlignCenter().Text(t => t.Span(label).FontSize(7.5f).Bold().FontColor(Colors.White));
+                }
             });
 
-            // Header
-            string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total"];
-            for (int h = 0; h < headers.Length; h++)
-            {
-                var align = h >= 7 ? TextHorizontalAlignment.Right : (h >= 4 && h <= 6 ? TextHorizontalAlignment.Center : TextHorizontalAlignment.Left);
-                table.Cell().Row(1).Column((uint)(h + 1))
-                    .Background(primary).Padding(6)
-                    .AlignCenter().Text(t => t.Span(headers[h]).FontSize(7.5f).Bold().FontColor(Colors.White));
-            }
-
-            // Rows
+            // Item rows — each item + its detail kept together via ShowEntire
             for (int i = 0; i < items.Count; i++)
             {
                 var it = items[i];
-                var rowNum = (uint)(i + 2);
+                var idx = i;
                 var bg = i % 2 == 0 ? Colors.White : Colors.Grey.Lighten5;
                 var isAlt = !string.IsNullOrEmpty(it.Alt);
                 var displayPN = isAlt ? it.Alt! : (it.PartNumberName ?? "—");
                 var pnColor = isAlt ? accent : primary;
+                var hasDetails = !string.IsNullOrEmpty(it.CertName) || !string.IsNullOrEmpty(it.TagDate) || !string.IsNullOrEmpty(it.Note);
 
-                void Cell(uint colNum, string text, string? color = null, bool bold = false, TextHorizontalAlignment align = TextHorizontalAlignment.Left)
+                outer.Item().ShowEntire().Column(group =>
                 {
-                    table.Cell().Row(rowNum).Column(colNum).Background(bg)
-                        .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
-                        .Padding(5).AlignLeft().Text(t =>
-                        {
-                            var s = t.Span(text).FontSize(8.5f);
-                            if (color != null) s.FontColor(color);
-                            if (bold) s.Bold();
-                        });
-                }
-
-                Cell(1, it.RfqReference ?? "—", Colors.Grey.Medium);
-                Cell(2, (i + 1).ToString(), Colors.Grey.Darken1);
-                // Part number cell with alt note
-                table.Cell().Row(rowNum).Column(3).Background(bg)
-                    .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
-                    .Padding(5).Column(c =>
+                    // Main data row
+                    group.Item().Row(r =>
                     {
-                        c.Item().Text(t => t.Span(displayPN).FontSize(8.5f).Bold().FontColor(pnColor));
-                        if (isAlt)
-                            c.Item().Text(t => t.Span($"(Req: {it.PartNumberName})").FontSize(7).FontColor(Colors.Grey.Medium));
+                        void Cell(IContainer cell, string text, string? color = null, bool bold = false)
+                        {
+                            cell.Background(bg)
+                                .BorderBottom(hasDetails ? 0f : 0.5f).BorderColor(Colors.Grey.Lighten3)
+                                .Padding(5).AlignCenter().AlignMiddle().Text(t =>
+                                {
+                                    var s = t.Span(text).FontSize(8.5f);
+                                    if (color != null) s.FontColor(color);
+                                    if (bold) s.Bold();
+                                });
+                        }
+
+                        Cell(r.ConstantItem(22), (idx + 1).ToString(), Colors.Grey.Darken1);
+                        Cell(r.ConstantItem(30), it.RfqReference ?? "—", Colors.Grey.Medium);
+
+                        // Part number cell
+                        r.RelativeItem(3).Background(bg)
+                            .BorderBottom(hasDetails ? 0f : 0.5f).BorderColor(Colors.Grey.Lighten3)
+                            .Padding(5).AlignCenter().AlignMiddle().Column(c =>
+                            {
+                                c.Item().Text(t => t.Span(displayPN).FontSize(8.5f).Bold().FontColor(pnColor));
+                                if (isAlt)
+                                    c.Item().Text(t => t.Span($"(Alt to: {it.PartNumberName})").FontSize(7).FontColor(Colors.Grey.Medium));
+                            });
+
+                        Cell(r.RelativeItem(2.5f), it.Description ?? "—", Colors.Grey.Darken1);
+                        Cell(r.ConstantItem(30), it.Qty.ToString(), primary, bold: true);
+                        Cell(r.ConstantItem(30), it.Condition ?? "—", primary);
+                        Cell(r.ConstantItem(55), it.LeadTime ?? "—", Colors.Grey.Darken1);
+                        Cell(r.ConstantItem(60), $"{sym}{FormatPrice(it.UnitPrice * (req.ExchangeRate ?? 1))}", primary);
+                        Cell(r.ConstantItem(65), $"{sym}{FormatPrice(it.TotalPrice * (req.ExchangeRate ?? 1))}", primary, bold: true);
                     });
-                Cell(4, it.Description ?? "—", Colors.Grey.Darken1);
-                Cell(5, it.Qty.ToString(), primary, bold: true);
-                Cell(6, it.Condition ?? "—", primary);
-                Cell(7, it.LeadTime ?? "—", Colors.Grey.Darken1);
-                Cell(8, $"{sym}{FormatPrice(it.UnitPrice * (req.ExchangeRate ?? 1))}", primary);
-                Cell(9, $"{sym}{FormatPrice(it.TotalPrice * (req.ExchangeRate ?? 1))}", primary, bold: true);
+
+                    // Detail sub-row: Cert, Tag Date, Note
+                    if (hasDetails)
+                    {
+                        group.Item().Background(bg)
+                            .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
+                            .PaddingVertical(2).PaddingBottom(6)
+                            .Text(t =>
+                            {
+                                if (!string.IsNullOrEmpty(it.CertName))
+                                {
+                                    t.Span("Cert: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
+                                    t.Span(it.CertName + "   ").FontSize(8).FontColor(Colors.Grey.Darken1);
+                                }
+                                if (!string.IsNullOrEmpty(it.TagDate))
+                                {
+                                    t.Span("Tag Date: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
+                                    var tagYear = it.TagDate.Length >= 4 ? it.TagDate[..4] : it.TagDate;
+                                    t.Span(tagYear + "   ").FontSize(8).FontColor(Colors.Grey.Darken1);
+                                }
+                                if (!string.IsNullOrEmpty(it.Note))
+                                {
+                                    t.Span("Note: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
+                                    t.Span(it.Note).FontSize(8).FontColor(Colors.Grey.Darken1);
+                                }
+                            });
+                    }
+                });
             }
         });
     }

@@ -11,6 +11,9 @@
         >
           Perms
         </v-btn>
+        <v-btn v-if="isAdmin" variant="tonal" color="secondary" prepend-icon="mdi-table-arrow-down" @click="openBulkImport" size="small">
+          Bulk Import
+        </v-btn>
         <v-btn v-if="isAdmin" color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
           New RFQ
         </v-btn>
@@ -516,6 +519,153 @@
       </v-card>
     </v-dialog>
 
+    <!-- ═══════════ Bulk Import RFQs Modal ═══════════ -->
+    <v-dialog v-model="showBulkImport" max-width="1100" persistent scrollable>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-table-arrow-down" color="secondary" class="mr-2" />
+          Bulk Import RFQs
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showBulkImport = false" />
+        </v-card-title>
+        <v-divider />
+
+        <v-card-text class="pa-4" style="max-height:78vh; overflow-y:auto;">
+          <!-- Customer only (dates come from paste) -->
+          <v-row dense class="mb-3">
+            <v-col cols="12" md="5">
+              <v-combobox
+                v-model="bulkDefaults.customerName"
+                :items="bulkCustomerSuggestions"
+                item-title="name"
+                item-value="name"
+                label="Customer Name *"
+                density="compact"
+                variant="outlined"
+                hide-details
+                prepend-inner-icon="mdi-domain"
+                no-filter
+                clearable
+                return-object
+                :loading="bulkCustomerLoading"
+                @update:search="searchBulkCustomers"
+              />
+            </v-col>
+            <v-col cols="12" md="7">
+              <v-alert type="info" density="compact" variant="tonal" class="text-caption">
+                Received Date &amp; Deadline are read from the paste data (columns 9 &amp; 10).
+              </v-alert>
+            </v-col>
+          </v-row>
+
+          <!-- Paste area -->
+          <p class="text-caption text-medium-emphasis mb-1">
+            Paste rows from Excel (tab-separated). Columns:
+            <strong>RFQ Name &nbsp;|&nbsp; # &nbsp;|&nbsp; Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition &nbsp;|&nbsp; Priority &nbsp;|&nbsp; Alt &nbsp;|&nbsp; Received Date &nbsp;|&nbsp; Deadline</strong>
+            — Alt values separated by comma (,). Rows with the same RFQ Name are grouped into one RFQ.
+          </p>
+          <v-textarea
+            v-model="bulkPasteText"
+            placeholder="Paste your Excel rows here (Ctrl+V)..."
+            variant="outlined"
+            density="compact"
+            rows="6"
+            hide-details
+            class="mb-3"
+            style="font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size:12px;"
+          />
+          <div class="d-flex align-center gap-2 mb-4">
+            <v-btn prepend-icon="mdi-table-search" color="primary" size="small" @click="parseBulkRFQs">
+              Parse &amp; Preview
+            </v-btn>
+            <v-btn variant="text" size="small" @click="bulkPasteText = ''; bulkGroups = []">Clear</v-btn>
+            <span v-if="bulkParseMsg" class="text-caption" :class="bulkParseMsgColor">{{ bulkParseMsg }}</span>
+          </div>
+
+          <!-- Preview -->
+          <div v-if="bulkGroups.length">
+            <div class="text-subtitle-2 mb-2">
+              Preview — {{ bulkGroups.filter(g => !g.isDuplicate).length }} RFQ(s) will be created,
+              <span class="text-error">{{ bulkGroups.filter(g => g.isDuplicate).length }} skipped (duplicate name)</span>
+            </div>
+
+            <v-expansion-panels variant="accordion" multiple>
+              <v-expansion-panel
+                v-for="(group, gi) in bulkGroups"
+                :key="gi"
+              >
+                <v-expansion-panel-title>
+                  <div class="d-flex align-center gap-2 w-100 flex-wrap">
+                    <v-icon
+                      :icon="group.isDuplicate ? 'mdi-alert-circle' : 'mdi-check-circle'"
+                      :color="group.isDuplicate ? 'error' : 'success'"
+                      size="18"
+                    />
+                    <span class="font-weight-medium">{{ group.rfqName }}</span>
+                    <v-chip size="x-small" color="secondary" variant="tonal">{{ group.items.length }} parts</v-chip>
+                    <span v-if="group.receivedDate" class="text-caption text-medium-emphasis">
+                      {{ group.receivedDate }} → {{ group.deadline }}
+                    </span>
+                    <v-chip v-if="group.isDuplicate" size="x-small" color="error" variant="tonal">DUPLICATE — will be skipped</v-chip>
+                  </div>
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <v-table density="compact" class="text-caption">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Part Number</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Condition</th>
+                        <th>Priority</th>
+                        <th>Remark</th>
+                        <th>Alternatives</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, ri) in group.items" :key="ri">
+                        <td>{{ ri + 1 }}</td>
+                        <td class="font-weight-medium">{{ row.partNumber }}</td>
+                        <td>{{ row.description || '—' }}</td>
+                        <td>{{ row.qty }}</td>
+                        <td>{{ row.condition || '—' }}</td>
+                        <td>{{ row.priority || '—' }}</td>
+                        <td>{{ row.remark || '—' }}</td>
+                        <td>
+                          <div class="d-flex flex-wrap gap-1">
+                            <v-chip v-for="alt in row.alternatives" :key="alt" size="x-small" color="warning" variant="tonal">{{ alt }}</v-chip>
+                            <span v-if="!row.alternatives.length" class="text-medium-emphasis">—</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+          </div>
+
+          <v-alert v-if="bulkSubmitError" type="error" density="compact" class="mt-3">{{ bulkSubmitError }}</v-alert>
+        </v-card-text>
+
+        <v-divider />
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showBulkImport = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            :loading="bulkImporting"
+            :disabled="!bulkGroups.filter(g => !g.isDuplicate).length"
+            prepend-icon="mdi-cloud-upload"
+            @click="submitBulkRFQs"
+          >
+            Import {{ bulkGroups.filter(g => !g.isDuplicate).length }} RFQ(s)
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Bulk Permission Manager -->
     <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" @update:model-value="(v) => !v && loadItems()" />
   </div>
@@ -531,7 +681,7 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const { statusColor: rfqStatusColor } = useStatusColor()
-const rfqStatusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected']
+const rfqStatusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
@@ -941,6 +1091,195 @@ async function importFromPaste() {
     pasteStatusColor.value = 'text-error'
   } finally {
     pasteImporting.value = false
+  }
+}
+
+// ── Bulk Import RFQs ──
+const showBulkImport = ref(false)
+const bulkPasteText = ref('')
+
+interface BulkRFQItem { partNumber: string; description: string; qty: number; condition: string; priority: string; remark: string; alternatives: string[] }
+interface BulkRFQGroup { rfqName: string; isDuplicate: boolean; receivedDate: string; deadline: string; items: BulkRFQItem[] }
+
+const bulkGroups = ref<BulkRFQGroup[]>([])
+const bulkImporting = ref(false)
+const bulkParseMsg = ref('')
+const bulkParseMsgColor = ref('text-medium-emphasis')
+const bulkSubmitError = ref('')
+
+const bulkDefaults = ref({ customerName: null as any })
+const bulkCustomerSuggestions = ref<any[]>([])
+const bulkCustomerLoading = ref(false)
+let bulkCustomerDebounce: any = null
+
+function searchBulkCustomers(val: string) {
+  clearTimeout(bulkCustomerDebounce)
+  if (!val || val.length < 1) { bulkCustomerSuggestions.value = []; return }
+  bulkCustomerDebounce = setTimeout(async () => {
+    bulkCustomerLoading.value = true
+    try { bulkCustomerSuggestions.value = await api.get<any[]>(`/customers/search?q=${encodeURIComponent(val)}`) }
+    catch {} finally { bulkCustomerLoading.value = false }
+  }, 300)
+}
+
+function openBulkImport() {
+  bulkPasteText.value = ''
+  bulkGroups.value = []
+  bulkParseMsg.value = ''
+  bulkSubmitError.value = ''
+  bulkDefaults.value = { customerName: null }
+  showBulkImport.value = true
+}
+
+function parseDateToISO(raw: string): string {
+  // Handles M/D/YYYY or MM/DD/YYYY
+  if (!raw) return ''
+  const parts = raw.split('/')
+  if (parts.length === 3) {
+    const [m, d, y] = parts
+    return `${y.trim()}-${m.trim().padStart(2, '0')}-${d.trim().padStart(2, '0')}`
+  }
+  return raw
+}
+
+function parseBulkRFQs() {
+  bulkParseMsg.value = ''
+  bulkGroups.value = []
+  const text = bulkPasteText.value.trim()
+  if (!text) {
+    bulkParseMsg.value = 'Nothing to parse — paste some rows first.'
+    bulkParseMsgColor.value = 'text-warning'
+    return
+  }
+
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  // Detect header row
+  const first = (lines[0] || '').toLowerCase()
+  const hasHeader = first.includes('rfq') || first.includes('part') || first.includes('p/n')
+  const startIdx = hasHeader ? 1 : 0
+
+  // Column layout:
+  // 0: RFQ Name | 1: # (row order, skip) | 2: Part Number | 3: Description
+  // 4: Qty | 5: Condition | 6: Priority | 7: Alt | 8: Received Date | 9: Deadline
+  interface GroupMeta { items: BulkRFQItem[]; receivedDate: string; deadline: string }
+  const groupMap = new Map<string, GroupMeta>()
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const cols = lines[i].split('\t')
+    const rfqName = (cols[0] || '').trim()
+    const partNumber = (cols[2] || '').trim()
+    if (!rfqName || !partNumber) continue
+
+    const description = (cols[3] || '').trim()
+    const qty = Math.max(1, parseInt((cols[4] || '').trim()) || 1)
+    const condition = (cols[5] || '').trim().toUpperCase()
+    const priority = (cols[6] || '').trim()
+    const altRaw = (cols[7] || '').trim()
+    const alternatives = altRaw ? altRaw.split(',').map(a => a.trim()).filter(Boolean) : []
+    const receivedDate = parseDateToISO((cols[8] || '').trim())
+    const deadline = parseDateToISO((cols[9] || '').trim())
+
+    if (!groupMap.has(rfqName)) {
+      groupMap.set(rfqName, { items: [], receivedDate, deadline })
+    }
+    groupMap.get(rfqName)!.items.push({ partNumber, description, qty, condition, priority, remark: '', alternatives })
+    // Always use last-seen dates (they're the same per RFQ)
+    if (receivedDate) groupMap.get(rfqName)!.receivedDate = receivedDate
+    if (deadline) groupMap.get(rfqName)!.deadline = deadline
+  }
+
+  if (groupMap.size === 0) {
+    bulkParseMsg.value = 'No valid rows found. Expected: RFQ Name [tab] # [tab] Part Number ...'
+    bulkParseMsgColor.value = 'text-error'
+    return
+  }
+
+  const existingNames = new Set(items.value.map((r: any) => r.name?.toLowerCase()))
+  bulkGroups.value = Array.from(groupMap.entries()).map(([rfqName, meta]) => ({
+    rfqName,
+    items: meta.items,
+    receivedDate: meta.receivedDate,
+    deadline: meta.deadline,
+    isDuplicate: existingNames.has(rfqName.toLowerCase()),
+  }))
+
+  const newCount = bulkGroups.value.filter(g => !g.isDuplicate).length
+  const dupCount = bulkGroups.value.filter(g => g.isDuplicate).length
+  bulkParseMsg.value = `Found ${bulkGroups.value.length} RFQ(s) — ${newCount} new, ${dupCount} duplicate(s).`
+  bulkParseMsgColor.value = newCount > 0 ? 'text-success' : 'text-warning'
+}
+
+async function submitBulkRFQs() {
+  bulkSubmitError.value = ''
+  const customerName = typeof bulkDefaults.value.customerName === 'object'
+    ? bulkDefaults.value.customerName?.name
+    : bulkDefaults.value.customerName
+
+  if (!customerName?.trim()) { bulkSubmitError.value = 'Customer Name is required.'; return }
+
+  const toCreate = bulkGroups.value.filter(g => !g.isDuplicate)
+  if (!toCreate.length) return
+
+  bulkImporting.value = true
+  try {
+    for (const group of toCreate) {
+      const partNumbers = group.items.map(it => it.partNumber)
+      const leadTimeISO = group.deadline ? new Date(group.deadline).toISOString() : new Date().toISOString()
+      const createdAtISO = group.receivedDate ? new Date(group.receivedDate).toISOString() : new Date().toISOString()
+      const created = await api.post<any>('/rfqs', {
+        name: group.rfqName,
+        customerName: customerName.trim(),
+        leadTime: leadTimeISO,
+        createdAt: createdAtISO,
+        userId: authStore.user?.id || 0,
+        notes: null,
+        exType: null,
+        partNumbers,
+      })
+
+      // Update items: qty, condition, priority + description/remark on partnumber + alternatives
+      if (created?.items?.length) {
+        const updatePromises = created.items.map((serverItem: any, idx: number) => {
+          const local = group.items[idx]
+          if (!local) return Promise.resolve()
+          const promises: Promise<any>[] = []
+
+          promises.push(api.put(`/rfqs/items/${serverItem.id}`, {
+            alt: null,
+            qty: local.qty,
+            condition: local.condition || null,
+            priority: local.priority || null,
+            note: local.remark || null,
+          }))
+
+          if (local.description || local.remark) {
+            promises.push(api.put(`/partnumbers/${serverItem.partNumberId}`, {
+              name: serverItem.partNumberName,
+              description: local.description || null,
+              remark: local.remark || null,
+              supplierId: null,
+            }))
+          }
+
+          for (const altName of local.alternatives) {
+            const existing = (serverItem.alternatives || []).find((a: any) => a.name === altName)
+            if (!existing) {
+              promises.push(api.post(`/partnumbers/${serverItem.partNumberId}/alternatives`, { name: altName }))
+            }
+          }
+
+          return Promise.all(promises)
+        })
+        await Promise.all(updatePromises)
+      }
+    }
+
+    showBulkImport.value = false
+    await loadItems()
+  } catch (e: any) {
+    bulkSubmitError.value = e?.data?.message || 'Bulk import failed.'
+  } finally {
+    bulkImporting.value = false
   }
 }
 

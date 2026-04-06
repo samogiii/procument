@@ -167,11 +167,14 @@
                           <th style="width: 80px;">Cond</th>
                           <th style="width: 70px;">Qty</th>
                           <th style="width: 110px;">Buyer Price</th>
-                          <th style="width: 100px; color: #ff9800;">Repair Cost</th>
+                          <th style="width: 110px;">Lead Time</th>
+                          <th v-if="hasArForItem(item.id)" style="width: 100px; color: #ff9800;">Repair Cost</th>
                           <th style="width: 110px;">Shipping Cost</th>
                           <th style="width: 75px;">Coef 1</th>
                           <th style="width: 75px;">Coef 2</th>
                           <th style="width: 75px;">Coef 3</th>
+                          <th style="width: 140px;">Note</th>
+                          <th style="width: 140px; color: #a78bfa;">My Notes</th>
                           <th style="width: 110px;">Unit Price</th>
                           <th style="width: 120px;">Total Price</th>
                         </tr>
@@ -206,6 +209,15 @@
                             ${{ formatPrice(record.price) }}
                           </td>
                           <td>
+                            <input
+                              type="text"
+                              class="coef-input"
+                              placeholder="e.g. 7-10 days"
+                              v-model="record.leadTime"
+                              style="min-width: 90px;"
+                            />
+                          </td>
+                          <td v-if="hasArForItem(item.id)">
                             <span v-if="record.isShop && record.fixPrice" class="computed-cell" style="color: #ff9800; font-weight: 600;">
                               ${{ formatPrice(record.fixPrice) }}
                             </span>
@@ -250,6 +262,24 @@
                               v-model.number="record.coef_3"
                               step="0.01"
                               @input="record.customUnitPrice = null"
+                            />
+                          </td>
+                          <td>
+                            <v-textarea
+                              type="text"
+                              
+                              placeholder="Note..."
+                              v-model="record.note"
+                            />
+                          </td>
+                          <td>
+                            <v-textarea
+                              type="text"
+                              
+                              placeholder="My notes..."
+                              
+                              v-model="record.myNotes"
+                              style="color: #a78bfa;"
                             />
                           </td>
                           <td>
@@ -299,6 +329,8 @@
 </template>
 
 <script setup lang="ts">
+import { VInput } from 'vuetify/components'
+
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
@@ -359,13 +391,15 @@ const backUrl = computed(() =>
 onMounted(async () => {
   await loadData()
 
-  // Guard: if RFQ already has a quote and not in edit mode, redirect to existing quote
+  // Guard: if RFQ already has an active (non-rejected) quote, redirect to it.
+  // Rejected quotes are kept for history — a new quote can be created after rejection.
   if (!isEditMode.value) {
     try {
       const existingQuotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
-      if (existingQuotes && existingQuotes.length > 0) {
+      const activeQuote = (existingQuotes || []).find((q: any) => q.status !== 'Rejected')
+      if (activeQuote) {
         showSnack('A quote already exists for this RFQ. Redirecting...', 'warning')
-        setTimeout(() => router.push(`/quotes/${existingQuotes[0].id}`), 800)
+        setTimeout(() => router.push(`/quotes/${activeQuote.id}`), 800)
         return
       }
     } catch {}
@@ -446,6 +480,14 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+}
+
+// ──── Helpers ────
+
+function hasArForItem(itemId: number): boolean {
+  return procurementRecords.value.some(
+    r => r.rfqItemId === itemId && (r.condition || '').toUpperCase() === 'AR'
+  )
 }
 
 // ──── Calculation helpers ────
@@ -616,6 +658,7 @@ async function saveQuote() {
         unit: r.unit || null,
         leadTime: r.leadTime || null,
         note: r.note || null,
+        myNotes: r.myNotes || null,
         certName: r.certName || null,
         tagDate: r.tagDate || null,
         shippingCost: r.shippingCost ?? null,

@@ -20,7 +20,10 @@
       "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String -Pattern ''error CS|Build succeeded|FAILED'' | Select-Object -Last 5\")",
       "Bash(powershell -NoProfile -Command \"Select-String -Path ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Modules\\\\Procument.Module.Sales\\\\DTOs\\\\QuoteDTOs.cs'' -Pattern ''Customer|Base'' | Select-Object -First 20 | ForEach-Object { $_LineNumber.ToString\\(\\) + '': '' + $_Line.Trim\\(\\) }\")",
       "Bash(powershell -NoProfile -Command \"Get-Content ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Modules\\\\Procument.Module.Sales\\\\Services\\\\QuoteService.cs'' | Select-String -SimpleMatch ''CustomerName'',''CustomerCode'',''CustomerBill'',''MapToResponse'',''Customer'' | Select-Object -First 20 | ForEach-Object { $_Line.Trim\\(\\) }\")",
-      "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String ''error|Build succeeded|FAILED'' | Select-Object -Last 6 | ForEach-Object { $_Line }\")"
+      "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String ''error|Build succeeded|FAILED'' | Select-Object -Last 6 | ForEach-Object { $_Line }\")",
+      "Bash(powershell -Command \"Get-Process -Name ''Procument.API'' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Write-Host ''Done''\")",
+      "Bash(powershell -Command \"Get-Process -Name ''Procument.API'' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Write-Host ''Stopped''\")",
+      "Bash(powershell -Command \"Start-Process -FilePath ''dotnet'' -ArgumentList ''run --project C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Procument.API\\\\Procument.API.csproj --no-build'' -WindowStyle Hidden; Start-Sleep -Seconds 3; Write-Host ''API restarted''\")"
     ]
   }
 }

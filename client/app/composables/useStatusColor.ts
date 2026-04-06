@@ -23,6 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
     'In Progress': 'amber',
     'Ready To Quote': 'orange',
     Quoted: 'orange',
+    'No Quote': 'deep-purple',
     Closed: 'blue-grey',
     Completed: 'success',
     Cancelled: 'error',

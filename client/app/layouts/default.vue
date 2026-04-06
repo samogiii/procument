@@ -204,9 +204,9 @@ const allNavItems = [
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true },
-  { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: false },
-  { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: false },
-  { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: false },
+  { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true },
+  { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true },
+  { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true },
 ]
 

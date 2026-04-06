@@ -252,7 +252,7 @@
             View Quote
           </v-btn>
           <v-btn
-            v-if="!['Ready To Quote', 'Sent', 'Accepted'].includes(rfq.status)"
+            v-if="!['Ready To Quote', 'Sent', 'Accepted', 'No Quote'].includes(rfq.status)"
             size="small"
             variant="tonal"
             color="success"
@@ -260,6 +260,24 @@
             :to="`/rfqs/${route.params.id}/create-quote`"
           >
             Add Commission
+          </v-btn>
+
+          <!-- No Quote chip shown when already in No Quote status -->
+          <v-chip v-if="rfq.status === 'No Quote'" color="deep-purple" variant="tonal" size="small" prepend-icon="mdi-cancel">
+            No Quote
+          </v-chip>
+
+          <!-- No Quote button: only for Open / In Progress -->
+          <v-btn
+            v-if="isAdmin && ['Open', 'In Progress'].includes(rfq.status)"
+            size="small"
+            variant="tonal"
+            color="deep-purple"
+            prepend-icon="mdi-cancel"
+            :loading="noQuoteLoading"
+            @click="showNoQuoteConfirm = true"
+          >
+            No Quote
           </v-btn>
           
           <v-btn
@@ -781,7 +799,7 @@
                                       <th>Qty</th>
                                       <th>Unit</th>
                                       <th>Cost Price ($)</th>
-                                      <th style="color: #ff9800;">Repair Cost ($)</th>
+                                      <th v-if="quote.condition === 'AR'" style="color: #ff9800;">Repair Cost ($)</th>
                                       <th>Cert Type</th>
                                       <th>Tag Date</th>
                                       <th>Shipping Cost</th>
@@ -819,7 +837,7 @@
                                         <input v-if="focusedField === `shop-price-${sIdx}-${quote.id}`" :data-focus-key="`shop-price-${sIdx}-${quote.id}`" type="number" class="quote-input price-input" placeholder="0.00" v-model.number="shop.price" step="0.01" min="0" @blur="focusedField = ''" />
                                         <span v-else class="quote-input price-display" @click="focusField(`shop-price-${sIdx}-${quote.id}`)">{{ shop.price ? '$' + formatPrice(shop.price) : '' }}</span>
                                       </td>
-                                      <td>
+                                      <td v-if="quote.condition === 'AR'">
                                         <input v-if="focusedField === `shop-fix-${sIdx}-${quote.id}`" :data-focus-key="`shop-fix-${sIdx}-${quote.id}`" type="number" class="quote-input price-input" style="color: #ff9800;" placeholder="0.00" v-model.number="shop.fixPrice" step="0.01" min="0" @blur="focusedField = ''" />
                                         <span v-else class="quote-input price-display" style="color: #ff9800;" @click="focusField(`shop-fix-${sIdx}-${quote.id}`)">{{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}</span>
                                       </td>
@@ -1089,6 +1107,25 @@
     </v-dialog>
 
     <RfqPdfGenerator v-model="showPdf" :rfq="rfq" />
+
+    <!-- No Quote Confirmation -->
+    <v-dialog v-model="showNoQuoteConfirm" max-width="420" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-cancel" color="deep-purple" class="mr-2" />
+          Mark as No Quote?
+        </v-card-title>
+        <v-card-text>
+          This will set the RFQ status to <strong>No Quote</strong> and prevent any new commission from being created for it.
+          You can still change the status back later if needed.
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showNoQuoteConfirm = false">Cancel</v-btn>
+          <v-btn color="deep-purple" variant="flat" :loading="noQuoteLoading" @click="doNoQuote">Confirm</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Delete Item Confirmation -->
     <v-dialog v-model="showDeleteItemConfirm" max-width="400">
@@ -1384,8 +1421,9 @@ function addShopRow(item: any, parentQuote: any) {
     id: null,
     rfqItemId: item.id,
     supplierName: '',
-    qty: item.qty || 1,
-    price: 0,
+    qty: parentQuote.qty || item.qty || 1,
+    // Auto-fill cost price from the parent's buyer price so user can see & edit it immediately
+    price: parentQuote.price || 0,
     fixPrice: null,
     condition: 'IN',
     alt: '',
@@ -1567,6 +1605,24 @@ async function removeQuote(itemId: number, qIdx: number) {
 
   const globalIdx = supplierQuotes.value.indexOf(quote)
   if (globalIdx > -1) supplierQuotes.value.splice(globalIdx, 1)
+}
+
+// ──── No Quote ────
+const showNoQuoteConfirm = ref(false)
+const noQuoteLoading = ref(false)
+
+async function doNoQuote() {
+  noQuoteLoading.value = true
+  try {
+    await api.patch(`/rfqs/${route.params.id}/status`, { status: 'No Quote' })
+    rfq.value.status = 'No Quote'
+    showNoQuoteConfirm.value = false
+    showSnack('RFQ marked as No Quote', 'success')
+  } catch {
+    showSnack('Failed to update status', 'error')
+  } finally {
+    noQuoteLoading.value = false
+  }
 }
 
 // ──── Delete RFQ Item ────
