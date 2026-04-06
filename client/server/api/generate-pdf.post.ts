@@ -1,56 +1,76 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
-  const htmlContent = body.html;
-
-  if (!htmlContent) {
-    throw createError({ statusCode: 400, statusMessage: 'HTML content is required' });
+  
+  if (!body.html) {
+    throw createError({ statusCode: 400, statusMessage: 'HTML is required' });
   }
 
-  // 1. Launch the browser using your LOCAL Windows installation
-  const browser = await puppeteer.launch({ 
-    headless: true,
-    // --- CHOOSE ONE OF THESE AND UNCOMMENT IT ---
-    // For Google Chrome:
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    // For Microsoft Edge:
-    // executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    
-    args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-  });
-  
+  const baseTempPath = 'C:\\PuppeteerTemp'; 
+  if (!fs.existsSync(baseTempPath)) {
+    fs.mkdirSync(baseTempPath, { recursive: true });
+  }
+
+  const customUserDataDir = path.join(baseTempPath, `profile_${crypto.randomUUID()}`);
+  let browser;
+
   try {
-    const page = await browser.newPage();
-
-    // 2. Load the HTML into the browser
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-
-    // 3. Generate the Vector PDF
-    const pdfUint8Array = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' }
+    browser = await puppeteer.launch({
+      headless: true,
+      executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      // REMOVE userDataDir from here
+      pipe: true, // Use pipes instead of WebSockets (Crucial for IIS)
+      args: [
+        `--user-data-dir=${customUserDataDir}`, // Pass it directly to Chrome to bypass Puppeteer's check
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--password-store=basic', // Prevents Windows credential manager locks
+        '--use-mock-keychain',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--disable-sync',
+        '--hide-scrollbars',
+        '--mute-audio'
+      ]
     });
 
-    // 4. Return the raw binary Response to bypass Nitro's JSON formatter
-    return new Response(pdfUint8Array, {
+    const page = await browser.newPage();
+    await page.setContent(body.html, { waitUntil: 'networkidle0' });
+    const pdf = await page.pdf({ format: 'A4', printBackground: true });
+
+    return new Response(pdf, {
       status: 200,
-      headers: {
+      headers: { 
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'attachment; filename="document.pdf"',
-        'Content-Length': pdfUint8Array.length.toString()
+        'Content-Disposition': 'inline; filename="document.pdf"'
       }
     });
 
   } catch (error) {
-    // 5. Log the EXACT error to your terminal so you can see what failed
-    console.error('Puppeteer Crash Details:', error);
-    throw createError({ statusCode: 500, statusMessage: 'Failed to generate PDF' });
+    console.error('Puppeteer Crash:', error);
+    throw createError({ statusCode: 500, statusMessage: error.message });
   } finally {
-    // 6. Always close the browser, even if it crashes, to prevent memory leaks
     if (browser) {
       await browser.close();
+      
+      // Keep the cleanup logic to prevent disk space issues
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(customUserDataDir)) {
+            fs.rmSync(customUserDataDir, { recursive: true, force: true });
+          }
+        } catch (e) {
+          console.warn('Cleanup failed (expected if AV is scanning):', e.message);
+        }
+      }, 5000);
     }
   }
 });

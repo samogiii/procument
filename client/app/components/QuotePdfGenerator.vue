@@ -257,14 +257,14 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
   }).join('')
   return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="background:${primary};color:#fff;">
-      <th style="padding:7px 10px;text-align:left;">Ref</th>
-      <th style="padding:7px 10px;text-align:left;">#</th>
-      <th style="padding:7px 10px;text-align:left;">Part Number</th>
-      <th style="padding:7px 10px;text-align:center;">Qty</th>
-      <th style="padding:7px 10px;text-align:center;">Cond</th>
-      <th style="padding:7px 10px;text-align:center;">Lead Time</th>
-      <th style="padding:7px 10px;text-align:right;">Unit Price</th>
-      <th style="padding:7px 10px;text-align:right;">Total</th>
+      <th style="padding:7px 10px;text-align:left;color:#fff">Ref</th>
+      <th style="padding:7px 10px;text-align:left;color:#fff">#</th>
+      <th style="padding:7px 10px;text-align:left;color:#fff">Part Number</th>
+      <th style="padding:7px 10px;text-align:center;color:#fff">Qty</th>
+      <th style="padding:7px 10px;text-align:center;color:#fff">Cond</th>
+      <th style="padding:7px 10px;text-align:center;color:#fff">Lead Time</th>
+      <th style="padding:7px 10px;text-align:right;color:#fff">Unit Price</th>
+      <th style="padding:7px 10px;text-align:right;color:#fff">Total</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`
@@ -274,7 +274,7 @@ const renderedHtml = computed(() => {
   const q = props.quote
   const items: any[] = sortedItems.value.length ? sortedItems.value : (q.items || [])
   const logo = logoDataUrl.value
-  const logoImg = logo ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />` : ''
+  const logoImg = logo ? `<img src="${logo}" style="max-height:150px; max-width:200px; object-fit:contain;" />` : ''
   const quoteDate = q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'
   const validUntil = q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—'
   const isYuan = currency.value === 'China Yuan (CNY)'
@@ -461,18 +461,66 @@ const renderedHtml = computed(() => {
 const pdfContent = ref<HTMLElement | null>(null)
 
 async function downloadPdf() {
-  if (!renderedHtml.value) return
   generating.value = true
   try {
-    const isFullDoc = renderedHtml.value.trimStart().toLowerCase().startsWith('<!doctype')
-    const fullHtml = isFullDoc
-      ? renderedHtml.value
-      : `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body,html{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style></head><body>${renderedHtml.value}</body></html>`
-    const response = await $fetch('/api/generate-pdf', { method: 'POST', body: { html: fullHtml }, responseType: 'blob' })
-    const url = window.URL.createObjectURL(response as unknown as Blob)
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const q = props.quote
+    const items: any[] = sortedItems.value.length ? sortedItems.value : (q.items || [])
+    const isYuan = currency.value === 'China Yuan (CNY)'
+    const rate = isYuan ? (exchangeRate.value || 1) : 1
+
+    const payload = {
+      companyName: companyName.value,
+      companyLocation: companyLocation.value,
+      companyPhone: companyPhone.value,
+      companyWebsite: companyWebsite.value,
+      companyEmail: companyEmail.value,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      quoteNumber: q.quoteNumber || '',
+      quoteDate: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—',
+      validUntil: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—',
+      rfqName: q.rfqName || '—',
+      currency: currency.value,
+      currencySymbol: isYuan ? '¥' : '$',
+      exchangeRate: rate,
+      customerName: q.customerName || '—',
+      customerBillTo: q.customerBillTo || null,
+      customerShipTo: q.customerShipTo || q.customerBillTo || null,
+      items: items.map((it: any) => ({
+        rfqReference: it.rfqReference || null,
+        partNumberName: it.partNumberName || null,
+        alt: it.alt || null,
+        description: it.description || null,
+        qty: it.qty || 0,
+        condition: it.condition || null,
+        leadTime: it.leadTime || null,
+        unitPrice: Number(it.unitPrice) || 0,
+        totalPrice: Number(it.totalPrice) || 0,
+        certName: it.certName || null,
+        tagDate: it.tagDate || null,
+        note: it.note || null,
+      })),
+      subtotal: Number(q.totalAmount) || 0,
+      tax: taxAmount.value || 0,
+      shipping: shippingAmount.value || 0,
+      other: otherAmount.value || 0,
+      comments: comments.value || null,
+      terms: companyTerms.value || null,
+      footerText: footerText.value || null,
+    }
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/generate`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
     const link = document.createElement('a')
     link.href = url
-    const q = props.quote
     const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
     const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}.pdf`
     link.setAttribute('download', fileName)

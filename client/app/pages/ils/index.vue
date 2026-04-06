@@ -141,20 +141,42 @@
           <v-row dense>
             <!-- Part Number -->
             <v-col cols="12" md="6">
-              <v-autocomplete
-                v-model="form.selectedPartId"
+              <v-combobox
+                v-model="form.partNumber"
                 v-model:search="partSearch"
                 :items="partSuggestions"
                 item-title="name"
                 item-value="id"
                 label="Part Number *"
+                density="compact"
                 variant="outlined"
-                hide-details="auto"
-                :loading="partSearchLoading"
-                no-data-text="Type to search part numbers..."
+                hide-details
+                no-filter
                 clearable
+                return-object
+                :loading="partSearchLoading"
                 @update:search="onPartSearch"
-              />
+                @update:model-value="onPartPicked"
+              >
+                <template #item="{ item: suggestion, props: itemProps }">
+                  <v-list-item v-bind="itemProps">
+                    <template #subtitle>
+                      <span v-if="suggestion.raw.description">{{ suggestion.raw.description }}</span>
+                      <span v-else class="font-italic text-medium-emphasis">No description</span>
+                    </template>
+                  </v-list-item>
+                </template>
+                <template #no-data>
+                  <v-list-item>
+                    <v-list-item-title v-if="partSearch.length < 3" class="text-medium-emphasis text-caption">
+                      Type 3+ chars to search...
+                    </v-list-item-title>
+                    <v-list-item-title v-else class="text-medium-emphasis text-caption">
+                      "{{ partSearch }}" — will be created
+                    </v-list-item-title>
+                  </v-list-item>
+                </template>
+              </v-combobox>
             </v-col>
             <!-- Description -->
             <v-col cols="12" md="6">
@@ -254,7 +276,7 @@
             color="primary"
             variant="flat"
             :loading="saving"
-            :disabled="!form.selectedPartId"
+            :disabled="!form.partNumber"
             @click="saveItem"
           >
             {{ isEditing ? 'Update' : 'Add' }}
@@ -488,6 +510,19 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const today = new Date().toISOString().split('T')[0]
 
+interface ILSForm {
+  partNumber: { id: number; name: string; description?: string } | string | null
+  description: string
+  altPartNumber: string
+  price: number
+  qty: number
+  condition: string
+  certName: string
+  tagDate: string
+  leadTime: string
+  procumentRecordId: number | null
+}
+
 // ── State ──
 const loading = ref(false)
 const saving = ref(false)
@@ -571,7 +606,7 @@ async function loadItems() {
 
 // ── Part Number Search ──
 const partSearch = ref('')
-const partSuggestions = ref<{ id: number; name: string }[]>([])
+const partSuggestions = ref<{ id: number; name: string; description?: string }[]>([])
 const partSearchLoading = ref(false)
 let partSearchDebounce: any = null
 const altSuggestions = ref<string[]>([])
@@ -606,7 +641,7 @@ const isEditing = ref(false)
 const editingId = ref<number | null>(null)
 
 const defaultForm = () => ({
-  selectedPartId: null as number | null,
+  partNumber: null as any,
   description: '',
   altPartNumber: '',
   price: 0,
@@ -634,7 +669,7 @@ function openEditDialog(item: any) {
   isEditing.value = true
   editingId.value = item.id
   form.value = {
-    selectedPartId: item.partNumberId,
+    partNumber: { id: item.partNumberId, name: item.partNumberName, description: item.description || undefined },
     description: item.description || '',
     altPartNumber: item.altPartNumber || '',
     price: Number(item.price),
@@ -647,31 +682,54 @@ function openEditDialog(item: any) {
   }
   // Pre-fill the part search with current value
   partSearch.value = item.partNumberName
-  partSuggestions.value = [{ id: item.partNumberId, name: item.partNumberName }]
+  partSuggestions.value = [{ id: item.partNumberId, name: item.partNumberName, description: item.description || undefined }]
   loadAltSuggestions(item.partNumberId)
   showDialog.value = true
 }
 
 // Watch selected part to load alt suggestions
-watch(() => form.value.selectedPartId, (id) => {
-  if (id) loadAltSuggestions(id)
+watch(() => form.value.partNumber, (pn) => {
+  if (pn && typeof pn === 'object' && pn.id) {
+    loadAltSuggestions(pn.id)
+  }
 })
 
 function closeDialog() {
   showDialog.value = false
 }
 
+function onPartPicked(val: any) {
+  if (val && typeof val === 'object' && val.id) {
+    // Existing part selected - auto-fill description
+    if (val.description && !form.value.description) {
+      form.value.description = val.description
+    }
+    loadAltSuggestions(val.id)
+  }
+}
+
 async function saveItem() {
-  if (!form.value.selectedPartId) return
+  if (!form.value.partNumber) return
   saving.value = true
   try {
+    let partId: number | null = null
+    let partName: string | null = null
+
+    if (typeof form.value.partNumber === 'object' && form.value.partNumber.id) {
+      partId = form.value.partNumber.id
+      partName = form.value.partNumber.name || null
+    } else if (typeof form.value.partNumber === 'string' && form.value.partNumber.trim()) {
+      partName = form.value.partNumber.trim()
+    }
+
     const tagDate = form.value.tagDate
       ? form.value.tagDate  // ISO date string (YYYY-MM-DD) - backend accepts DateOnly
       : null
 
     const payload = {
       id: isEditing.value ? editingId.value : null,
-      partNumberId: form.value.selectedPartId,
+      partNumberId: partId,
+      partNumberName: partName,
       description: form.value.description || null,
       altPartNumber: form.value.altPartNumber || null,
       price: form.value.price,
@@ -694,8 +752,10 @@ async function saveItem() {
 
     showSnack(isEditing.value ? 'Item updated' : 'Item added', 'success')
     closeDialog()
-  } catch {
-    showSnack('Failed to save item', 'error')
+  } catch (e: any) {
+    console.error('Save error:', e)
+    const errorMsg = e?.data?.error || e?.data?.message || 'Failed to save item'
+    showSnack(errorMsg, 'error')
   } finally {
     saving.value = false
   }
@@ -797,24 +857,25 @@ function closeExcelDialog() {
 
 function parseILSRows(rows: any[][]) {
   let dataRows = rows
-  if (rows.length > 0 && typeof rows[0][0] === 'string' &&
+  if (rows.length > 0 && rows[0] && rows[0][0] && typeof rows[0][0] === 'string' &&
       rows[0][0].toLowerCase().replace(/\s/g, '').includes('part')) {
     dataRows = rows.slice(1)
   }
   return dataRows
-    .filter(row => row.some(c => c != null && String(c).trim() !== ''))
+    .filter(row => row && row.some(c => c != null && String(c).trim() !== ''))
     .map(row => {
-      const priceRaw = String(row[3] ?? '').replace(/[$,\s]/g, '')
+      const priceRaw = String(row[4] ?? '').replace(/[$,\s]/g, '')
+      const price = priceRaw ? parseFloat(priceRaw) : 0
       return {
         partNumberName: String(row[0] ?? '').trim(),
         description: String(row[1] ?? '').trim() || null,
         altPartNumber: String(row[2] ?? '').trim() || null,
-        price: parseFloat(priceRaw) || 0,
-        qty: parseFloat(String(row[4] ?? '0')) || 0,
-        condition: String(row[5] ?? '').trim().toUpperCase() || null,
-        tagDate: String(row[6] ?? '').trim() || null,
-        certName: String(row[7] ?? '').trim() || null,
-        leadTime: String(row[8] ?? '').trim() || null,
+        price: isNaN(price!) ? 0 : price,
+        qty: parseFloat(String(row[5] ?? '0')) || 1,
+        condition: String(row[6] ?? '').trim().toUpperCase() || null,
+        tagDate: String(row[7] ?? '').trim() || null,
+        certName: String(row[8] ?? '').trim() || null,
+        leadTime: String(row[9] ?? '').trim() || null,
       }
     })
     .filter(row => row.partNumberName)

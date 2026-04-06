@@ -27,8 +27,19 @@ public class InventoryController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Save([FromBody] SaveInventoryItemRequest request)
     {
-        var result = await _inventoryService.SaveAsync(request);
-        return Ok(result);
+        try
+        {
+            var result = await _inventoryService.SaveAsync(request);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
     }
 
     [HttpDelete("{id}")]

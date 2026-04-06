@@ -34,6 +34,72 @@ public class InventoryService : IInventoryService
 
     public async Task<InventoryItemResponse> SaveAsync(SaveInventoryItemRequest request)
     {
+        // ── Resolve or create PartNumber ──
+        long partNumberId;
+        if (request.PartNumberId.HasValue && request.PartNumberId.Value > 0)
+        {
+            partNumberId = request.PartNumberId.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(request.PartNumberName))
+        {
+            var trimmed = request.PartNumberName.Trim();
+            var existing = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
+                .FirstOrDefaultAsync(p => p.Name == trimmed);
+            if (existing != null)
+            {
+                partNumberId = existing.Id;
+            }
+            else
+            {
+                var newPn = new Procument.Module.Catalog.Entities.PartNumber
+                {
+                    Name = trimmed,
+                    Description = request.Description,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Set<Procument.Module.Catalog.Entities.PartNumber>().Add(newPn);
+                await _db.SaveChangesAsync();
+                partNumberId = newPn.Id;
+            }
+        }
+        else
+        {
+            throw new ArgumentException("PartNumberId or PartNumberName is required");
+        }
+
+        // ── Resolve or create Company (Supplier) ──
+        long companyId;
+        if (request.CompanyId.HasValue && request.CompanyId.Value > 0)
+        {
+            companyId = request.CompanyId.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(request.CompanyName))
+        {
+            var trimmed = request.CompanyName.Trim();
+            var existing = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
+                .FirstOrDefaultAsync(s => s.Name == trimmed);
+            if (existing != null)
+            {
+                companyId = existing.Id;
+            }
+            else
+            {
+                var newSupplier = new Procument.Module.Catalog.Entities.Supplier
+                {
+                    Name = trimmed,
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true
+                };
+                _db.Set<Procument.Module.Catalog.Entities.Supplier>().Add(newSupplier);
+                await _db.SaveChangesAsync();
+                companyId = newSupplier.Id;
+            }
+        }
+        else
+        {
+            throw new ArgumentException("CompanyId or CompanyName is required");
+        }
+
         InventoryItem item;
 
         if (request.Id.HasValue && request.Id.Value > 0)
@@ -41,10 +107,10 @@ public class InventoryService : IInventoryService
             item = await _db.Set<InventoryItem>().FindAsync(request.Id.Value)
                 ?? throw new InvalidOperationException($"InventoryItem {request.Id} not found");
 
-            item.PartNumberId = request.PartNumberId;
+            item.PartNumberId = partNumberId;
             item.Description = request.Description;
             item.Qty = request.Qty;
-            item.CompanyId = request.CompanyId;
+            item.CompanyId = companyId;
             item.Condition = request.Condition;
             item.Price = request.Price;
         }
@@ -52,10 +118,10 @@ public class InventoryService : IInventoryService
         {
             item = new InventoryItem
             {
-                PartNumberId = request.PartNumberId,
+                PartNumberId = partNumberId,
                 Description = request.Description,
                 Qty = request.Qty,
-                CompanyId = request.CompanyId,
+                CompanyId = companyId,
                 Condition = request.Condition,
                 Price = request.Price,
                 CreatedAt = DateTime.UtcNow

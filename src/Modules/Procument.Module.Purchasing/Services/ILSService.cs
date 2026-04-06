@@ -33,6 +33,39 @@ public class ILSService : IILSService
 
     public async Task<ILSItemResponse> SaveAsync(SaveILSItemRequest request)
     {
+        // ── Resolve or create PartNumber ──
+        long partNumberId;
+        if (request.PartNumberId.HasValue && request.PartNumberId.Value > 0)
+        {
+            partNumberId = request.PartNumberId.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(request.PartNumberName))
+        {
+            var trimmed = request.PartNumberName.Trim();
+            var existing = await _db.Set<PartNumber>()
+                .FirstOrDefaultAsync(p => p.Name == trimmed);
+            if (existing != null)
+            {
+                partNumberId = existing.Id;
+            }
+            else
+            {
+                var newPn = new PartNumber
+                {
+                    Name = trimmed,
+                    Description = request.Description,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Set<PartNumber>().Add(newPn);
+                await _db.SaveChangesAsync();
+                partNumberId = newPn.Id;
+            }
+        }
+        else
+        {
+            throw new ArgumentException("PartNumberId or PartNumberName is required");
+        }
+
         ILSItem item;
 
         if (request.Id.HasValue && request.Id > 0)
@@ -41,7 +74,7 @@ public class ILSService : IILSService
                 .FirstOrDefaultAsync(i => i.Id == request.Id.Value)
                 ?? throw new KeyNotFoundException($"ILS item {request.Id} not found.");
 
-            item.PartNumberId = request.PartNumberId;
+            item.PartNumberId = partNumberId;
             item.Description = request.Description;
             item.AltPartNumber = request.AltPartNumber;
             item.Price = request.Price;
@@ -56,7 +89,7 @@ public class ILSService : IILSService
         {
             item = new ILSItem
             {
-                PartNumberId = request.PartNumberId,
+                PartNumberId = partNumberId,
                 Description = request.Description,
                 AltPartNumber = request.AltPartNumber,
                 Price = request.Price,

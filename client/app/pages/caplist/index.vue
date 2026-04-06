@@ -126,20 +126,42 @@
           <v-row dense>
             <!-- Part Number -->
             <v-col cols="12" md="6">
-              <v-autocomplete
-                v-model="form.selectedPartId"
+              <v-combobox
+                v-model="form.partNumber"
                 v-model:search="partSearch"
                 :items="partSuggestions"
                 item-title="name"
                 item-value="id"
                 label="Part Number *"
+                density="compact"
                 variant="outlined"
-                hide-details="auto"
-                :loading="partSearchLoading"
-                no-data-text="Type to search part numbers..."
+                hide-details
+                no-filter
                 clearable
+                return-object
+                :loading="partSearchLoading"
                 @update:search="onPartSearch"
-              />
+                @update:model-value="onPartPicked"
+              >
+                <template #item="{ item: suggestion, props: itemProps }">
+                  <v-list-item v-bind="itemProps">
+                    <template #subtitle>
+                      <span v-if="suggestion.raw.description">{{ suggestion.raw.description }}</span>
+                      <span v-else class="font-italic text-medium-emphasis">No description</span>
+                    </template>
+                  </v-list-item>
+                </template>
+                <template #no-data>
+                  <v-list-item>
+                    <v-list-item-title v-if="partSearch.length < 3" class="text-medium-emphasis text-caption">
+                      Type 3+ chars to search...
+                    </v-list-item-title>
+                    <v-list-item-title v-else class="text-medium-emphasis text-caption">
+                      "{{ partSearch }}" — will be created
+                    </v-list-item-title>
+                  </v-list-item>
+                </template>
+              </v-combobox>
             </v-col>
             <!-- Description -->
             <v-col cols="12" md="6">
@@ -152,20 +174,34 @@
             </v-col>
             <!-- Company -->
             <v-col cols="12" md="6">
-              <v-autocomplete
-                v-model="form.selectedCompanyId"
+              <v-combobox
+                v-model="form.company"
                 v-model:search="companySearch"
                 :items="companySuggestions"
                 item-title="name"
                 item-value="id"
                 label="Company *"
+                density="compact"
                 variant="outlined"
-                hide-details="auto"
-                :loading="companySearchLoading"
-                no-data-text="Type to search suppliers..."
+                hide-details
+                no-filter
                 clearable
+                return-object
+                :loading="companySearchLoading"
                 @update:search="onCompanySearch"
-              />
+                @update:model-value="onCompanyPicked"
+              >
+                <template #no-data>
+                  <v-list-item>
+                    <v-list-item-title v-if="companySearch.length < 2" class="text-medium-emphasis text-caption">
+                      Type 2+ chars to search...
+                    </v-list-item-title>
+                    <v-list-item-title v-else class="text-medium-emphasis text-caption">
+                      "{{ companySearch }}" — will be created
+                    </v-list-item-title>
+                  </v-list-item>
+                </template>
+              </v-combobox>
             </v-col>
             <!-- Is Repair -->
             <v-col cols="12" md="6" class="d-flex align-center">
@@ -187,7 +223,7 @@
             color="primary"
             variant="flat"
             :loading="saving"
-            :disabled="!form.selectedPartId || !form.selectedCompanyId"
+            :disabled="!form.partNumber || !form.company"
             @click="saveItem"
           >
             {{ isEditing ? 'Update' : 'Add' }}
@@ -420,6 +456,14 @@ const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
+interface CapListForm {
+  partNumber: { id: number; name: string; description?: string } | string | null
+  description: string
+  company: { id: number; name: string } | string | null
+  isRepair: boolean
+  procumentRecordId: number | null
+}
+
 // ── State ──
 const loading = ref(false)
 const saving = ref(false)
@@ -478,7 +522,7 @@ async function loadItems() {
 
 // ── Part Number Search ──
 const partSearch = ref('')
-const partSuggestions = ref<{ id: number; name: string }[]>([])
+const partSuggestions = ref<{ id: number; name: string; description?: string }[]>([])
 const partSearchLoading = ref(false)
 let partSearchDebounce: any = null
 
@@ -524,9 +568,9 @@ const isEditing = ref(false)
 const editingId = ref<number | null>(null)
 
 const defaultForm = () => ({
-  selectedPartId: null as number | null,
+  partNumber: null as any,
   description: '',
-  selectedCompanyId: null as number | null,
+  company: null as any,
   isRepair: false,
   procumentRecordId: null as number | null,
 })
@@ -548,14 +592,14 @@ function openEditDialog(item: any) {
   isEditing.value = true
   editingId.value = item.id
   form.value = {
-    selectedPartId: item.partNumberId,
+    partNumber: { id: item.partNumberId, name: item.partNumberName, description: item.description },
     description: item.description || '',
-    selectedCompanyId: item.companyId,
+    company: { id: item.companyId, name: item.companyName },
     isRepair: item.isRepair,
     procumentRecordId: item.procumentRecordId || null,
   }
   partSearch.value = item.partNumberName
-  partSuggestions.value = [{ id: item.partNumberId, name: item.partNumberName }]
+  partSuggestions.value = [{ id: item.partNumberId, name: item.partNumberName, description: item.description }]
   companySearch.value = item.companyName
   companySuggestions.value = [{ id: item.companyId, name: item.companyName }]
   showDialog.value = true
@@ -565,15 +609,49 @@ function closeDialog() {
   showDialog.value = false
 }
 
+function onPartPicked(val: any) {
+  if (val && typeof val === 'object' && val.id) {
+    // Existing part selected - auto-fill description
+    if (val.description && !form.value.description) {
+      form.value.description = val.description
+    }
+  }
+}
+
+function onCompanyPicked(val: any) {
+  // Just store the selection, no auto-fill needed
+}
+
 async function saveItem() {
-  if (!form.value.selectedPartId || !form.value.selectedCompanyId) return
+  if (!form.value.partNumber || !form.value.company) return
   saving.value = true
   try {
+    let partId: number | null = null
+    let partName: string | null = null
+    let companyId: number | null = null
+    let companyName: string | null = null
+
+    if (typeof form.value.partNumber === 'object' && form.value.partNumber.id) {
+      partId = form.value.partNumber.id
+      partName = form.value.partNumber.name || null
+    } else if (typeof form.value.partNumber === 'string' && form.value.partNumber.trim()) {
+      partName = form.value.partNumber.trim()
+    }
+
+    if (typeof form.value.company === 'object' && form.value.company.id) {
+      companyId = form.value.company.id
+      companyName = form.value.company.name || null
+    } else if (typeof form.value.company === 'string' && form.value.company.trim()) {
+      companyName = form.value.company.trim()
+    }
+
     const payload = {
       id: isEditing.value ? editingId.value : null,
-      partNumberId: form.value.selectedPartId,
+      partNumberId: partId,
+      partNumberName: partName,
       description: form.value.description || null,
-      companyId: form.value.selectedCompanyId,
+      companyId: companyId,
+      companyName: companyName,
       isRepair: form.value.isRepair,
       procumentRecordId: form.value.procumentRecordId || null,
     }
@@ -586,8 +664,10 @@ async function saveItem() {
     }
     showSnack(isEditing.value ? 'Item updated' : 'Item added')
     closeDialog()
-  } catch {
-    showSnack('Failed to save item', 'error')
+  } catch (e: any) {
+    console.error('Save error:', e)
+    const errorMsg = e?.data?.error || e?.data?.message || 'Failed to save item'
+    showSnack(errorMsg, 'error')
   } finally {
     saving.value = false
   }
@@ -712,12 +792,12 @@ function closeExcelDialog() {
 function parseRows(rows: any[][]) {
   // Skip header row if first cell looks like a header
   let dataRows = rows
-  if (rows.length > 0 && typeof rows[0][0] === 'string' &&
+  if (rows.length > 0 && rows[0] && rows[0][0] && typeof rows[0][0] === 'string' &&
       rows[0][0].toLowerCase().replace(/\s/g, '').includes('part')) {
     dataRows = rows.slice(1)
   }
   return dataRows
-    .filter(row => row.some(c => c != null && String(c).trim() !== ''))
+    .filter(row => row && row.some(c => c != null && String(c).trim() !== ''))
     .map(row => ({
       partNumberName: String(row[0] ?? '').trim(),
       description: String(row[1] ?? '').trim() || null,
