@@ -52,6 +52,7 @@ public class InvoiceItemResponse
     public decimal TotalPrice { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public long? QuoteItemId { get; set; }
+    public string? RFQReference { get; set; }
     public string PartNumberName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string? Condition { get; set; }

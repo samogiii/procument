@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260406113231_AddNoQuoteReason")]
+    partial class AddNoQuoteReason
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -987,8 +990,6 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("FinalInvoiceId");
 
-                    b.HasIndex("InvoiceItemId");
-
                     b.HasIndex("PartNumberId");
 
                     b.ToTable("FinalInvoiceItems", (string)null);
@@ -1218,19 +1219,10 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("ActionCategory")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("AffectedColumns")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("ContextData")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("Details")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("EntityDisplayName")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EntityId")
@@ -1251,12 +1243,6 @@ namespace Procument.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OldValues")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("RelatedEntityId")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("RelatedEntityType")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("Timestamp")
@@ -1626,18 +1612,12 @@ namespace Procument.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Procument.Module.Sales.Entities.InvoiceItem", "InvoiceItem")
-                        .WithMany()
-                        .HasForeignKey("InvoiceItemId");
-
                     b.HasOne("Procument.Module.Catalog.Entities.PartNumber", "PartNumber")
                         .WithMany()
                         .HasForeignKey("PartNumberId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("FinalInvoice");
-
-                    b.Navigation("InvoiceItem");
 
                     b.Navigation("PartNumber");
                 });

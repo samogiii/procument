@@ -95,6 +95,19 @@
       {{ item.sentAt ? new Date(item.sentAt).toLocaleString() : '—' }}
     </template>
 
+    <template #item.assignedUsers="{ item }">
+      <div class="d-flex flex-wrap gap-1 py-1">
+        <v-chip
+          v-for="u in item.assignedUsers"
+          :key="u.id"
+          size="x-small"
+          color="indigo"
+          variant="tonal"
+        >{{ u.name }}</v-chip>
+        <span v-if="!item.assignedUsers?.length" class="text-medium-emphasis">—</span>
+      </div>
+    </template>
+
     <template #item.actions="{ item }">
       <v-btn icon="mdi-eye" variant="text" size="small" :to="`/quotes/${item.id}`" />
     </template>
@@ -107,7 +120,7 @@
         <td class="font-weight-bold" style="padding: 10px 12px; font-size: 13px; color: #4ade80;">
           ${{ formatPrice(items.reduce((sum: number, q: any) => sum + (Number(q.totalAmount) || 0), 0)) }}
         </td>
-        <td colspan="4"></td>
+        <td colspan="5"></td>
       </tr>
     </template>
   </DataListPage>
@@ -168,6 +181,12 @@ onMounted(async () => {
     const custSet = new Set<string>()
     items.forEach((q: any) => {
       if (q.userName) userSet.set(q.userName, q.userName)
+      // Also add RFQ assigned users to the user filter options
+      if (q.assignedUsers?.length) {
+        q.assignedUsers.forEach((u: any) => {
+          if (u.name) userSet.set(u.name, u.name)
+        })
+      }
       if (q.customerName) custSet.add(q.customerName)
     })
     users.value = Array.from(userSet.values()).sort()
@@ -181,7 +200,10 @@ const customerOptions = computed(() => customers.value)
 function applyFilters(items: any[]) {
   let result = items
   if (userFilter.value?.length) {
-    result = result.filter((item: any) => userFilter.value.includes(item.userName))
+    result = result.filter((item: any) =>
+      userFilter.value.includes(item.userName) ||
+      item.assignedUsers?.some((u: any) => userFilter.value.includes(u.name))
+    )
   }
   if (customerFilter.value?.length) {
     result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
@@ -206,6 +228,7 @@ const headers = [
   { title: 'Customer', key: 'customerName' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
+  { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
   { title: 'Sent At', key: 'sentAt' },
   { title: 'Created', key: 'createdAt' },
   { title: '', key: 'actions', sortable: false, width: '60px' },

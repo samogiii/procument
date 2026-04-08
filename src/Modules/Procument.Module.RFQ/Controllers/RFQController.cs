@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Procument.Module.Identity.Entities;
+using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.RFQ.Services;
@@ -17,12 +19,14 @@ public class RFQsController : ControllerBase
     private readonly IRFQService _rfqService;
     private readonly IFinalInvoiceLockGuard _lockGuard;
     private readonly DbContext _db;
+    private readonly IAuditService _auditService;
 
-    public RFQsController(IRFQService rfqService, IFinalInvoiceLockGuard lockGuard, DbContext db)
+    public RFQsController(IRFQService rfqService, IFinalInvoiceLockGuard lockGuard, DbContext db, IAuditService auditService)
     {
         _rfqService = rfqService;
         _lockGuard = lockGuard;
         _db = db;
+        _auditService = auditService;
     }
 
     /// <summary>Create a new RFQ. Auto-creates customer and part numbers if they don't exist.</summary>
@@ -103,8 +107,30 @@ public class RFQsController : ControllerBase
         if (await _lockGuard.IsRfqLocked(id))
             return BadRequest(new { message = "This RFQ is locked because a Final Invoice has been created." });
 
-        var success = await _rfqService.UpdateStatusAsync(id, request.Status);
-        return success ? Ok() : NotFound();
+        // Get current RFQ for audit logging
+        var rfq = await _db.Set<RFQHeader>().FindAsync(id);
+        if (rfq == null) return NotFound();
+
+        var oldStatus = rfq.Status;
+        var success = await _rfqService.UpdateStatusAsync(id, request.Status, request.NoQuoteReason);
+
+        if (success)
+        {
+            var (userId, _) = GetUserContext();
+            var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync();
+
+            if (request.Status == "No Quote")
+            {
+                await _auditService.LogRFQNoQuoteAsync(userId, userName, id, rfq.Name, request.NoQuoteReason);
+            }
+            else
+            {
+                await _auditService.LogRFQStatusChangedAsync(userId, userName, id, rfq.Name, oldStatus, request.Status, request.NoQuoteReason);
+            }
+            return Ok();
+        }
+
+        return NotFound();
     }
 
     /// <summary>Update the ExType of an RFQ.</summary>

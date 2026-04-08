@@ -106,8 +106,8 @@
       <PermissionManager :entity-name="'Invoice'" :entity-id="route.params.id as string" />
     </v-dialog>
 
-    <v-dialog v-model="showAudit" max-width="700">
-      <AuditLogViewer :entity-name="'Invoice'" :entity-id="route.params.id as string" />
+    <v-dialog v-model="showAudit" max-width="800">
+      <BusinessAuditViewer entity-name="Invoice" :entity-id="route.params.id as string" />
     </v-dialog>
 
     <!-- Rejection Note Dialog -->

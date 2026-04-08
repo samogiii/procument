@@ -32,6 +32,11 @@ public class FinalInvoiceService : IFinalInvoiceService
             .Include(fi => fi.Customer)
             .Include(fi => fi.ProformaInvoice)
             .Include(fi => fi.Items).ThenInclude(i => i.PartNumber)
+            .Include(fi => fi.Items).ThenInclude(i => i.InvoiceItem)
+                .ThenInclude(ii => ii!.QuoteItem)
+                    .ThenInclude(qi => qi!.RFQItem)
+                        .ThenInclude(ri => ri!.RFQ)
+                            .ThenInclude(r => r!.RFQItems)
             .OrderByDescending(fi => fi.CreatedAt)
             .ToListAsync();
 
@@ -44,6 +49,11 @@ public class FinalInvoiceService : IFinalInvoiceService
             .Include(f => f.Customer)
             .Include(f => f.ProformaInvoice)
             .Include(f => f.Items).ThenInclude(i => i.PartNumber)
+            .Include(f => f.Items).ThenInclude(i => i.InvoiceItem)
+                .ThenInclude(ii => ii!.QuoteItem)
+                    .ThenInclude(qi => qi!.RFQItem)
+                        .ThenInclude(ri => ri!.RFQ)
+                            .ThenInclude(r => r!.RFQItems)
             .FirstOrDefaultAsync(f => f.Id == id);
 
         return fi == null ? null : MapToResponse(fi);
@@ -188,38 +198,53 @@ public class FinalInvoiceService : IFinalInvoiceService
         return true;
     }
 
-    private static FinalInvoiceResponse MapToResponse(FinalInvoice fi) => new()
+    private static FinalInvoiceResponse MapToResponse(FinalInvoice fi)
     {
-        Id = fi.Id,
-        InvoiceNumber = fi.InvoiceNumber,
-        TotalAmount = fi.TotalAmount,
-        Status = fi.Status,
-        ShippingMethod = fi.ShippingMethod,
-        ShippingCost = fi.ShippingCost,
-        Notes = fi.Notes,
-        DueDate = fi.DueDate,
-        PaidDate = fi.PaidDate,
-        CreatedAt = fi.CreatedAt,
-        ProformaInvoiceId = fi.ProformaInvoiceId,
-        ProformaInvoiceNumber = fi.ProformaInvoice?.InvoiceNumber ?? "",
-        CustomerId = fi.CustomerId,
-        CustomerName = fi.Customer?.Name ?? "",
-        CustomerCode = fi.Customer?.CustomerCode,
-        CustomerBillTo = fi.Customer?.BillTo,
-        CustomerShipTo = fi.Customer?.ShipTo,
-        Items = fi.Items.Select(i => new FinalInvoiceItemResponse
+        var rfqItemRank = fi.Items
+            .Select(i => i.InvoiceItem?.QuoteItem?.RFQItem?.RFQ)
+            .Where(r => r != null)
+            .SelectMany(r => r!.RFQItems)
+            .DistinctBy(ri => ri.Id)
+            .OrderBy(ri => ri.Id)
+            .Select((ri, idx) => new { ri.Id, rank = idx + 1 })
+            .ToDictionary(x => x.Id, x => x.rank);
+
+        return new()
         {
-            Id = i.Id,
-            Qty = i.Qty,
-            UnitPrice = i.UnitPrice,
-            TotalPrice = i.TotalPrice,
-            Condition = i.Condition,
-            CertName = i.CertName,
-            TrackNumber = i.TrackNumber,
-            Carrier = i.Carrier,
-            PartNumberId = i.PartNumberId,
-            PartNumberName = i.PartNumber?.Name ?? "",
-            Description = i.PartNumber?.Description,
-        }).ToList()
-    };
+            Id = fi.Id,
+            InvoiceNumber = fi.InvoiceNumber,
+            TotalAmount = fi.TotalAmount,
+            Status = fi.Status,
+            ShippingMethod = fi.ShippingMethod,
+            ShippingCost = fi.ShippingCost,
+            Notes = fi.Notes,
+            DueDate = fi.DueDate,
+            PaidDate = fi.PaidDate,
+            CreatedAt = fi.CreatedAt,
+            ProformaInvoiceId = fi.ProformaInvoiceId,
+            ProformaInvoiceNumber = fi.ProformaInvoice?.InvoiceNumber ?? "",
+            CustomerId = fi.CustomerId,
+            CustomerName = fi.Customer?.Name ?? "",
+            CustomerCode = fi.Customer?.CustomerCode,
+            CustomerBillTo = fi.Customer?.BillTo,
+            CustomerShipTo = fi.Customer?.ShipTo,
+            Items = fi.Items.Select(i => new FinalInvoiceItemResponse
+            {
+                Id = i.Id,
+                Qty = i.Qty,
+                UnitPrice = i.UnitPrice,
+                TotalPrice = i.TotalPrice,
+                Condition = i.Condition,
+                CertName = i.CertName,
+                TrackNumber = i.TrackNumber,
+                Carrier = i.Carrier,
+                PartNumberId = i.PartNumberId,
+                RFQReference = i.InvoiceItem?.QuoteItem?.RFQItemId.HasValue == true &&
+                               rfqItemRank.TryGetValue(i.InvoiceItem.QuoteItem.RFQItemId!.Value, out var rank)
+                               ? rank.ToString() : null,
+                PartNumberName = i.PartNumber?.Name ?? "",
+                Description = i.PartNumber?.Description,
+            }).ToList()
+        };
+    }
 }

@@ -12,6 +12,7 @@ public class RFQHeader : BaseEntity
     public DateTime CreatedAt { get; set; }
     public DateTime? ModifyAt { get; set; }
     public string? Notes { get; set; }
+    public string? NoQuoteReason { get; set; }
     public int? ExType { get; set; }
 
     // Foreign keys

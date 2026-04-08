@@ -303,6 +303,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             ProcumentId = i.ProcumentId,
             PartNumberId = i.PartNumberId,
             PartNumberName = i.PartNumber?.Name ?? "",
+            Description = i.PartNumber?.Description,
             Qty = i.Qty,
             UnitPrice = i.UnitPrice,
             TotalPrice = i.TotalPrice,

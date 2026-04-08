@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — {{ invoice.invoiceNumber }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — INV-{{ invoice.id }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
@@ -29,10 +29,17 @@
           <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="bankAccount" label="Bank Account Number" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="bankCityCountry" label="Bank City / Country" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="2"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="bankAccount" label="Account Number" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
         </v-row>
       </v-container>
 
@@ -101,10 +108,18 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
+    companyTerms.value = preset.termsAndConditions || ''
   }
 })
 
-watch(model, (open) => { if (open) loadPresets() })
+watch(model, (open) => {
+  if (open) {
+    loadPresets()
+    // Pre-fill address fields from invoice data
+    billTo.value = props.invoice?.customerBillTo || ''
+    shipTo.value = props.invoice?.customerShipTo || props.invoice?.customerBillTo || ''
+  }
+})
 
 const companyName = ref('')
 const companyLocation = ref('')
@@ -119,10 +134,15 @@ const shippingAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
+const billTo = ref('')
+const shipTo = ref('')
+const companyTerms = ref('')
+const beneficiaryName = ref('')
+const beneficiaryAddress = ref('')
 const bankName = ref('')
-const bankAccount = ref('')
 const bankAddress = ref('')
-const bankCityCountry = ref('')
+const bankAccount = ref('')
+const swiftCode = ref('')
 
 function hexToRgb(hex: string) {
   const h = hex.replace('#', '')
@@ -148,7 +168,7 @@ const fmt = (n: number) => formatPrice(n)
 
 const renderedHtml = computed(() => {
   const inv = props.invoice
-  if (!inv.invoiceNumber) return ''
+  if (!inv.id) return ''
 
   const items: any[] = inv.items || []
   const logo = logoDataUrl.value
@@ -168,17 +188,19 @@ const renderedHtml = computed(() => {
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : rowEven
     return `
-    <tr style="background:${bg};">\n      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>\n      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.partNumberName || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.expectedDeliveryDate ? new Date(it.expectedDeliveryDate).toLocaleDateString() : ''}</td>\n    </tr>`
+    <tr style="background:${bg};">\n      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>\n      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.partNumberName || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.expectedDeliveryDate ? new Date(it.expectedDeliveryDate).toLocaleDateString() : ''}</td>\n    </tr>`
   }).join('')
 
-  const hasBankDetails = bankName.value || bankAccount.value || bankAddress.value
+  const hasBankDetails = beneficiaryName.value || bankName.value || bankAccount.value || swiftCode.value
   const bankSection = hasBankDetails ? `
     <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px; max-width:320px;">
-      <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:6px;">Bank Details</div>
-      ${bankName.value ? `<div style="font-size:10.5px; color:${primary};"><span style="font-weight:600;">Bank:</span> ${bankName.value}</div>` : ''}
-      ${bankAccount.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Account:</span> ${bankAccount.value}</div>` : ''}
-      ${bankAddress.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Address:</span> ${bankAddress.value}</div>` : ''}
-      ${bankCityCountry.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">City/Country:</span> ${bankCityCountry.value}</div>` : ''}
+      <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:6px;">Bank Information</div>
+      ${beneficiaryName.value ? `<div style="font-size:10.5px; color:${primary};"><span style="font-weight:600;">Beneficiary Name:</span> ${beneficiaryName.value}</div>` : ''}
+      ${beneficiaryAddress.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Beneficiary Address:</span> ${beneficiaryAddress.value}</div>` : ''}
+      ${bankName.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Bank Name:</span> ${bankName.value}</div>` : ''}
+      ${bankAddress.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Bank Address:</span> ${bankAddress.value}</div>` : ''}
+      ${bankAccount.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">Account Number:</span> ${bankAccount.value}</div>` : ''}
+      ${swiftCode.value ? `<div style="font-size:10.5px; color:${primary}; margin-top:2px;"><span style="font-weight:600;">SWIFT Code:</span> ${swiftCode.value}</div>` : ''}
     </div>
   ` : ''
 
@@ -201,7 +223,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="text-align:right;">
           <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">PROFORMA INVOICE</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${inv.invoiceNumber}</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:4px;">INV-${inv.id}</div>
         </div>
       </div>
 
@@ -221,12 +243,12 @@ const renderedHtml = computed(() => {
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Bill To</div>
           <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
-          ${inv.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${inv.customerBillTo}</div>` : ''}
+          ${(billTo.value || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${billTo.value || inv.customerBillTo}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Ship To</div>
           <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
-          ${inv.customerShipTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${inv.customerShipTo}</div>` : (inv.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${inv.customerBillTo}</div>` : '')}
+          ${(shipTo.value || inv.customerShipTo || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${shipTo.value || inv.customerShipTo || inv.customerBillTo}</div>` : ''}
         </div>
       </div>
 
@@ -235,6 +257,7 @@ const renderedHtml = computed(() => {
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
             <tr style="background:${primary};">
+              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:32px;">Ref</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">#</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
@@ -270,6 +293,13 @@ const renderedHtml = computed(() => {
         <div style="font-size:11px; color:#4b5563; white-space:pre-wrap; line-height:1.5;">${comments.value || 'No Comments'}</div>
       </div>
 
+      <!-- Terms & Conditions -->
+      ${companyTerms.value ? `
+      <div style="margin:0 40px 16px 40px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
+        <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:5px;">Terms &amp; Conditions</div>
+        <div style="font-size:10px; color:#4b5563; white-space:pre-wrap; line-height:1.6;">${companyTerms.value}</div>
+      </div>` : ''}
+
       <!-- Footer -->
       <div style="margin-top:auto; padding:16px 40px; border-top:2px solid ${primary}; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:10px; color:#6b7280;">${footerText.value}</span>
@@ -281,17 +311,73 @@ const renderedHtml = computed(() => {
 
 const pdfContent = ref<HTMLElement | null>(null)
 async function downloadPdf() {
-  if (!pdfContent.value) return
   generating.value = true
   try {
-    const html2pdf = (await import('html2pdf.js')).default
-    await html2pdf().set({
-      margin: 0,
-      filename: `${props.invoice.invoiceNumber || 'Invoice'}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    }).from(pdfContent.value).save()
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const inv = props.invoice
+    const items: any[] = inv.items || []
+
+    const payload = {
+      companyName: companyName.value,
+      companyLocation: companyLocation.value,
+      companyPhone: companyPhone.value,
+      companyWebsite: companyWebsite.value,
+      companyEmail: companyEmail.value,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      invoiceNumber: `INV-${inv.id}`,
+      invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
+      dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
+      status: inv.status || '—',
+      currency: currency.value,
+      currencySymbol: '$',
+      customerName: inv.customerName || '—',
+      customerBillTo: billTo.value || inv.customerBillTo || null,
+      customerShipTo: shipTo.value || inv.customerShipTo || inv.customerBillTo || null,
+      beneficiaryName: beneficiaryName.value || null,
+      beneficiaryAddress: beneficiaryAddress.value || null,
+      bankName: bankName.value || null,
+      bankAddress: bankAddress.value || null,
+      bankAccount: bankAccount.value || null,
+      swiftCode: swiftCode.value || null,
+      items: items.map((it: any) => ({
+        rfqReference: it.rfqReference || null,
+        partNumberName: it.partNumberName || null,
+        description: it.description || null,
+        qty: it.qty || 0,
+        condition: it.condition || null,
+        certName: it.certName || null,
+        unitPrice: Number(it.unitPrice) || 0,
+        totalPrice: Number(it.totalPrice) || 0,
+        deliveryDate: it.expectedDeliveryDate
+          ? new Date(it.expectedDeliveryDate).toLocaleDateString()
+          : null,
+      })),
+      subtotal: Number(inv.totalAmount) || 0,
+      tax: taxAmount.value || 0,
+      shipping: shippingAmount.value || 0,
+      other: otherAmount.value || 0,
+      comments: comments.value || null,
+      terms: companyTerms.value || null,
+      footerText: footerText.value || null,
+    }
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/invoice`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `INV-${inv.id}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

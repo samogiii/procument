@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Procument.API.Pdf;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -11,6 +12,44 @@ namespace Procument.API.Controllers;
 [Authorize]
 public class PdfController : ControllerBase
 {
+    // ─── Proforma Invoice ───────────────────────────────
+    [HttpPost("invoice")]
+    public IActionResult GenerateInvoice([FromBody] InvoicePdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = InvoiceDocument.Generate(req);
+        return File(pdf, "application/pdf", $"{req.InvoiceNumber ?? "Invoice"}.pdf");
+    }
+
+    // ─── Purchase Order ──────────────────────────────────
+    [HttpPost("po")]
+    public IActionResult GeneratePo([FromBody] PurchaseOrderPdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = PurchaseOrderDocument.Generate(req);
+        return File(pdf, "application/pdf", $"{req.PoNumber ?? "PO"}.pdf");
+    }
+
+    // ─── Final Invoice ───────────────────────────────────
+    [HttpPost("final-invoice")]
+    public IActionResult GenerateFinalInvoice([FromBody] FinalInvoicePdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = FinalInvoiceDocument.Generate(req);
+        return File(pdf, "application/pdf", $"{req.InvoiceNumber ?? "FinalInvoice"}.pdf");
+    }
+
+    // ─── RFQ ─────────────────────────────────────────────
+    [HttpPost("rfq")]
+    public IActionResult GenerateRfq([FromBody] RfqPdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = RfqDocument.Generate(req);
+        var name = req.RfqName ?? (req.RfqId.HasValue ? $"RFQ_{req.RfqId}" : "RFQ");
+        return File(pdf, "application/pdf", $"{name}.pdf");
+    }
+
+    // ─── Quote (existing) ────────────────────────────────
     [HttpPost("generate")]
     public IActionResult Generate([FromBody] QuotePdfRequest req)
     {
@@ -101,7 +140,7 @@ public class PdfController : ControllerBase
             {
                 void Meta(string label, string? value)
                 {
-                    row.RelativeItem().AlignCenter().Text(t =>
+                    row.RelativeItem().AlignLeft().Text(t =>
                     {
                         t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
                         t.Span(value ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);

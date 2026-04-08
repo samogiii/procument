@@ -19,7 +19,7 @@ public interface IRFQService
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
-    Task<bool> UpdateStatusAsync(long rfqId, string status);
+    Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null);
     Task<bool> UpdateNotesAsync(long rfqId, string? notes);
     Task<string> DeleteRFQItem(long id);
 }
@@ -403,11 +403,12 @@ public class RFQService : IRFQService
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long rfqId, string status)
+    public async Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
         if (rfq == null) return false;
         rfq.Status = status;
+        rfq.NoQuoteReason = status == "No Quote" ? noQuoteReason : null;
         await _db.SaveChangesAsync();
         return true;
     }
@@ -436,6 +437,7 @@ public class RFQService : IRFQService
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,
         Notes = rfq.Notes,
+        NoQuoteReason = rfq.NoQuoteReason,
         ExType = rfq.ExType,
         Items = rfq.RFQItems.Select(i => new RFQItemResponse
         {

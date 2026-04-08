@@ -21,4 +21,5 @@ public class FinalInvoiceItem : BaseEntity
     // Navigation
     public FinalInvoice FinalInvoice { get; set; } = null!;
     public PartNumber? PartNumber { get; set; }
+    public InvoiceItem? InvoiceItem { get; set; }
 }

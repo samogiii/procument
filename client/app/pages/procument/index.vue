@@ -471,15 +471,29 @@
                                   <v-icon icon="mdi-wrench" size="14" class="mr-1" />
                                   Shop Records ({{ (quote.shopRecords || []).length }})
                                 </span>
-                                <v-btn
-                                  size="x-small"
-                                  color="warning"
-                                  variant="flat"
-                                  prepend-icon="mdi-plus"
-                                  @click.stop="addShopRow(item, quote)"
-                                >
-                                  Add Shop
-                                </v-btn>
+                                <div class="d-flex align-center gap-2">
+                                  <v-btn
+                                    v-for="otherQ in getOtherARQuotesWithShops(item, quote)"
+                                    :key="otherQ.id"
+                                    size="x-small"
+                                    color="info"
+                                    variant="tonal"
+                                    prepend-icon="mdi-content-copy"
+                                    @click.stop="copyShopsFrom(item, quote, otherQ)"
+                                    :title="`Copy all shops from ${otherQ.supplierName}`"
+                                  >
+                                    Copy from {{ otherQ.supplierName }}
+                                  </v-btn>
+                                  <v-btn
+                                    size="x-small"
+                                    color="warning"
+                                    variant="flat"
+                                    prepend-icon="mdi-plus"
+                                    @click.stop="addShopRow(item, quote)"
+                                  >
+                                    Add Shop
+                                  </v-btn>
+                                </div>
                               </div>
                               <table class="quote-grid" v-if="(quote.shopRecords || []).length > 0" style="width: 100%; border-collapse: collapse;">
                                 <thead>
@@ -1082,6 +1096,31 @@ function focusField(key: string) {
 // ── Shop Records (AR condition) ──
 const expandedShops = ref<Set<string>>(new Set())
 
+/** Returns other AR quotes for the same RFQ item that already have shop records */
+function getOtherARQuotesWithShops(item: any, currentQuote: any) {
+  return (editableQuotes.value[item.rfqItemId] || []).filter(
+    (q: any) => q.condition === 'AR' && q.id !== currentQuote.id && (q.shopRecords || []).length > 0
+  )
+}
+
+/** Copies all shop records from sourceQuote into targetQuote (IDs cleared so they'll be saved as new) */
+function copyShopsFrom(item: any, targetQuote: any, sourceQuote: any) {
+  if (!targetQuote.shopRecords) targetQuote.shopRecords = []
+  const copies = (sourceQuote.shopRecords || []).map((s: any) => ({
+    ...s,
+    id: null,
+    _saving: false,
+    parentProcumentId: targetQuote.id,
+    rfqItemId: item.rfqItemId,
+  }))
+  targetQuote.shopRecords.push(...copies)
+  // Auto-expand so user sees the pasted rows
+  const key = `${targetQuote.id}-${item.rfqItemId}`
+  expandedShops.value.add(key)
+  expandedShops.value = new Set(expandedShops.value)
+  showSnack(`Copied ${copies.length} shop record${copies.length !== 1 ? 's' : ''} from ${sourceQuote.supplierName}`, 'info')
+}
+
 function toggleShop(quoteId: number, rfqItemId: number) {
   const key = `${quoteId}-${rfqItemId}`
   if (expandedShops.value.has(key)) {
@@ -1102,11 +1141,11 @@ function addShopRow(item: any, parentQuote: any) {
     id: null,
     rfqItemId: item.rfqItemId,
     supplierName: '',
-    qty: item.qty || 1,
-    price: 0,
+    qty: parentQuote.qty || item.qty || 1,
+    price: parentQuote.price || 0,
     fixPrice: null,
     condition: 'IN',
-    alt: '',
+    alt: parentQuote.alt || '',
     certName: '',
     tagDate: '',
     shippingCost: null,

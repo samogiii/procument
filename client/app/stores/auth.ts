@@ -37,6 +37,7 @@ export const useAuthStore = defineStore('auth', {
             return !!this.user?.token && !this.isTokenExpired
         },
         isAdmin: (state) => state.user?.role === 'Admin',
+        isAmir: (state) => state.user?.name === 'AMJ',
         userInitials: (state) => {
             if (!state.user?.name) return '?'
             return state.user.name

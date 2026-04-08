@@ -23,7 +23,9 @@
       "Bash(powershell -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src''; dotnet build --no-restore -v quiet 2>&1 | Select-String ''error|Build succeeded|FAILED'' | Select-Object -Last 6 | ForEach-Object { $_Line }\")",
       "Bash(powershell -Command \"Get-Process -Name ''Procument.API'' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Write-Host ''Done''\")",
       "Bash(powershell -Command \"Get-Process -Name ''Procument.API'' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Write-Host ''Stopped''\")",
-      "Bash(powershell -Command \"Start-Process -FilePath ''dotnet'' -ArgumentList ''run --project C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Procument.API\\\\Procument.API.csproj --no-build'' -WindowStyle Hidden; Start-Sleep -Seconds 3; Write-Host ''API restarted''\")"
+      "Bash(powershell -Command \"Start-Process -FilePath ''dotnet'' -ArgumentList ''run --project C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Procument.API\\\\Procument.API.csproj --no-build'' -WindowStyle Hidden; Start-Sleep -Seconds 3; Write-Host ''API restarted''\")",
+      "Bash(grep -r supplier-quotes C:UsersSamDesktopProjectsprocument/src --include=*.cs)",
+      "Bash(dotnet ef:*)"
     ]
   }
 }

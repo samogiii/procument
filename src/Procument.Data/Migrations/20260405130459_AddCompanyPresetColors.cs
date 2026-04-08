@@ -10,21 +10,17 @@ namespace Procument.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "PrimaryColor",
-                table: "CompanyPresets",
-                type: "nvarchar(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "#1a2744");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('CompanyPresets', 'PrimaryColor') IS NULL
+                BEGIN
+                    ALTER TABLE [CompanyPresets] ADD [PrimaryColor] nvarchar(20) NOT NULL DEFAULT N'#1a2744';
+                END");
 
-            migrationBuilder.AddColumn<string>(
-                name: "AccentColor",
-                table: "CompanyPresets",
-                type: "nvarchar(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "#2563eb");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('CompanyPresets', 'AccentColor') IS NULL
+                BEGIN
+                    ALTER TABLE [CompanyPresets] ADD [AccentColor] nvarchar(20) NOT NULL DEFAULT N'#2563eb';
+                END");
         }
 
         /// <inheritdoc />

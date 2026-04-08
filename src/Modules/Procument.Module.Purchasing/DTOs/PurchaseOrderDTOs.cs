@@ -50,6 +50,7 @@ public class POItemResponse
     public long? ProcumentId { get; set; }
     public long? PartNumberId { get; set; }
     public string? PartNumberName { get; set; }
+    public string? Description { get; set; }
     public int Qty { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }

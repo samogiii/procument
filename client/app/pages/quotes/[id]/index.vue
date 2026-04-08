@@ -289,8 +289,8 @@
       <PermissionManager :entity-name="'Quote'" :entity-id="route.params.id as string" />
     </v-dialog>
 
-    <v-dialog v-model="showAudit" max-width="700">
-      <AuditLogViewer :entity-name="'Quote'" :entity-id="route.params.id as string" />
+    <v-dialog v-model="showAudit" max-width="800">
+      <BusinessAuditViewer entity-name="Quote" :entity-id="route.params.id as string" />
     </v-dialog>
 
     <QuotePdfGenerator v-model="showPdf" :quote="quote" />

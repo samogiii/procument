@@ -25,9 +25,29 @@ public class AuditController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<AuditLog>>> GetAllLogs([FromQuery] int limit = 100)
+    public async Task<ActionResult<List<AuditLog>>> GetAllLogs(
+        [FromQuery] string? entityName = null,
+        [FromQuery] string? entityId = null,
+        [FromQuery] string? actionCategory = null,
+        [FromQuery] int limit = 50000)
     {
-        var logs = await _auditService.GetAllLogsAsync(limit);
-        return Ok(logs);
+        try
+        {
+            // If specific entity filtering is requested, use GetBusinessLogsAsync
+            // Note: actionCategory filter only works if migration has been applied
+            if (!string.IsNullOrEmpty(entityName) || !string.IsNullOrEmpty(entityId))
+            {
+                var logs = await _auditService.GetBusinessLogsAsync(entityName, entityId, actionCategory, limit);
+                return Ok(logs);
+            }
+
+            // Otherwise get all logs
+            var allLogs = await _auditService.GetAllLogsAsync(limit);
+            return Ok(allLogs);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Failed to retrieve audit logs", error = ex.Message });
+        }
     }
 }

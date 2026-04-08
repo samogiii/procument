@@ -33,6 +33,7 @@ public class FinalInvoiceItemResponse
     public string? TrackNumber { get; set; }
     public string? Carrier { get; set; }
     public long? PartNumberId { get; set; }
+    public string? RFQReference { get; set; }
     public string PartNumberName { get; set; } = "";
     public string? Description { get; set; }
 }

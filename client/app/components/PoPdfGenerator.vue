@@ -11,21 +11,22 @@
       <!-- Controls -->
       <v-container fluid class="flex-shrink-0 py-4">
         <v-row dense align="center">
+          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyLocation" label="Location" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="6"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
-          <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
+          <v-col cols="12" md="4"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
       </v-container>
 
@@ -46,11 +47,56 @@ const props = defineProps<{ poId: number | string }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
 
+// ── Presets ──
+const apiPresets = ref<any[]>([])
+const presetsLoading = ref(false)
+const selectedPreset = ref<string>('Custom')
+
+async function loadPresets() {
+  presetsLoading.value = true
+  try { apiPresets.value = await api.get<any[]>('/companypresets') }
+  catch { apiPresets.value = [] }
+  finally { presetsLoading.value = false }
+}
+
+const companyPresetOptions = computed(() => [
+  ...apiPresets.value.map((p: any) => p.name),
+  'Custom',
+])
+
+const theme = computed(() => {
+  const preset = apiPresets.value.find((p: any) => p.name === selectedPreset.value)
+  return {
+    primary: preset?.primaryColor || '#1a2744',
+    accent:  preset?.accentColor  || '#2563eb',
+  }
+})
+
+watch(apiPresets, (presets) => {
+  if (!presets.length) return
+  if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
+})
+
+watch(selectedPreset, (val) => {
+  const preset = apiPresets.value.find((p: any) => p.name === val)
+  if (preset) {
+    companyName.value = preset.name
+    companyLocation.value = preset.location || ''
+    companyPhone.value = preset.phone || ''
+    companyWebsite.value = preset.website || ''
+    companyEmail.value = preset.email || ''
+    logoDataUrl.value = preset.logoBase64
+      ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
+      : ''
+    companyTerms.value = preset.termsAndConditions || ''
+  }
+})
+
 const companyName = ref('Your Company Name')
-const companyLocation = ref('Selangor, Malaysia')
-const companyPhone = ref('+86 130 0214 1119')
-const companyWebsite = ref('www.company.com')
-const companyEmail = ref('info@company.com')
+const companyLocation = ref('')
+const companyPhone = ref('')
+const companyWebsite = ref('')
+const companyEmail = ref('')
 const footerText = ref('If you have any questions about this purchase order, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
@@ -60,6 +106,7 @@ const taxAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
+const companyTerms = ref('')
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
@@ -70,14 +117,17 @@ function onLogoUpload(files: File[] | File | null) {
 }
 
 watch(model, async (open) => {
-  if (open && !pdfData.value.poNumber) {
-    loadingData.value = true
-    try {
-      const data = await api.get<any>(`/purchase-orders/${props.poId}/pdf-data`)
-      pdfData.value = data
-      if (data.importDetail?.comments) comments.value = data.importDetail.comments
-    } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
-    finally { loadingData.value = false }
+  if (open) {
+    loadPresets()
+    if (!pdfData.value.poNumber) {
+      loadingData.value = true
+      try {
+        const data = await api.get<any>(`/purchase-orders/${props.poId}/pdf-data`)
+        pdfData.value = data
+        if (data.importDetail?.comments) comments.value = data.importDetail.comments
+      } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
+      finally { loadingData.value = false }
+    }
   }
 })
 
@@ -178,8 +228,8 @@ const renderedHtml = computed(() => {
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">Qty</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">CD</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Cert</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Buy Price</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Amount</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Note</th>
             </tr>
           </thead>
@@ -217,6 +267,13 @@ const renderedHtml = computed(() => {
         <div style="font-size:11px; color:#4b5563; white-space:pre-wrap; line-height:1.5;">${comments.value || 'No Comments'}</div>
       </div>
 
+      <!-- ═══ Terms & Conditions ═══ -->
+      ${companyTerms.value ? `
+      <div style="margin:0 40px 16px 40px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
+        <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:5px;">Terms &amp; Conditions</div>
+        <div style="font-size:10px; color:#4b5563; white-space:pre-wrap; line-height:1.6;">${companyTerms.value}</div>
+      </div>` : ''}
+
       <!-- ═══ Footer ═══ -->
       <div style="margin-top:auto; padding:16px 40px; border-top:2px solid #1a2744; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:10px; color:#6b7280;">${footerText.value}</span>
@@ -228,17 +285,78 @@ const renderedHtml = computed(() => {
 
 const pdfContent = ref<HTMLElement | null>(null)
 async function downloadPdf() {
-  if (!pdfContent.value) return
   generating.value = true
   try {
-    const html2pdf = (await import('html2pdf.js')).default
-    await html2pdf().set({
-      margin: 0,
-      filename: `${pdfData.value.poNumber || 'PO'}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    }).from(pdfContent.value).save()
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const d = pdfData.value
+    const items: any[] = d.items || []
+    const vendor = d.vendor || {}
+    const deliver = d.deliverTo || {}
+    const importDtl = d.importDetail || {}
+    const totalShipping = items.reduce((s: number, it: any) => s + (Number(it.shippingCost) || 0), 0)
+
+    const payload = {
+      companyName: companyName.value,
+      companyLocation: companyLocation.value,
+      companyPhone: companyPhone.value,
+      companyWebsite: companyWebsite.value,
+      companyEmail: companyEmail.value,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      poNumber: d.poNumber || '',
+      poDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
+      orderedBy: d.orderedBy || '—',
+      status: d.status || '—',
+      currency: currency.value,
+      currencySymbol: '$',
+      vendorName: vendor.name || null,
+      vendorAddress: vendor.address || null,
+      vendorPhone: vendor.phone || null,
+      vendorEmail: vendor.email || null,
+      deliverToName: deliver.name || null,
+      deliverToAddress: deliver.address || null,
+      deliverToPhone: deliver.phone || null,
+      deliverToEmail: deliver.email || null,
+      shippingMethod: importDtl.shippingMethod || null,
+      incoterms: importDtl.incoterms || null,
+      fedExAccount: importDtl.fedExAccount || null,
+      servicePriority: importDtl.servicePriority || null,
+      items: items.map((it: any) => ({
+        partNumber: it.partNumber || null,
+        description: it.description || null,
+        qty: it.qty || 0,
+        condition: it.condition || null,
+        certification: it.certification || null,
+        unitPrice: Number(it.unitPrice) || 0,
+        totalPrice: Number(it.totalPrice) || 0,
+        shippingCost: Number(it.shippingCost) || 0,
+        note: it.note || null,
+      })),
+      subtotal: Number(d.totalAmount) || 0,
+      tax: taxAmount.value || 0,
+      totalShipping,
+      other: otherAmount.value || 0,
+      comments: comments.value || null,
+      terms: companyTerms.value || null,
+      footerText: footerText.value || null,
+    }
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/po`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `${d.poNumber || 'PO'}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

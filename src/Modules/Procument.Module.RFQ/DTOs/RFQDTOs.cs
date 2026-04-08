@@ -31,6 +31,7 @@ public class UpdateRFQItemRequest
 public class UpdateStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public string? NoQuoteReason { get; set; }
 }
 
 public class UpdateExTypeRequest
@@ -71,6 +72,7 @@ public class RFQResponse
     public string? UserName { get; set; }
     public long? UserId { get; set; }
     public string? Notes { get; set; }
+    public string? NoQuoteReason { get; set; }
     public int? ExType { get; set; }
 
     public bool IsUnread { get; set; }

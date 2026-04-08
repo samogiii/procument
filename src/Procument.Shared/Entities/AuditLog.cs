@@ -17,4 +17,11 @@ public class AuditLog : BaseEntity
     public string? OldValues { get; set; }      // JSON
     public string? NewValues { get; set; }      // JSON
     public string? AffectedColumns { get; set; } // JSON array or comma-separated
+    public string? ContextData { get; set; }    // JSON for additional context
+
+    // Business audit fields for human-readable display
+    public string? ActionCategory { get; set; }  // Creation, StatusChange, Update, ItemChange, Deletion
+    public string? EntityDisplayName { get; set; }  // e.g., "RFQ #123" instead of just "RFQ"
+    public string? RelatedEntityId { get; set; }  // Related entity ID (e.g., Quote ID for an RFQ status change)
+    public string? RelatedEntityType { get; set; }  // Related entity type
 }

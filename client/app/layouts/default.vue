@@ -58,6 +58,14 @@
             active-color="primary"
             @click="mobile ? drawer = false : undefined"
           />
+          <v-list-item
+            to="/admin/audit"
+            prepend-icon="mdi-timeline-clock-outline"
+            title="System Activity"
+            rounded="lg"
+            active-color="primary"
+            @click="mobile ? drawer = false : undefined"
+          />
         </template>
       </v-list>
 

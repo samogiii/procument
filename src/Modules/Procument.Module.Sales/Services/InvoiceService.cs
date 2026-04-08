@@ -68,10 +68,15 @@ public class InvoiceService : IInvoiceService
             .Include(i => i.Quote)
             .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.QuoteItem)
-                .ThenInclude(qi => qi!.PartNumber)
+                    .ThenInclude(qi => qi!.PartNumber)
             .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.QuoteItem)
-                .ThenInclude(qi => qi!.ProcumentRecord)
+                    .ThenInclude(qi => qi!.ProcumentRecord)
+            .Include(i => i.InvoiceItems)
+                .ThenInclude(ii => ii.QuoteItem)
+                    .ThenInclude(qi => qi!.RFQItem)
+                        .ThenInclude(ri => ri!.RFQ)
+                            .ThenInclude(r => r!.RFQItems)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (invoice == null) return null;
@@ -96,10 +101,6 @@ public class InvoiceService : IInvoiceService
 
         if (quote == null) throw new KeyNotFoundException("Quote not found");
 
-        // Generate Invoice #
-        var count = await _db.Set<Invoice>().CountAsync() + 1;
-        var invoiceNumber = $"INV-{count:D5}";
-
         var invoiceItems = new List<InvoiceItem>();
         decimal totalAmount = 0;
 
@@ -123,7 +124,7 @@ public class InvoiceService : IInvoiceService
 
         var invoice = new Invoice
         {
-            InvoiceNumber = invoiceNumber,
+            InvoiceNumber = "",
             QuoteId = request.QuoteId,
             CustomerId = quote.CustomerId,
             TotalAmount = totalAmount,
@@ -134,6 +135,10 @@ public class InvoiceService : IInvoiceService
         };
 
         _db.Set<Invoice>().Add(invoice);
+        await _db.SaveChangesAsync();
+
+        // Set InvoiceNumber to INV-{Id} now that the Id is assigned
+        invoice.InvoiceNumber = $"INV-{invoice.Id}";
         await _db.SaveChangesAsync();
 
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
@@ -189,9 +194,9 @@ public class InvoiceService : IInvoiceService
                     supplierId = proc?.SupplierId;
                 }
 
-                // Use supplier's cost price from ProcumentRecord, fallback to invoice price
-                var costUnitPrice = (proc?.UnitPrice.HasValue == true)
-                    ? (decimal)proc.UnitPrice.Value
+                // Use supplier's buy price from ProcumentRecord, fallback to invoice price
+                var costUnitPrice = (proc?.Price > 0)
+                    ? (decimal)proc.Price
                     : ii.UnitPrice;
 
                 var poItem = new POItem
@@ -225,36 +230,52 @@ public class InvoiceService : IInvoiceService
         return true;
     }
 
-    private static InvoiceResponse MapToResponse(Invoice i) => new()
+    private static InvoiceResponse MapToResponse(Invoice i)
     {
-        Id = i.Id,
-        InvoiceNumber = i.InvoiceNumber,
-        TotalAmount = i.TotalAmount,
-        Status = i.Status,
-        DueDate = i.DueDate,
-        PaidDate = i.PaidDate,
-        CreatedAt = i.CreatedAt,
-        QuoteId = i.QuoteId,
-        CustomerId = i.CustomerId,
-        CustomerName = i.Customer?.Name ?? "",
-        CustomerCode = i.Customer?.CustomerCode,
-        CustomerBillTo = i.Customer?.BillTo,
-        CustomerShipTo = i.Customer?.ShipTo,
-        RejectionNote = i.RejectionNote,
-        Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
+        // Build rank map from the full ordered RFQ item list (same logic as QuoteService)
+        var rfqItemRank = i.InvoiceItems?
+            .Select(ii => ii.QuoteItem?.RFQItem?.RFQ)
+            .Where(r => r != null)
+            .SelectMany(r => r!.RFQItems)
+            .DistinctBy(ri => ri.Id)
+            .OrderBy(ri => ri.Id)
+            .Select((ri, idx) => new { ri.Id, rank = idx + 1 })
+            .ToDictionary(x => x.Id, x => x.rank) ?? new();
+
+        return new()
         {
-            Id = ii.Id,
-            Qty = ii.Qty,
-            UnitPrice = ii.UnitPrice,
-            TotalPrice = ii.TotalPrice,
-            ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
-            QuoteItemId = ii.QuoteItemId,
-            PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
-            Description = ii.QuoteItem?.PartNumber?.Description ?? "",
-            Condition = ii.QuoteItem?.Condition,
-            CertName = ii.QuoteItem?.ProcumentRecord?.CertName
-        }).ToList() ?? new()
-    };
+            Id = i.Id,
+            InvoiceNumber = i.InvoiceNumber,
+            TotalAmount = i.TotalAmount,
+            Status = i.Status,
+            DueDate = i.DueDate,
+            PaidDate = i.PaidDate,
+            CreatedAt = i.CreatedAt,
+            QuoteId = i.QuoteId,
+            CustomerId = i.CustomerId,
+            CustomerName = i.Customer?.Name ?? "",
+            CustomerCode = i.Customer?.CustomerCode,
+            CustomerBillTo = i.Customer?.BillTo,
+            CustomerShipTo = i.Customer?.ShipTo,
+            RejectionNote = i.RejectionNote,
+            Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
+            {
+                Id = ii.Id,
+                Qty = ii.Qty,
+                UnitPrice = ii.UnitPrice,
+                TotalPrice = ii.TotalPrice,
+                ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
+                QuoteItemId = ii.QuoteItemId,
+                RFQReference = ii.QuoteItem?.RFQItemId.HasValue == true &&
+                               rfqItemRank.TryGetValue(ii.QuoteItem.RFQItemId!.Value, out var rank)
+                               ? rank.ToString() : null,
+                PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
+                Description = ii.QuoteItem?.PartNumber?.Description ?? "",
+                Condition = ii.QuoteItem?.Condition,
+                CertName = ii.QuoteItem?.ProcumentRecord?.CertName
+            }).ToList() ?? new()
+        };
+    }
 
     public async Task<bool> GrantPermissionsAsync(List<long> invoiceIds, long targetUserId, string permission)
     {

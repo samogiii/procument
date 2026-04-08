@@ -266,10 +266,16 @@
           <v-chip v-if="rfq.status === 'No Quote'" color="deep-purple" variant="tonal" size="small" prepend-icon="mdi-cancel">
             No Quote
           </v-chip>
+          <v-tooltip v-if="rfq.status === 'No Quote' && rfq.noQuoteReason" location="bottom">
+            <template #activator="{ props: tp }">
+              <v-icon v-bind="tp" icon="mdi-information-outline" color="deep-purple" size="18" class="ml-1 cursor-pointer" />
+            </template>
+            <span>{{ rfq.noQuoteReason }}</span>
+          </v-tooltip>
 
           <!-- No Quote button: only for Open / In Progress -->
           <v-btn
-            v-if="isAdmin && ['Open', 'In Progress'].includes(rfq.status)"
+            v-if=" ['Open', 'In Progress'].includes(rfq.status)"
             size="small"
             variant="tonal"
             color="deep-purple"
@@ -311,6 +317,18 @@
           </v-btn>
         </div>
       </div>
+
+      <!-- No Quote Reason Banner -->
+      <v-alert
+        v-if="rfq.status === 'No Quote' && rfq.noQuoteReason"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mb-3"
+        prepend-icon="mdi-cancel"
+      >
+        <strong>No Quote Reason:</strong> {{ rfq.noQuoteReason }}
+      </v-alert>
 
       <div class="excel-container">
         <table class="excel-grid">
@@ -780,15 +798,29 @@
                                     <v-icon icon="mdi-wrench" size="14" class="mr-1" />
                                     Shop Records ({{ (quote.shopRecords || []).length }})
                                   </span>
-                                  <v-btn
-                                    size="x-small"
-                                    color="warning"
-                                    variant="flat"
-                                    prepend-icon="mdi-plus"
-                                    @click="addShopRow(item, quote)"
-                                  >
-                                    Add Shop
-                                  </v-btn>
+                                  <div class="d-flex align-center gap-2">
+                                    <v-btn
+                                      v-for="otherQ in getOtherARQuotesWithShops(item.id, quote)"
+                                      :key="otherQ.id"
+                                      size="x-small"
+                                      color="info"
+                                      variant="tonal"
+                                      prepend-icon="mdi-content-copy"
+                                      @click="copyShopsFrom(item, quote, otherQ)"
+                                      :title="`Copy all shops from ${otherQ.supplierName}`"
+                                    >
+                                      Copy from {{ otherQ.supplierName }}
+                                    </v-btn>
+                                    <v-btn
+                                      size="x-small"
+                                      color="warning"
+                                      variant="flat"
+                                      prepend-icon="mdi-plus"
+                                      @click="addShopRow(item, quote)"
+                                    >
+                                      Add Shop
+                                    </v-btn>
+                                  </div>
                                 </div>
                                 <table class="quote-grid" v-if="(quote.shopRecords || []).length > 0" style="width: 100%; border-collapse: collapse;">
                                   <thead>
@@ -1102,27 +1134,36 @@
     </v-dialog>
 
     <!-- Audit Dialog -->
-    <v-dialog v-model="showAudit" max-width="700">
-      <AuditLogViewer :entity-name="'RFQ'" :entity-id="route.params.id as string" />
+    <v-dialog v-model="showAudit" max-width="800">
+      <BusinessAuditViewer entity-name="RFQHeader" :entity-id="route.params.id as string" />
     </v-dialog>
 
     <RfqPdfGenerator v-model="showPdf" :rfq="rfq" />
 
     <!-- No Quote Confirmation -->
-    <v-dialog v-model="showNoQuoteConfirm" max-width="420" persistent>
+    <v-dialog v-model="showNoQuoteConfirm" max-width="480" persistent>
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center pa-4">
           <v-icon icon="mdi-cancel" color="deep-purple" class="mr-2" />
           Mark as No Quote?
         </v-card-title>
         <v-card-text>
-          This will set the RFQ status to <strong>No Quote</strong> and prevent any new commission from being created for it.
-          You can still change the status back later if needed.
+          <p class="mb-3">This will set the RFQ status to <strong>No Quote</strong> and prevent any new commission from being created for it.</p>
+          <v-textarea
+            v-model="noQuoteReason"
+            label="Reason *"
+            placeholder="Why is this RFQ being marked as No Quote?"
+            variant="outlined"
+            density="compact"
+            rows="3"
+            hide-details
+            auto-grow
+          />
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="showNoQuoteConfirm = false">Cancel</v-btn>
-          <v-btn color="deep-purple" variant="flat" :loading="noQuoteLoading" @click="doNoQuote">Confirm</v-btn>
+          <v-btn color="deep-purple" variant="flat" :loading="noQuoteLoading" :disabled="!noQuoteReason?.trim()" @click="doNoQuote">Confirm</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1415,6 +1456,30 @@ function isShopExpanded(quoteId: any, itemId: number) {
   return expandedShops.value.has(`${quoteId}-${itemId}`)
 }
 
+/** Returns other AR quotes for the same RFQ item that already have shop records */
+function getOtherARQuotesWithShops(itemId: number, currentQuote: any) {
+  return supplierQuotes.value.filter(
+    (q: any) => q.rfqItemId === itemId && q.condition === 'AR' && q.id !== currentQuote.id && (q.shopRecords || []).length > 0
+  )
+}
+
+/** Copies all shop records from sourceQuote into targetQuote (IDs cleared so they save as new) */
+function copyShopsFrom(item: any, targetQuote: any, sourceQuote: any) {
+  if (!targetQuote.shopRecords) targetQuote.shopRecords = []
+  const copies = (sourceQuote.shopRecords || []).map((s: any) => ({
+    ...s,
+    id: null,
+    _saving: false,
+    parentProcumentId: targetQuote.id,
+    rfqItemId: item.id,
+  }))
+  targetQuote.shopRecords.push(...copies)
+  const key = `${targetQuote.id || 'new'}-${item.id}`
+  expandedShops.value.add(key)
+  expandedShops.value = new Set(expandedShops.value)
+  showSnack(`Copied ${copies.length} shop record${copies.length !== 1 ? 's' : ''} from ${sourceQuote.supplierName}`, 'info')
+}
+
 function addShopRow(item: any, parentQuote: any) {
   if (!parentQuote.shopRecords) parentQuote.shopRecords = []
   parentQuote.shopRecords.push({
@@ -1422,11 +1487,10 @@ function addShopRow(item: any, parentQuote: any) {
     rfqItemId: item.id,
     supplierName: '',
     qty: parentQuote.qty || item.qty || 1,
-    // Auto-fill cost price from the parent's buyer price so user can see & edit it immediately
     price: parentQuote.price || 0,
     fixPrice: null,
     condition: 'IN',
-    alt: '',
+    alt: parentQuote.alt || '',
     certName: '',
     tagDate: '',
     shippingCost: null,
@@ -1610,13 +1674,16 @@ async function removeQuote(itemId: number, qIdx: number) {
 // ──── No Quote ────
 const showNoQuoteConfirm = ref(false)
 const noQuoteLoading = ref(false)
+const noQuoteReason = ref('')
 
 async function doNoQuote() {
   noQuoteLoading.value = true
   try {
-    await api.patch(`/rfqs/${route.params.id}/status`, { status: 'No Quote' })
+    await api.patch(`/rfqs/${route.params.id}/status`, { status: 'No Quote', noQuoteReason: noQuoteReason.value.trim() })
     rfq.value.status = 'No Quote'
+    rfq.value.noQuoteReason = noQuoteReason.value.trim()
     showNoQuoteConfirm.value = false
+    noQuoteReason.value = ''
     showSnack('RFQ marked as No Quote', 'success')
   } catch {
     showSnack('Failed to update status', 'error')

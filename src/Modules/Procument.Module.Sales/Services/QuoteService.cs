@@ -52,6 +52,7 @@ public class QuoteService : IQuoteService
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
+                .ThenInclude(r => r!.RFQItems)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
@@ -64,7 +65,9 @@ public class QuoteService : IQuoteService
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
 
-        return quotes.Select(MapToResponse).ToList();
+        var rfqIds = quotes.Select(q => q.RFQId).Distinct();
+        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIds);
+        return quotes.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null)).ToList();
     }
 
     public async Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin)
@@ -73,6 +76,7 @@ public class QuoteService : IQuoteService
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
+                .ThenInclude(r => r!.RFQItems)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
@@ -108,7 +112,9 @@ public class QuoteService : IQuoteService
         }
 
         if (quote == null) return null;
-        return MapToResponse(quote);
+        var rfqUserMap = await LoadRfqAssignedUsersAsync([quote.RFQId]);
+        var assignedUsers = rfqUserMap.TryGetValue(quote.RFQId, out var users) ? users : null;
+        return MapToResponse(quote, assignedUsers);
     }
 
     public async Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId)
@@ -193,6 +199,7 @@ public class QuoteService : IQuoteService
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
+                .ThenInclude(r => r!.RFQItems)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
@@ -236,9 +243,12 @@ public class QuoteService : IQuoteService
             .Take(pageSize)
             .ToListAsync();
 
+        var rfqIds = items.Select(q => q.RFQId).Distinct();
+        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIds);
+
         return new PagedResult<QuoteResponse>
         {
-            Items = items.Select(MapToResponse).ToList(),
+            Items = items.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null)).ToList(),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -360,17 +370,41 @@ public class QuoteService : IQuoteService
         return await GetByIdAsync(quote.Id, userId, true);
     }
 
-    private static QuoteResponse MapToResponse(Quote q)
+    /// <summary>
+    /// Batch-loads RFQ assigned users (via EntityPermission) for a set of RFQ IDs.
+    /// Returns a dictionary: rfqId → distinct list of (Id, Name).
+    /// </summary>
+    private async Task<Dictionary<long, List<QuoteAssignedUserResponse>>> LoadRfqAssignedUsersAsync(IEnumerable<long> rfqIds)
     {
-        // Build a 1-based row-number map: each distinct RFQItemId gets the rank
-        // of its position within the RFQ (ordered by RFQItemId ascending = insertion order)
-        var rfqItemRank = q.QuoteItems
-            .Where(qi => qi.RFQItemId.HasValue)
-            .Select(qi => qi.RFQItemId!.Value)
-            .Distinct()
-            .OrderBy(id => id)
-            .Select((id, idx) => new { id, rank = idx + 1 })
-            .ToDictionary(x => x.id, x => x.rank);
+        var rfqIdStrings = rfqIds.Select(id => id.ToString()).ToList();
+        if (rfqIdStrings.Count == 0) return new();
+
+        var permissions = await _db.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
+            .ToListAsync();
+
+        return permissions
+            .GroupBy(p => long.TryParse(p.EntityId, out var id) ? id : -1L)
+            .Where(g => g.Key >= 0)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(p => new QuoteAssignedUserResponse { Id = p.User.Id, Name = p.User.Name })
+                       .GroupBy(u => u.Id)
+                       .Select(ug => ug.First())
+                       .ToList()
+            );
+    }
+
+    private static QuoteResponse MapToResponse(Quote q, List<QuoteAssignedUserResponse>? assignedUsers = null)
+    {
+        // Build a 1-based rank map using the FULL ordered RFQ item list so that
+        // item positions are preserved even when only a subset is quoted.
+        // e.g. if RFQ has items 1,2,3,4 and the quote covers items 1,2,4 → ranks are 1,2,4 (not 1,2,3)
+        var allRfqItems = q.RFQ?.RFQItems?.OrderBy(i => i.Id).ToList() ?? [];
+        var rfqItemRank = allRfqItems
+            .Select((item, idx) => new { item.Id, rank = idx + 1 })
+            .ToDictionary(x => x.Id, x => x.rank);
 
         return new()
         {
@@ -389,6 +423,7 @@ public class QuoteService : IQuoteService
             CustomerShipTo = q.Customer.ShipTo,
             CustomerBase = q.Customer.Base,
             UserName = q.User?.Name,
+            AssignedUsers = assignedUsers ?? new(),
             RejectionNote = q.RejectionNote,
             RFQName = q.RFQ?.Name,
             FinalPrice = q.FinalPrice,
@@ -397,6 +432,7 @@ public class QuoteService : IQuoteService
             {
                 Id = qi.Id,
                 PartNumberName = qi.PartNumber?.Name ?? "",
+                Description = qi.PartNumber?.Description,
                 PartNumberId = qi.PartNumberId,
                 RFQItemId = qi.RFQItemId,
                 ProcumentRecordId = qi.ProcumentRecordId,

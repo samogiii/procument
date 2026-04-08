@@ -23,12 +23,15 @@
       <v-container fluid class="flex-shrink-0 py-4">
         <v-row dense align="center">
           <v-col cols="12" md="3">
+            <v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" />
+          </v-col>
+          <v-col cols="12" md="3">
             <v-select
               v-model="selectedTemplate"
               :items="templateOptions"
               item-title="label"
               item-value="value"
-              label="Template Style"
+              label="Preview Style"
               variant="outlined"
               density="compact"
               hide-details
@@ -47,22 +50,25 @@
           </v-col>
           <v-col cols="12" md="3">
             <v-text-field
-              v-model="headerText"
-              label="Header Text"
-              variant="outlined"
-              density="compact"
-              hide-details
-              placeholder="Your Company Name"
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field
               v-model="footerText"
               label="Footer Text"
               variant="outlined"
               density="compact"
               hide-details
               placeholder="Terms & conditions apply"
+            />
+          </v-col>
+        </v-row>
+        <v-row dense class="mt-1">
+          <v-col cols="12">
+            <v-textarea
+              v-model="companyTerms"
+              label="Terms & Conditions"
+              variant="outlined"
+              density="compact"
+              hide-details
+              rows="3"
+              placeholder="Enter terms and conditions..."
             />
           </v-col>
         </v-row>
@@ -88,10 +94,55 @@ const props = defineProps<{
 }>()
 
 const model = defineModel<boolean>({ default: false })
+const api = useApi()
+
+// ── Company Presets ──
+const apiPresets = ref<any[]>([])
+const presetsLoading = ref(false)
+const selectedPreset = ref<string>('Custom')
+
+async function loadPresets() {
+  presetsLoading.value = true
+  try { apiPresets.value = await api.get<any[]>('/companypresets') }
+  catch { apiPresets.value = [] }
+  finally { presetsLoading.value = false }
+}
+
+const companyPresetOptions = computed(() => [
+  ...apiPresets.value.map((p: any) => p.name),
+  'Custom',
+])
+
+const theme = computed(() => {
+  const preset = apiPresets.value.find((p: any) => p.name === selectedPreset.value)
+  return {
+    primary: preset?.primaryColor || '#1a2744',
+    accent:  preset?.accentColor  || '#2563eb',
+  }
+})
+
+watch(apiPresets, (presets) => {
+  if (!presets.length) return
+  if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
+})
+
+watch(selectedPreset, (val) => {
+  const preset = apiPresets.value.find((p: any) => p.name === val)
+  if (preset) {
+    headerText.value = preset.name || headerText.value
+    logoDataUrl.value = preset.logoBase64
+      ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
+      : ''
+    companyTerms.value = preset.termsAndConditions || ''
+  }
+})
+
+watch(model, (open) => { if (open) loadPresets() })
 
 const selectedTemplate = ref<'classic' | 'modern' | 'minimal'>('classic')
 const headerText = ref('Your Company Name')
 const footerText = ref('Terms and conditions apply.')
+const companyTerms = ref('')
 const logoDataUrl = ref('')
 const generating = ref(false)
 const pdfContent = ref<HTMLElement | null>(null)
@@ -117,6 +168,7 @@ const renderedHtml = computed(() => {
   const logo = logoDataUrl.value
   const header = headerText.value
   const footer = footerText.value
+  const terms = companyTerms.value
   const tpl = selectedTemplate.value
 
   const logoImg = logo
@@ -187,6 +239,14 @@ const renderedHtml = computed(() => {
     </table>
   `
 
+  // ── Terms block ──
+  const termsBlock = terms ? `
+    <div style="margin-top:20px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:12px 16px;">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; color:#0891b2; margin-bottom:6px;">Terms &amp; Conditions</div>
+      <div style="font-size:11px; color:#475569; white-space:pre-wrap; line-height:1.6;">${terms}</div>
+    </div>
+  ` : ''
+
   // ── Notes block ──
   const notesBlock = r.notes ? `
     <div style="margin-top:24px; padding:14px 16px; background:#fffbeb; border-left:4px solid #f59e0b; border-radius:0 8px 8px 0; font-size:12px; color:#92400e;">
@@ -220,6 +280,7 @@ const renderedHtml = computed(() => {
           ${infoBlock}
           ${tableHtml}
           ${notesBlock}
+          ${termsBlock}
         </div>
         <!-- Footer -->
         <div style="padding-top:16px; border-top:1px solid #ddd; text-align:center; font-size:11px; color:#999;">
@@ -254,6 +315,7 @@ const renderedHtml = computed(() => {
           ${infoBlock}
           ${tableHtml}
           ${notesBlock}
+          ${termsBlock}
         </div>
         <!-- Footer -->
         <div style="background:linear-gradient(135deg, #0c4a6e 0%, #0f172a 100%); color:#fff; padding:16px 40px; display:flex; justify-content:space-between; align-items:center;">
@@ -287,6 +349,7 @@ const renderedHtml = computed(() => {
         ${infoBlock}
         ${tableHtml}
         ${notesBlock}
+        ${termsBlock}
       </div>
       <!-- Footer -->
       <div style="padding-top:12px; border-top:1px solid #e0e0e0; text-align:center; font-size:12px; color:#aaa;">
@@ -296,20 +359,50 @@ const renderedHtml = computed(() => {
   `
 })
 
-// ── PDF Download ──
+// ── PDF Download — calls QuestPDF backend ──
 async function downloadPdf() {
-  if (!pdfContent.value) return
   generating.value = true
   try {
-    const html2pdf = (await import('html2pdf.js')).default
-    const opt = {
-      margin: 0,
-      filename: `RFQ_${props.rfq.name || props.rfq.id}.pdf`,
-      image: { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm' as const, format: 'a4', orientation: 'portrait' as const },
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const r = props.rfq
+    const items: any[] = r.items || []
+
+    const payload = {
+      headerText: headerText.value || null,
+      footerText: footerText.value || null,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      terms: companyTerms.value || null,
+      rfqId: r.id || null,
+      rfqName: r.name || null,
+      rfqDate: r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '—',
+      items: items.map((it: any) => ({
+        partNumberName: it.partNumberName || null,
+        description: it.description || null,
+        qty: it.qty || 1,
+        condition: it.condition || null,
+        remark: it.remark || null,
+        alternatives: (it.alternatives || []).map((a: any) => a.name ?? a),
+      })),
     }
-    await html2pdf().set(opt).from(pdfContent.value).save()
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/rfq`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
+    const link = document.createElement('a')
+    link.href = url
+    const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
+    link.setAttribute('download', `RFQ_${safeName(r.name || String(r.id || 'export'))}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (err) {
     console.error('PDF generation failed:', err)
   } finally {

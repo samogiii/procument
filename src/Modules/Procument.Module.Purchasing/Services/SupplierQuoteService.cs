@@ -105,12 +105,13 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         ProcumentRecord record;
 
+
         if (request.Id.HasValue && request.Id > 0)
         {
             // Update existing
             var existingRecord = await _db.Set<ProcumentRecord>()
                 .FirstOrDefaultAsync(r => r.Id == request.Id.Value);
-
+            
             if (existingRecord == null) throw new KeyNotFoundException($"Procurement record {request.Id.Value} not found.");
             record = existingRecord;
 
@@ -121,14 +122,18 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.Alt = request.Alt;
             record.Unit = request.Unit;
             record.LeadTime = request.LeadTime;
-            record.Coef_1 = request.Coef_1;
-            record.Coef_2 = request.Coef_2;
-            record.Coef_3 = request.Coef_3;
+            if (request.Coef_1 != null && request.Coef_2 != null && request.Coef_3 != null)
+            {
+                record.Coef_1 = request.Coef_1;
+                record.Coef_2 = request.Coef_2;
+                record.Coef_3 = request.Coef_3;
+                record.UnitPrice = request.UnitPrice;
+                record.TotalPrice = request.TotalPrice;
+            }
             record.ShippingCost = request.ShippingCost;
             record.ShippingPoint = request.ShippingPoint;
             record.CertName = request.CertName;
-            record.UnitPrice = request.UnitPrice;
-            record.TotalPrice = request.TotalPrice;
+            
             record.TagDate = request.TagDate;
             record.Note = request.Note;
             record.MyNotes = request.MyNotes;

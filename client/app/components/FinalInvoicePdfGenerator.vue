@@ -10,20 +10,25 @@
 
       <v-container fluid class="flex-shrink-0 py-4">
         <v-row dense align="center">
+          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyLocation" label="Location" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="6"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
       </v-container>
@@ -45,11 +50,56 @@ const props = defineProps<{ invoiceId: number | string }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
 
+// ── Presets ──
+const apiPresets = ref<any[]>([])
+const presetsLoading = ref(false)
+const selectedPreset = ref<string>('Custom')
+
+async function loadPresets() {
+  presetsLoading.value = true
+  try { apiPresets.value = await api.get<any[]>('/companypresets') }
+  catch { apiPresets.value = [] }
+  finally { presetsLoading.value = false }
+}
+
+const companyPresetOptions = computed(() => [
+  ...apiPresets.value.map((p: any) => p.name),
+  'Custom',
+])
+
+const theme = computed(() => {
+  const preset = apiPresets.value.find((p: any) => p.name === selectedPreset.value)
+  return {
+    primary: preset?.primaryColor || '#1a2744',
+    accent:  preset?.accentColor  || '#2563eb',
+  }
+})
+
+watch(apiPresets, (presets) => {
+  if (!presets.length) return
+  if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
+})
+
+watch(selectedPreset, (val) => {
+  const preset = apiPresets.value.find((p: any) => p.name === val)
+  if (preset) {
+    companyName.value = preset.name
+    companyLocation.value = preset.location || ''
+    companyPhone.value = preset.phone || ''
+    companyWebsite.value = preset.website || ''
+    companyEmail.value = preset.email || ''
+    logoDataUrl.value = preset.logoBase64
+      ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
+      : ''
+    companyTerms.value = preset.termsAndConditions || ''
+  }
+})
+
 const companyName = ref('Your Company Name')
-const companyLocation = ref('Selangor, Malaysia')
-const companyPhone = ref('+86 130 0214 1119')
-const companyWebsite = ref('www.company.com')
-const companyEmail = ref('info@company.com')
+const companyLocation = ref('')
+const companyPhone = ref('')
+const companyWebsite = ref('')
+const companyEmail = ref('')
 const footerText = ref('If you have any questions about this invoice, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
@@ -59,6 +109,9 @@ const taxAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
+const billTo = ref('')
+const shipTo = ref('')
+const companyTerms = ref('')
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
@@ -69,14 +122,19 @@ function onLogoUpload(files: File[] | File | null) {
 }
 
 watch(model, async (open) => {
-  if (open && !pdfData.value.invoiceNumber) {
-    loadingData.value = true
-    try {
-      const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
-      pdfData.value = data
-      if (data.notes) comments.value = data.notes
-    } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
-    finally { loadingData.value = false }
+  if (open) {
+    loadPresets()
+    if (!pdfData.value.invoiceNumber) {
+      loadingData.value = true
+      try {
+        const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
+        pdfData.value = data
+        if (data.notes) comments.value = data.notes
+        billTo.value = data.customerBillTo || ''
+        shipTo.value = data.customerShipTo || data.customerBillTo || ''
+      } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
+      finally { loadingData.value = false }
+    }
   }
 })
 
@@ -102,6 +160,7 @@ const renderedHtml = computed(() => {
     const bg = i % 2 === 0 ? '#ffffff' : '#f7f8fa'
     return `
     <tr style="background:${bg};">
+      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
       <td style="padding:9px 12px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
       <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:110px;">${it.description || '—'}</td>
@@ -148,12 +207,12 @@ const renderedHtml = computed(() => {
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Bill To</div>
           <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
-          ${d.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerBillTo}</div>` : ''}
+          ${(billTo.value || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${billTo.value || d.customerBillTo}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Ship To</div>
           <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
-          ${d.customerShipTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerShipTo}</div>` : (d.customerBillTo ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${d.customerBillTo}</div>` : '')}
+          ${(shipTo.value || d.customerShipTo || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${shipTo.value || d.customerShipTo || d.customerBillTo}</div>` : ''}
         </div>
       </div>
 
@@ -162,6 +221,7 @@ const renderedHtml = computed(() => {
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
             <tr style="background:#1a2744;">
+              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">Ref</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">#</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
@@ -205,6 +265,13 @@ const renderedHtml = computed(() => {
         <div style="font-size:11px; color:#4b5563; white-space:pre-wrap; line-height:1.5;">${comments.value || 'No Comments'}</div>
       </div>
 
+      <!-- ═══ Terms & Conditions ═══ -->
+      ${companyTerms.value ? `
+      <div style="margin:0 40px 16px 40px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
+        <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:5px;">Terms &amp; Conditions</div>
+        <div style="font-size:10px; color:#4b5563; white-space:pre-wrap; line-height:1.6;">${companyTerms.value}</div>
+      </div>` : ''}
+
       <!-- ═══ Footer ═══ -->
       <div style="margin-top:auto; padding:16px 40px; border-top:2px solid #1a2744; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:10px; color:#6b7280;">${footerText.value}</span>
@@ -216,17 +283,67 @@ const renderedHtml = computed(() => {
 
 const pdfContent = ref<HTMLElement | null>(null)
 async function downloadPdf() {
-  if (!pdfContent.value) return
   generating.value = true
   try {
-    const html2pdf = (await import('html2pdf.js')).default
-    await html2pdf().set({
-      margin: 0,
-      filename: `${pdfData.value.invoiceNumber || 'FinalInvoice'}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    }).from(pdfContent.value).save()
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const d = pdfData.value
+    const items: any[] = d.items || []
+
+    const payload = {
+      companyName: companyName.value,
+      companyLocation: companyLocation.value,
+      companyPhone: companyPhone.value,
+      companyWebsite: companyWebsite.value,
+      companyEmail: companyEmail.value,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      invoiceNumber: d.invoiceNumber || '',
+      invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
+      dueDate: d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—',
+      proformaRef: d.proformaInvoiceNumber || null,
+      currency: currency.value,
+      currencySymbol: '$',
+      customerName: d.customerName || '—',
+      customerBillTo: billTo.value || d.customerBillTo || null,
+      customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
+      shippingMethod: d.shippingMethod || null,
+      shippingCost: Number(d.shippingCost) || 0,
+      items: items.map((it: any) => ({
+        rfqReference: it.rfqReference || null,
+        partNumber: it.partNumber || null,
+        description: it.description || null,
+        qty: it.qty || 0,
+        condition: it.condition || null,
+        certification: it.certification || null,
+        unitPrice: Number(it.unitPrice) || 0,
+        totalPrice: Number(it.totalPrice) || 0,
+        trackNumber: it.trackNumber || null,
+        carrier: it.carrier || null,
+      })),
+      subtotal: Number(d.totalAmount) || 0,
+      tax: taxAmount.value || 0,
+      other: otherAmount.value || 0,
+      comments: comments.value || null,
+      terms: companyTerms.value || null,
+      footerText: footerText.value || null,
+    }
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/final-invoice`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

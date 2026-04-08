@@ -32,6 +32,12 @@ public class UpdateQuoteStatusRequest
 
 // ──── Response DTOs ────
 
+public class QuoteAssignedUserResponse
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
 public class QuoteResponse
 {
     public long Id { get; set; }
@@ -48,6 +54,7 @@ public class QuoteResponse
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
     public string? UserName { get; set; }
+    public List<QuoteAssignedUserResponse> AssignedUsers { get; set; } = new();
     public string? RejectionNote { get; set; }
     public string? RFQName { get; set; }
     public decimal? FinalPrice { get; set; }
@@ -60,6 +67,7 @@ public class QuoteItemResponse
 {
     public long Id { get; set; }
     public string PartNumberName { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public long? PartNumberId { get; set; }
     public long? RFQItemId { get; set; }
     public long? ProcumentRecordId { get; set; }

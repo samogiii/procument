@@ -11,7 +11,7 @@
         >
           Perms
         </v-btn>
-        <v-btn v-if="isAdmin" variant="tonal" color="secondary" prepend-icon="mdi-table-arrow-down" @click="openBulkImport" size="small">
+        <v-btn v-if="isAmir" variant="tonal" color="secondary" prepend-icon="mdi-table-arrow-down" @click="openBulkImport" size="small">
           Bulk Import
         </v-btn>
         <v-btn v-if="isAdmin" color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
@@ -139,7 +139,22 @@
             <template v-else>{{ item.customerCode || '—' }}</template>
           </template>
           <template #item.status="{ item }">
+            <v-tooltip v-if="item.status === 'No Quote' && item.noQuoteReason" location="bottom">
+              <template #activator="{ props: tp }">
+                <v-chip
+                  v-bind="tp"
+                  size="small"
+                  :color="rfqStatusColor(item.status)"
+                  variant="tonal"
+                >
+                  {{ item.status }}
+                  <v-icon icon="mdi-information-outline" size="14" class="ml-1" />
+                </v-chip>
+              </template>
+              <span>{{ item.noQuoteReason }}</span>
+            </v-tooltip>
             <v-chip
+              v-else
               size="small"
               :color="rfqStatusColor(item.status || 'Open')"
               variant="tonal"
@@ -715,6 +730,7 @@ function getRowProps({ item }: { item: any }) {
 }
 
 const isAdmin = computed(() => authStore.isAdmin)
+const isAmir = computed(() => authStore.isAmir)
 const showBulkPerms = ref(false)
 
 // ── List state ──

@@ -224,8 +224,8 @@ public class PurchaseOrdersController : ControllerBase
             qty = i.Qty,
             condition = i.Condition ?? "",
             certification = i.ProcumentRecord?.CertName ?? "",
-            unitPrice = i.ProcumentRecord?.UnitPrice ?? (double)i.UnitPrice,
-            totalPrice = i.ProcumentRecord?.TotalPrice ?? (double)i.TotalPrice,
+            unitPrice = (double)i.UnitPrice,
+            totalPrice = (double)i.TotalPrice,
             shippingCost = i.ProcumentRecord?.ShippingCost,
             note = i.ProcumentRecord?.Note ?? "",
         }).ToList();
