@@ -48,6 +48,33 @@
           <v-btn value="Edit" prepend-icon="mdi-cart-check">Edit</v-btn>
         </v-btn-toggle>
 
+        <!-- Step 2.5: Select Customer (RFQ only) -->
+        <template v-if="entityName === 'RFQ'">
+          <p class="text-subtitle-2 font-weight-medium mb-2">
+            <v-icon icon="mdi-account-tie" size="18" color="primary" class="mr-1" />
+            Filter by Customer (Optional)
+          </p>
+          <v-autocomplete
+            v-model="selectedCustomerId"
+            :items="customers"
+            item-title="name"
+            item-value="id"
+            label="Choose Customer"
+            variant="outlined"
+            density="compact"
+            hide-details
+            clearable
+            class="mb-5"
+            :loading="loadingCustomers"
+          >
+            <template #chip="{ props: chipProps, item }">
+              <v-chip v-bind="chipProps" color="accent" variant="tonal" size="small">
+                {{ item.title }}
+              </v-chip>
+            </template>
+          </v-autocomplete>
+        </template>
+
         <!-- Step 3: Select Entity IDs -->
         <p class="text-subtitle-2 font-weight-medium mb-2">
           <v-icon icon="mdi-numeric-3-circle" size="18" color="primary" class="mr-1" />
@@ -55,7 +82,7 @@
         </p>
         <v-autocomplete
           v-model="selectedEntityIds"
-          :items="entityItems"
+          :items="filteredEntityItems"
           :item-title="entityTitleKey"
           item-value="id"
           :label="`Choose ${entityLabel}s`"
@@ -123,11 +150,14 @@ const api = useApi()
 
 // State
 const users = ref<any[]>([])
+const customers = ref<any[]>([])
 const entityItems = ref<any[]>([])
 const selectedUsers = ref<number[]>([])
+const selectedCustomerId = ref<number | null>(null)
 const selectedEntityIds = ref<number[]>([])
-const selectedRole = ref<string>('View')
+const selectedRole = ref<string>('Edit')
 const loadingUsers = ref(false)
+const loadingCustomers = ref(false)
 const loadingEntities = ref(false)
 const assigning = ref(false)
 const resultMessage = ref('')
@@ -147,17 +177,35 @@ const entityTitleKey = computed(() => {
 
 const canAssign = computed(() => selectedUsers.value.length > 0 && selectedEntityIds.value.length > 0)
 
+// Filter entity items by customer (for RFQ)
+const filteredEntityItems = computed(() => {
+  if (props.entityName === 'RFQ' && selectedCustomerId.value) {
+    return entityItems.value.filter((item: any) => item.customerId === selectedCustomerId.value)
+  }
+  return entityItems.value
+})
+
 // Load data when dialog opens
 watch(model, async (open) => {
   if (open) {
     resultMessage.value = ''
+    selectedCustomerId.value = null
     if (props.preselectedIds?.length) {
       selectedEntityIds.value = [...props.preselectedIds]
     } else {
       selectedEntityIds.value = []
     }
-    await Promise.all([loadUsers(), loadEntities()])
+    const tasks = [loadUsers(), loadEntities()]
+    if (props.entityName === 'RFQ') {
+      tasks.push(loadCustomers())
+    }
+    await Promise.all(tasks)
   }
+})
+
+// Clear selected entities when customer filter changes (RFQ only)
+watch(selectedCustomerId, () => {
+  selectedEntityIds.value = []
 })
 
 async function loadUsers() {
@@ -166,6 +214,14 @@ async function loadUsers() {
     users.value = await api.get<any[]>('/users')
   } catch { users.value = [] }
   finally { loadingUsers.value = false }
+}
+
+async function loadCustomers() {
+  loadingCustomers.value = true
+  try {
+    customers.value = await api.get<any[]>('/customers')
+  } catch { customers.value = [] }
+  finally { loadingCustomers.value = false }
 }
 
 async function loadEntities() {

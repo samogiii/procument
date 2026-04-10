@@ -22,13 +22,21 @@ public class InvoicePdfRequest
     public string? InvoiceDate { get; set; }
     public string? DueDate { get; set; }
     public string? Status { get; set; }
+    public string? CustomerPONumber { get; set; }
     public string? Currency { get; set; }
     public string? CurrencySymbol { get; set; }
 
     // Customer
     public string? CustomerName { get; set; }
+    public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
+    public string? CustomerBillToEmail { get; set; }
+    public string? CustomerBillToPhone { get; set; }
     public string? CustomerShipTo { get; set; }
+    public string? CustomerShipToContactPerson { get; set; }
+    public string? CustomerShipToEmail { get; set; }
+    public string? CustomerShipToPhone { get; set; }
+    public string? CustomerShipToAccount { get; set; }
 
     // Bank Details
     public string? BeneficiaryName { get; set; }
@@ -64,6 +72,7 @@ public class InvoicePdfItem
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
     public string? DeliveryDate { get; set; }
+    public string? LeadTime { get; set; }
 }
 
 // ──────────────────────────────────────────────────────
@@ -90,6 +99,12 @@ public class PurchaseOrderPdfRequest
     public string? Status { get; set; }
     public string? Currency { get; set; }
     public string? CurrencySymbol { get; set; }
+
+    // Purchase From (Supplier)
+    public string? PurchaseFromName { get; set; }
+    public string? PurchaseFromAddress { get; set; }
+    public string? PurchaseFromPhone { get; set; }
+    public string? PurchaseFromEmail { get; set; }
 
     // Vendor
     public string? VendorName { get; set; }
@@ -159,13 +174,30 @@ public class FinalInvoicePdfRequest
     public string? InvoiceDate { get; set; }
     public string? DueDate { get; set; }
     public string? ProformaRef { get; set; }
+    public string? CustomerPONumber { get; set; }
     public string? Currency { get; set; }
     public string? CurrencySymbol { get; set; }
 
     // Customer
     public string? CustomerName { get; set; }
+    public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
+    public string? CustomerBillToEmail { get; set; }
+    public string? CustomerBillToPhone { get; set; }
+    public string? CustomerBillToContactPerson { get; set; }
     public string? CustomerShipTo { get; set; }
+    public string? CustomerShipToContactPerson { get; set; }
+    public string? CustomerShipToEmail { get; set; }
+    public string? CustomerShipToPhone { get; set; }
+    public string? CustomerShipToAccount { get; set; }
+
+    // Bank Details
+    public string? BeneficiaryName { get; set; }
+    public string? BeneficiaryAddress { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAddress { get; set; }
+    public string? BankAccount { get; set; }
+    public string? SwiftCode { get; set; }
 
     // Shipping
     public string? ShippingMethod { get; set; }
@@ -197,6 +229,54 @@ public class FinalInvoicePdfItem
     public decimal TotalPrice { get; set; }
     public string? TrackNumber { get; set; }
     public string? Carrier { get; set; }
+}
+
+// ──────────────────────────────────────────────────────
+// PACKING LIST
+// ──────────────────────────────────────────────────────
+public class PackingListPdfRequest
+{
+    // Company
+    public string? CompanyName { get; set; }
+    public string? CompanyLocation { get; set; }
+    public string? CompanyPhone { get; set; }
+    public string? CompanyWebsite { get; set; }
+    public string? CompanyEmail { get; set; }
+    public string? LogoBase64 { get; set; }
+
+    // Theme (from company preset)
+    public string? PrimaryColor { get; set; }
+    public string? AccentColor { get; set; }
+
+    // Document meta
+    public string? InvoiceNumber { get; set; }
+    public string? InvoiceDate { get; set; }
+    public string? CustomerPONumber { get; set; }
+
+    // Customer
+    public string? CustomerName { get; set; }
+    public string? CustomerContactPerson { get; set; }
+    public string? CustomerBillTo { get; set; }
+    public string? CustomerBillToEmail { get; set; }
+    public string? CustomerBillToPhone { get; set; }
+    public string? CustomerBillToContactPerson { get; set; }
+    public string? CustomerShipTo { get; set; }
+    public string? CustomerShipToContactPerson { get; set; }
+    public string? CustomerShipToEmail { get; set; }
+    public string? CustomerShipToPhone { get; set; }
+    public string? CustomerShipToAccount { get; set; }
+
+    // Items
+    public List<PackingListPdfItem>? Items { get; set; }
+}
+
+public class PackingListPdfItem
+{
+    public string? PartNumber { get; set; }
+    public string? Description { get; set; }
+    public int Qty { get; set; }
+    public string? Condition { get; set; }
+    public string? Certification { get; set; }
 }
 
 // ──────────────────────────────────────────────────────

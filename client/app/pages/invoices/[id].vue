@@ -61,6 +61,9 @@
         </StatCard>
       </v-col>
       <v-col cols="12" md="3">
+        <StatCard icon="mdi-receipt-text-outline" color="purple" label="Customer PO" :value="invoice.customerPONumber || '—'" />
+      </v-col>
+      <v-col cols="12" md="3">
         <StatCard icon="mdi-calendar-clock" color="warning" label="Due Date"
           :value="invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : '—'"
         />
@@ -83,6 +86,30 @@
       <div class="font-weight-bold mb-1">Rejection Reason</div>
       {{ invoice.rejectionNote }}
     </v-alert>
+
+    <!-- Edit Details -->
+    <v-card class="glass-card mb-6" v-if="!isLocked">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-pencil-box-outline" class="mr-2" size="20" />
+        Invoice Details
+        <v-spacer />
+        <v-btn v-if="!editingDetails" variant="tonal" size="small" prepend-icon="mdi-pencil" @click="startEditDetails">Edit</v-btn>
+        <template v-else>
+          <v-btn variant="text" size="small" class="mr-1" @click="cancelEditDetails">Cancel</v-btn>
+          <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-content-save" :loading="savingDetails" @click="saveDetails">Save</v-btn>
+        </template>
+      </v-card-title>
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="detailsForm.customerPONumber" label="Customer PO Number" variant="outlined" density="compact" hide-details :readonly="!editingDetails" clearable />
+          </v-col>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="detailsForm.dueDate" label="Due Date" variant="outlined" density="compact" hide-details type="date" :readonly="!editingDetails" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
 
     <v-card class="glass-card">
       <v-card-title>Line Items</v-card-title>
@@ -158,6 +185,12 @@ const showPdf = ref(false)
 const canCreateFinal = ref(false)
 const creatingFinal = ref(false)
 
+// Edit Details
+const editingDetails = ref(false)
+const savingDetails = ref(false)
+const detailsForm = ref<any>({ customerPONumber: '', dueDate: '' })
+const detailsOriginal = ref<any>({})
+
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('invoice', entityId)
 
@@ -186,9 +219,36 @@ onMounted(async () => {
 async function loadInvoice() {
   try {
     invoice.value = await api.get(`/invoices/${route.params.id}`)
+    // Populate details form
+    detailsForm.value = {
+      customerPONumber: invoice.value.customerPONumber || '',
+      dueDate: invoice.value.dueDate ? invoice.value.dueDate.substring(0, 10) : '',
+    }
+    detailsOriginal.value = { ...detailsForm.value }
   } catch {
     showSnack('Failed to load proforma invoice', 'error')
   }
+}
+
+function startEditDetails() {
+  editingDetails.value = true
+}
+
+function cancelEditDetails() {
+  detailsForm.value = { ...detailsOriginal.value }
+  editingDetails.value = false
+}
+
+async function saveDetails() {
+  savingDetails.value = true
+  try {
+    await api.put(`/invoices/${route.params.id}`, detailsForm.value)
+    detailsOriginal.value = { ...detailsForm.value }
+    editingDetails.value = false
+    showSnack('Details saved', 'success')
+    await loadInvoice()
+  } catch { showSnack('Failed to save details', 'error') }
+  finally { savingDetails.value = false }
 }
 
 async function checkFinalEligibility() {

@@ -35,12 +35,12 @@ public static class FinalInvoiceDocument
                         req.LogoBase64,
                         req.CompanyName, req.CompanyLocation,
                         req.CompanyPhone, req.CompanyWebsite, req.CompanyEmail,
-                        "INVOICE", req.InvoiceNumber, primary));
+                        "INVOICE",req.InvoiceNumber, primary));
 
                     // Accent line
                     col.Item().Element(c => PdfHelpers.DrawAccentLine(c, primary, accent));
 
-                    // Meta row: Date | Due Date | Proforma Ref | Currency
+                    // Meta row: Date | Due Date | Customer PO | Proforma Ref | Currency
                     col.Item().PaddingBottom(10).Row(row =>
                     {
                         void Meta(string label, string? val)
@@ -50,46 +50,162 @@ public static class FinalInvoiceDocument
                                 t.Span(val ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);
                             });
                         Meta("Date", req.InvoiceDate);
-                        Meta("Due Date", req.DueDate);
-                        Meta("Proforma Ref", req.ProformaRef);
+                        //Meta("Due Date", req.DueDate);
+                        Meta("Customer PO", req.CustomerPONumber);
+                        Meta("PI Ref", req.ProformaRef);
                         Meta("Currency", req.Currency);
                     });
 
                     // Bill To / Ship To
                     col.Item().PaddingBottom(12).Row(row =>
                     {
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "BILL TO",
-                            req.CustomerName, req.CustomerBillTo, null, null, accent);
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "SHIP TO",
-                            req.CustomerName,
-                            req.CustomerShipTo ?? req.CustomerBillTo, null, null, accent);
+                        // Bill To
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
+                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                .Padding(10).Column(bc =>
+                                {
+                                    void Field(string label, string? val)
+                                    {
+                                        if (string.IsNullOrWhiteSpace(val)) return;
+                                        bc.Item().Text(t =>
+                                        {
+                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                        });
+                                    }
+                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
+                                        bc.Item().Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    Field("Contact Person", req.CustomerBillToContactPerson);
+                                    Field("Email", req.CustomerBillToEmail);
+                                    Field("Phone", req.CustomerBillToPhone);
+                                });
+                        });
+
+                        // Ship To
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
+                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                .Padding(10).Column(bc =>
+                                {
+                                    void Field(string label, string? val)
+                                    {
+                                        if (string.IsNullOrWhiteSpace(val)) return;
+                                        bc.Item().Text(t =>
+                                        {
+                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                        });
+                                    }
+                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                        bc.Item().Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    Field("Contact Person", req.CustomerShipToContactPerson);
+                                    Field("Email", req.CustomerShipToEmail);
+                                    Field("Phone", req.CustomerShipToPhone);
+                                    Field("Account", req.CustomerShipToAccount);
+                                });
+                        });
                     });
 
                     // Items table (10 columns incl. Track # + Carrier)
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, sym));
 
-                    // Totals + Shipping Info side by side
+                    //// Totals + Shipping Info + Bank Details
+                    //col.Item().PaddingBottom(10).Row(sRow =>
+                    //{
+                    //    // Shipping Info (left)
+                    //    sRow.RelativeItem().Column(left =>
+                    //    {
+                    //        if (string.IsNullOrWhiteSpace(req.ShippingMethod)) return;
+                    //        left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Shipping Information", accent));
+                    //        left.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                    //            .Padding(10).Column(b =>
+                    //            {
+                    //                b.Item().Text(t =>
+                    //                {
+                    //                    t.Span("Shipping Method: ").Bold().FontSize(9).FontColor(primary);
+                    //                    t.Span(req.ShippingMethod).FontSize(9).FontColor(Colors.Grey.Darken1);
+                    //                });
+                    //            });
+                    //    });
+
+                    //    sRow.ConstantItem(12);
+
+                    //    // Bank Details (middle)
+                    //    sRow.RelativeItem().Column(bank =>
+                    //    {
+                    //        if (string.IsNullOrWhiteSpace(req.BankName)) return;
+                    //        bank.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Bank Details", accent));
+                    //        bank.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                    //            .Padding(10).Column(b =>
+                    //            {
+                    //                void Field(string label, string? val)
+                    //                {
+                    //                    if (string.IsNullOrWhiteSpace(val)) return;
+                    //                    b.Item().Text(t =>
+                    //                    {
+                    //                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                    //                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                    //                    });
+                    //                }
+                    //                Field("Beneficiary Name", req.BeneficiaryName);
+                    //                Field("Beneficiary Address", req.BeneficiaryAddress);
+                    //                Field("Bank Name", req.BankName);
+                    //                Field("Bank Address", req.BankAddress);
+                    //                Field("Bank Account", req.BankAccount);
+                    //                Field("Swift Code", req.SwiftCode);
+                    //            });
+                    //    });
+
+                    //    sRow.ConstantItem(12);
+
+                    //    // Totals (right)
+                    //    sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
+                    //        req.Subtotal ?? 0, req.Tax ?? 0,
+                    //        req.ShippingCost ?? 0, req.Other ?? 0,
+                    //        primary, sym));
+                    //});
+                    // Totals + Bank Details side by side
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
-                        // Shipping Info (left — simpler than PO)
+                        // Bank details (left side)
                         sRow.RelativeItem().Column(left =>
                         {
-                            if (string.IsNullOrWhiteSpace(req.ShippingMethod)) return;
-                            left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Shipping Information", accent));
+                            var hasBank = !string.IsNullOrWhiteSpace(req.BeneficiaryName)
+                                       || !string.IsNullOrWhiteSpace(req.BankName)
+                                       || !string.IsNullOrWhiteSpace(req.BankAccount)
+                                       || !string.IsNullOrWhiteSpace(req.SwiftCode);
+                            if (!hasBank) return;
+
+                            left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Bank Information", accent));
                             left.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
                                 .Padding(10).Column(b =>
                                 {
-                                    b.Item().Text(t =>
+                                    void BankRow(string label, string? val)
                                     {
-                                        t.Span("Shipping Method: ").Bold().FontSize(9).FontColor(primary);
-                                        t.Span(req.ShippingMethod).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    });
+                                        if (string.IsNullOrWhiteSpace(val)) return;
+                                        b.Item().Text(t =>
+                                        {
+                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                        });
+                                    }
+                                    BankRow("Beneficiary Name", req.BeneficiaryName);
+                                    BankRow("Beneficiary Address", req.BeneficiaryAddress);
+                                    BankRow("Bank Name", req.BankName);
+                                    BankRow("Bank Address", req.BankAddress);
+                                    BankRow("Account Number", req.BankAccount);
+                                    BankRow("SWIFT Code", req.SwiftCode);
                                 });
                         });
 
-                        sRow.ConstantItem(12);
+                        sRow.ConstantItem(12); // spacer
 
-                        // Totals (right)
+                        // Totals (right side)
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             req.Subtotal ?? 0, req.Tax ?? 0,
                             req.ShippingCost ?? 0, req.Other ?? 0,

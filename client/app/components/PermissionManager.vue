@@ -7,7 +7,7 @@
     
     <v-card-text>
       <!-- Add New Permission -->
-      <div v-if="canManage" class="mb-4 pa-3 bg-blue-grey-darken-4 rounded border border-opacity-25">
+      <div v-if="canManage" class="mb-4 pa-3  rounded border border-opacity-25">
         <p class="text-caption font-weight-bold mb-2">Assign New Permission</p>
         <div class="d-flex gap-2">
           <v-select
@@ -22,7 +22,7 @@
           />
           <v-select
             v-model="newPerm.permission"
-            :items="['View', 'Edit']"
+            :items="['Edit', 'View']"
             label="Role"
             density="compact"
             hide-details
@@ -105,7 +105,7 @@ const users = ref<any[]>([])
 const loading = ref(false)
 const assigning = ref(false)
 const revoking = ref<number | null>(null)
-const newPerm = ref({ userId: null, permission: 'View' })
+const newPerm = ref({ userId: null, permission: 'Edit' })
 
 // Current user can manage if Admin
 const canManage = computed(() => authStore.isAdmin)

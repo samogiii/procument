@@ -38,6 +38,9 @@ export const useAuthStore = defineStore('auth', {
         },
         isAdmin: (state) => state.user?.role === 'Admin',
         isAmir: (state) => state.user?.name === 'AMJ',
+        ilsUsers: (state) => state.user?.name === 'System Admin'
+            || state.user?.name === 'SYD'
+            || state.user?.name === 'MGH',
         userInitials: (state) => {
             if (!state.user?.name) return '?'
             return state.user.name

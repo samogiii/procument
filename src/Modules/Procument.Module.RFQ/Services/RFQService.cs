@@ -21,6 +21,8 @@ public interface IRFQService
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
     Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null);
     Task<bool> UpdateNotesAsync(long rfqId, string? notes);
+    Task<bool> UpdateNameAsync(long rfqId, string name);
+    Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime);
     Task<string> DeleteRFQItem(long id);
 }
 
@@ -418,6 +420,24 @@ public class RFQService : IRFQService
         var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
         if (rfq == null) return false;
         rfq.Notes = notes;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> UpdateNameAsync(long rfqId, string name)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return false;
+        rfq.Name = name;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return false;
+        rfq.LeadTime = leadTime;
         await _db.SaveChangesAsync();
         return true;
     }

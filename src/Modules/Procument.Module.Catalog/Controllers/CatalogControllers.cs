@@ -29,8 +29,10 @@ public class CustomersController : ControllerBase
                 c.CustomerCode,
                 c.Email,
                 c.Phone,
+                c.ContactPerson,
                 c.ShipTo,
                 c.BillTo,
+                c.ShippingAccount,
                 c.Description,
                 c.Base,
                 c.IsActive,
@@ -66,8 +68,10 @@ public class CustomersController : ControllerBase
             CustomerCode = dto.CustomerCode,
             Email = dto.Email,
             Phone = dto.Phone,
+            ContactPerson = dto.ContactPerson,
             ShipTo = dto.ShipTo,
             BillTo = dto.BillTo,
+            ShippingAccount = dto.ShippingAccount,
             Description = dto.Description,
             Base = dto.Base,
             CreatedAt = DateTime.UtcNow,
@@ -88,8 +92,10 @@ public class CustomersController : ControllerBase
         entity.CustomerCode = dto.CustomerCode;
         entity.Email = dto.Email;
         entity.Phone = dto.Phone;
+        entity.ContactPerson = dto.ContactPerson;
         entity.ShipTo = dto.ShipTo;
         entity.BillTo = dto.BillTo;
+        entity.ShippingAccount = dto.ShippingAccount;
         entity.Description = dto.Description;
         entity.Base = dto.Base;
 
@@ -114,8 +120,10 @@ public class CustomerDto
     public string? CustomerCode { get; set; }
     public string? Email { get; set; }
     public string? Phone { get; set; }
+    public string? ContactPerson { get; set; }
     public string? ShipTo { get; set; }
     public string? BillTo { get; set; }
+    public string? ShippingAccount { get; set; }
     public string? Description { get; set; }
     public int? Base { get; set; }
 }

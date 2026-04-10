@@ -135,7 +135,7 @@ public class ILSService : IILSService
                 .ThenInclude(i => i.PartNumber)
             .Include(r => r.RFQItem)
                 .ThenInclude(i => i.RFQ)
-            .Where(r => (r.Type ?? "Procument") == "Shop" && r.Condition == "AR")
+            .Where(r => (r.Type ?? "Procument") == "Shop")
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 

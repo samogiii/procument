@@ -29,7 +29,7 @@ public static class PdfHelpers
         string? phone,
         string? website,
         string? email,
-        string docTitle,
+        string? docTitle,
         string? docNumber,
         string primary)
     {

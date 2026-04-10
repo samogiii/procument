@@ -10,6 +10,7 @@
 
       <!-- Controls -->
       <v-container fluid class="flex-shrink-0 py-4">
+        <!-- Company Info -->
         <v-row dense align="center">
           <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
@@ -23,6 +24,43 @@
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
+
+        <v-divider class="my-3" />
+
+        <!-- Purchase From (Supplier) -->
+        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">PURCHASE FROM (Supplier)</div>
+        <v-row dense align="center">
+          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="purchaseFromAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+
+        <v-divider class="my-3" />
+
+        <!-- Vendor -->
+        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">BILL TO</div>
+        <v-row dense align="center">
+          <v-col cols="12" md="3"><v-text-field v-model="vendorName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="vendorAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="vendorPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="vendorEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+
+        <v-divider class="my-3" />
+
+        <!-- Deliver To -->
+        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SHIP TO</div>
+        <v-row dense align="center">
+          <v-col cols="12" md="3"><v-text-field v-model="deliverToName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-textarea v-model="deliverToAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="deliverToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="deliverToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+
+        <v-divider class="my-3" />
+
+        <!-- Comments, Terms, Footer -->
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
           <v-col cols="12" md="4"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
@@ -108,6 +146,24 @@ const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
 const companyTerms = ref('')
 
+// Purchase From (Supplier)
+const purchaseFromName = ref('')
+const purchaseFromAddress = ref('')
+const purchaseFromPhone = ref('')
+const purchaseFromEmail = ref('')
+
+// Vendor
+const vendorName = ref('')
+const vendorAddress = ref('')
+const vendorPhone = ref('')
+const vendorEmail = ref('')
+
+// Deliver To
+const deliverToName = ref('')
+const deliverToAddress = ref('')
+const deliverToPhone = ref('')
+const deliverToEmail = ref('')
+
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
   if (!file) { logoDataUrl.value = ''; return }
@@ -125,6 +181,27 @@ watch(model, async (open) => {
         const data = await api.get<any>(`/purchase-orders/${props.poId}/pdf-data`)
         pdfData.value = data
         if (data.importDetail?.comments) comments.value = data.importDetail.comments
+
+        // Initialize Purchase From (Supplier) - use supplier data
+        const supplier = data.supplier || {}
+        purchaseFromName.value = supplier.name || ''
+        purchaseFromAddress.value = supplier.address || ''
+        purchaseFromPhone.value = supplier.phone || ''
+        purchaseFromEmail.value = supplier.email || ''
+
+        // Initialize Vendor
+        const vendor = data.vendor || {}
+        vendorName.value = vendor.name || ''
+        vendorAddress.value = vendor.address || ''
+        vendorPhone.value = vendor.phone || ''
+        vendorEmail.value = vendor.email || ''
+
+        // Initialize Deliver To
+        const deliver = data.deliverTo || {}
+        deliverToName.value = deliver.name || ''
+        deliverToAddress.value = deliver.address || ''
+        deliverToPhone.value = deliver.phone || ''
+        deliverToEmail.value = deliver.email || ''
       } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
       finally { loadingData.value = false }
     }
@@ -194,26 +271,32 @@ const renderedHtml = computed(() => {
       <!-- ═══ Meta Row ═══ -->
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${poDate}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Ordered By:</span> ${d.orderedBy || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Status:</span> ${d.status || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
 
-      <!-- ═══ Vendor / Deliver To ═══ -->
+      <!-- ═══ Purchase From / BILL TO / Deliver To ═══ -->
       <div style="display:flex; gap:0; margin:0 40px 20px 40px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Vendor</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${vendor.name || '—'}</div>
-          ${vendor.address ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${vendor.address}</div>` : ''}
-          ${vendor.phone ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${vendor.phone}</div>` : ''}
-          ${vendor.email ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${vendor.email}</div>` : ''}
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Purchase From</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${purchaseFromName.value || '—'}</div>
+          ${purchaseFromAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${purchaseFromAddress.value}</div>` : ''}
+          ${purchaseFromPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${purchaseFromPhone.value}</div>` : ''}
+          ${purchaseFromEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${purchaseFromEmail.value}</div>` : ''}
+        </div>
+        <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">BIll TO</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${vendorName.value || '—'}</div>
+          ${vendorAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${vendorAddress.value}</div>` : ''}
+          ${vendorPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${vendorPhone.value}</div>` : ''}
+          ${vendorEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${vendorEmail.value}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Deliver To</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${deliver.name || '—'}</div>
-          ${deliver.address ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${deliver.address}</div>` : ''}
-          ${deliver.phone ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${deliver.phone}</div>` : ''}
-          ${deliver.email ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${deliver.email}</div>` : ''}
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${deliverToName.value || '—'}</div>
+          ${deliverToAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${deliverToAddress.value}</div>` : ''}
+          ${deliverToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${deliverToPhone.value}</div>` : ''}
+          ${deliverToEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${deliverToEmail.value}</div>` : ''}
         </div>
       </div>
 
@@ -291,8 +374,6 @@ async function downloadPdf() {
     const authStore = useAuthStore()
     const d = pdfData.value
     const items: any[] = d.items || []
-    const vendor = d.vendor || {}
-    const deliver = d.deliverTo || {}
     const importDtl = d.importDetail || {}
     const totalShipping = items.reduce((s: number, it: any) => s + (Number(it.shippingCost) || 0), 0)
 
@@ -311,14 +392,21 @@ async function downloadPdf() {
       status: d.status || '—',
       currency: currency.value,
       currencySymbol: '$',
-      vendorName: vendor.name || null,
-      vendorAddress: vendor.address || null,
-      vendorPhone: vendor.phone || null,
-      vendorEmail: vendor.email || null,
-      deliverToName: deliver.name || null,
-      deliverToAddress: deliver.address || null,
-      deliverToPhone: deliver.phone || null,
-      deliverToEmail: deliver.email || null,
+      // Purchase From (Supplier)
+      purchaseFromName: purchaseFromName.value || null,
+      purchaseFromAddress: purchaseFromAddress.value || null,
+      purchaseFromPhone: purchaseFromPhone.value || null,
+      purchaseFromEmail: purchaseFromEmail.value || null,
+      // Vendor
+      vendorName: vendorName.value || null,
+      vendorAddress: vendorAddress.value || null,
+      vendorPhone: vendorPhone.value || null,
+      vendorEmail: vendorEmail.value || null,
+      // Deliver To
+      deliverToName: deliverToName.value || null,
+      deliverToAddress: deliverToAddress.value || null,
+      deliverToPhone: deliverToPhone.value || null,
+      deliverToEmail: deliverToEmail.value || null,
       shippingMethod: importDtl.shippingMethod || null,
       incoterms: importDtl.incoterms || null,
       fedExAccount: importDtl.fedExAccount || null,

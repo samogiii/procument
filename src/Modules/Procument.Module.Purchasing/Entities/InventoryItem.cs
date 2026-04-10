@@ -11,6 +11,7 @@ public class InventoryItem : BaseEntity
     public long CompanyId { get; set; }
     public string? Condition { get; set; }
     public decimal? Price { get; set; }
+    public string? SerialNumber { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation

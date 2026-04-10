@@ -419,6 +419,7 @@ public class QuoteService : IQuoteService
             TypeAdditional = q.TypeAdditional,
             CustomerName = q.Customer.Name,
             CustomerCode = q.Customer.CustomerCode,
+            CustomerContactPerson = q.Customer.ContactPerson,
             CustomerBillTo = q.Customer.BillTo,
             CustomerShipTo = q.Customer.ShipTo,
             CustomerBase = q.Customer.Base,

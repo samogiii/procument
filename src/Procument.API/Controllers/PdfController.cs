@@ -36,7 +36,18 @@ public class PdfController : ControllerBase
     {
         QuestPDF.Settings.License = LicenseType.Community;
         var pdf = FinalInvoiceDocument.Generate(req);
-        return File(pdf, "application/pdf", $"{req.InvoiceNumber ?? "FinalInvoice"}.pdf");
+        var customerName = string.IsNullOrWhiteSpace(req.CustomerName) ? "" : req.CustomerName.Replace(" ", "_");
+        return File(pdf, "application/pdf", $"INV-{req.InvoiceNumber ?? "FinalInvoice"}-{customerName}.pdf");
+    }
+
+    // ─── Packing List ────────────────────────────────────
+    [HttpPost("packing-list")]
+    public IActionResult GeneratePackingList([FromBody] PackingListPdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = PackingListDocument.Generate(req);
+        var customerName = string.IsNullOrWhiteSpace(req.CustomerName) ? "" : req.CustomerName.Replace(" ", "_");
+        return File(pdf, "application/pdf", $"PackingList-INV-{req.InvoiceNumber ?? "Invoice"}-{customerName}.pdf");
     }
 
     // ─── RFQ ─────────────────────────────────────────────

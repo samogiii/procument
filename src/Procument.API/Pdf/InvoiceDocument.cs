@@ -8,7 +8,7 @@ namespace Procument.API.Pdf;
 /// Proforma Invoice PDF.
 /// Colors come from the selected Company Preset (PrimaryColor / AccentColor).
 /// Signature section: Bank Details block below the items table.
-/// Unique column: Delivery Date (replaces Lead Time).
+/// Unique columns: Lead Time, Delivery Date.
 /// </summary>
 public static class InvoiceDocument
 {
@@ -41,7 +41,7 @@ public static class InvoiceDocument
                     // Accent line
                     col.Item().Element(c => PdfHelpers.DrawAccentLine(c, primary, accent));
 
-                    // Meta row: Date | Due Date | Status | Currency
+                    // Meta row: Date | Due Date | Customer PO | Currency
                     col.Item().PaddingBottom(10).Row(row =>
                     {
                         void Meta(string label, string? val)
@@ -51,19 +51,81 @@ public static class InvoiceDocument
                                 t.Span(val ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);
                             });
                         Meta("Date", req.InvoiceDate);
-                        Meta("Due Date", req.DueDate);
-                        Meta("Status", req.Status);
+                        Meta("Ship Date", req.DueDate);
+                        Meta("Customer PO", req.CustomerPONumber);
+                        //Meta("Status", req.Status);
                         Meta("Currency", req.Currency);
                     });
 
                     // Bill To / Ship To
                     col.Item().PaddingBottom(12).Row(row =>
                     {
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "BILL TO",
-                            req.CustomerName, req.CustomerBillTo, null, null, accent);
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "SHIP TO",
-                            req.CustomerName,
-                            req.CustomerShipTo ?? req.CustomerBillTo, null, null, accent);
+                        // Bill To
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
+                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                .Padding(10).Column(bc =>
+                                {
+                                    void Field(string label, string? val)
+                                    {
+                                        if (string.IsNullOrWhiteSpace(val)) return;
+                                        bc.Item().Text(t =>
+                                        {
+                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                        });
+                                    }
+                                    bc.Item().Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
+                                    {
+                                        bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerContactPerson))
+                                    {
+                                        bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillToEmail))
+                                    {
+                                        bc.Item().PaddingTop(2).Text($"Email: {req.CustomerBillToEmail}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillToPhone))
+                                    {
+                                        bc.Item().PaddingTop(2).Text($"Phone: {req.CustomerBillToPhone}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                });
+                        });
+
+                        // Ship To
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
+                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                .Padding(10).Column(sc =>
+                                {
+                                    sc.Item().Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                    {
+                                        sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToContactPerson))
+                                    {
+                                        sc.Item().PaddingTop(2).Text($"Contact: {req.CustomerShipToContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToEmail))
+                                    {
+                                        sc.Item().PaddingTop(2).Text($"Email: {req.CustomerShipToEmail}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToPhone))
+                                    {
+                                        sc.Item().PaddingTop(2).Text($"Phone: {req.CustomerShipToPhone}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToAccount))
+                                    {
+                                        sc.Item().PaddingTop(2).Text($"Account: {req.CustomerShipToAccount}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    }
+                                });
+                        });
                     });
 
                     // Items table
@@ -178,7 +240,7 @@ public static class InvoiceDocument
                     Cell(r.ConstantItem(60), it.CertName ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(60), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
                     Cell(r.ConstantItem(65), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
-                    Cell(r.ConstantItem(65), it.DeliveryDate ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(65), it.LeadTime ?? "—", Colors.Grey.Darken1);
                 });
             }
         });

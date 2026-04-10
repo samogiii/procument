@@ -11,6 +11,7 @@ public class SaveInventoryItemRequest
     public string? CompanyName { get; set; }
     public string? Condition { get; set; }
     public decimal? Price { get; set; }
+    public string? SerialNumber { get; set; }
 }
 
 public class InventoryItemResponse
@@ -24,6 +25,7 @@ public class InventoryItemResponse
     public string CompanyName { get; set; } = "";
     public string? Condition { get; set; }
     public decimal? Price { get; set; }
+    public string? SerialNumber { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -40,4 +42,5 @@ public class BulkInventoryRow
     public string? CompanyName { get; set; }
     public string? Condition { get; set; }
     public decimal? Price { get; set; }
+    public string? SerialNumber { get; set; }
 }

@@ -8,7 +8,10 @@
           RFQ #{{ route.params.id }}
           <v-chip :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
         </h1>
-        <p class="text-caption text-medium-emphasis mt-1 text-truncate" v-if="rfq.name">{{ rfq.name }}</p>
+        <p class="text-caption text-medium-emphasis mt-1 text-truncate d-flex align-center gap-2" v-if="rfq.name">
+          {{ rfq.name }}
+          <v-btn v-if="isAdmin" icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="editNameDialog = true" />
+        </p>
       </div>
     </div>
 
@@ -38,9 +41,10 @@
             </v-avatar>
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Deadline</p>
-              <p class="text-body-2 font-weight-medium mb-0" :style="isLeadTimeUrgent(rfq.leadTime) ? '' : ''">
+              <p class="text-body-2 font-weight-medium mb-0 d-flex align-center gap-2" :style="isLeadTimeUrgent(rfq.leadTime) ? '' : ''">
                 {{ rfq.leadTime ? new Date(rfq.leadTime).toLocaleDateString() : '—' }}
-                <v-icon v-if="isLeadTimeUrgent(rfq.leadTime)" icon="mdi-alert" size="14" color="error" class="ml-1" />
+                <v-icon v-if="isLeadTimeUrgent(rfq.leadTime)" icon="mdi-alert" size="14" color="error" />
+                <v-btn v-if="isAdmin" icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="editDeadlineDialog = true" />
               </p>
             </div>
           </div>
@@ -604,7 +608,7 @@
                       <table class="quote-grid">
                         <thead>
                           <tr>
-                            <th style="min-width: 160px;">Supplier</th>
+                            <th style="opacity:1; min-width: 160px; position: sticky; left: 0; background: #252A37; z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                             <th style="min-width: 80px;">Cond</th>
                             <th style="min-width: 130px;">Alt P/N</th>
                             <th style="min-width: 70px;">Qty</th>
@@ -624,7 +628,7 @@
                         <tbody>
                           <template v-for="(quote, qIdx) in getItemQuotes(item.id)" :key="qIdx">
                           <tr class="quote-row">
-                            <td style="position: relative;">
+                            <td style="position: sticky; left: 0; background: #252A37; opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                               <input
                                 type="text"
                                 class="quote-input"
@@ -825,7 +829,7 @@
                                 <table class="quote-grid" v-if="(quote.shopRecords || []).length > 0" style="width: 100%; border-collapse: collapse;">
                                   <thead>
                                     <tr>
-                                      <th>Supplier</th>
+                                      <th style="opacity:1; position: sticky; left: 0; background: #252A37; z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                                       <th>Alt P/N</th>
                                       <th>Condition</th>
                                       <th>Qty</th>
@@ -844,7 +848,7 @@
                                   </thead>
                                   <tbody>
                                     <tr v-for="(shop, sIdx) in quote.shopRecords" :key="'shop-' + sIdx" class="shop-row">
-                                      <td>
+                                      <td style="position: sticky; left: 0; background: #252A37; opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                                         <input type="text" class="quote-input" placeholder="Shop name..." v-model="shop.supplierName" @input="searchSupplier(shop.supplierName)" list="supplier-suggestions" />
                                       </td>
                                       <td><input type="text" class="quote-input" placeholder="Same P/N" v-model="shop.alt" /></td>
@@ -1182,6 +1186,60 @@
           <v-spacer />
           <v-btn variant="text" @click="showDeleteItemConfirm = false">Cancel</v-btn>
           <v-btn color="error" variant="flat" @click="doDeleteItem">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Edit Name Dialog -->
+    <v-dialog v-model="editNameDialog" max-width="500">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-pencil" color="primary" class="mr-2" />
+          Edit RFQ Name
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="editNameDialog = false" />
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <v-text-field
+            v-model="editNameForm.name"
+            label="RFQ Name"
+            variant="outlined"
+            density="compact"
+            hide-details
+            autofocus
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="editNameDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="editNameSaving" @click="saveName">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Edit Deadline Dialog -->
+    <v-dialog v-model="editDeadlineDialog" max-width="500">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-calendar-edit" color="primary" class="mr-2" />
+          Edit Deadline
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="editDeadlineDialog = false" />
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <v-text-field
+            v-model="editDeadlineForm.leadTime"
+            label="Deadline"
+            type="date"
+            variant="outlined"
+            density="compact"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="editDeadlineDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="editDeadlineSaving" @click="saveDeadline">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1715,6 +1773,43 @@ async function doDeleteItem() {
   }
 }
 
+// ──── Edit Name ────
+
+async function saveName() {
+  if (!editNameForm.value.name.trim()) return
+  editNameSaving.value = true
+  try {
+    await api.patch(`/rfqs/${route.params.id}/name`, { name: editNameForm.value.name })
+    rfq.value.name = editNameForm.value.name
+    showSnack('RFQ name updated', 'success')
+    editNameDialog.value = false
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to update name', 'error')
+  } finally {
+    editNameSaving.value = false
+  }
+}
+
+// ──── Edit Deadline ────
+
+async function saveDeadline() {
+  if (!editDeadlineForm.value.leadTime) return
+  editDeadlineSaving.value = true
+  try {
+    const dateValue = typeof editDeadlineForm.value.leadTime === 'string'
+      ? new Date(editDeadlineForm.value.leadTime)
+      : editDeadlineForm.value.leadTime
+    await api.patch(`/rfqs/${route.params.id}/leadtime`, { leadTime: dateValue.toISOString() })
+    rfq.value.leadTime = dateValue.toISOString()
+    showSnack('Deadline updated', 'success')
+    editDeadlineDialog.value = false
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to update deadline', 'error')
+  } finally {
+    editDeadlineSaving.value = false
+  }
+}
+
 // ──── Supplier Name Autocomplete ────
 let supplierSearchDebounce: any = null
 function searchSupplier(val: string) {
@@ -1968,6 +2063,34 @@ const showAddAlt = ref(false)
 const addAltInput = ref('')
 const addAltSaving = ref(false)
 const addAltTargetItem = ref<any>(null)
+
+// ──── Edit Name Dialog ────
+
+const editNameDialog = ref(false)
+const editNameSaving = ref(false)
+const editNameForm = ref({ name: '' })
+
+// ──── Edit Deadline Dialog ────
+
+const editDeadlineDialog = ref(false)
+const editDeadlineSaving = ref(false)
+const editDeadlineForm = ref({ leadTime: '' as any })
+
+// ──── Edit Name Watch ────
+
+watch(editNameDialog, (open) => {
+  if (open) {
+    editNameForm.value.name = rfq.value.name || ''
+  }
+})
+
+// ──── Edit Deadline Watch ────
+
+watch(editDeadlineDialog, (open) => {
+  if (open) {
+    editDeadlineForm.value.leadTime = rfq.value.leadTime ? new Date(rfq.value.leadTime).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+  }
+})
 
 function openAddAlt(item: any) {
   addAltTargetItem.value = item
@@ -2284,6 +2407,27 @@ function showSnack(text: string, color: string) {
 .quote-grid-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  scrollbar-width: auto;
+  scrollbar-color: var(--card-border) #252A37;
+}
+
+.quote-grid-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-track {
+  background: #252A37;
+  border-radius: 5px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 5px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--row-hover);
 }
 
 .letter-spacing-wide {
@@ -2294,7 +2438,7 @@ function showSnack(text: string, color: string) {
 .quote-grid {
   width: 100%;
   border-collapse: collapse;
-  min-width: 800px;
+  min-width: 1600px;
 }
 
 .quote-grid thead th {

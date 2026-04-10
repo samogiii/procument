@@ -113,6 +113,7 @@ public class InventoryService : IInventoryService
             item.CompanyId = companyId;
             item.Condition = request.Condition;
             item.Price = request.Price;
+            item.SerialNumber = request.SerialNumber;
         }
         else
         {
@@ -124,6 +125,7 @@ public class InventoryService : IInventoryService
                 CompanyId = companyId,
                 Condition = request.Condition,
                 Price = request.Price,
+                SerialNumber = request.SerialNumber,
                 CreatedAt = DateTime.UtcNow
             };
             _db.Set<InventoryItem>().Add(item);
@@ -200,6 +202,7 @@ public class InventoryService : IInventoryService
                 CompanyId = companyId,
                 Condition = row.Condition,
                 Price = row.Price,
+                SerialNumber = row.SerialNumber,
                 CreatedAt = DateTime.UtcNow
             });
             result.Created++;
@@ -225,6 +228,7 @@ public class InventoryService : IInventoryService
         CompanyName = item.Company?.Name ?? "",
         Condition = item.Condition,
         Price = item.Price,
+        SerialNumber = item.SerialNumber,
         CreatedAt = item.CreatedAt
     };
 }

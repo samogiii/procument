@@ -130,6 +130,7 @@ public class InvoiceService : IInvoiceService
             TotalAmount = totalAmount,
             Status = "Pending",
             DueDate = request.DueDate,
+            CustomerPONumber = request.CustomerPONumber,
             CreatedAt = DateTime.UtcNow,
             InvoiceItems = invoiceItems
         };
@@ -142,6 +143,18 @@ public class InvoiceService : IInvoiceService
         await _db.SaveChangesAsync();
 
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
+    }
+
+    public async Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request)
+    {
+        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        if (invoice == null) return false;
+
+        if (request.DueDate.HasValue) invoice.DueDate = request.DueDate.Value;
+        if (request.CustomerPONumber != null) invoice.CustomerPONumber = request.CustomerPONumber;
+
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, string? rejectionNote = null)
@@ -251,12 +264,17 @@ public class InvoiceService : IInvoiceService
             DueDate = i.DueDate,
             PaidDate = i.PaidDate,
             CreatedAt = i.CreatedAt,
+            CustomerPONumber = i.CustomerPONumber,
             QuoteId = i.QuoteId,
             CustomerId = i.CustomerId,
             CustomerName = i.Customer?.Name ?? "",
             CustomerCode = i.Customer?.CustomerCode,
+            CustomerContactPerson = i.Customer?.ContactPerson,
+            CustomerEmail = i.Customer?.Email,
+            CustomerPhone = i.Customer?.Phone,
             CustomerBillTo = i.Customer?.BillTo,
             CustomerShipTo = i.Customer?.ShipTo,
+            CustomerShippingAccount = i.Customer?.ShippingAccount,
             RejectionNote = i.RejectionNote,
             Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
             {
@@ -272,7 +290,8 @@ public class InvoiceService : IInvoiceService
                 PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
                 Description = ii.QuoteItem?.PartNumber?.Description ?? "",
                 Condition = ii.QuoteItem?.Condition,
-                CertName = ii.QuoteItem?.ProcumentRecord?.CertName
+                CertName = ii.QuoteItem?.ProcumentRecord?.CertName,
+                LeadTime = ii.QuoteItem?.ProcumentRecord?.LeadTime
             }).ToList() ?? new()
         };
     }

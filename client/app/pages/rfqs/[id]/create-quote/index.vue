@@ -161,22 +161,26 @@
                     <table class="quote-grid">
                       <thead>
                         <tr>
-                          <th style="width: 40px;"></th>
-                          <th style="min-width: 80px;">Supplier</th>
+                          <th style="opacity:1; width: 40px; position: sticky; left: 0; background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);"></th>
+                          <th style="opacity:1; min-width: 80px; position: sticky; left: 40px; background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                           <th style="width: 130px;">Alt P/N</th>
-                          <th style="width: 80px;">Cond</th>
+                          <th style="width: 80px;">Condition</th>
                           <th style="width: 70px;">Qty</th>
-                          <th style="width: 110px;">Buyer Price</th>
-                          <th style="width: 110px;">Lead Time</th>
-                          <th v-if="hasArForItem(item.id)" style="width: 100px; color: #ff9800;">Repair Cost</th>
+                          <th style="width: 100px;">Cert</th>
+                          <th style="width: 100px;">Tag Date</th>
+                          <th style="width: 120px;">Shipping Point</th>
                           <th style="width: 110px;">Shipping Cost</th>
+                          <th style="width: 110px;">Lead Time</th>
+                          <th style="width: 250px;">Note</th>
+                          <th v-if="hasArForItem(item.id)" style="width: 100px; color: #ff9800;">Repair Cost</th>
+                          <th style="width: 110px;">Buy Price</th>
+                          <th style="width: 120px;">Total Buy Price</th>
                           <th style="width: 75px;">Coef 1</th>
                           <th style="width: 75px;">Coef 2</th>
                           <th style="width: 75px;">Coef 3</th>
-                          <th style="width: 140px;">Note</th>
-                          <th style="width: 140px; color: #a78bfa;">My Notes</th>
                           <th style="width: 110px;">Unit Price</th>
                           <th style="width: 120px;">Total Price</th>
+                          <th style="width: 140px; color: #a78bfa;">My Notes</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -186,7 +190,7 @@
                           class="quote-row"
                           :class="{ 'selected-row': selections[record.id], 'shop-record-row': record.isShop }"
                         >
-                          <td class="text-center">
+                          <td class="text-center" style="position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                             <input
                               type="checkbox"
                               :checked="selections[record.id]"
@@ -194,7 +198,7 @@
                               class="record-checkbox"
                             />
                           </td>
-                          <td style="padding-left: 8px; font-size: 13px;">
+                          <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 40px; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                             {{ record.supplierName }}
                             <v-chip v-if="record.isShop" size="x-small" color="warning" variant="tonal" class="ml-1">Shop</v-chip>
                           </td>
@@ -205,23 +209,20 @@
                             {{ record.isShop ? (record.condition || '—') : (record.condition || 'N/A') }}
                           </td>
                           <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
-                          <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
-                            ${{ formatPrice(record.price) }}
+                          <td style="padding-left: 8px; font-size: 12px;">
+                            {{ record.certName || '—' }}
+                          </td>
+                          <td style="padding-left: 8px; font-size: 12px;">
+                            {{ record.tagDate ? new Date(record.tagDate).toLocaleDateString() : '—' }}
                           </td>
                           <td>
                             <input
                               type="text"
                               class="coef-input"
-                              placeholder="e.g. 7-10 days"
-                              v-model="record.leadTime"
-                              style="min-width: 90px;"
+                              placeholder="Shipping point..."
+                              v-model="record.shippingPoint"
+                              style="min-width: 100px;"
                             />
-                          </td>
-                          <td v-if="hasArForItem(item.id)">
-                            <span v-if="record.isShop && record.fixPrice" class="computed-cell" style="color: #ff9800; font-weight: 600;">
-                              ${{ formatPrice(record.fixPrice) }}
-                            </span>
-                            <span v-else class="text-medium-emphasis" style="padding-left: 8px; font-size: 12px;">—</span>
                           </td>
                           <td>
                             <input
@@ -233,6 +234,34 @@
                               min="0"
                               style="text-align: right;"
                             />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              class="coef-input"
+                              placeholder="e.g. 7-10 days"
+                              v-model="record.leadTime"
+                              style="min-width: 90px;"
+                            />
+                          </td>
+                          <td>
+                            <v-textarea
+                              type="text"
+                              placeholder="Note..."
+                              v-model="record.note"
+                            />
+                          </td>
+                          <td v-if="hasArForItem(item.id)">
+                            <span v-if="record.isShop && record.fixPrice" class="computed-cell" style="color: #ff9800; font-weight: 600;">
+                              ${{ formatPrice(record.fixPrice) }}
+                            </span>
+                            <span v-else class="text-medium-emphasis" style="padding-left: 8px; font-size: 12px;">—</span>
+                          </td>
+                          <td class="text-medium-emphasis" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
+                            ${{ formatPrice(record.price) }}
+                          </td>
+                          <td class="computed-cell" style="font-family: monospace; text-align: right; padding-right: 12px; font-size: 13px;">
+                            ${{ formatPrice((Number(record.price) || 0) * (Number(record.qty) || 1)) }}
                           </td>
                           <td>
                             <input
@@ -265,24 +294,6 @@
                             />
                           </td>
                           <td>
-                            <v-textarea
-                              type="text"
-                              
-                              placeholder="Note..."
-                              v-model="record.note"
-                            />
-                          </td>
-                          <td>
-                            <v-textarea
-                              type="text"
-                              
-                              placeholder="My notes..."
-                              
-                              v-model="record.myNotes"
-                              style="color: #a78bfa;"
-                            />
-                          </td>
-                          <td>
                             <input
                               type="number"
                               class="coef-input unit-price-input"
@@ -294,6 +305,14 @@
                           </td>
                           <td class="computed-cell total-cell">
                             ${{ formatPrice(calcTotalPrice(record)) }}
+                          </td>
+                          <td>
+                            <v-textarea
+                              type="text"
+                              placeholder="My notes..."
+                              v-model="record.myNotes"
+                              style="color: #a78bfa;"
+                            />
                           </td>
                         </tr>
                       </tbody>
@@ -750,6 +769,26 @@ function showSnack(text: string, color: string) {
 
 .excel-container {
   overflow-x: auto;
+  scrollbar-width: auto;
+  scrollbar-color: var(--card-border) var(--toolbar-bg);
+}
+
+.excel-container::-webkit-scrollbar {
+  height: 10px;
+}
+
+.excel-container::-webkit-scrollbar-track {
+  background: var(--toolbar-bg);
+  border-radius: 5px;
+}
+
+.excel-container::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 5px;
+}
+
+.excel-container::-webkit-scrollbar-thumb:hover {
+  background: var(--row-hover);
 }
 
 /* Excel Grid */
@@ -849,6 +888,27 @@ function showSnack(text: string, color: string) {
 .quote-grid-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  scrollbar-width: auto;
+  scrollbar-color: var(--card-border) var(--toolbar-bg);
+}
+
+.quote-grid-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-track {
+  background: var(--toolbar-bg);
+  border-radius: 5px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 5px;
+}
+
+.quote-grid-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--row-hover);
 }
 
 .computed-cell {
@@ -902,6 +962,7 @@ function showSnack(text: string, color: string) {
 .quote-grid {
   width: 100%;
   border-collapse: collapse;
+  min-width: 2000px;
 }
 
 .quote-grid thead th {
@@ -934,8 +995,12 @@ function showSnack(text: string, color: string) {
   background: var(--row-hover);
 }
 .quote-row.selected-row {
-  background: var(--cell-hover);
-  border-left: 2px solid rgb(var(--v-theme-primary));
+  background: rgba(74, 222, 128, 0.1);
+  border-left: 3px solid #4ade80;
+}
+
+.quote-row.selected-row td[style*="position: sticky"] {
+  background: rgba(74, 222, 128, 0.15) !important;
 }
 
 /* Checkbox */

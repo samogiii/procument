@@ -111,8 +111,8 @@ public class FinalInvoiceService : IFinalInvoiceService
             throw new InvalidOperationException("Proforma invoice not found.");
 
         // Generate invoice number
-        var count = await _db.Set<FinalInvoice>().CountAsync();
-        var invoiceNumber = $"FINV-{(count + 1).ToString().PadLeft(5, '0')}";
+        //var count = await _db.Set<FinalInvoice>().CountAsync();
+        //var invoiceNumber = $"INV-{(count + 1).ToString().PadLeft(5, '0')}";
 
         // Collect POItem track numbers mapped by InvoiceItemId
         var invoiceItemIds = proforma.InvoiceItems.Select(ii => ii.Id).ToList();
@@ -132,7 +132,7 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         var finalInvoice = new FinalInvoice
         {
-            InvoiceNumber = invoiceNumber,
+            InvoiceNumber = "",
             TotalAmount = proforma.TotalAmount,
             Status = "Draft",
             ProformaInvoiceId = proforma.Id,
@@ -142,6 +142,11 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         _db.Set<FinalInvoice>().Add(finalInvoice);
         await _db.SaveChangesAsync(); // Get the ID
+
+
+        // Set PO number using the actual Id
+        finalInvoice.InvoiceNumber = $"INV-{finalInvoice.Id}";
+        await _db.SaveChangesAsync();
 
         // Create items from proforma items
         foreach (var ii in proforma.InvoiceItems)
@@ -223,11 +228,20 @@ public class FinalInvoiceService : IFinalInvoiceService
             CreatedAt = fi.CreatedAt,
             ProformaInvoiceId = fi.ProformaInvoiceId,
             ProformaInvoiceNumber = fi.ProformaInvoice?.InvoiceNumber ?? "",
+            CustomerPONumber = fi.ProformaInvoice?.CustomerPONumber,
             CustomerId = fi.CustomerId,
             CustomerName = fi.Customer?.Name ?? "",
             CustomerCode = fi.Customer?.CustomerCode,
+            CustomerContactPerson = fi.Customer?.ContactPerson,
             CustomerBillTo = fi.Customer?.BillTo,
+            CustomerBillToEmail = fi.Customer?.Email,
+            CustomerBillToPhone = fi.Customer?.Phone,
+            //CustomerBillToContactPerson = fi.Customer?.ContactPerson,
             CustomerShipTo = fi.Customer?.ShipTo,
+            CustomerShipToContactPerson = fi.Customer?.ContactPerson,
+            CustomerShipToEmail = fi.Customer?.Email,
+            CustomerShipToPhone = fi.Customer?.Phone,
+            CustomerShipToAccount = fi.Customer?.ShippingAccount,
             Items = fi.Items.Select(i => new FinalInvoiceItemResponse
             {
                 Id = i.Id,

@@ -7,7 +7,7 @@ namespace Procument.API.Pdf;
 /// <summary>
 /// Purchase Order PDF.
 /// Colors come from the selected Company Preset (PrimaryColor / AccentColor).
-/// Signature sections: Vendor + Deliver To address boxes; Shipping/Incoterms block.
+/// Signature sections: Purchase From + Vendor + Deliver To address boxes; Shipping/Incoterms block.
 /// Unique column: Note (replaces Lead Time).
 /// </summary>
 public static class PurchaseOrderDocument
@@ -51,20 +51,25 @@ public static class PurchaseOrderDocument
                                 t.Span(val ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);
                             });
                         Meta("Date", req.PoDate);
-                        Meta("Ordered By", req.OrderedBy);
+                        //Meta("Ordered By", req.OrderedBy);
                         Meta("Status", req.Status);
                         Meta("Currency", req.Currency);
                     });
 
-                    // Vendor / Deliver To (both with phone + email extra lines)
+                    // Purchase From / Vendor / Deliver To (all with phone + email extra lines)
                     col.Item().PaddingBottom(12).Row(row =>
                     {
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "VENDOR",
+                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "PURCHASE FROM",
+                            req.PurchaseFromName, req.PurchaseFromAddress,
+                            string.IsNullOrEmpty(req.PurchaseFromPhone) ? null : $"Tel: {req.PurchaseFromPhone}",
+                            string.IsNullOrEmpty(req.PurchaseFromEmail) ? null : $"Email: {req.PurchaseFromEmail}",
+                            accent);
+                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "Bill To",
                             req.VendorName, req.VendorAddress,
                             string.IsNullOrEmpty(req.VendorPhone) ? null : $"Tel: {req.VendorPhone}",
                             string.IsNullOrEmpty(req.VendorEmail) ? null : $"Email: {req.VendorEmail}",
                             accent);
-                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "DELIVER TO",
+                        PdfHelpers.DrawAddressBox(row.RelativeItem(), "Ship To",
                             req.DeliverToName, req.DeliverToAddress,
                             string.IsNullOrEmpty(req.DeliverToPhone) ? null : $"Tel: {req.DeliverToPhone}",
                             string.IsNullOrEmpty(req.DeliverToEmail) ? null : $"Email: {req.DeliverToEmail}",

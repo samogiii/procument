@@ -56,7 +56,7 @@
             <div class="d-flex align-center mb-2">
               <v-avatar color="success" size="36" variant="tonal"><v-icon icon="mdi-cash-multiple" size="20" /></v-avatar>
               <div class="ml-3">
-                <div class="text-caption text-medium-emphasis">Quote Value</div>
+                <div class="text-caption text-medium-emphasis">Sent Quotes</div>
                 <div class="text-h6 font-weight-bold">${{ fmtNum(d.totalQuoteValue) }}</div>
               </div>
             </div>
@@ -415,6 +415,7 @@ const statCards = computed(() => {
   const c = C.value
   const base = [
     { title: 'RFQs', value: v.totalRfqs ?? 0, icon: 'mdi-file-document-outline', color: 'primary', borderColor: c.primary, to: '/rfqs' },
+    { title: 'Assigned RFQs', value: v.rfqCount ?? 0, icon: 'mdi-file-check-outline', color: 'purple', borderColor: '#9C27B0', to: '/rfqs' },
     { title: 'Quotes', value: v.totalQuotes ?? 0, icon: 'mdi-currency-usd', color: 'info', borderColor: c.info, to: '/quotes' },
     { title: 'Invoices', value: v.totalInvoices ?? 0, icon: 'mdi-receipt-text-outline', color: 'warning', borderColor: c.warning, to: '/invoices' },
     { title: 'POs', value: v.totalPOs ?? 0, icon: 'mdi-package-variant-closed', color: 'secondary', borderColor: c.secondary, to: '/purchase-orders' },
@@ -531,7 +532,7 @@ const userBarOpts = computed(() => {
     chart: { ...base.chart, type: 'bar' },
     xaxis: { categories: users.map((u: any) => u.userName), labels: { style: { colors: c.muted, fontSize: '11px' } } },
     yaxis: { labels: { style: { colors: c.muted }, formatter: (v: number) => '$' + fmtNum(v) } },
-    colors: [c.primary, c.success, c.error],
+    colors: [c.primary, c.success, c.error, c.warning],
     plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
     dataLabels: { enabled: false },
   }
@@ -543,6 +544,7 @@ const userBarSeries = computed(() => {
     { name: 'Total Value', data: users.map((u: any) => Number(u.totalValue) || 0) },
     { name: 'Accepted', data: users.map((u: any) => u.acceptedCount) },
     { name: 'Rejected', data: users.map((u: any) => u.rejectedCount) },
+    { name: 'RFQ Count', data: users.map((u: any) => u.rfqCount || 0) },
   ]
 })
 

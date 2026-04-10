@@ -204,23 +204,29 @@ watch(mobile, (isMobile) => {
 })
 
 const allNavItems = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false },
-  { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false },
+  { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
+  { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false, ilsOnly: false },
   // { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
-  { title: 'Procument', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false },
-  { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false },
-  { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true },
-  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true },
-  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true },
-  { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true },
-  { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true },
-  { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true },
-  { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true },
+  { title: 'Procument', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false, ilsOnly: false },
+  { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
+  { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
+  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
+  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true, ilsOnly: false },
+  { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true, ilsOnly: true },
+  { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true, ilsOnly: false },
+  { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true, ilsOnly: false },
+  { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true, ilsOnly: false },
 ]
 
-const navItems = computed(() =>
-  allNavItems.filter(item => !item.adminOnly || authStore.isAdmin)
-)
+const navItems = computed(() => {
+  return allNavItems.filter(item => {
+    // ILS-only pages: only for ILS users OR Admin
+    if (item.ilsOnly && !authStore.ilsUsers && !authStore.isAdmin) return false
+    // Admin-only pages (non-ILS): only for Admin
+    if (item.adminOnly && !item.ilsOnly && !authStore.isAdmin) return false
+    return true
+  })
+})
 
 const pageTitle = computed(() => {
   const name = route.name as string | undefined

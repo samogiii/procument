@@ -194,23 +194,24 @@
                         <thead>
                           <tr>
                             <th style="width: 28px;"></th>
-                            <th style="min-width: 90px;">Supplier</th>
+                            <th style="opacity:1; min-width: 90px; position: sticky; left: 0;  background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                             <th style="width: 120px;">Alt P/N</th>
-                            <th style="width: 80px;">Cond</th>
+                            <th style="width: 80px;">Condition</th>
                             <th style="width: 60px;">Qty</th>
+                            <th style="width: 80px;">Cert</th>
+                            <th style="width: 90px;">Tag Date</th>
+                            <th style="width: 110px;">Shipping Point</th>
+                            <th style="width: 100px;">Shipping Cost</th>
+                            <th style="width: 90px;">Lead Time</th>
+                            <th style="width: 140px;">Note</th>
                             <th style="width: 100px;">Buy Price</th>
+                            <th style="width: 110px;">Total Buy Price</th>
                             <th style="width: 65px;">Coef 1</th>
                             <th style="width: 65px;">Coef 2</th>
                             <th style="width: 65px;">Coef 3</th>
                             <th style="width: 100px;">Unit Price</th>
-                            <th style="width: 100px;">Total Price</th>
-                            <th style="width: 80px;">Cert</th>
-                            <th style="width: 90px;">Tag Date</th>
-                            <th style="width: 100px;">Shipping Cost</th>
-                            <th style="width: 110px;">Shipping Point</th>
-                            <th style="width: 90px;">Lead Time</th>
-                            <th style="width: 140px;">Notes</th>
-                            <th style="width: 140px;">My Note</th>
+                            <th style="width: 110px;">Total Price</th>
+                            <th style="width: 140px; color: #a78bfa;">My Notes</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -234,12 +235,21 @@
                                 size="16"
                               />
                             </td>
-                            <td style="padding-left: 8px; font-size: 13px;">{{ rec.supplierName }}</td>
+                            <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0;  background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">{{ rec.supplierName }}</td>
                             <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">{{ rec.alt || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.condition || 'N/A' }}</td>
                             <td class="text-center" style="font-size: 13px;">{{ rec.qty }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.certName || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.tagDate ? new Date(rec.tagDate).toLocaleDateString() : '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.shippingPoint || '—' }}</td>
+                            <td class="mono-cell text-right pr-2">{{ rec.shippingCost ? '$' + formatPrice(rec.shippingCost) : '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.leadTime || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.note">{{ rec.note || '—' }}</td>
                             <td style="font-family: monospace; text-align: right; padding-right: 10px; font-size: 13px;" class="text-medium-emphasis">
                               ${{ formatPrice(rec.price) }}
+                            </td>
+                            <td class="mono-cell text-right pr-2">
+                              ${{ formatPrice((Number(rec.price) || 0) * (Number(rec.qty) || 1)) }}
                             </td>
                             <td class="text-center mono-cell">{{ rec.coef_1 ?? '—' }}</td>
                             <td class="text-center mono-cell">{{ rec.coef_2 ?? '—' }}</td>
@@ -250,12 +260,6 @@
                             <td class="mono-cell text-right pr-2" :class="selectedProcIds.has(rec.id) ? 'total-selected' : ''">
                               ${{ formatPrice(rec.totalPrice) }}
                             </td>
-                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.certName || '—' }}</td>
-                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.tagDate || '—' }}</td>
-                            <td class="mono-cell text-right pr-2">{{ rec.shippingCost ? '$' + formatPrice(rec.shippingCost) : '—' }}</td>
-                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.shippingPoint || '—' }}</td>
-                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.leadTime || '—' }}</td>
-                            <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.note">{{ rec.note || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.myNotes">{{ rec.myNotes || '—' }}</td>
                           </tr>
                         </tbody>
@@ -336,6 +340,7 @@ const allRfqItems = ref<any[]>([])
 const allProcRecords = ref<any[]>([])
 const selectedProcIds = ref(new Set<number>())
 const loading = ref(true)
+const showAllItems = ref(false)
 
 // Rejection history — other rejected quotes for the same RFQ
 const rejectedSiblings = ref<any[]>([])
@@ -557,7 +562,6 @@ function showSnack(text: string, color: string) {
 }
 
 /* Detail sub-row */
-.detail-sub-row {}
 .detail-sub-cell {
   padding: 0 !important;
   background: var(--excel-bg, rgba(0,0,0,0.01));
@@ -569,7 +573,29 @@ function showSnack(text: string, color: string) {
   padding: 10px 16px 10px 48px;
   border-left: 3px solid #3b82f6;
   margin-left: 16px;
+  overflow-x: auto;
+  scrollbar-width: auto;
+  scrollbar-color: var(--card-border) #252A37;
 }
+
+.proc-panel::-webkit-scrollbar {
+  height: 10px;
+}
+
+.proc-panel::-webkit-scrollbar-track {
+  background: #252A37;
+  border-radius: 5px;
+}
+
+.proc-panel::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 5px;
+}
+
+.proc-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--row-hover);
+}
+
 .empty-proc {
   padding: 10px 16px 10px 48px;
 }
@@ -578,6 +604,7 @@ function showSnack(text: string, color: string) {
 .proc-grid {
   width: 100%;
   border-collapse: collapse;
+  /* min-width: 2000px; */
 }
 .proc-grid thead th {
   opacity: 0.55;
@@ -608,6 +635,10 @@ function showSnack(text: string, color: string) {
 }
 .selected-proc-row:hover {
   background: rgba(74, 222, 128, 0.16);
+}
+
+.selected-proc-row td[style*="position: sticky"] {
+  background: rgba(74, 222, 128, 0.15) !important;
 }
 
 /* Unselected: muted */

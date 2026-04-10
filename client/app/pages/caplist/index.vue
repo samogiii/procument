@@ -46,6 +46,11 @@
             Repair Cap Lists
             <v-chip size="x-small" class="ml-2" color="warning" variant="tonal">{{ repairItems.length }}</v-chip>
           </v-tab>
+          <v-tab value="suppliers">
+            <v-icon start>mdi-factory</v-icon>
+            Suppliers
+            <v-chip size="x-small" class="ml-2" color="info" variant="tonal">{{ uniqueSuppliers.length }}</v-chip>
+          </v-tab>
         </v-tabs>
 
         <!-- Filters -->
@@ -73,12 +78,14 @@
         </div>
 
         <v-data-table
+          v-if="activeTab !== 'suppliers'"
           :headers="headers"
           :items="filteredItems"
           :loading="loading"
           :items-per-page="50"
           hover
           density="comfortable"
+          @click:row="onRowClick"
         >
           <template #item.isRepair="{ item }">
             <v-chip
@@ -98,15 +105,39 @@
             </v-chip>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openEditDialog(item)" />
+            <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click.stop="openEditDialog(item)" />
             <v-btn
               v-if="isAdmin"
               icon="mdi-delete"
               size="x-small"
               variant="text"
               color="error"
-              @click="confirmDelete(item)"
+              @click.stop="confirmDelete(item)"
             />
+          </template>
+        </v-data-table>
+
+        <!-- Suppliers Table -->
+        <v-data-table
+          v-if="activeTab === 'suppliers'"
+          :headers="supplierListHeaders"
+          :items="filteredSuppliers"
+          :loading="loading"
+          :items-per-page="50"
+          hover
+          density="comfortable"
+          @click:row="onSupplierRowClick"
+        >
+          <template #item.totalItems="{ item }">
+            <v-chip size="small" color="primary" variant="tonal">{{ item.totalItems }}</v-chip>
+          </template>
+          <template #item.repairItems="{ item }">
+            <v-chip v-if="item.repairItems > 0" size="small" color="warning" variant="tonal">{{ item.repairItems }}</v-chip>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+          <template #item.supplyItems="{ item }">
+            <v-chip v-if="item.supplyItems > 0" size="small" color="info" variant="tonal">{{ item.supplyItems }}</v-chip>
+            <span v-else class="text-medium-emphasis">—</span>
           </template>
         </v-data-table>
       </v-card-text>
@@ -428,6 +459,64 @@
       </v-card>
     </v-dialog>
 
+    <!-- Supplier Details Dialog -->
+    <v-dialog v-model="showSupplierDialog" max-width="900" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4 pb-2">
+          <v-icon icon="mdi-factory" class="mr-2" color="primary" size="20" />
+          {{ selectedSupplier?.companyName }}
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showSupplierDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-tabs v-model="supplierTab" class="mb-3">
+            <v-tab value="all">
+              All Items ({{ supplierItems.length }})
+            </v-tab>
+            <v-tab value="repair">
+              Repair ({{ supplierRepairItems.length }})
+            </v-tab>
+            <v-tab value="supply">
+              Supply ({{ supplierSupplyItems.length }})
+            </v-tab>
+          </v-tabs>
+
+          <v-data-table
+            :headers="supplierHeaders"
+            :items="filteredSupplierItems"
+            :loading="loading"
+            :items-per-page="10"
+            hover
+            density="compact"
+          >
+            <template #item.isRepair="{ item }">
+              <v-chip
+                v-if="item.isRepair"
+                size="x-small"
+                color="warning"
+                variant="tonal"
+                prepend-icon="mdi-wrench"
+              >
+                Repair
+              </v-chip>
+              <v-chip v-else size="x-small" color="info" variant="tonal">Supply</v-chip>
+            </template>
+            <template #item.procumentRecordId="{ item }">
+              <v-chip v-if="item.procumentRecordId" size="x-small" color="warning" variant="tonal" prepend-icon="mdi-link">
+                Shop #{{ item.procumentRecordId }}
+              </v-chip>
+            </template>
+          </v-data-table>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-3">
+          <v-spacer />
+          <v-btn variant="text" @click="showSupplierDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Delete Confirm -->
     <v-dialog v-model="showDeleteConfirm" max-width="400">
       <v-card>
@@ -472,6 +561,11 @@ const allItems = ref<any[]>([])
 const search = ref('')
 const activeTab = ref('all')
 
+// Supplier Details Dialog State
+const showSupplierDialog = ref(false)
+const selectedSupplier = ref<any>(null)
+const supplierTab = ref('all')
+
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
@@ -485,7 +579,25 @@ function showSnack(text: string, color = 'success') {
 // ── Computed ──
 const repairItems = computed(() => allItems.value.filter(i => i.isRepair))
 
+const uniqueSuppliers = computed(() => {
+  const supplierMap = new Map<number, any>()
+  allItems.value.forEach(item => {
+    if (item.companyId && !supplierMap.has(item.companyId)) {
+      const items = allItems.value.filter(i => i.companyId === item.companyId)
+      supplierMap.set(item.companyId, {
+        companyId: item.companyId,
+        companyName: item.companyName,
+        totalItems: items.length,
+        repairItems: items.filter(i => i.isRepair).length,
+        supplyItems: items.filter(i => !i.isRepair).length,
+      })
+    }
+  })
+  return Array.from(supplierMap.values())
+})
+
 const filteredItems = computed(() => {
+  if (activeTab.value === 'suppliers') return uniqueSuppliers.value
   let result = activeTab.value === 'repair' ? repairItems.value : allItems.value
   if (!search.value.trim()) return result
   const q = search.value.toLowerCase()
@@ -495,6 +607,43 @@ const filteredItems = computed(() => {
     (i.description || '').toLowerCase().includes(q)
   )
 })
+
+const filteredSuppliers = computed(() => {
+  if (!search.value.trim()) return uniqueSuppliers.value
+  const q = search.value.toLowerCase()
+  return uniqueSuppliers.value.filter(s =>
+    (s.companyName || '').toLowerCase().includes(q)
+  )
+})
+
+// Supplier Details Computed
+const supplierItems = computed(() => {
+  if (!selectedSupplier.value?.companyId) return []
+  return allItems.value.filter(i => i.companyId === selectedSupplier.value.companyId)
+})
+
+const supplierRepairItems = computed(() => supplierItems.value.filter(i => i.isRepair))
+const supplierSupplyItems = computed(() => supplierItems.value.filter(i => !i.isRepair))
+
+const filteredSupplierItems = computed(() => {
+  if (supplierTab.value === 'repair') return supplierRepairItems.value
+  if (supplierTab.value === 'supply') return supplierSupplyItems.value
+  return supplierItems.value
+})
+
+const supplierHeaders = [
+  { title: 'Part Number', key: 'partNumberName', width: '150px' },
+  { title: 'Description', key: 'description' },
+  { title: 'Type', key: 'isRepair', width: '100px' },
+  { title: 'Source', key: 'procumentRecordId', width: '120px', sortable: false },
+]
+
+const supplierListHeaders = [
+  { title: 'Company', key: 'companyName', width: '250px' },
+  { title: 'Total Items', key: 'totalItems', width: '120px' },
+  { title: 'Repair Items', key: 'repairItems', width: '130px' },
+  { title: 'Supply Items', key: 'supplyItems', width: '130px' },
+]
 
 // ── Table Headers ──
 const headers = [
@@ -518,6 +667,25 @@ async function loadItems() {
   } finally {
     loading.value = false
   }
+}
+
+// ── Row Click Handler ──
+function onRowClick(event: any, item: any) {
+  selectedSupplier.value = {
+    companyId: item.item.companyId,
+    companyName: item.item.companyName,
+  }
+  supplierTab.value = 'all'
+  showSupplierDialog.value = true
+}
+
+function onSupplierRowClick(event: any, item: any) {
+  selectedSupplier.value = {
+    companyId: item.item.companyId,
+    companyName: item.item.companyName,
+  }
+  supplierTab.value = 'all'
+  showSupplierDialog.value = true
 }
 
 // ── Part Number Search ──

@@ -10,6 +10,16 @@
   >
     <template #actions>
       <v-btn
+        v-if="isAmir"
+        prepend-icon="mdi-download-multiple"
+        variant="tonal"
+        color="primary"
+        size="small"
+        @click="showBulkDownload = true"
+      >
+        Bulk Download
+      </v-btn>
+      <v-btn
         v-if="isAdmin"
         prepend-icon="mdi-shield-account"
         variant="tonal"
@@ -126,13 +136,16 @@
   </DataListPage>
 
   <BulkPermissionManager v-model="showBulkPerms" entity-name="Quote" />
+  <BulkQuoteDownload v-model="showBulkDownload" />
 </template>
 
 <script setup lang="ts">
 const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
+const isAmir = computed(() => authStore.isAmir)
 const showBulkPerms = ref(false)
+const showBulkDownload = ref(false)
 
 // Use a different key to avoid conflicts with DataListPage's search/status
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes-filters', {

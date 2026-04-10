@@ -133,13 +133,10 @@ public class PurchaseOrderService : IPurchaseOrderService
     /// <summary>Create PO and assign existing unassigned POItems to it.</summary>
     public async Task<POResponse> CreateAsync(CreatePORequest request)
     {
-        // Generate PO number
-        var count = await _db.Set<PurchaseOrder>().CountAsync();
-        var poNumber = $"PO-{(count + 1).ToString().PadLeft(5, '0')}";
-
+        // Create PO first to get its Id
         var po = new PurchaseOrder
         {
-            PONumber = poNumber,
+            PONumber = "", // Will be set after getting Id
             SupplierId = request.SupplierId,
             InvoiceId = request.InvoiceId,
             Status = "Sent",
@@ -147,6 +144,10 @@ public class PurchaseOrderService : IPurchaseOrderService
         };
 
         _db.Set<PurchaseOrder>().Add(po);
+        await _db.SaveChangesAsync();
+
+        // Set PO number using the actual Id
+        po.PONumber = $"PO-{po.Id}";
         await _db.SaveChangesAsync();
 
         // Assign selected POItems to this PO

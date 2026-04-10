@@ -59,13 +59,29 @@
           </v-btn>
         </div>
 
+        <!-- Tabs -->
+        <v-tabs v-model="activeTab" class="mb-4">
+          <v-tab value="all">
+            <v-icon start>mdi-format-list-bulleted</v-icon>
+            Inventory
+            <v-chip size="x-small" class="ml-2" color="primary" variant="tonal">{{ allItems.length }}</v-chip>
+          </v-tab>
+          <v-tab value="suppliers">
+            <v-icon start>mdi-factory</v-icon>
+            Suppliers
+            <v-chip size="x-small" class="ml-2" color="info" variant="tonal">{{ uniqueSuppliers.length }}</v-chip>
+          </v-tab>
+        </v-tabs>
+
         <v-data-table
+          v-if="activeTab !== 'suppliers'"
           :headers="headers"
           :items="filteredItems"
           :loading="loading"
           :items-per-page="50"
           hover
           density="comfortable"
+          @click:row="onRowClick"
         >
           <template #item.price="{ item }">
             <span v-if="item.price != null" class="font-weight-medium" style="font-family: monospace; color: #4ade80;">
@@ -83,15 +99,31 @@
             <span class="font-weight-medium">{{ item.qty }}</span>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openEditDialog(item)" />
+            <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click.stop="openEditDialog(item)" />
             <v-btn
               v-if="isAdmin"
               icon="mdi-delete"
               size="x-small"
               variant="text"
               color="error"
-              @click="confirmDelete(item)"
+              @click.stop="confirmDelete(item)"
             />
+          </template>
+        </v-data-table>
+
+        <!-- Suppliers Table -->
+        <v-data-table
+          v-if="activeTab === 'suppliers'"
+          :headers="supplierListHeaders"
+          :items="filteredSuppliers"
+          :loading="loading"
+          :items-per-page="50"
+          hover
+          density="comfortable"
+          @click:row="onSupplierRowClick"
+        >
+          <template #item.totalItems="{ item }">
+            <v-chip size="small" color="primary" variant="tonal">{{ item.totalItems }}</v-chip>
           </template>
         </v-data-table>
       </v-card-text>
@@ -225,6 +257,16 @@
                 clearable
               />
             </v-col>
+            <!-- Serial Number -->
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="form.serialNumber"
+                label="Serial Number"
+                variant="outlined"
+                hide-details
+                clearable
+              />
+            </v-col>
           </v-row>
         </v-card-text>
         <v-divider />
@@ -265,7 +307,7 @@
           </v-tabs>
 
           <v-alert type="info" variant="tonal" class="mb-4" density="compact">
-            <strong>Expected columns (in order):</strong> PartNumber | Description | Qty | Company | Condition | Price
+            <strong>Expected columns (in order):</strong> PartNumber | Description | Qty | Company | Condition | Price | SerialNumber
           </v-alert>
 
           <!-- File Upload -->
@@ -312,6 +354,7 @@
                     <th>Company</th>
                     <th>Condition</th>
                     <th>Price</th>
+                    <th>Serial Number</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -328,6 +371,7 @@
                       <span v-else class="text-medium-emphasis">—</span>
                     </td>
                     <td>{{ row.price != null ? '$' + row.price : '—' }}</td>
+                    <td>{{ row.serialNumber || '—' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -352,6 +396,47 @@
           >
             Import {{ importPreview.length }} Rows
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Supplier Details Dialog -->
+    <v-dialog v-model="showSupplierDialog" max-width="900" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4 pb-2">
+          <v-icon icon="mdi-factory" class="mr-2" color="primary" size="20" />
+          {{ selectedSupplier?.companyName }}
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showSupplierDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-data-table
+            :headers="headers"
+            :items="filteredSupplierItems"
+            :loading="loading"
+            :items-per-page="10"
+            hover
+            density="compact"
+          >
+            <template #item.price="{ item }">
+              <span v-if="item.price != null" class="font-weight-medium" style="font-family: monospace; color: #4ade80;">
+                ${{ formatPrice(item.price) }}
+              </span>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+            <template #item.condition="{ item }">
+              <v-chip v-if="item.condition" size="x-small" variant="tonal" :color="conditionColor(item.condition)">
+                {{ item.condition }}
+              </v-chip>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+          </v-data-table>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-3">
+          <v-spacer />
+          <v-btn variant="text" @click="showSupplierDialog = false">Close</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -391,6 +476,7 @@ interface InventoryForm {
   company: { id: number; name: string } | string | null
   condition: string
   price: number | null
+  serialNumber: string | null
 }
 
 // ── State ──
@@ -400,6 +486,11 @@ const deleteSaving = ref(false)
 const allItems = ref<any[]>([])
 const search = ref('')
 const conditionFilter = ref<string[]>([])
+const activeTab = ref('all')
+
+// Supplier Details Dialog State
+const showSupplierDialog = ref(false)
+const selectedSupplier = ref<any>(null)
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -432,6 +523,7 @@ function clearFilters() {
 }
 
 const filteredItems = computed(() => {
+  if (activeTab.value === 'suppliers') return uniqueSuppliers.value
   let result = allItems.value
   if (conditionFilter.value.length) {
     result = result.filter(i => conditionFilter.value.includes(i.condition))
@@ -447,14 +539,51 @@ const filteredItems = computed(() => {
   return result
 })
 
+const uniqueSuppliers = computed(() => {
+  const supplierMap = new Map<number, any>()
+  allItems.value.forEach(item => {
+    if (item.companyId && !supplierMap.has(item.companyId)) {
+      const items = allItems.value.filter(i => i.companyId === item.companyId)
+      supplierMap.set(item.companyId, {
+        companyId: item.companyId,
+        companyName: item.companyName,
+        totalItems: items.length,
+      })
+    }
+  })
+  return Array.from(supplierMap.values())
+})
+
+const filteredSuppliers = computed(() => {
+  if (!search.value.trim()) return uniqueSuppliers.value
+  const q = search.value.toLowerCase()
+  return uniqueSuppliers.value.filter(s =>
+    (s.companyName || '').toLowerCase().includes(q)
+  )
+})
+
+// Supplier Details Computed
+const supplierItems = computed(() => {
+  if (!selectedSupplier.value?.companyId) return []
+  return allItems.value.filter(i => i.companyId === selectedSupplier.value.companyId)
+})
+
+const filteredSupplierItems = computed(() => supplierItems.value)
+
 const headers = [
   { title: 'Part Number', key: 'partNumberName', width: '150px' },
   { title: 'Description', key: 'description' },
+  { title: 'Serial Number', key: 'serialNumber', width: '150px' },
   { title: 'Qty', key: 'qty', width: '80px' },
   { title: 'Company', key: 'companyName', width: '180px' },
   { title: 'Condition', key: 'condition', width: '110px' },
   { title: 'Price', key: 'price', width: '110px' },
   { title: '', key: 'actions', width: '80px', sortable: false },
+]
+
+const supplierListHeaders = [
+  { title: 'Company', key: 'companyName', width: '250px' },
+  { title: 'Total Items', key: 'totalItems', width: '120px' },
 ]
 
 onMounted(loadItems)
@@ -468,6 +597,23 @@ async function loadItems() {
   } finally {
     loading.value = false
   }
+}
+
+// ── Row Click Handlers ──
+function onRowClick(event: any, item: any) {
+  selectedSupplier.value = {
+    companyId: item.item.companyId,
+    companyName: item.item.companyName,
+  }
+  showSupplierDialog.value = true
+}
+
+function onSupplierRowClick(event: any, item: any) {
+  selectedSupplier.value = {
+    companyId: item.item.companyId,
+    companyName: item.item.companyName,
+  }
+  showSupplierDialog.value = true
 }
 
 // ── Part Number Search ──
@@ -524,6 +670,7 @@ const defaultForm = () => ({
   company: null as any,
   condition: '' as string,
   price: null as number | null,
+  serialNumber: null as string | null,
 })
 
 const form = ref(defaultForm())
@@ -549,6 +696,7 @@ function openEditDialog(item: any) {
     company: { id: item.companyId, name: item.companyName },
     condition: item.condition || '',
     price: item.price != null ? Number(item.price) : null,
+    serialNumber: item.serialNumber || null,
   }
   partSearch.value = item.partNumberName
   partSuggestions.value = [{ id: item.partNumberId, name: item.partNumberName, description: item.description }]
@@ -607,6 +755,7 @@ async function saveItem() {
       companyName: companyName,
       condition: form.value.condition || null,
       price: form.value.price != null ? form.value.price : null,
+      serialNumber: form.value.serialNumber || null,
     }
     const saved = await api.post<any>('/inventory', payload)
     if (isEditing.value) {
@@ -691,6 +840,7 @@ function parseRows(rows: any[][]) {
         companyName: String(row[3] ?? '').trim() || null,
         condition: String(row[4] ?? '').trim().toUpperCase() || null,
         price: isNaN(price!) ? null : price,
+        serialNumber: String(row[6] ?? '').trim() || null,
       }
     })
     .filter(row => row.partNumberName)

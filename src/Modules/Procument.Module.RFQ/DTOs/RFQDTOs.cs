@@ -44,6 +44,16 @@ public class UpdateRFQNotesRequest
     public string? Notes { get; set; }
 }
 
+public class UpdateRFQNameRequest
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class UpdateRFQLeadTimeRequest
+{
+    public DateTime LeadTime { get; set; }
+}
+
 public class AddRFQItemRequest
 {
     public string PartNumberName { get; set; } = string.Empty;

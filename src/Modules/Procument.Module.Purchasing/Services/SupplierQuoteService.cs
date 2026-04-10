@@ -137,7 +137,8 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.TagDate = request.TagDate;
             record.Note = request.Note;
             record.MyNotes = request.MyNotes;
-            record.Type = request.Type ?? "Procument";
+            // Auto-set Type to "Shop" if Condition is AR and Type is not explicitly set
+            record.Type = request.Type ?? (request.Condition == "AR" ? "Shop" : "Procument");
             record.FixPrice = request.FixPrice;
             record.ParentProcumentId = request.ParentProcumentId;
             record.UserId = userId;
@@ -166,7 +167,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 TagDate = request.TagDate,
                 Note = request.Note,
                 MyNotes = request.MyNotes,
-                Type = request.Type ?? "Procument",
+                Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument"),
                 FixPrice = request.FixPrice,
                 ParentProcumentId = request.ParentProcumentId,
                 UserId = userId

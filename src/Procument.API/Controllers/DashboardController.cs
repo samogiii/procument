@@ -76,8 +76,17 @@ public class DashboardController : ControllerBase
         var paidInvoiceValue = await invoices.Where(i => i.Status == "Paid").SumAsync(i => i.TotalAmount);
 
         // ── Quote revenue ──
-        var totalQuoteValue = await quotes.SumAsync(q => q.TotalAmount ?? 0);
+        var totalQuoteValue = await quotes.Where(q => q.Status == "Sent").SumAsync(q => q.TotalAmount ?? 0);
         var acceptedQuoteValue = await quotes.Where(q => q.Status == "Accepted").SumAsync(q => q.TotalAmount ?? 0);
+
+        // ── RFQ count for the scoped user ──
+        int rfqCount = 0;
+        if (scopeUserId.HasValue)
+        {
+            rfqCount = await _db.EntityPermissions
+                .Where(p => p.EntityName == "RFQ" && p.UserId == scopeUserId.Value)
+                .CountAsync();
+        }
 
         // ── PO status distribution ──
         var poStatusDist = await pos
@@ -100,7 +109,7 @@ public class DashboardController : ControllerBase
         // ── Monthly trends (last 6 months) ──
         var sixMonthsAgo = DateTime.UtcNow.AddMonths(-6);
         var monthlyQuotes = await quotes
-            .Where(q => q.CreatedAt >= sixMonthsAgo)
+            .Where(q => q.Status == "Sent" && q.CreatedAt >= sixMonthsAgo)
             .GroupBy(q => new { q.CreatedAt.Year, q.CreatedAt.Month })
             .Select(g => new MonthlyDataPoint
             {
@@ -153,6 +162,7 @@ public class DashboardController : ControllerBase
             PaidInvoiceValue = paidInvoiceValue,
             TotalQuoteValue = totalQuoteValue,
             AcceptedQuoteValue = acceptedQuoteValue,
+            RFQCount = rfqCount,
             POStatusDistribution = poStatusDist,
             QuoteStatusDistribution = quoteStatusDist,
             InvoiceStatusDistribution = invoiceStatusDist,
@@ -180,19 +190,58 @@ public class DashboardController : ControllerBase
                 .ToListAsync();
 
             // Per-user quote stats (always global for the chart)
-            response.UserQuoteStats = await _db.Quotes
+            // Include users who have quotes OR are assigned to RFQs
+            var usersWithQuotes = _db.Quotes
                 .GroupBy(q => new { q.UserId, q.User.Name })
                 .Select(g => new UserStatItem
                 {
                     UserId = g.Key.UserId,
                     UserName = g.Key.Name,
                     Count = g.Count(),
-                    TotalValue = g.Sum(q => q.TotalAmount ?? 0),
+                    TotalValue = g.Where(q => q.Status == "Sent").Sum(q => q.TotalAmount ?? 0),
                     AcceptedCount = g.Count(q => q.Status == "Accepted"),
                     RejectedCount = g.Count(q => q.Status == "Rejected"),
-                })
-                .OrderByDescending(u => u.TotalValue)
+                    RFQCount = 0, // Will be populated below
+                });
+
+            var usersWithRFQAssignments = await _db.EntityPermissions
+                .Where(p => p.EntityName == "RFQ")
+                .GroupBy(p => p.UserId)
+                .Select(g => new { UserId = g.Key, RFQCount = g.Count() })
                 .ToListAsync();
+
+            var userStatsList = await usersWithQuotes.ToListAsync();
+
+            // Add users who have RFQ assignments but no quotes
+            foreach (var assignedUser in usersWithRFQAssignments)
+            {
+                var existingUser = userStatsList.FirstOrDefault(u => u.UserId == assignedUser.UserId);
+                if (existingUser != null)
+                {
+                    existingUser.RFQCount = assignedUser.RFQCount;
+                }
+                else
+                {
+                    var user = await _db.Users.FindAsync(assignedUser.UserId);
+                    if (user != null)
+                    {
+                        userStatsList.Add(new UserStatItem
+                        {
+                            UserId = user.Id,
+                            UserName = user.Name,
+                            Count = 0,
+                            TotalValue = 0,
+                            AcceptedCount = 0,
+                            RejectedCount = 0,
+                            RFQCount = assignedUser.RFQCount,
+                        });
+                    }
+                }
+            }
+
+            response.UserQuoteStats = userStatsList
+                .OrderByDescending(u => u.TotalValue)
+                .ToList();
 
             // Top suppliers by PO value (scoped)
             response.TopSuppliers = await pos
@@ -313,6 +362,7 @@ public class DashboardResponse
     public decimal PaidInvoiceValue { get; set; }
     public decimal TotalQuoteValue { get; set; }
     public decimal AcceptedQuoteValue { get; set; }
+    public int RFQCount { get; set; }
     public List<StatusCount> POStatusDistribution { get; set; } = new();
     public List<StatusCount> QuoteStatusDistribution { get; set; } = new();
     public List<StatusCount> InvoiceStatusDistribution { get; set; } = new();
@@ -346,6 +396,7 @@ public class UserStatItem
     public decimal TotalValue { get; set; }
     public int AcceptedCount { get; set; }
     public int RejectedCount { get; set; }
+    public int RFQCount { get; set; }
 }
 
 public class SupplierStatItem

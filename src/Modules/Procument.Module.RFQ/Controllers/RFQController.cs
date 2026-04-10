@@ -149,6 +149,22 @@ public class RFQsController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    /// <summary>Update the Name of an RFQ.</summary>
+    [HttpPatch("{id:long}/name")]
+    public async Task<IActionResult> UpdateName(long id, [FromBody] UpdateRFQNameRequest request)
+    {
+        var success = await _rfqService.UpdateNameAsync(id, request.Name);
+        return success ? Ok() : NotFound();
+    }
+
+    /// <summary>Update the LeadTime (Deadline) of an RFQ.</summary>
+    [HttpPatch("{id:long}/leadtime")]
+    public async Task<IActionResult> UpdateLeadTime(long id, [FromBody] UpdateRFQLeadTimeRequest request)
+    {
+        var success = await _rfqService.UpdateLeadTimeAsync(id, request.LeadTime);
+        return success ? Ok() : NotFound();
+    }
+
     /// <summary>Mark an RFQ as read for the current user.</summary>
     [HttpPatch("{id:long}/mark-read")]
     public async Task<IActionResult> MarkRead(long id)

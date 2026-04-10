@@ -53,6 +53,13 @@ public class InvoicesController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
+    [HttpPut("{id:long}")]
+    public async Task<IActionResult> Update(long id, [FromBody] UpdateInvoiceRequest request)
+    {
+        var success = await _invoiceService.UpdateAsync(id, request);
+        return success ? Ok() : NotFound();
+    }
+
     [HttpPatch("{id:long}/status")]
     [Auditable("Invoice", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateInvoiceStatusRequest request)

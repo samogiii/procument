@@ -237,6 +237,13 @@ public class PurchaseOrdersController : ControllerBase
             createdAt = po.CreatedAt,
             totalAmount = po.TotalAmount,
             orderedBy,
+            supplier = new
+            {
+                name = po.Supplier?.Name ?? "",
+                address = po.Supplier?.Address ?? "",
+                phone = po.Supplier?.Phone ?? "",
+                email = po.Supplier?.Email ?? "",
+            },
             vendor = new
             {
                 name = po.Supplier?.Name ?? "",

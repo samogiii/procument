@@ -51,6 +51,7 @@ public class QuoteResponse
     public string? TypeAdditional { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string? CustomerCode { get; set; }
+    public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
     public string? UserName { get; set; }

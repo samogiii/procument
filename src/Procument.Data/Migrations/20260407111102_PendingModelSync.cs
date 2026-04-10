@@ -10,79 +10,100 @@ namespace Procument.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "ActionCategory",
-                table: "AuditLogs",
-                type: "nvarchar(max)",
-                nullable: true);
+            // Add columns with IF NOT EXISTS checks
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'ActionCategory') IS NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] ADD [ActionCategory] nvarchar(max) NULL;
+                END");
 
-            migrationBuilder.AddColumn<string>(
-                name: "ContextData",
-                table: "AuditLogs",
-                type: "nvarchar(max)",
-                nullable: true);
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'ContextData') IS NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] ADD [ContextData] nvarchar(max) NULL;
+                END");
 
-            migrationBuilder.AddColumn<string>(
-                name: "EntityDisplayName",
-                table: "AuditLogs",
-                type: "nvarchar(max)",
-                nullable: true);
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'EntityDisplayName') IS NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] ADD [EntityDisplayName] nvarchar(max) NULL;
+                END");
 
-            migrationBuilder.AddColumn<string>(
-                name: "RelatedEntityId",
-                table: "AuditLogs",
-                type: "nvarchar(max)",
-                nullable: true);
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'RelatedEntityId') IS NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] ADD [RelatedEntityId] nvarchar(max) NULL;
+                END");
 
-            migrationBuilder.AddColumn<string>(
-                name: "RelatedEntityType",
-                table: "AuditLogs",
-                type: "nvarchar(max)",
-                nullable: true);
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'RelatedEntityType') IS NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] ADD [RelatedEntityType] nvarchar(max) NULL;
+                END");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_FinalInvoiceItems_InvoiceItemId",
-                table: "FinalInvoiceItems",
-                column: "InvoiceItemId");
+            // Create index with IF NOT EXISTS check
+            migrationBuilder.Sql(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_FinalInvoiceItems_InvoiceItemId' AND object_id = OBJECT_ID('FinalInvoiceItems'))
+                BEGIN
+                    CREATE INDEX [IX_FinalInvoiceItems_InvoiceItemId] ON [FinalInvoiceItems] ([InvoiceItemId]);
+                END");
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId",
-                table: "FinalInvoiceItems",
-                column: "InvoiceItemId",
-                principalTable: "InvoiceItems",
-                principalColumn: "Id");
+            // Add foreign key with IF NOT EXISTS check
+            migrationBuilder.Sql(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId' AND parent_object_id = OBJECT_ID('FinalInvoiceItems'))
+                BEGIN
+                    ALTER TABLE [FinalInvoiceItems] ADD CONSTRAINT [FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId]
+                    FOREIGN KEY ([InvoiceItemId]) REFERENCES [InvoiceItems] ([Id]);
+                END");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId",
-                table: "FinalInvoiceItems");
+            // Drop foreign key with IF EXISTS check
+            migrationBuilder.Sql(@"
+                IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId' AND parent_object_id = OBJECT_ID('FinalInvoiceItems'))
+                BEGIN
+                    ALTER TABLE [FinalInvoiceItems] DROP CONSTRAINT [FK_FinalInvoiceItems_InvoiceItems_InvoiceItemId];
+                END");
 
-            migrationBuilder.DropIndex(
-                name: "IX_FinalInvoiceItems_InvoiceItemId",
-                table: "FinalInvoiceItems");
+            // Drop index with IF EXISTS check
+            migrationBuilder.Sql(@"
+                IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_FinalInvoiceItems_InvoiceItemId' AND object_id = OBJECT_ID('FinalInvoiceItems'))
+                BEGIN
+                    DROP INDEX [IX_FinalInvoiceItems_InvoiceItemId] ON [FinalInvoiceItems];
+                END");
 
-            migrationBuilder.DropColumn(
-                name: "ActionCategory",
-                table: "AuditLogs");
+            // Drop columns with IF EXISTS checks
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'RelatedEntityType') IS NOT NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] DROP COLUMN [RelatedEntityType];
+                END");
 
-            migrationBuilder.DropColumn(
-                name: "ContextData",
-                table: "AuditLogs");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'RelatedEntityId') IS NOT NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] DROP COLUMN [RelatedEntityId];
+                END");
 
-            migrationBuilder.DropColumn(
-                name: "EntityDisplayName",
-                table: "AuditLogs");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'EntityDisplayName') IS NOT NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] DROP COLUMN [EntityDisplayName];
+                END");
 
-            migrationBuilder.DropColumn(
-                name: "RelatedEntityId",
-                table: "AuditLogs");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'ContextData') IS NOT NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] DROP COLUMN [ContextData];
+                END");
 
-            migrationBuilder.DropColumn(
-                name: "RelatedEntityType",
-                table: "AuditLogs");
+            migrationBuilder.Sql(@"
+                IF COL_LENGTH('AuditLogs', 'ActionCategory') IS NOT NULL
+                BEGIN
+                    ALTER TABLE [AuditLogs] DROP COLUMN [ActionCategory];
+                END");
         }
     }
 }

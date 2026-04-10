@@ -50,8 +50,10 @@
       <v-text-field v-model="form.customerCode" label="Customer Code" class="mb-2" />
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
-      <v-text-field v-model="form.shipTo" label="Ship To" class="mb-2" />
-      <v-text-field v-model="form.billTo" label="Bill To" class="mb-2" />
+      <v-textarea v-model="form.contactPerson" label="Contact Person" class="mb-2" />
+      <v-textarea v-model="form.shipTo" label="Ship To" class="mb-2" />
+      <v-textarea v-model="form.billTo" label="Bill To" class="mb-2" />
+      <v-textarea v-model="form.shippingAccount" label="Shipping Account" class="mb-2" />
       <v-textarea v-model="form.description" label="Description" rows="3" auto-grow class="mb-2" />
       <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" />
     </CrudDialog>
@@ -74,8 +76,8 @@ const {
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', shipTo: '', billTo: '', description: '', base: null as number | null }),
-  searchFields: ['name', 'customerCode', 'email', 'phone', 'description'],
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', contactPerson: '', shipTo: '', billTo: '', shippingAccount: '', description: '', base: null as number | null }),
+  searchFields: ['name', 'customerCode', 'email', 'phone', 'contactPerson', 'description'],
 })
 
 const baseFilter = ref<number | null>(null)
@@ -91,8 +93,10 @@ const headers = computed(() => {
     { title: 'Code', key: 'customerCode' },
     { title: 'Email', key: 'email' },
     { title: 'Phone', key: 'phone' },
+    { title: 'Contact Person', key: 'contactPerson' },
     { title: 'Ship To', key: 'shipTo' },
     { title: 'Bill To', key: 'billTo' },
+    { title: 'Shipping Account', key: 'shippingAccount' },
     { title: 'Description', key: 'description' },
     { title: 'Status', key: 'isActive', width: '100px' },
     { title: '', key: 'actions', sortable: false, width: '100px' },

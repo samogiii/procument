@@ -14,11 +14,20 @@ public class FinalInvoiceResponse
     public DateTime CreatedAt { get; set; }
     public long ProformaInvoiceId { get; set; }
     public string ProformaInvoiceNumber { get; set; } = "";
+    public string? CustomerPONumber { get; set; } = null;
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
     public string? CustomerCode { get; set; }
+    public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
+    public string? CustomerBillToEmail { get; set; }
+    public string? CustomerBillToPhone { get; set; }
     public string? CustomerShipTo { get; set; }
+    public string? CustomerShipToContactPerson { get; set; }
+    public string? CustomerBillToContactPerson { get; set; }
+    public string? CustomerShipToEmail { get; set; }
+    public string? CustomerShipToPhone { get; set; }
+    public string? CustomerShipToAccount { get; set; }
     public List<FinalInvoiceItemResponse> Items { get; set; } = new();
 }
 

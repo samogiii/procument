@@ -29,10 +29,20 @@
           <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="billToEmail" label="Bill To Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="billToPhone" label="Bill To Phone" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="shipToContactPerson" label="Ship To Contact" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="shipToEmail" label="Ship To Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model="shipToPhone" label="Ship To Phone" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="4"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="4"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+          <v-col cols="12" md="4"><v-textarea v-model="shipToAccount" label="Ship To Account" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="3"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
@@ -116,8 +126,15 @@ watch(model, (open) => {
   if (open) {
     loadPresets()
     // Pre-fill address fields from invoice data
+    contactPerson.value = props.invoice?.customerContactPerson || ''
     billTo.value = props.invoice?.customerBillTo || ''
+    billToEmail.value = props.invoice?.customerEmail || ''
+    billToPhone.value = props.invoice?.customerPhone || ''
     shipTo.value = props.invoice?.customerShipTo || props.invoice?.customerBillTo || ''
+    shipToContactPerson.value = props.invoice?.customerContactPerson || ''
+    shipToEmail.value = props.invoice?.customerEmail || ''
+    shipToPhone.value = props.invoice?.customerPhone || ''
+    shipToAccount.value = props.invoice?.customerShippingAccount || ''
   }
 })
 
@@ -134,8 +151,15 @@ const shippingAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
+const contactPerson = ref('')
 const billTo = ref('')
+const billToEmail = ref('')
+const billToPhone = ref('')
 const shipTo = ref('')
+const shipToContactPerson = ref('')
+const shipToEmail = ref('')
+const shipToPhone = ref('')
+const shipToAccount = ref('')
 const companyTerms = ref('')
 const beneficiaryName = ref('')
 const beneficiaryAddress = ref('')
@@ -188,7 +212,9 @@ const renderedHtml = computed(() => {
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : rowEven
     return `
-    <tr style="background:${bg};">\n      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>\n      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.partNumberName || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.expectedDeliveryDate ? new Date(it.expectedDeliveryDate).toLocaleDateString() : ''}</td>\n    </tr>`
+    <tr style="background:${bg};">\n      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>\n      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.partNumberName || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>\n      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>\n      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
+      <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.leadTime || '—'}</td>
+    </tr>`
   }).join('')
 
   const hasBankDetails = beneficiaryName.value || bankName.value || bankAccount.value || swiftCode.value
@@ -234,6 +260,7 @@ const renderedHtml = computed(() => {
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:${primary};">Date:</span> ${invDate}</div>
         <div><span style="font-weight:600; color:${primary};">Due Date:</span> ${dueDate}</div>
+        <div><span style="font-weight:600; color:${primary};">Customer PO:</span> ${inv.customerPONumber || '—'}</div>
         <div><span style="font-weight:600; color:${primary};">Status:</span> ${inv.status || '—'}</div>
         <div><span style="font-weight:600; color:${primary};">Currency:</span> ${currency.value}</div>
       </div>
@@ -243,12 +270,19 @@ const renderedHtml = computed(() => {
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Bill To</div>
           <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
-          ${(billTo.value || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${billTo.value || inv.customerBillTo}</div>` : ''}
+          ${(billTo.value || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px; line-height:1.5; white-space:pre-wrap;">${billTo.value || inv.customerBillTo}</div>` : ''}
+          ${contactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${contactPerson.value}</div>` : ''}
+          ${billToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${billToEmail.value}</div>` : ''}
+          ${billToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Phone: ${billToPhone.value}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Ship To</div>
           <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
-          ${(shipTo.value || inv.customerShipTo || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${shipTo.value || inv.customerShipTo || inv.customerBillTo}</div>` : ''}
+          ${(shipTo.value || inv.customerShipTo || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px; line-height:1.5; white-space:pre-wrap;">${shipTo.value || inv.customerShipTo || inv.customerBillTo}</div>` : ''}
+          ${shipToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${shipToContactPerson.value}</div>` : ''}
+          ${shipToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${shipToEmail.value}</div>` : ''}
+          ${shipToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Phone: ${shipToPhone.value}</div>` : ''}
+          ${shipToAccount.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Account: ${shipToAccount.value}</div>` : ''}
         </div>
       </div>
 
@@ -331,11 +365,19 @@ async function downloadPdf() {
       invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
       dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
       status: inv.status || '—',
+      customerPONumber: inv.customerPONumber || null,
       currency: currency.value,
       currencySymbol: '$',
       customerName: inv.customerName || '—',
+      customerContactPerson: contactPerson.value || null,
       customerBillTo: billTo.value || inv.customerBillTo || null,
+      customerBillToEmail: billToEmail.value || null,
+      customerBillToPhone: billToPhone.value || null,
       customerShipTo: shipTo.value || inv.customerShipTo || inv.customerBillTo || null,
+      customerShipToContactPerson: shipToContactPerson.value || null,
+      customerShipToEmail: shipToEmail.value || null,
+      customerShipToPhone: shipToPhone.value || null,
+      customerShipToAccount: shipToAccount.value || null,
       beneficiaryName: beneficiaryName.value || null,
       beneficiaryAddress: beneficiaryAddress.value || null,
       bankName: bankName.value || null,
@@ -354,6 +396,7 @@ async function downloadPdf() {
         deliveryDate: it.expectedDeliveryDate
           ? new Date(it.expectedDeliveryDate).toLocaleDateString()
           : null,
+        leadTime: it.leadTime || null,
       })),
       subtotal: Number(inv.totalAmount) || 0,
       tax: taxAmount.value || 0,
@@ -373,7 +416,9 @@ async function downloadPdf() {
     const url = window.URL.createObjectURL(response)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `INV-${inv.id}.pdf`)
+    const customerName = inv.customerName || 'Customer'
+    const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_')
+    link.setAttribute('download', `PI-${inv.id}-${sanitizedCustomerName}.pdf`)
     document.body.appendChild(link)
     link.click()
     link.parentNode?.removeChild(link)

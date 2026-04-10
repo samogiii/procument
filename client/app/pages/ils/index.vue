@@ -1,37 +1,73 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <h1 class="text-h5 font-weight-bold">ILS Inventory</h1>
+      <h1 class="text-h5 font-weight-bold">ILS</h1>
       <v-spacer />
-      <v-btn
-        v-if="isAdmin"
-        variant="tonal"
-        color="warning"
-        prepend-icon="mdi-wrench"
-        size="small"
-        @click="openARShopDialog"
-      >
-        Import AR Shops
-      </v-btn>
-      <v-btn
-        variant="tonal"
-        color="success"
-        prepend-icon="mdi-file-excel"
-        size="small"
-        @click="openExcelImport"
-      >
-        Excel Import
-      </v-btn>
-      <v-btn
-        color="primary"
-        prepend-icon="mdi-plus"
-        size="small"
-        @click="openAddDialog"
-      >
-        Add Item
-      </v-btn>
+      <template v-if="mainTab === 'inventory'">
+        <v-btn
+          v-if="isAdmin"
+          variant="tonal"
+          color="warning"
+          prepend-icon="mdi-wrench"
+          size="small"
+          @click="openARShopDialog"
+        >
+          Import AR Shops
+        </v-btn>
+        <v-btn
+          variant="tonal"
+          color="success"
+          prepend-icon="mdi-file-excel"
+          size="small"
+          @click="openExcelImport"
+        >
+          Excel Import
+        </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          size="small"
+          @click="openAddDialog"
+        >
+          Add Item
+        </v-btn>
+      </template>
+      <template v-if="mainTab === 'quotes'">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          size="small"
+          @click="openCreateQuoteDialog"
+        >
+          New ILS Quote
+        </v-btn>
+      </template>
+      <template v-if="mainTab === 'customers'">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          size="small"
+          @click="openCustomerDialog()"
+        >
+          Add Customer
+        </v-btn>
+      </template>
     </div>
 
+    <v-tabs v-model="mainTab" class="mb-4">
+      <v-tab value="inventory">
+        <v-icon start size="18">mdi-warehouse</v-icon>Inventory
+      </v-tab>
+      <v-tab value="quotes">
+        <v-icon start size="18">mdi-file-document-outline</v-icon>Quotes
+      </v-tab>
+      <v-tab value="customers">
+        <v-icon start size="18">mdi-account-group</v-icon>ILS Customers
+      </v-tab>
+    </v-tabs>
+
+    <v-tabs-window v-model="mainTab">
+    <v-tabs-window-item value="inventory">
     <v-card class="glass-card">
       <v-card-text>
         <!-- Filters -->
@@ -126,6 +162,94 @@
         </v-data-table>
       </v-card-text>
     </v-card>
+    </v-tabs-window-item>
+
+    <!-- ══════════════════════════════ QUOTES TAB ══════════════════════════════ -->
+    <v-tabs-window-item value="quotes">
+      <v-card class="glass-card">
+        <v-card-text>
+          <v-text-field
+            v-model="quoteSearch"
+            prepend-inner-icon="mdi-magnify"
+            label="Search quotes..."
+            single-line
+            hide-details
+            class="mb-4"
+            style="max-width: 320px;"
+          />
+          <v-data-table
+            :headers="quoteHeaders"
+            :items="filteredQuotes"
+            :search="quoteSearch"
+            :loading="quotesLoading"
+            :items-per-page="25"
+            hover
+            density="comfortable"
+            @click:row="(_: any, { item }: { item: any }) => navigateTo(`/ils/quotes/${item.id}`)"
+          >
+            <template #item.status="{ item }">
+              <v-chip size="small" variant="tonal" :color="ilsQuoteStatusColor(item.status)">
+                {{ item.status }}
+              </v-chip>
+            </template>
+            <template #item.totalAmount="{ item }">
+              <span class="font-weight-medium" style="font-family: monospace; color: #4ade80;">
+                ${{ formatPrice(item.totalAmount) }}
+              </span>
+            </template>
+            <template #item.createdAt="{ item }">
+              {{ new Date(item.createdAt).toLocaleDateString() }}
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon="mdi-open-in-new" size="x-small" variant="text" color="primary" @click.stop="navigateTo(`/ils/quotes/${item.id}`)" />
+              <v-btn
+                v-if="isAdmin"
+                icon="mdi-delete"
+                size="x-small"
+                variant="text"
+                color="error"
+                @click.stop="confirmDeleteQuote(item)"
+              />
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+    </v-tabs-window-item>
+
+    <!-- ══════════════════════════════ CUSTOMERS TAB ══════════════════════════════ -->
+    <v-tabs-window-item value="customers">
+      <v-card class="glass-card">
+        <v-card-text>
+          <v-data-table
+            :headers="customerHeaders"
+            :items="ilsCustomers"
+            :loading="customersLoading"
+            :items-per-page="25"
+            hover
+            density="comfortable"
+          >
+            <template #item.isActive="{ item }">
+              <v-chip size="x-small" :color="item.isActive ? 'success' : 'grey'" variant="tonal">
+                {{ item.isActive ? 'Active' : 'Inactive' }}
+              </v-chip>
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openCustomerDialog(item)" />
+              <v-btn
+                v-if="isAdmin"
+                icon="mdi-delete"
+                size="x-small"
+                variant="text"
+                color="error"
+                @click="confirmDeleteCustomer(item)"
+              />
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+    </v-tabs-window-item>
+
+    </v-tabs-window>
 
     <!-- Add / Edit Dialog -->
     <v-dialog v-model="showDialog" max-width="720" persistent>
@@ -495,6 +619,230 @@
       </v-card>
     </v-dialog>
 
+    <!-- Create ILS Quote Dialog -->
+    <v-dialog v-model="showQuoteDialog" max-width="860" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4 pb-2">
+          <v-icon icon="mdi-file-document-plus" class="mr-2" size="20" color="primary" />
+          New ILS Quote
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showQuoteDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-row dense class="mb-2">
+            <v-col cols="12" md="6">
+              <v-select
+                v-model="quoteForm.ilsCustomerId"
+                :items="ilsCustomers"
+                item-title="name"
+                item-value="id"
+                label="ILS Customer *"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="quoteForm.rfqReference"
+                label="RFQ Reference Number"
+                variant="outlined"
+                density="compact"
+                hide-details
+                placeholder="e.g. RFQ-2024-001"
+              />
+            </v-col>
+            <v-col cols="12">
+              <v-textarea
+                v-model="quoteForm.notes"
+                label="Notes"
+                variant="outlined"
+                density="compact"
+                hide-details
+                rows="2"
+              />
+            </v-col>
+          </v-row>
+
+          <div class="d-flex align-center mb-2">
+            <span class="text-subtitle-2">Quote Items</span>
+            <v-spacer />
+            <v-btn size="x-small" color="primary" variant="tonal" prepend-icon="mdi-plus" @click="addQuoteItemRow">
+              Add Item
+            </v-btn>
+          </div>
+
+          <div class="quote-items-table-wrap">
+            <table class="quote-items-table">
+              <thead>
+                <tr>
+                  <th style="min-width: 200px;">ILS Item *</th>
+                  <th style="width: 90px;">Condition</th>
+                  <th style="width: 70px;">Cert</th>
+                  <th style="width: 80px;">Avail. Qty</th>
+                  <th style="width: 70px;">Qty *</th>
+                  <th style="width: 110px;">Sell Price *</th>
+                  <th style="width: 120px;">Total Price</th>
+                  <th style="width: 36px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in quoteForm.items" :key="idx">
+                  <td>
+                    <v-autocomplete
+                      v-model="row.ilsItem"
+                      :items="availableILSItems"
+                      :item-title="(i: any) => i.partNumberName + (i.altPartNumber ? ' / ' + i.altPartNumber : '')"
+                      item-value="id"
+                      density="compact"
+                      variant="plain"
+                      hide-details
+                      return-object
+                      placeholder="Select from inventory..."
+                      no-data-text="No ILS items found"
+                      @update:model-value="val => onILSItemSelected(val, row)"
+                    >
+                      <template #item="{ item: suggestion, props: sp }">
+                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · Qty: ${suggestion.raw.qty} · $${formatPrice(suggestion.raw.price)}`" />
+                      </template>
+                    </v-autocomplete>
+                  </td>
+                  <td class="text-center">
+                    <v-chip v-if="row.ilsItem?.condition" size="x-small" variant="tonal" :color="conditionColor(row.ilsItem.condition)">
+                      {{ row.ilsItem.condition }}
+                    </v-chip>
+                    <span v-else class="text-medium-emphasis text-caption">—</span>
+                  </td>
+                  <td style="padding-left: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
+                    {{ row.ilsItem?.certName || '—' }}
+                  </td>
+                  <td class="text-center" style="font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
+                    {{ row.ilsItem?.qty ?? '—' }}
+                  </td>
+                  <td>
+                    <v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcRow(row)" />
+                  </td>
+                  <td>
+                    <v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcRow(row)" />
+                  </td>
+                  <td class="text-right" style="font-family: monospace; padding-right: 8px; color: #4ade80; font-weight: 600;">
+                    ${{ formatPrice(row.totalPrice) }}
+                  </td>
+                  <td>
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="removeQuoteItemRow(idx)" />
+                  </td>
+                </tr>
+                <tr v-if="!quoteForm.items.length">
+                  <td colspan="8" class="text-center text-caption text-medium-emphasis py-4">
+                    No items yet — click "Add Item"
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="4"></td>
+                  <td class="text-right text-caption font-weight-bold" style="padding-right: 4px;">TOTAL:</td>
+                  <td class="text-right font-weight-bold" style="font-family: monospace; padding-right: 8px; color: #4ade80;">
+                    ${{ formatPrice(quoteTotalAmount) }}
+                  </td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-3">
+          <v-spacer />
+          <v-btn variant="text" @click="showQuoteDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="quoteSaving"
+            :disabled="!quoteForm.ilsCustomerId || !quoteForm.items.some(r => r.ilsItem)"
+            @click="saveQuote"
+          >
+            Create Quote
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete Quote Confirm -->
+    <v-dialog v-model="showDeleteQuoteConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="pa-4 pb-2">Delete ILS Quote?</v-card-title>
+        <v-card-text>
+          Remove quote <strong>{{ deleteQuoteTarget?.quoteNumber }}</strong>? This cannot be undone.
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteQuoteConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="deleteQuoteSaving" @click="doDeleteQuote">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ILS Customer Add/Edit Dialog -->
+    <v-dialog v-model="showCustomerDialog" max-width="600" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4 pb-2">
+          <v-icon :icon="editingCustomerId ? 'mdi-pencil' : 'mdi-plus'" class="mr-2" size="20" />
+          {{ editingCustomerId ? 'Edit ILS Customer' : 'Add ILS Customer' }}
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showCustomerDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-row dense>
+            <v-col cols="12" md="8">
+              <v-text-field v-model="customerForm.name" label="Name *" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="customerForm.customerCode" label="Customer Code" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="customerForm.email" label="Email" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="customerForm.phone" label="Phone" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="customerForm.contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="customerForm.address" label="Address" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12">
+              <v-textarea v-model="customerForm.description" label="Description" variant="outlined" density="compact" hide-details rows="2" />
+            </v-col>
+          </v-row>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-3">
+          <v-spacer />
+          <v-btn variant="text" @click="showCustomerDialog = false">Cancel</v-btn>
+          <v-btn color="primary" variant="flat" :loading="customerSaving" :disabled="!customerForm.name" @click="saveCustomer">
+            {{ editingCustomerId ? 'Update' : 'Add' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete Customer Confirm -->
+    <v-dialog v-model="showDeleteCustomerConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="pa-4 pb-2">Delete ILS Customer?</v-card-title>
+        <v-card-text>Remove <strong>{{ deleteCustomerTarget?.name }}</strong>? This cannot be undone.</v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteCustomerConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="deleteCustomerSaving" @click="doDeleteCustomer">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2500" location="bottom right">
       {{ snackbarText }}
     </v-snackbar>
@@ -522,6 +870,10 @@ interface ILSForm {
   leadTime: string
   procumentRecordId: number | null
 }
+
+// ── Main Tab ──
+const route = useRoute()
+const mainTab = ref((route.query.tab as string) || 'inventory')
 
 // ── State ──
 const loading = ref(false)
@@ -949,6 +1301,275 @@ async function importARShops() {
     importingShops.value = false
   }
 }
+
+// ════════════════════════════════════════════════════════════
+// ILS CUSTOMERS
+// ════════════════════════════════════════════════════════════
+
+const ilsCustomers = ref<any[]>([])
+const customersLoading = ref(false)
+const showCustomerDialog = ref(false)
+const customerSaving = ref(false)
+const editingCustomerId = ref<number | null>(null)
+const showDeleteCustomerConfirm = ref(false)
+const deleteCustomerTarget = ref<any>(null)
+const deleteCustomerSaving = ref(false)
+
+const customerHeaders = [
+  { title: 'Name', key: 'name' },
+  { title: 'Code', key: 'customerCode', width: '100px' },
+  { title: 'Email', key: 'email' },
+  { title: 'Phone', key: 'phone', width: '120px' },
+  { title: 'Contact', key: 'contactPerson', width: '150px' },
+  { title: 'Status', key: 'isActive', width: '90px' },
+  { title: '', key: 'actions', width: '80px', sortable: false },
+]
+
+const defaultCustomerForm = () => ({
+  name: '',
+  customerCode: '',
+  email: '',
+  phone: '',
+  contactPerson: '',
+  address: '',
+  description: '',
+})
+const customerForm = ref(defaultCustomerForm())
+
+async function loadILSCustomers() {
+  customersLoading.value = true
+  try {
+    ilsCustomers.value = await api.get<any[]>('/ils-customers')
+  } catch {
+    showSnack('Failed to load ILS customers', 'error')
+  } finally {
+    customersLoading.value = false
+  }
+}
+
+function openCustomerDialog(item?: any) {
+  if (item) {
+    editingCustomerId.value = item.id
+    customerForm.value = {
+      name: item.name,
+      customerCode: item.customerCode || '',
+      email: item.email || '',
+      phone: item.phone || '',
+      contactPerson: item.contactPerson || '',
+      address: item.address || '',
+      description: item.description || '',
+    }
+  } else {
+    editingCustomerId.value = null
+    customerForm.value = defaultCustomerForm()
+  }
+  showCustomerDialog.value = true
+}
+
+async function saveCustomer() {
+  customerSaving.value = true
+  try {
+    if (editingCustomerId.value) {
+      const updated = await api.put<any>(`/ils-customers/${editingCustomerId.value}`, customerForm.value)
+      const idx = ilsCustomers.value.findIndex(c => c.id === editingCustomerId.value)
+      if (idx >= 0) ilsCustomers.value[idx] = updated
+    } else {
+      const created = await api.post<any>('/ils-customers', customerForm.value)
+      ilsCustomers.value.unshift(created)
+    }
+    showSnack(editingCustomerId.value ? 'Customer updated' : 'Customer added', 'success')
+    showCustomerDialog.value = false
+  } catch {
+    showSnack('Failed to save customer', 'error')
+  } finally {
+    customerSaving.value = false
+  }
+}
+
+function confirmDeleteCustomer(item: any) {
+  deleteCustomerTarget.value = item
+  showDeleteCustomerConfirm.value = true
+}
+
+async function doDeleteCustomer() {
+  if (!deleteCustomerTarget.value) return
+  deleteCustomerSaving.value = true
+  try {
+    await api.del(`/ils-customers/${deleteCustomerTarget.value.id}`)
+    ilsCustomers.value = ilsCustomers.value.filter(c => c.id !== deleteCustomerTarget.value.id)
+    showSnack('Customer deleted')
+    showDeleteCustomerConfirm.value = false
+  } catch {
+    showSnack('Failed to delete customer', 'error')
+  } finally {
+    deleteCustomerSaving.value = false
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ILS QUOTES
+// ════════════════════════════════════════════════════════════
+
+const ilsQuotes = ref<any[]>([])
+const quotesLoading = ref(false)
+const quoteSearch = ref('')
+const showQuoteDialog = ref(false)
+const quoteSaving = ref(false)
+const showDeleteQuoteConfirm = ref(false)
+const deleteQuoteTarget = ref<any>(null)
+const deleteQuoteSaving = ref(false)
+
+const quoteHeaders = [
+  { title: 'Quote #', key: 'quoteNumber', width: '120px' },
+  { title: 'Customer', key: 'ilsCustomerName' },
+  { title: 'RFQ Ref', key: 'rfqReference', width: '130px' },
+  { title: 'Items', key: 'items.length', width: '70px' },
+  { title: 'Total', key: 'totalAmount', width: '120px' },
+  { title: 'Status', key: 'status', width: '110px' },
+  { title: 'Created', key: 'createdAt', width: '110px' },
+  { title: '', key: 'actions', width: '80px', sortable: false },
+]
+
+const filteredQuotes = computed(() => {
+  if (!quoteSearch.value) return ilsQuotes.value
+  const q = quoteSearch.value.toLowerCase()
+  return ilsQuotes.value.filter(qr =>
+    qr.quoteNumber?.toLowerCase().includes(q) ||
+    qr.ilsCustomerName?.toLowerCase().includes(q) ||
+    qr.rfqReference?.toLowerCase().includes(q)
+  )
+})
+
+function ilsQuoteStatusColor(status: string) {
+  const map: Record<string, string> = {
+    Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error'
+  }
+  return map[status] || 'grey'
+}
+
+async function loadILSQuotes() {
+  quotesLoading.value = true
+  try {
+    ilsQuotes.value = await api.get<any[]>('/ils-quotes')
+  } catch {
+    showSnack('Failed to load ILS quotes', 'error')
+  } finally {
+    quotesLoading.value = false
+  }
+}
+
+// ── ILS Inventory items for quote selection (already loaded in allItems) ──
+const availableILSItems = computed(() => allItems.value)
+
+// ── Quote Form ──
+interface QuoteItemRow {
+  ilsItem: any | null
+  qty: number
+  sellPrice: number
+  totalPrice: number
+}
+
+const defaultQuoteForm = () => ({
+  ilsCustomerId: null as number | null,
+  rfqReference: '',
+  notes: '',
+  items: [] as QuoteItemRow[],
+})
+const quoteForm = ref(defaultQuoteForm())
+
+const quoteTotalAmount = computed(() =>
+  quoteForm.value.items.reduce((sum, r) => sum + (r.totalPrice || 0), 0)
+)
+
+function newQuoteItemRow(): QuoteItemRow {
+  return {
+    ilsItem: null,
+    qty: 1,
+    sellPrice: 0,
+    totalPrice: 0,
+  }
+}
+
+function addQuoteItemRow() {
+  quoteForm.value.items.push(newQuoteItemRow())
+}
+
+function removeQuoteItemRow(idx: number) {
+  quoteForm.value.items.splice(idx, 1)
+}
+
+function recalcRow(row: QuoteItemRow) {
+  row.totalPrice = (Number(row.qty) || 0) * (Number(row.sellPrice) || 0)
+}
+
+function onILSItemSelected(item: any, row: QuoteItemRow) {
+  row.ilsItem = item || null
+  recalcRow(row)
+}
+
+function openCreateQuoteDialog() {
+  quoteForm.value = defaultQuoteForm()
+  showQuoteDialog.value = true
+}
+
+async function saveQuote() {
+  if (!quoteForm.value.ilsCustomerId || !quoteForm.value.items.length) return
+  quoteSaving.value = true
+  try {
+    const payload = {
+      ilsCustomerId: quoteForm.value.ilsCustomerId,
+      rfqReference: quoteForm.value.rfqReference || null,
+      notes: quoteForm.value.notes || null,
+      items: quoteForm.value.items.filter(row => row.ilsItem).map(row => ({
+        partNumberId: row.ilsItem.partNumberId,
+        partNumberName: row.ilsItem.partNumberName,
+        altPartNumber: row.ilsItem.altPartNumber || null,
+        condition: row.ilsItem.condition || null,
+        certName: row.ilsItem.certName || null,
+        qty: Number(row.qty) || 1,
+        sellPrice: Number(row.sellPrice) || 0,
+        totalPrice: Number(row.totalPrice) || 0,
+        leadTime: row.ilsItem.leadTime || null,
+        ilsItemId: row.ilsItem.id,
+      })),
+    }
+    const created = await api.post<any>('/ils-quotes', payload)
+    ilsQuotes.value.unshift(created)
+    showSnack(`Quote ${created.quoteNumber} created`, 'success')
+    showQuoteDialog.value = false
+    navigateTo(`/ils/quotes/${created.id}`)
+  } catch {
+    showSnack('Failed to create quote', 'error')
+  } finally {
+    quoteSaving.value = false
+  }
+}
+
+function confirmDeleteQuote(item: any) {
+  deleteQuoteTarget.value = item
+  showDeleteQuoteConfirm.value = true
+}
+
+async function doDeleteQuote() {
+  if (!deleteQuoteTarget.value) return
+  deleteQuoteSaving.value = true
+  try {
+    await api.del(`/ils-quotes/${deleteQuoteTarget.value.id}`)
+    ilsQuotes.value = ilsQuotes.value.filter(q => q.id !== deleteQuoteTarget.value.id)
+    showSnack('Quote deleted')
+    showDeleteQuoteConfirm.value = false
+  } catch {
+    showSnack('Failed to delete quote', 'error')
+  } finally {
+    deleteQuoteSaving.value = false
+  }
+}
+
+// Load customers and quotes on mount
+onMounted(() => {
+  loadILSCustomers()
+  loadILSQuotes()
+})
 </script>
 
 <style scoped>
@@ -977,5 +1598,39 @@ async function importARShops() {
 .ar-shop-card--selected {
   background: rgba(255, 152, 0, 0.08) !important;
   border-color: #ff9800 !important;
+}
+
+.quote-items-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 8px;
+}
+.quote-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+.quote-items-table th {
+  background: rgba(var(--v-theme-surface-variant), 0.5);
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+.quote-items-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+  vertical-align: middle;
+}
+.quote-items-table tfoot td {
+  padding: 6px 4px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-bottom: none;
+}
+.quote-items-table tr:hover td {
+  background: rgba(var(--v-theme-surface-variant), 0.3);
 }
 </style>

@@ -151,7 +151,7 @@ public class CapListService : ICapListService
     public async Task<List<ARShopForCapListResponse>> GetARShopSuggestionsAsync()
     {
         var shops = await _db.Set<ProcumentRecord>()
-            .Where(r => r.Type == "Shop" && r.Condition == "AR")
+            .Where(r => r.Type == "Shop")
             .Include(r => r.Supplier)
             .Include(r => r.RFQItem)
                 .ThenInclude(i => i.PartNumber)

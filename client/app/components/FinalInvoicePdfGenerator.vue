@@ -5,6 +5,7 @@
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ pdfData.invoiceNumber || '' }}</v-toolbar-title>
         <v-spacer />
+        <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" @click="downloadPackingList" class="mr-2">Download Packing List</v-btn>
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
@@ -23,13 +24,34 @@
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="3"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="3"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
           <v-col cols="12" md="3"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
           <v-col cols="12" md="3"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="4"><v-text-field v-model="billToContactPerson" label="Bill To Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="billToEmail" label="Bill To Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="billToPhone" label="Bill To Phone" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="4"><v-text-field v-model="shipToContactPerson" label="Ship To Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="shipToEmail" label="Ship To Email" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="shipToPhone" label="Ship To Phone" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="6"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
           <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="6"><v-text-field v-model="bankAccount" label="Bank Account" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="6"><v-text-field v-model="swiftCode" label="Swift Code" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
       </v-container>
 
@@ -103,15 +125,33 @@ const companyEmail = ref('')
 const footerText = ref('If you have any questions about this invoice, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
+const generatingPacking = ref(false)
 const loadingData = ref(false)
 const pdfData = ref<any>({})
 const taxAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
+const contactPerson = ref('')
 const billTo = ref('')
 const shipTo = ref('')
 const companyTerms = ref('')
+
+// Bill To contact fields
+const billToContactPerson = ref('')
+const billToEmail = ref('')
+const billToPhone = ref('')
+
+// Ship To contact fields
+const shipToContactPerson = ref('')
+const shipToEmail = ref('')
+const shipToPhone = ref('')
+const beneficiaryName = ref('')
+const beneficiaryAddress = ref('')
+const bankName = ref('')
+const bankAddress = ref('')
+const bankAccount = ref('')
+const swiftCode = ref('')
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
@@ -130,8 +170,16 @@ watch(model, async (open) => {
         const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
         pdfData.value = data
         if (data.notes) comments.value = data.notes
+        contactPerson.value = data.customerContactPerson || ''
         billTo.value = data.customerBillTo || ''
         shipTo.value = data.customerShipTo || data.customerBillTo || ''
+        // Populate separate contact fields from single Customer fields
+        billToContactPerson.value = data.customerContactPerson || ''
+        billToEmail.value = data.customerBillToEmail || ''
+        billToPhone.value = data.customerBillToPhone || ''
+        shipToContactPerson.value = data.customerContactPerson || ''
+        shipToEmail.value = data.customerShipToEmail || ''
+        shipToPhone.value = data.customerShipToPhone || ''
       } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
       finally { loadingData.value = false }
     }
@@ -198,6 +246,7 @@ const renderedHtml = computed(() => {
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${invDate}</div>
         <div><span style="font-weight:600; color:#1a2744;">Due Date:</span> ${dueDate}</div>
+        <div><span style="font-weight:600; color:#1a2744;">Customer PO:</span> ${d.customerPONumber || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Proforma Ref:</span> ${d.proformaInvoiceNumber || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
@@ -207,12 +256,19 @@ const renderedHtml = computed(() => {
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Bill To</div>
           <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          ${billToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${billToContactPerson.value}</div>` : ''}
           ${(billTo.value || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${billTo.value || d.customerBillTo}</div>` : ''}
+          ${billToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${billToEmail.value}</div>` : ''}
+          ${billToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Phone: ${billToPhone.value}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Ship To</div>
           <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          ${shipToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${shipToContactPerson.value}</div>` : ''}
           ${(shipTo.value || d.customerShipTo || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${shipTo.value || d.customerShipTo || d.customerBillTo}</div>` : ''}
+          ${shipToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${shipToEmail.value}</div>` : ''}
+          ${shipToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Phone: ${shipToPhone.value}</div>` : ''}
+          ${d.customerShipToAccount ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Account: ${d.customerShipToAccount}</div>` : ''}
         </div>
       </div>
 
@@ -238,13 +294,24 @@ const renderedHtml = computed(() => {
         </table>
       </div>
 
-      <!-- ═══ Totals + Shipping ═══ -->
+      <!-- ═══ Totals + Shipping + Bank Details ═══ -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin:0 40px 16px 40px;">
         <div style="font-size:11px; max-width:340px;">
           ${d.shippingMethod ? `
-            <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
+            <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px; margin-bottom:12px;">
               <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">Shipping Information</div>
               <div style="color:#1a2744;"><span style="font-weight:600;">Shipping Method:</span> ${d.shippingMethod}</div>
+            </div>
+          ` : ''}
+          ${bankName.value ? `
+            <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
+              <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">Bank Details</div>
+              ${beneficiaryName.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Beneficiary:</span> ${beneficiaryName.value}</div>` : ''}
+              ${beneficiaryAddress.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Beneficiary Address:</span> ${beneficiaryAddress.value}</div>` : ''}
+              ${bankName.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Bank Name:</span> ${bankName.value}</div>` : ''}
+              ${bankAddress.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Bank Address:</span> ${bankAddress.value}</div>` : ''}
+              ${bankAccount.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Bank Account:</span> ${bankAccount.value}</div>` : ''}
+              ${swiftCode.value ? `<div style="color:#1a2744; margin-bottom:2px;"><span style="font-weight:600;">Swift Code:</span> ${swiftCode.value}</div>` : ''}
             </div>
           ` : ''}
         </div>
@@ -303,11 +370,26 @@ async function downloadPdf() {
       invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
       dueDate: d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—',
       proformaRef: d.proformaInvoiceNumber || null,
+      customerPONumber: d.customerPONumber || null,
       currency: currency.value,
       currencySymbol: '$',
       customerName: d.customerName || '—',
+      customerContactPerson: contactPerson.value || d.customerContactPerson || null,
       customerBillTo: billTo.value || d.customerBillTo || null,
+      customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
+      customerBillToPhone: billToPhone.value || d.customerBillToPhone || null,
+      customerBillToContactPerson: billToContactPerson.value || d.customerContactPerson || null,
       customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
+      customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
+      customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
+      customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
+      customerShipToAccount: d.customerShipToAccount || null,
+      beneficiaryName: beneficiaryName.value || null,
+      beneficiaryAddress: beneficiaryAddress.value || null,
+      bankName: bankName.value || null,
+      bankAddress: bankAddress.value || null,
+      bankAccount: bankAccount.value || null,
+      swiftCode: swiftCode.value || null,
       shippingMethod: d.shippingMethod || null,
       shippingCost: Number(d.shippingCost) || 0,
       items: items.map((it: any) => ({
@@ -339,13 +421,73 @@ async function downloadPdf() {
     const url = window.URL.createObjectURL(response)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}.pdf`)
+    const customerName = (d.customerName || '').replace(/\s+/g, '_')
+    link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}-${customerName}.pdf`)
     document.body.appendChild(link)
     link.click()
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
+}
+
+async function downloadPackingList() {
+  generatingPacking.value = true
+  try {
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const d = pdfData.value
+    const items: any[] = d.items || []
+
+    const payload = {
+      companyName: companyName.value,
+      companyLocation: companyLocation.value,
+      companyPhone: companyPhone.value,
+      companyWebsite: companyWebsite.value,
+      companyEmail: companyEmail.value,
+      logoBase64: logoDataUrl.value || null,
+      primaryColor: theme.value.primary,
+      accentColor: theme.value.accent,
+      invoiceNumber: d.invoiceNumber || '',
+      invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
+      customerPONumber: d.customerPONumber || null,
+      customerName: d.customerName || '—',
+      customerContactPerson: contactPerson.value || d.customerContactPerson || null,
+      customerBillTo: billTo.value || d.customerBillTo || null,
+      customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
+      customerBillToPhone: billToPhone.value || d.customerBillToPhone || null,
+      customerBillToContactPerson: billToContactPerson.value || d.customerContactPerson || null,
+      customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
+      customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
+      customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
+      customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
+      customerShipToAccount: d.customerShipToAccount || null,
+      items: items.map((it: any) => ({
+        partNumber: it.partNumber || null,
+        description: it.description || null,
+        qty: it.qty || 0,
+        condition: it.condition || null,
+        certification: it.certification || null,
+      })),
+    }
+
+    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/packing-list`, {
+      method: 'POST',
+      body: payload,
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    const url = window.URL.createObjectURL(response)
+    const link = document.createElement('a')
+    link.href = url
+    const customerName = (d.customerName || '').replace(/\s+/g, '_')
+    link.setAttribute('download', `PackingList-${d.invoiceNumber || 'Invoice'}-${customerName}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (err) { console.error('Packing List PDF generation failed:', err) }
+  finally { generatingPacking.value = false }
 }
 </script>
 

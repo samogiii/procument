@@ -48,6 +48,9 @@ public class AppDbContext : DbContext
   public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
   public DbSet<POItemTrackNumber> POItemTrackNumbers => Set<POItemTrackNumber>();
   public DbSet<ILSItem> ILSItems => Set<ILSItem>();
+  public DbSet<ILSCustomer> ILSCustomers => Set<ILSCustomer>();
+  public DbSet<ILSQuote> ILSQuotes => Set<ILSQuote>();
+  public DbSet<ILSQuoteItem> ILSQuoteItems => Set<ILSQuoteItem>();
   public DbSet<CapListItem> CapListItems => Set<CapListItem>();
   public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
 
@@ -529,6 +532,63 @@ public class AppDbContext : DbContext
 
       entity.HasIndex(e => e.PartNumberId);
       entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<ILSCustomer>(entity =>
+    {
+      entity.ToTable("ILSCustomers");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(300);
+      entity.Property(e => e.CustomerCode).HasMaxLength(100);
+      entity.Property(e => e.Email).HasMaxLength(200);
+      entity.Property(e => e.Phone).HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<ILSQuote>(entity =>
+    {
+      entity.ToTable("ILSQuotes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.QuoteNumber).HasMaxLength(100);
+      entity.Property(e => e.Status).HasMaxLength(50);
+      entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Notes).HasMaxLength(2000);
+      entity.Property(e => e.RfqReference).HasMaxLength(200);
+
+      entity.HasOne(e => e.ILSCustomer)
+                .WithMany()
+                .HasForeignKey(e => e.ILSCustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ILSCustomerId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<ILSQuoteItem>(entity =>
+    {
+      entity.ToTable("ILSQuoteItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SellPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+
+      entity.HasOne(e => e.ILSQuote)
+                .WithMany(q => q.Items)
+                .HasForeignKey(e => e.ILSQuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ILSItem)
+                .WithMany()
+                .HasForeignKey(e => e.ILSItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.ILSQuoteId);
     });
 
     modelBuilder.Entity<CapListItem>(entity =>
