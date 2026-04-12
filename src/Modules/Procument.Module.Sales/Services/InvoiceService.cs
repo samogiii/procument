@@ -145,6 +145,37 @@ public class InvoiceService : IInvoiceService
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
     }
 
+    public async Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request)
+    {
+        var invoice = await _db.Set<Invoice>()
+            .Include(i => i.InvoiceItems)
+            .FirstOrDefaultAsync(i => i.Id == id);
+        if (invoice == null) return false;
+
+        foreach (var itemReq in request.Items)
+        {
+            var item = invoice.InvoiceItems.FirstOrDefault(ii => ii.Id == itemReq.Id);
+            if (item == null) continue;
+
+            if (itemReq.FinalPrice.HasValue)
+            {
+                var discount = item.TotalPrice - itemReq.FinalPrice.Value;
+                item.Discount = discount > 0 ? discount : null;
+            }
+            else
+            {
+                item.Discount = null;
+            }
+        }
+
+        // Recalculate invoice total as sum of final prices
+        invoice.TotalAmount = invoice.InvoiceItems.Sum(ii =>
+            ii.Discount.HasValue ? ii.TotalPrice - ii.Discount.Value : ii.TotalPrice);
+
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request)
     {
         var invoice = await _db.Set<Invoice>().FindAsync(id);
@@ -282,6 +313,7 @@ public class InvoiceService : IInvoiceService
                 Qty = ii.Qty,
                 UnitPrice = ii.UnitPrice,
                 TotalPrice = ii.TotalPrice,
+                Discount = ii.Discount,
                 ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
                 QuoteItemId = ii.QuoteItemId,
                 RFQReference = ii.QuoteItem?.RFQItemId.HasValue == true &&

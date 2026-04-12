@@ -132,6 +132,7 @@ public static class InvoiceDocument
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, accent, sym));
 
                     // Totals + Bank Details side by side
+                    var totalDiscount = (req.Items ?? []).Where(i => i.Discount.HasValue).Sum(i => i.Discount!.Value);
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
                         // Bank details (left side)
@@ -171,7 +172,7 @@ public static class InvoiceDocument
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             req.Subtotal ?? 0, req.Tax ?? 0,
                             req.Shipping ?? 0, req.Other ?? 0,
-                            primary, sym));
+                            primary, sym, totalDiscount));
                     });
 
                     // Comments
@@ -198,9 +199,9 @@ public static class InvoiceDocument
             // Header row
             outer.Item().Row(hr =>
             {
-                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Delivery"];
-                float[] widths   = [28,    22,  0,           0,             28,    28,   60,    60,           65,      65];
-                float[] rels     = [0,     0,   2.5f,        2.5f,          0,     0,    0,     0,            0,       0];
+                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Delivery"];
+                float[] widths   = [26,    20,  0,           0,             26,    26,   55,    55,           58,    55,        58];
+                float[] rels     = [0,     0,   2.2f,        2.2f,          0,     0,    0,     0,            0,     0,         0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -231,16 +232,17 @@ public static class InvoiceDocument
                                 if (bold) s.Bold();
                             });
 
-                    Cell(r.ConstantItem(28), it.RfqReference ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(22), (idx + 1).ToString(), Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(2.5f), it.PartNumberName ?? "—", primary, bold: true);
-                    Cell(r.RelativeItem(2.5f), it.Description ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(28), it.Qty.ToString(), primary, bold: true);
-                    Cell(r.ConstantItem(28), it.Condition ?? "—", primary);
-                    Cell(r.ConstantItem(60), it.CertName ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(60), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
-                    Cell(r.ConstantItem(65), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
-                    Cell(r.ConstantItem(65), it.LeadTime ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(26), it.RfqReference ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
+                    Cell(r.RelativeItem(2.2f), it.PartNumberName ?? "—", primary, bold: true);
+                    Cell(r.RelativeItem(2.2f), it.Description ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(26), it.Qty.ToString(), primary, bold: true);
+                    Cell(r.ConstantItem(26), it.Condition ?? "—", primary);
+                    Cell(r.ConstantItem(55), it.CertName ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(55), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
+                    Cell(r.ConstantItem(58), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
+                    Cell(r.ConstantItem(55), it.Discount.HasValue ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue ? "#e53935" : Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(58), it.LeadTime ?? "—", Colors.Grey.Darken1);
                 });
             }
         });

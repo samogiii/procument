@@ -30,6 +30,17 @@ public class UpdateInvoiceRequest
     public string? CustomerPONumber { get; set; }
 }
 
+public class UpdateInvoiceItemDiscountRequest
+{
+    public long Id { get; set; }
+    public decimal? FinalPrice { get; set; }  // user sets this; Discount = TotalPrice - FinalPrice
+}
+
+public class UpdateInvoiceItemsRequest
+{
+    public List<UpdateInvoiceItemDiscountRequest> Items { get; set; } = new();
+}
+
 public class InvoiceResponse
 {
     public long Id { get; set; }
@@ -62,6 +73,8 @@ public class InvoiceItemResponse
     public int Qty { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
+    public decimal? Discount { get; set; }
+    public decimal FinalPrice => Discount.HasValue ? TotalPrice - Discount.Value : TotalPrice;
     public DateTime? ExpectedDeliveryDate { get; set; }
     public long? QuoteItemId { get; set; }
     public string? RFQReference { get; set; }

@@ -123,12 +123,13 @@ public static class PdfHelpers
         decimal shipping,
         decimal other,
         string primary,
-        string sym)
+        string sym,
+        decimal discount = 0)
     {
-        var grandTotal = subtotal + tax + shipping + other;
+        var grandTotal = subtotal - discount + tax + shipping + other;
         container.Width(220).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Column(col =>
         {
-            void Row(string label, decimal amount, string? bg = null, bool isGrand = false)
+            void Row(string label, decimal amount, string? bg = null, bool isGrand = false, string? overrideColor = null, string? prefix = null)
             {
                 var item = isGrand ? col.Item().Background(primary) : (bg != null ? col.Item().Background(bg) : col.Item());
                 item.Padding(6).Row(r =>
@@ -140,15 +141,17 @@ public static class PdfHelpers
                     });
                     r.RelativeItem().AlignRight().Text(t =>
                     {
-                        var s = t.Span($"{sym}{FormatPrice(amount)}")
+                        var color = isGrand ? "#fff" : (overrideColor ?? primary);
+                        var s = t.Span($"{prefix ?? sym}{FormatPrice(amount)}")
                             .FontSize(isGrand ? 12 : 9)
-                            .FontColor(isGrand ? Colors.White : primary);
+                            .FontColor(color);
                         if (isGrand) s.Bold();
                     });
                 });
             }
 
             Row("Subtotal", subtotal, Colors.Grey.Lighten5);
+            if (discount > 0) Row("Discount", discount, overrideColor: "#e53935", prefix: $"-{sym}");
             Row("Tax", tax);
             Row("Shipping", shipping, Colors.Grey.Lighten5);
             Row("Other", other);

@@ -71,6 +71,7 @@ public class InvoicePdfItem
     public string? CertName { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
+    public decimal? Discount { get; set; }
     public string? DeliveryDate { get; set; }
     public string? LeadTime { get; set; }
 }
@@ -227,6 +228,7 @@ public class FinalInvoicePdfItem
     public string? Certification { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
+    public decimal? Discount { get; set; }
     public string? TrackNumber { get; set; }
     public string? Carrier { get; set; }
 }

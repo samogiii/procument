@@ -8,6 +8,7 @@ public class FinalInvoiceItem : BaseEntity
     public int Qty { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
+    public decimal? Discount { get; set; }
     public string? Condition { get; set; }
     public string? CertName { get; set; }
     public string? TrackNumber { get; set; }

@@ -687,6 +687,11 @@ async function saveQuote() {
         coef_3: r.coef_3 ?? 1,
         unitPrice: effectiveUnit,
         totalPrice: effectiveTotal,
+        // Must preserve these fields — without them the backend wipes FixPrice,
+        // clears ParentProcumentId, and may misclassify the Type on update.
+        type: r.type || (r.isShop ? 'Shop' : 'Procument'),
+        fixPrice: r.fixPrice ?? null,
+        parentProcumentId: r.parentProcumentId ?? null,
       }
     })
 

@@ -86,4 +86,5 @@ public class QuoteItemResponse
     public decimal? BuyPrice { get; set; }
     public string? SupplierName { get; set; }
     public double? ShippingCost { get; set; }
+    public decimal? FixPrice { get; set; }
 }

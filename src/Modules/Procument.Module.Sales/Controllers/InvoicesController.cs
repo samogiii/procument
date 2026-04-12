@@ -60,6 +60,13 @@ public class InvoicesController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    [HttpPatch("{id:long}/items")]
+    public async Task<IActionResult> UpdateItems(long id, [FromBody] UpdateInvoiceItemsRequest request)
+    {
+        var success = await _invoiceService.UpdateItemsAsync(id, request);
+        return success ? Ok() : NotFound();
+    }
+
     [HttpPatch("{id:long}/status")]
     [Auditable("Invoice", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateInvoiceStatusRequest request)

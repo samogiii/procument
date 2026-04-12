@@ -137,8 +137,9 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.TagDate = request.TagDate;
             record.Note = request.Note;
             record.MyNotes = request.MyNotes;
-            // Auto-set Type to "Shop" if Condition is AR and Type is not explicitly set
-            record.Type = request.Type ?? (request.Condition == "AR" ? "Shop" : "Procument");
+            // Auto-set Type to "Shop" only when Condition is "IN" (repair shop record).
+            // AR condition = parent procurement record (stays "Procument").
+            record.Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument");
             record.FixPrice = request.FixPrice;
             record.ParentProcumentId = request.ParentProcumentId;
             record.UserId = userId;
@@ -237,9 +238,11 @@ public class SupplierQuoteService : ISupplierQuoteService
             }
         }
 
-        // Reload with supplier navigation
+        // Reload with full navigation so response includes shops + their FixPrice
         record = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.Supplier)
             .FirstAsync(r => r.Id == record.Id);
 
         return MapToResponse(record);

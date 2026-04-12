@@ -36,12 +36,14 @@ export function usePageFilters<T extends Record<string, any>>(pageKey: string, d
   // Persist to localStorage whenever any filter changes
   function persist() {
     if (!import.meta.client) return
-    const snapshot: Record<string, any> = {}
-    for (const key of Object.keys(defaults)) {
-      snapshot[key] = unref(filters[key as keyof T])
-    }
     try {
-      localStorage.setItem(storageKey, JSON.stringify(snapshot))
+      const raw = localStorage.getItem(storageKey)
+      const data = raw ? JSON.parse(raw) : {}
+      
+      for (const key of Object.keys(defaults)) {
+        data[key] = unref(filters[key as keyof T])
+      }
+      localStorage.setItem(storageKey, JSON.stringify(data))
     } catch {}
   }
 
@@ -57,9 +59,7 @@ export function usePageFilters<T extends Record<string, any>>(pageKey: string, d
         ? [...defaults[key]]
         : defaults[key]
     }
-    if (import.meta.client) {
-      try { localStorage.removeItem(storageKey) } catch {}
-    }
+    // persist() will be triggered by watchers above
   }
 
   // Computed: whether any filter differs from its default

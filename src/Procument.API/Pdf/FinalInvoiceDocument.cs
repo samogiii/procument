@@ -111,7 +111,7 @@ public static class FinalInvoiceDocument
                         });
                     });
 
-                    // Items table (10 columns incl. Track # + Carrier)
+                    // Items table (incl. Discount, Track # + Carrier)
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, sym));
 
                     //// Totals + Shipping Info + Bank Details
@@ -170,6 +170,7 @@ public static class FinalInvoiceDocument
                     //        primary, sym));
                     //});
                     // Totals + Bank Details side by side
+                    var totalDiscount = (req.Items ?? []).Where(i => i.Discount.HasValue).Sum(i => i.Discount!.Value);
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
                         // Bank details (left side)
@@ -209,7 +210,7 @@ public static class FinalInvoiceDocument
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             req.Subtotal ?? 0, req.Tax ?? 0,
                             req.ShippingCost ?? 0, req.Other ?? 0,
-                            primary, sym));
+                            primary, sym, totalDiscount));
                     });
 
                     // Comments
@@ -236,9 +237,9 @@ public static class FinalInvoiceDocument
             // Header — 10 columns; narrower to fit Track # and Carrier
             outer.Item().Row(hr =>
             {
-                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Track #", "Carrier"];
-                float[] widths   = [26,    20,  0,           0,             26,    26,   50,    55,           60,      0,         0];
-                float[] rels     = [0,     0,   1.8f,        2f,            0,     0,    0,     0,            0,       1.2f,      1.2f];
+                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Track #", "Carrier"];
+                float[] widths   = [24,    18,  0,           0,             24,    24,   46,    50,           54,      50,        0,         0];
+                float[] rels     = [0,     0,   1.6f,        1.8f,          0,     0,    0,     0,            0,       0,         1.1f,      1.1f];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -269,17 +270,18 @@ public static class FinalInvoiceDocument
                                 if (bold) s.Bold();
                             });
 
-                    Cell(r.ConstantItem(26), it.RfqReference ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(1.8f), it.PartNumber ?? "—", primary, bold: true);
-                    Cell(r.RelativeItem(2f), it.Description ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(26), it.Qty.ToString(), primary, bold: true);
-                    Cell(r.ConstantItem(26), it.Condition ?? "—", primary);
-                    Cell(r.ConstantItem(50), it.Certification ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(55), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
-                    Cell(r.ConstantItem(60), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
-                    Cell(r.RelativeItem(1.2f), it.TrackNumber ?? "—", Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(1.2f), it.Carrier ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(24), it.RfqReference ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(18), (idx + 1).ToString(), Colors.Grey.Darken1);
+                    Cell(r.RelativeItem(1.6f), it.PartNumber ?? "—", primary, bold: true);
+                    Cell(r.RelativeItem(1.8f), it.Description ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(24), it.Qty.ToString(), primary, bold: true);
+                    Cell(r.ConstantItem(24), it.Condition ?? "—", primary);
+                    Cell(r.ConstantItem(46), it.Certification ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(50), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
+                    Cell(r.ConstantItem(54), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
+                    Cell(r.ConstantItem(50), it.Discount.HasValue ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue ? "#e53935" : Colors.Grey.Darken1);
+                    Cell(r.RelativeItem(1.1f), it.TrackNumber ?? "—", Colors.Grey.Darken1);
+                    Cell(r.RelativeItem(1.1f), it.Carrier ?? "—", Colors.Grey.Darken1);
                 });
             }
         });

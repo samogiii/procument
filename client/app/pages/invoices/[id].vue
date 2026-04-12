@@ -112,9 +112,21 @@
     </v-card>
 
     <v-card class="glass-card">
-      <v-card-title>Line Items</v-card-title>
+      <v-card-title class="d-flex align-center">
+        Line Items
+        <v-spacer />
+        <v-btn
+          v-if="discountDirty"
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-content-save"
+          :loading="savingItems"
+          @click="saveItemDiscounts"
+        >Save Prices</v-btn>
+      </v-card-title>
       <v-card-text>
-        <v-data-table :headers="itemHeaders" :items="invoice.items || []" density="comfortable" :items-per-page="50">
+        <v-data-table :headers="itemHeaders" :items="itemsWithFinalPrice" density="comfortable" :items-per-page="50">
           <template #item.expectedDeliveryDate="{ item }: { item: any }">
             {{ item.expectedDeliveryDate ? new Date(item.expectedDeliveryDate).toLocaleDateString() : '—' }}
           </template>
@@ -123,6 +135,26 @@
           </template>
           <template #item.totalPrice="{ item }: { item: any }">
             ${{ formatPrice(item.totalPrice) }}
+          </template>
+          <template #item.finalPrice="{ item }: { item: any }">
+            <v-text-field
+              v-model.number="item._finalPrice"
+              type="number"
+              density="compact"
+              hide-details
+              variant="outlined"
+              prefix="$"
+              step="0.01"
+              min="0"
+              style="min-width:110px; max-width:140px;"
+              @update:model-value="onFinalPriceChange(item)"
+            />
+          </template>
+          <template #item.discount="{ item }: { item: any }">
+            <span v-if="item._discount > 0" style="color:#e53935; font-weight:600;">
+              -${{ formatPrice(item._discount) }}
+            </span>
+            <span v-else class="text-medium-emphasis">—</span>
           </template>
         </v-data-table>
       </v-card-text>
@@ -208,8 +240,51 @@ const itemHeaders = [
   { title: 'Qty', key: 'qty' },
   { title: 'Lead Time', key: 'expectedDeliveryDate' },
   { title: 'Unit Price', key: 'unitPrice' },
-  { title: 'Total', key: 'totalPrice' },
+  { title: 'Original Total', key: 'totalPrice' },
+  { title: 'Final Price', key: 'finalPrice', sortable: false },
+  { title: 'Discount', key: 'discount', sortable: false },
 ]
+
+// Editable items with local _finalPrice and _discount
+const itemsWithFinalPrice = ref<any[]>([])
+const discountDirty = ref(false)
+const savingItems = ref(false)
+
+function initItemPrices() {
+  itemsWithFinalPrice.value = (invoice.value.items || []).map((it: any) => ({
+    ...it,
+    _finalPrice: it.discount ? Number((it.totalPrice - it.discount).toFixed(2)) : Number(it.totalPrice),
+    _discount: it.discount || 0,
+  }))
+  discountDirty.value = false
+}
+
+function onFinalPriceChange(item: any) {
+  const original = Number(item.totalPrice)
+  const final = Number(item._finalPrice)
+  item._discount = (final < original && final >= 0) ? Number((original - final).toFixed(2)) : 0
+  discountDirty.value = true
+}
+
+async function saveItemDiscounts() {
+  savingItems.value = true
+  try {
+    const payload = {
+      items: itemsWithFinalPrice.value.map((it: any) => ({
+        id: it.id,
+        finalPrice: it._discount > 0 ? Number(it._finalPrice) : null,
+      }))
+    }
+    await api.patch(`/invoices/${route.params.id}/items`, payload)
+    discountDirty.value = false
+    showSnack('Prices saved', 'success')
+    await loadInvoice()
+  } catch {
+    showSnack('Failed to save prices', 'error')
+  } finally {
+    savingItems.value = false
+  }
+}
 
 onMounted(async () => {
   await loadInvoice()
@@ -219,12 +294,12 @@ onMounted(async () => {
 async function loadInvoice() {
   try {
     invoice.value = await api.get(`/invoices/${route.params.id}`)
-    // Populate details form
     detailsForm.value = {
       customerPONumber: invoice.value.customerPONumber || '',
       dueDate: invoice.value.dueDate ? invoice.value.dueDate.substring(0, 10) : '',
     }
     detailsOriginal.value = { ...detailsForm.value }
+    initItemPrices()
   } catch {
     showSnack('Failed to load proforma invoice', 'error')
   }

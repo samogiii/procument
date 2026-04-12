@@ -56,12 +56,12 @@
           ${{ formatPrice(quote.totalAmount) }}
         </StatCard>
       </v-col>
-      <v-col cols="12" md="3">
+      <!-- <v-col cols="12" md="3">
         <StatCard icon="mdi-cash-check" color="info" label="Final Price">
           <span v-if="quote.finalPrice != null">${{ formatPrice(quote.finalPrice) }}</span>
           <span v-else class="text-medium-emphasis">—</span>
         </StatCard>
-      </v-col>
+      </v-col> -->
       <v-col cols="12" md="3">
         <StatCard icon="mdi-calendar" color="warning" label="Valid Until"
           :value="quote.validUntil ? new Date(quote.validUntil).toLocaleDateString() : undefined"
@@ -78,6 +78,19 @@
             {{ quote.rfqName || `RFQ #${quote.rfqId}` }}
           </nuxt-link>
           <span v-else>—</span>
+        </StatCard>
+      </v-col>
+      <v-col cols="12" md="3">
+        <StatCard icon="mdi-clock-outline" color="secondary" label="Created At"
+          :value="quote.createdAt ? new Date(quote.createdAt).toLocaleString() : undefined"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
+        <StatCard icon="mdi-account-group-outline" color="accent" label="Assigned RFQ Users">
+          <span v-if="quote.assignedUsers && quote.assignedUsers.length > 0">
+            {{ quote.assignedUsers.map((u: any) => u.name).join(', ') }}
+          </span>
+          <span v-else class="text-medium-emphasis">—</span>
         </StatCard>
       </v-col>
     </v-row>
@@ -206,6 +219,7 @@
                             <th style="width: 140px;">Note</th>
                             <th style="width: 100px;">Buy Price</th>
                             <th style="width: 110px;">Total Buy Price</th>
+                            <th style="width: 110px;">Repair Cost</th>
                             <th style="width: 65px;">Coef 1</th>
                             <th style="width: 65px;">Coef 2</th>
                             <th style="width: 65px;">Coef 3</th>
@@ -219,7 +233,10 @@
                             v-for="rec in getProcRecords(item.id)"
                             :key="rec.id"
                             class="proc-row"
-                            :class="selectedProcIds.has(rec.id) ? 'selected-proc-row' : 'unselected-proc-row'"
+                            :class="[
+                              selectedProcIds.has(rec.id) ? 'selected-proc-row' : 'unselected-proc-row',
+                              rec.isShop ? 'shop-sub-row' : ''
+                            ]"
                           >
                             <td class="text-center">
                               <v-icon
@@ -235,7 +252,9 @@
                                 size="16"
                               />
                             </td>
-                            <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0;  background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">{{ rec.supplierName }}</td>
+                            <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
+                              <span v-if="rec.isShop" style="color:#ff9800; margin-right:4px; font-size:11px;">↳ 🔧</span>{{ rec.supplierName }}
+                            </td>
                             <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">{{ rec.alt || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.condition || 'N/A' }}</td>
                             <td class="text-center" style="font-size: 13px;">{{ rec.qty }}</td>
@@ -250,6 +269,9 @@
                             </td>
                             <td class="mono-cell text-right pr-2">
                               ${{ formatPrice((Number(rec.price) || 0) * (Number(rec.qty) || 1)) }}
+                            </td>
+                            <td class="text-center mono-cell" :style="rec.fixPrice ? 'color:#ff9800; font-weight:600;' : ''">
+                              {{ rec.fixPrice ? '$' + formatPrice(rec.fixPrice) : '—' }}
                             </td>
                             <td class="text-center mono-cell">{{ rec.coef_1 ?? '—' }}</td>
                             <td class="text-center mono-cell">{{ rec.coef_2 ?? '—' }}</td>
@@ -427,8 +449,16 @@ async function loadQuote() {
           condition: item.condition || '',
         }))
 
-        // Store all procurement records
-        allProcRecords.value = procRecords || []
+        // Flatten parent records + nested shop records so shop rows appear
+        // in the table individually (with their own FixPrice / selection highlight)
+        const flatRecords: any[] = []
+        for (const r of (procRecords || [])) {
+          flatRecords.push(r)
+          for (const shop of (r.shopRecords || [])) {
+            flatRecords.push({ ...shop, isShop: true })
+          }
+        }
+        allProcRecords.value = flatRecords
 
         // Build the set of selected procurement record IDs from quote items
         const ids = new Set<number>()
@@ -663,4 +693,16 @@ function showSnack(text: string, color: string) {
 .text-right { text-align: right; }
 .pr-2 { padding-right: 8px !important; }
 .text-center { text-align: center; }
+
+/* Shop sub-rows: slightly indented and tinted orange */
+.shop-sub-row {
+  background: rgba(255, 152, 0, 0.04) !important;
+  border-left: 2px solid rgba(255, 152, 0, 0.35);
+}
+.shop-sub-row:hover {
+  background: rgba(255, 152, 0, 0.09) !important;
+}
+.shop-sub-row td[style*="position: sticky"] {
+  background: rgba(255, 152, 0, 0.06) !important;
+}
 </style>

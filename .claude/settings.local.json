@@ -25,7 +25,12 @@
       "Bash(powershell -Command \"Get-Process -Name ''Procument.API'' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Write-Host ''Stopped''\")",
       "Bash(powershell -Command \"Start-Process -FilePath ''dotnet'' -ArgumentList ''run --project C:\\\\Users\\\\Sam\\\\Desktop\\\\Projects\\\\procument\\\\src\\\\Procument.API\\\\Procument.API.csproj --no-build'' -WindowStyle Hidden; Start-Sleep -Seconds 3; Write-Host ''API restarted''\")",
       "Bash(grep -r supplier-quotes C:UsersSamDesktopProjectsprocument/src --include=*.cs)",
-      "Bash(dotnet ef:*)"
+      "Bash(dotnet ef:*)",
+      "Bash(grep -r \"createCommission\\\\|CreateCommission\\\\|create.*commission\" /c/Users/Sam/Desktop/Projects/procument/src --include=*.cs --include=*.ts --include=*.vue)",
+      "Bash(grep -n \"saveQuote\\\\|createCommission\\\\|commission\" /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/create-quote/index.vue)",
+      "Bash(grep -n \"showShops\\\\|isShop\\\\|Type.*Shop\\\\|Condition.*AR\" /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/create-quote/index.vue)",
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument -type f -name *nvoi* -o -name *Invoice*)",
+      "Bash(ls -lh /c/Users/Sam/Desktop/Projects/procument/src/Procument.Data/Migrations/*Invoice*)"
     ]
   }
 }

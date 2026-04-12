@@ -14,7 +14,7 @@
         <v-btn v-if="isAmir" variant="tonal" color="secondary" prepend-icon="mdi-table-arrow-down" @click="openBulkImport" size="small">
           Bulk Import
         </v-btn>
-        <v-btn v-if="isAdmin" color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
+        <v-btn v-if="isAdmin || addRFQ" color="primary" prepend-icon="mdi-plus" @click="openCreateModal" size="small">
           New RFQ
         </v-btn>
       </template>
@@ -730,6 +730,7 @@ function getRowProps({ item }: { item: any }) {
 }
 
 const isAdmin = computed(() => authStore.isAdmin)
+const addRFQ = computed(() => authStore.newRFQ)
 const isAmir = computed(() => authStore.isAmir)
 const showBulkPerms = ref(false)
 
@@ -747,7 +748,14 @@ const dateTo = ref<string | null>(null)
 
 const userOptions = computed(() => {
   const map = new Map<number, string>()
-  items.value.forEach((item: any) => {
+  
+  // Filter items used for options by selected status if any
+  let sourceItems = items.value
+  if (statusFilter.value?.length) {
+    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
+  }
+
+  sourceItems.forEach((item: any) => {
     ;[...(item.views || []), ...(item.edits || [])].forEach((u: any) => {
       if (u.id && u.name) map.set(u.id, u.name)
     })
@@ -757,7 +765,14 @@ const userOptions = computed(() => {
 
 const customerOptions = computed(() => {
   const set = new Set<string>()
-  items.value.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
+  
+  // Filter items used for options by selected status if any
+  let sourceItems = items.value
+  if (statusFilter.value?.length) {
+    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
+  }
+
+  sourceItems.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
   return Array.from(set).sort()
 })
 

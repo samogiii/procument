@@ -452,7 +452,8 @@ public class QuoteService : IQuoteService
                 CertName = qi.ProcumentRecord?.CertName,
                 BuyPrice = qi.ProcumentRecord?.Price,
                 SupplierName = qi.ProcumentRecord?.Supplier?.Name,
-                ShippingCost = qi.ProcumentRecord?.ShippingCost
+                ShippingCost = qi.ProcumentRecord?.ShippingCost,
+                FixPrice = qi.ProcumentRecord?.FixPrice
             }).ToList()
         };
     }

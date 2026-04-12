@@ -1876,6 +1876,7 @@ async function saveAll() {
         leadTime: q.leadTime || null,
         note: q.note || null,
         myNotes: q.myNotes || null,
+        type: q.type || 'Procument',
       }))
 
     if (quotesToSave.length > 0) {

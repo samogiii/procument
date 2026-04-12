@@ -148,13 +148,16 @@ const showBulkPerms = ref(false)
 const showBulkDownload = ref(false)
 
 // Use a different key to avoid conflicts with DataListPage's search/status
-const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes-filters', {
+const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes', {
+  search: '',
+  status: [] as string[],
   user: [] as string[],
   customer: [] as string[],
   pnSearch: '',
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
+const statusFilter = pf.status
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
@@ -183,32 +186,43 @@ function searchByPN(val: string | null) {
   }, 300)
 }
 
-const users = ref<any[]>([])
-const customers = ref<any[]>([])
+const allQuotes = ref<any[]>([])
 
 onMounted(async () => {
   try {
     const res = await api.get<any>('/quotes?pageSize=9999')
-    const items = Array.isArray(res) ? res : (res.items || res.Items || [])
-    const userSet = new Map<string, string>()
-    const custSet = new Set<string>()
-    items.forEach((q: any) => {
-      if (q.userName) userSet.set(q.userName, q.userName)
-      // Also add RFQ assigned users to the user filter options
-      if (q.assignedUsers?.length) {
-        q.assignedUsers.forEach((u: any) => {
-          if (u.name) userSet.set(u.name, u.name)
-        })
-      }
-      if (q.customerName) custSet.add(q.customerName)
-    })
-    users.value = Array.from(userSet.values()).sort()
-    customers.value = Array.from(custSet).sort()
+    allQuotes.value = Array.isArray(res) ? res : (res.items || res.Items || [])
   } catch {}
 })
 
-const userOptions = computed(() => users.value)
-const customerOptions = computed(() => customers.value)
+const userOptions = computed(() => {
+  const userSet = new Map<string, string>()
+  const sourceItems = statusFilter.value?.length
+    ? allQuotes.value.filter((q: any) => statusFilter.value.includes(q.status))
+    : allQuotes.value
+
+  sourceItems.forEach((q: any) => {
+    if (q.userName) userSet.set(q.userName, q.userName)
+    if (q.assignedUsers?.length) {
+      q.assignedUsers.forEach((u: any) => {
+        if (u.name) userSet.set(u.name, u.name)
+      })
+    }
+  })
+  return Array.from(userSet.values()).sort()
+})
+
+const customerOptions = computed(() => {
+  const custSet = new Set<string>()
+  const sourceItems = statusFilter.value?.length
+    ? allQuotes.value.filter((q: any) => statusFilter.value.includes(q.status))
+    : allQuotes.value
+
+  sourceItems.forEach((q: any) => {
+    if (q.customerName) custSet.add(q.customerName)
+  })
+  return Array.from(custSet).sort()
+})
 
 function applyFilters(items: any[]) {
   let result = items

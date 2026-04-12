@@ -759,7 +759,14 @@ const partNumberOptions = computed(() => {
 
 const userOptions = computed(() => {
   const map = new Map<number, string>()
-  allItems.value.forEach((item: any) => {
+  
+  // Filter items used for options by selected status if any
+  let sourceItems = allItems.value
+  if (statusFilter.value?.length) {
+    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
+  }
+
+  sourceItems.forEach((item: any) => {
     ;(item.assignedUsers || []).forEach((u: any) => {
       if (u.id && u.name) map.set(u.id, u.name)
     })
@@ -769,7 +776,14 @@ const userOptions = computed(() => {
 
 const customerOptions = computed(() => {
   const set = new Set<string>()
-  allItems.value.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
+  
+  // Filter items used for options by selected status if any
+  let sourceItems = allItems.value
+  if (statusFilter.value?.length) {
+    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
+  }
+
+  sourceItems.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
   return Array.from(set).sort()
 })
 
@@ -1030,6 +1044,7 @@ async function saveQuote(item: any, quote: any) {
       leadTime: quote.leadTime || null,
       note: quote.note || null,
       myNotes: quote.myNotes || null,
+      type: quote.type || 'Procument',
     }
 
     const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)

@@ -163,6 +163,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                 Qty = ii.Qty,
                 UnitPrice = ii.UnitPrice,   // Sell price from proforma
                 TotalPrice = ii.TotalPrice,
+                Discount = ii.Discount,     // Copy discount from proforma item
                 Condition = quoteItem?.Condition,
                 CertName = proc?.CertName,
                 TrackNumber = track?.TrackNumbers ?? "",
@@ -248,6 +249,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                 Qty = i.Qty,
                 UnitPrice = i.UnitPrice,
                 TotalPrice = i.TotalPrice,
+                Discount = i.Discount,
                 Condition = i.Condition,
                 CertName = i.CertName,
                 TrackNumber = i.TrackNumber,
