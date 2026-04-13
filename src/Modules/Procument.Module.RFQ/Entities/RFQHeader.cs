@@ -9,7 +9,8 @@ public class RFQHeader : BaseEntity
     public string Name { get; set; } = string.Empty;
     public string Status { get; set; } = "Open";
     public DateTime LeadTime { get; set; }
-    public DateTime CreatedAt { get; set; }
+    public DateTime ReceivedDate { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ModifyAt { get; set; }
     public string? Notes { get; set; }
     public string? NoQuoteReason { get; set; }

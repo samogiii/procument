@@ -11,6 +11,7 @@ public interface IAuditService
     Task LogRFQCreatedAsync(long? userId, string userName, long rfqId, string rfqName, string? customerName);
     Task LogRFQStatusChangedAsync(long? userId, string userName, long rfqId, string rfqName, string oldStatus, string newStatus, string? reason = null);
     Task LogRFQNoQuoteAsync(long? userId, string userName, long rfqId, string rfqName, string? reason);
+    Task LogRFQNoQuoteRejectedAsync(long? userId, string userName, long rfqId, string rfqName, string? reason);
     Task LogRFQItemAddedAsync(long? userId, string userName, long rfqId, string rfqName, string partNumber, double qty);
     Task LogRFQItemUpdatedAsync(long? userId, string userName, long rfqId, string rfqName, string partNumber, string? changes);
     Task LogRFQItemDeletedAsync(long? userId, string userName, long rfqId, string rfqName, string partNumber);

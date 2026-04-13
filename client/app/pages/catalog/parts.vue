@@ -18,6 +18,21 @@
           class="mb-4"
         />
         <v-data-table :headers="headers" :items="filteredItems" :loading="loading" :items-per-page="50" hover>
+          <template #item.name="{ item }">
+            <div class="d-flex align-center">
+              <v-btn
+                icon
+                variant="text"
+                size="x-small"
+                :color="item.isFavorite ? 'amber' : 'grey-lighten-1'"
+                class="mr-1"
+                @click.stop="toggleFavorite(item)"
+              >
+                <v-icon :icon="item.isFavorite ? 'mdi-star' : 'mdi-star-outline'" />
+              </v-btn>
+              <span class="font-weight-medium">{{ item.name }}</span>
+            </div>
+          </template>
           <template #item.alternatives="{ item }">
             <div v-if="item.alternatives?.length" class="d-flex flex-wrap gap-1">
               <v-chip v-for="alt in item.alternatives" :key="alt.id" size="x-small" color="warning" variant="tonal">
@@ -141,9 +156,18 @@ const {
   isEditing, filteredItems, form,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/partnumbers', {
-  defaultForm: () => ({ name: '', description: '', fleet: '', remark: '' }),
+  defaultForm: () => ({ name: '', description: '', fleet: '', remark: '', isFavorite: false }),
   searchFields: ['name', 'description', 'fleet'],
 })
+
+async function toggleFavorite(item: any) {
+  try {
+    await api.post(`/partnumbers/${item.id}/toggle-favorite`)
+    item.isFavorite = !item.isFavorite
+  } catch (e) {
+    console.error('Failed to toggle favorite:', e)
+  }
+}
 
 const headers = [
   { title: 'Part Number', key: 'name' },

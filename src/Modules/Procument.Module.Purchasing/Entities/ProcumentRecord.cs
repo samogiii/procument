@@ -24,6 +24,7 @@ public class ProcumentRecord : BaseEntity
     public DateOnly? TagDate { get; set; }
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
+    public bool IsCertificated { get; set; }
 
     // Shop fields
     public string Type { get; set; } = "Procument";

@@ -111,26 +111,115 @@ public class RFQsController : ControllerBase
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
 
+        var (userId, isAdmin) = GetUserContext();
+        var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "System";
+
+        string targetStatus = request.Status;
+        string? noQuoteReason = request.NoQuoteReason;
+
+        // Special logic for "No Quote" requested by non-admin
+        if (targetStatus == "No Quote" && !isAdmin)
+        {
+            targetStatus = "Waiting For Admin";
+        }
+
         var oldStatus = rfq.Status;
-        var success = await _rfqService.UpdateStatusAsync(id, request.Status, request.NoQuoteReason);
+        var success = await _rfqService.UpdateStatusAsync(id, targetStatus, noQuoteReason);
 
         if (success)
         {
-            var (userId, _) = GetUserContext();
-            var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync();
-
-            if (request.Status == "No Quote")
+            if (targetStatus == "No Quote")
             {
-                await _auditService.LogRFQNoQuoteAsync(userId, userName, id, rfq.Name, request.NoQuoteReason);
+                await _auditService.LogRFQNoQuoteAsync(userId, userName, id, rfq.Name, noQuoteReason);
+            }
+            else if (targetStatus == "Waiting For Admin")
+            {
+                await _auditService.LogRFQStatusChangedAsync(userId, userName, id, rfq.Name, oldStatus, "Waiting For Admin", $"Requested No Quote. Reason: {noQuoteReason}");
             }
             else
             {
-                await _auditService.LogRFQStatusChangedAsync(userId, userName, id, rfq.Name, oldStatus, request.Status, request.NoQuoteReason);
+                await _auditService.LogRFQStatusChangedAsync(userId, userName, id, rfq.Name, oldStatus, targetStatus, noQuoteReason);
             }
             return Ok();
         }
 
         return NotFound();
+    }
+
+    /// <summary>Admin accepts a 'No Quote' request.</summary>
+    [HttpPost("{id:long}/accept-no-quote")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> AcceptNoQuote(long id)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(id);
+        if (rfq == null) return NotFound();
+
+        var (userId, _) = GetUserContext();
+        var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
+
+        var success = await _rfqService.UpdateStatusAsync(id, "No Quote", rfq.NoQuoteReason);
+        if (success)
+        {
+            await _auditService.LogRFQNoQuoteAsync(userId, userName, id, rfq.Name, rfq.NoQuoteReason);
+            return Ok();
+        }
+        return BadRequest();
+    }
+
+    /// <summary>Admin rejects a 'No Quote' request.</summary>
+    [HttpPost("{id:long}/reject-no-quote")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> RejectNoQuote(long id)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(id);
+        if (rfq == null) return NotFound();
+
+        var (userId, _) = GetUserContext();
+        var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
+
+        var oldReason = rfq.NoQuoteReason;
+        
+        // Revert to In Progress
+        var success = await _rfqService.UpdateStatusAsync(id, "In Progress", null);
+        if (success)
+        {
+            await _auditService.LogRFQNoQuoteRejectedAsync(userId, userName, id, rfq.Name, oldReason);
+
+            // ── Notification: Mark as unread for creator and assigned users ──
+            var usersToNotify = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "RFQ" && p.EntityId == id.ToString())
+                .Select(p => p.UserId)
+                .ToListAsync();
+            
+            if (rfq.UserId.HasValue) usersToNotify.Add(rfq.UserId.Value);
+            usersToNotify = usersToNotify.Distinct().Where(u => u != userId).ToList();
+
+            foreach (var targetUserId in usersToNotify)
+            {
+                var record = await _db.Set<RFQUserRead>()
+                    .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == targetUserId);
+
+                if (record != null)
+                {
+                    record.IsRead = false;
+                    record.UpdatedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    _db.Set<RFQUserRead>().Add(new RFQUserRead
+                    {
+                        RFQId = id,
+                        UserId = targetUserId,
+                        IsRead = false,
+                        UpdatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok();
+        }
+        return BadRequest();
     }
 
     /// <summary>Update the ExType of an RFQ.</summary>

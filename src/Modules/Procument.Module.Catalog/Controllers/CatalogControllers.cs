@@ -144,22 +144,29 @@ public class SuppliersController : ControllerBase
     public async Task<ActionResult> GetAll()
     {
         var items = await _db.Set<Supplier>()
+            .Where(s => s.IsActive)
             .OrderBy(s => s.Name)
             .Select(s => new
             {
                 s.Id,
                 s.Name,
+                s.Username,
+                s.Description,
+                s.Dependency,
                 s.Email,
                 s.Phone,
                 s.Address,
                 s.IsActive,
-                s.CreatedAt
+                s.CreatedAt,
+                s.Status,
+                s.RequestedByUserId
             })
             .ToListAsync();
 
         return Ok(items);
     }
 
+    /// <summary>Search suppliers — returns Approved and Pending suppliers.</summary>
     [HttpGet("search")]
     public async Task<ActionResult> Search([FromQuery] string q)
     {
@@ -167,13 +174,101 @@ public class SuppliersController : ControllerBase
             return Ok(Array.Empty<object>());
 
         var results = await _db.Set<Supplier>()
-            .Where(s => s.Name.Contains(q) && s.IsActive)
+            .Where(s => (s.Name.Contains(q) || (s.Username != null && s.Username.Contains(q)))
+                        && s.IsActive && (s.Status == "Approved" || s.Status == "Pending"))
             .OrderBy(s => s.Name)
             .Take(10)
-            .Select(s => new { s.Id, s.Name })
+            .Select(s => new { s.Id, s.Name, s.Username, s.Status })
             .ToListAsync();
 
         return Ok(results);
+    }
+
+    /// <summary>Get all pending suppliers (admin review page).</summary>
+    [HttpGet("pending")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> GetPending()
+    {
+        var items = await _db.Set<Supplier>()
+            .Where(s => s.IsActive && (s.Status == "Pending" || s.Status == "Rejected"))
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new
+            {
+                s.Id,
+                s.Name,
+                s.Username,
+                s.Email,
+                s.Phone,
+                s.Status,
+                s.CreatedAt,
+                s.RequestedByUserId
+            })
+            .ToListAsync();
+
+        return Ok(items);
+    }
+
+    /// <summary>Approve a pending supplier.</summary>
+    [HttpPost("{id:long}/approve")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> Approve(long id)
+    {
+        var entity = await _db.Set<Supplier>().FindAsync(id);
+        if (entity == null) return NotFound();
+        entity.Status = "Approved";
+        entity.IsActive = true;
+        await _db.SaveChangesAsync();
+        return Ok(new { entity.Id, entity.Name, entity.Status });
+    }
+
+    /// <summary>Reject a pending supplier — user must correct the name.</summary>
+    [HttpPost("{id:long}/reject")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> Reject(long id)
+    {
+        var entity = await _db.Set<Supplier>().FindAsync(id);
+        if (entity == null) return NotFound();
+        entity.Status = "Rejected";
+        await _db.SaveChangesAsync();
+        return Ok(new { entity.Id, entity.Name, entity.Status });
+    }
+
+    /// <summary>User updates a rejected supplier name and resubmits for approval.</summary>
+    [HttpPost("{id:long}/resubmit")]
+    public async Task<ActionResult> Resubmit(long id, [FromBody] ResubmitSupplierDto dto)
+    {
+        var entity = await _db.Set<Supplier>().FindAsync(id);
+        if (entity == null) return NotFound();
+        if (entity.Status != "Rejected") return BadRequest("Supplier is not in Rejected status.");
+
+        var trimmedName = dto.Name.Trim();
+
+        // Check if an Approved supplier with this name already exists
+        var existing = await _db.Set<Supplier>()
+            .FirstOrDefaultAsync(s => s.Id != id && s.Status == "Approved" &&
+                                      s.IsActive &&
+                                      s.Name.ToLower() == trimmedName.ToLower());
+
+        if (existing != null)
+        {
+            // Re-point all ProcumentRecords from the rejected supplier to the existing approved one
+            await _db.Database.ExecuteSqlRawAsync(
+                "UPDATE Procument SET SupplierId = {0} WHERE SupplierId = {1}",
+                existing.Id, id);
+
+            // Delete the temp rejected supplier
+            _db.Set<Supplier>().Remove(entity);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { existing.Id, existing.Name, existing.Status });
+        }
+
+        // No match — rename and set back to Pending for admin review
+        entity.Name = trimmedName;
+        entity.Status = "Pending";
+        entity.IsActive = true;
+        await _db.SaveChangesAsync();
+        return Ok(new { entity.Id, entity.Name, entity.Status });
     }
 
     [HttpPost]
@@ -182,11 +277,15 @@ public class SuppliersController : ControllerBase
         var entity = new Supplier
         {
             Name = dto.Name,
+            Username = dto.Username,
+            Description = dto.Description,
+            Dependency = dto.Dependency,
             Email = dto.Email,
             Phone = dto.Phone,
             Address = dto.Address,
             CreatedAt = DateTime.UtcNow,
-            IsActive = true
+            IsActive = true,
+            Status = "Approved" // Admin creates via catalog = always approved
         };
         _db.Set<Supplier>().Add(entity);
         await _db.SaveChangesAsync();
@@ -200,6 +299,9 @@ public class SuppliersController : ControllerBase
         if (entity == null) return NotFound();
 
         entity.Name = dto.Name;
+        entity.Username = dto.Username;
+        entity.Description = dto.Description;
+        entity.Dependency = dto.Dependency;
         entity.Email = dto.Email;
         entity.Phone = dto.Phone;
         entity.Address = dto.Address;
@@ -213,7 +315,11 @@ public class SuppliersController : ControllerBase
     {
         var entity = await _db.Set<Supplier>().FindAsync(id);
         if (entity == null) return NotFound();
-        _db.Set<Supplier>().Remove(entity);
+        
+        // Soft delete: set IsActive to false and status to "Disabled"
+        entity.IsActive = false;
+        entity.Status = "Disabled";
+        
         await _db.SaveChangesAsync();
         return NoContent();
     }
@@ -222,9 +328,17 @@ public class SuppliersController : ControllerBase
 public class SupplierDto
 {
     public string Name { get; set; } = string.Empty;
+    public string? Username { get; set; }
+    public string? Description { get; set; }
+    public string? Dependency { get; set; }
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? Address { get; set; }
+}
+
+public class ResubmitSupplierDto
+{
+    public string Name { get; set; } = string.Empty;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -252,6 +366,7 @@ public class PartNumbersController : ControllerBase
                 p.Name,
                 p.Description,
                 p.Remark,
+                p.IsFavorite,
                 p.CreatedAt,
                 SupplierName = p.Supplier != null ? p.Supplier.Name : null,
                 Alternatives = p.Alternatives.Select(a => new { a.Id, a.Name }).ToList()
@@ -278,6 +393,7 @@ public class PartNumbersController : ControllerBase
                 p.Name,
                 p.Description,
                 p.Remark,
+                p.IsFavorite,
                 Alternatives = p.Alternatives.Select(a => new { a.Id, a.Name }).ToList()
             })
             .ToListAsync();
@@ -293,6 +409,7 @@ public class PartNumbersController : ControllerBase
             Name = dto.Name,
             Description = dto.Description,
             Remark = dto.Remark,
+            IsFavorite = dto.IsFavorite,
             SupplierId = dto.SupplierId,
             CreatedAt = DateTime.UtcNow
         };
@@ -380,10 +497,22 @@ public class PartNumbersController : ControllerBase
         entity.Name = dto.Name;
         entity.Description = dto.Description;
         entity.Remark = dto.Remark;
+        entity.IsFavorite = dto.IsFavorite;
         entity.SupplierId = dto.SupplierId;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
+    }
+
+    [HttpPost("{id:long}/toggle-favorite")]
+    public async Task<ActionResult> ToggleFavorite(long id)
+    {
+        var entity = await _db.Set<PartNumber>().FindAsync(id);
+        if (entity == null) return NotFound();
+
+        entity.IsFavorite = !entity.IsFavorite;
+        await _db.SaveChangesAsync();
+        return Ok(new { entity.Id, entity.IsFavorite });
     }
 
     /// <summary>Add an alternative part number to an existing part.</summary>
@@ -416,12 +545,12 @@ public class PartNumbersController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Get all suppliers linked to a part number.</summary>
+    /// <summary>Get all suppliers linked to a part number — only returns active ones.</summary>
     [HttpGet("{id:long}/suppliers")]
     public async Task<ActionResult> GetSuppliers(long id)
     {
         var suppliers = await _db.Set<PartNumberSupplier>()
-            .Where(ps => ps.PartNumberId == id)
+            .Where(ps => ps.PartNumberId == id && ps.Supplier.IsActive)
             .Include(ps => ps.Supplier)
             .OrderBy(ps => ps.Supplier.Name)
             .Select(ps => new { ps.Supplier.Id, ps.Supplier.Name })
@@ -447,6 +576,7 @@ public class PartNumberDto
     public string? Description { get; set; }
     public string? Priority { get; set; }
     public string? Remark { get; set; }
+    public bool IsFavorite { get; set; }
     public long? SupplierId { get; set; }
 }
 

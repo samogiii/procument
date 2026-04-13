@@ -90,7 +90,8 @@ public class RFQService : IRFQService
             LeadTime = request.LeadTime,
             CustomerId = customer.Id,
             UserId = request.UserId,
-            CreatedAt = request.CreatedAt,
+            ReceivedDate = request.ReceivedDate,
+            CreatedAt = DateTime.UtcNow,
             Notes = request.Notes,
             ExType = request.ExType,
         };
@@ -410,7 +411,18 @@ public class RFQService : IRFQService
         var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
         if (rfq == null) return false;
         rfq.Status = status;
-        rfq.NoQuoteReason = status == "No Quote" ? noQuoteReason : null;
+
+        // Keep existing reason if not provided in this call, 
+        // but only clear it if we are moving away from No Quote/Waiting states
+        if (noQuoteReason != null)
+        {
+            rfq.NoQuoteReason = noQuoteReason;
+        }
+        else if (status != "No Quote" && status != "Waiting For Admin")
+        {
+            rfq.NoQuoteReason = null;
+        }
+
         await _db.SaveChangesAsync();
         return true;
     }
@@ -450,9 +462,11 @@ public class RFQService : IRFQService
         Name = rfq.Name,
         Status = rfq.Status,
         LeadTime = rfq.LeadTime,
+        ReceivedDate = rfq.ReceivedDate,
         CreatedAt = rfq.CreatedAt,
         CustomerName = rfq.Customer.Name,
         CustomerCode = rfq.Customer.CustomerCode,
+        CustomerBase = rfq.Customer.Base,
         CustomerId = rfq.CustomerId,
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,

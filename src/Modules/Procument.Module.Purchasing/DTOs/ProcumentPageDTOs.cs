@@ -17,6 +17,7 @@ public class ProcumentPageItemResponse
     public bool IsHighlighted { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string? CustomerCode { get; set; }
+    public int? CustomerBase { get; set; }
     public DateTime LeadTime { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<ProcumentPageUserResponse> AssignedUsers { get; set; } = new();
@@ -54,6 +55,7 @@ public class RecentSupplierQuoteDto
 {
     public long SupplierId { get; set; }
     public string SupplierName { get; set; } = string.Empty;
+    public string SupplierDependency { get; set; } = "Normal";
     public double Qty { get; set; }
     public decimal Price { get; set; }
     public string? Condition { get; set; }

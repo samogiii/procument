@@ -115,8 +115,8 @@
               {{ item.id }}
             </div>
           </template>
-          <template #item.createdAt="{ item }">
-            {{ new Date(item.createdAt).toLocaleDateString() }}
+          <template #item.receivedDate="{ item }">
+            {{ item.receivedDate && new Date(item.receivedDate).getFullYear() > 2000 ? new Date(item.receivedDate).toLocaleDateString() : '—' }}
           </template>
           <template #item.leadTime="{ item }">
             <span :class="{ 'text-error font-weight-bold': (item.status == 'Open' || item.status == 'In Progress') && isLeadTimeExpired(item.leadTime) }">
@@ -139,7 +139,7 @@
             <template v-else>{{ item.customerCode || '—' }}</template>
           </template>
           <template #item.status="{ item }">
-            <v-tooltip v-if="item.status === 'No Quote' && item.noQuoteReason" location="bottom">
+            <v-tooltip v-if="['No Quote', 'Waiting For Admin'].includes(item.status) && item.noQuoteReason" location="bottom">
               <template #activator="{ props: tp }">
                 <v-chip
                   v-bind="tp"
@@ -696,7 +696,7 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const { statusColor: rfqStatusColor } = useStatusColor()
-const rfqStatusOptions = ['Open', 'In Progress', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
+const rfqStatusOptions = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
@@ -814,11 +814,11 @@ const filteredItems = computed(() => {
   }
   if (dateFrom.value) {
     const from = new Date(dateFrom.value).getTime()
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
+    result = result.filter((item: any) => new Date(item.receivedDate).getTime() >= from)
   }
   if (dateTo.value) {
     const to = new Date(dateTo.value).getTime() + 86400000
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
+    result = result.filter((item: any) => new Date(item.receivedDate).getTime() < to)
   }
   return result
 })
@@ -832,7 +832,7 @@ const headers = [
   // { title: 'Priority', key: 'priority', width: '100px' },
   { title: 'Deadline', key: 'leadTime' },
   { title: 'Parts', key: 'itemCount', sortable: false },
-  { title: 'Received Date', key: 'createdAt' },
+  { title: 'Received Date', key: 'receivedDate' },
 ]
 
 onMounted(() => loadItems())
@@ -1256,12 +1256,12 @@ async function submitBulkRFQs() {
     for (const group of toCreate) {
       const partNumbers = group.items.map(it => it.partNumber)
       const leadTimeISO = group.deadline ? new Date(group.deadline).toISOString() : new Date().toISOString()
-      const createdAtISO = group.receivedDate ? new Date(group.receivedDate).toISOString() : new Date().toISOString()
+      const receivedDateISO = group.receivedDate ? new Date(group.receivedDate).toISOString() : new Date().toISOString()
       const created = await api.post<any>('/rfqs', {
         name: group.rfqName,
         customerName: customerName.trim(),
         leadTime: leadTimeISO,
-        createdAt: createdAtISO,
+        receivedDate: receivedDateISO,
         userId: authStore.user?.id || 0,
         notes: null,
         exType: null,
@@ -1377,7 +1377,7 @@ async function submitRfq() {
       name: form.value.name.trim(),
       customerName: customerName.trim(),
       leadTime: new Date(form.value.leadTime).toISOString(),
-      createdAt: form.value.date ? new Date(form.value.date).toISOString() : new Date().toISOString(),
+      receivedDate: form.value.date ? new Date(form.value.date).toISOString() : new Date().toISOString(),
       userId: authStore.user?.id || 0,
       notes: form.value.notes || null,
       exType: form.value.exType,

@@ -25,6 +25,7 @@ public class SaveSupplierQuoteRequest
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
+    public bool IsCertificated { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -38,6 +39,8 @@ public class SupplierQuoteResponse
     public long RFQItemId { get; set; }
     public long SupplierId { get; set; }
     public string SupplierName { get; set; } = string.Empty;
+    public string SupplierStatus { get; set; } = "Approved";
+    public string SupplierDependency { get; set; } = "Normal";
     public double Qty { get; set; }
     public decimal Price { get; set; }
     public string? Condition { get; set; }
@@ -55,6 +58,7 @@ public class SupplierQuoteResponse
     public DateOnly? TagDate { get; set; }
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
+    public bool IsCertificated { get; set; }
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }

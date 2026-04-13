@@ -406,7 +406,7 @@ const statusColors: Record<string, string> = {
   Accept: '#66BB6A', 'Waiting For Payment': '#FF9800', 'Payment Done': '#009688',
   'Ship To Warehouse 1': '#3F51B5', 'Ship To Warehouse 2': '#673AB7', 'Ship To Warehouse 3': '#607D8B',
   'Ship To Customer': '#FF5722',
-  Open: '#29B6F6', 'In Progress': '#FFC107', 'No Quote': '#7E57C2', Quoted: '#FF9800', Closed: '#78909C',
+  Open: '#29B6F6', 'In Progress': '#FFC107', 'Waiting For Admin': '#FF5722', 'No Quote': '#7E57C2', Quoted: '#FF9800', Closed: '#78909C',
 }
 
 // ─── Computed KPIs ───

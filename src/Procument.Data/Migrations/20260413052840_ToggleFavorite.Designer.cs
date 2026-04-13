@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260413052840_ToggleFavorite")]
+    partial class ToggleFavorite
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -842,9 +845,6 @@ namespace Procument.Data.Migrations
 
                     b.Property<decimal?>("FixPrice")
                         .HasColumnType("decimal(18,2)");
-
-                    b.Property<bool>("IsCertificated")
-                        .HasColumnType("bit");
 
                     b.Property<string>("LeadTime")
                         .HasColumnType("nvarchar(max)");

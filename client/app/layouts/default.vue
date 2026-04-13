@@ -210,12 +210,13 @@ const allNavItems = [
   { title: 'Procument', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false, ilsOnly: false },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
-  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true, ilsOnly: false },
+  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true, ilsOnly: true },
   { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true, ilsOnly: false },
   { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true, ilsOnly: false },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true, ilsOnly: false },
+  { title: 'Supplier Requests', icon: 'mdi-account-clock-outline', to: '/catalog/supplier-requests', adminOnly: true, ilsOnly: false },
 ]
 
 const navItems = computed(() => {

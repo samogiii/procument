@@ -72,19 +72,6 @@
             variant="outlined"
             style="min-width: 150px; max-width: 180px;"
           />
-          <!-- <v-text-field
-            v-model.number="finalPriceOverride"
-            label="Final Price"
-            type="number"
-            density="compact"
-            hide-details
-            variant="outlined"
-            prefix="$"
-            step="0.01"
-            min="0"
-            :placeholder="formatPrice(selectedTotal)"
-            style="min-width: 130px; max-width: 160px;"
-          /> -->
           <v-btn
             color="success"
             prepend-icon="mdi-check"
@@ -188,10 +175,29 @@
                           v-for="record in getItemRecords(item.id)"
                           :key="record.id"
                           class="quote-row"
-                          :class="{ 'selected-row': selections[record.id], 'shop-record-row': record.isShop }"
+                          :class="{ 
+                            'selected-row': selections[record.id], 
+                            'shop-record-row': record.isShop,
+                            'disabled-row': isLineDisabled(record)
+                          }"
                         >
                           <td class="text-center" style="position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
+                            <v-tooltip v-if="isLineDisabled(record)" location="top" :text="getDisabledReason(record)">
+                              <template #activator="{ props: tp }">
+                                <div v-bind="tp" class="d-inline-block">
+                                  <input
+                                    type="checkbox"
+                                    :disabled="!isAdmin"
+                                    :checked="selections[record.id]"
+                                    @click.prevent="toggleSelection(record)"
+                                    class="record-checkbox"
+                                    :class="{ 'opacity-30': !isAdmin }"
+                                  />
+                                </div>
+                              </template>
+                            </v-tooltip>
                             <input
+                              v-else
                               type="checkbox"
                               :checked="selections[record.id]"
                               @change="toggleSelection(record)"
@@ -249,6 +255,11 @@
                               type="text"
                               placeholder="Note..."
                               v-model="record.note"
+                              rows="1"
+                              auto-grow
+                              hide-details
+                              density="compact"
+                              variant="plain"
                             />
                           </td>
                           <td v-if="hasArForItem(item.id)">
@@ -312,6 +323,11 @@
                               placeholder="My notes..."
                               v-model="record.myNotes"
                               style="color: #a78bfa;"
+                              rows="1"
+                              auto-grow
+                              hide-details
+                              density="compact"
+                              variant="plain"
                             />
                           </td>
                         </tr>
@@ -344,57 +360,80 @@
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
+
+    <!-- Condition Warning Dialog -->
+    <v-dialog v-model="showConditionWarning" max-width="450">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-alert-circle" color="warning" class="mr-2" />
+          Supplier Condition Warning
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <div class="text-body-1 mb-2">{{ warningMessage }}</div>
+          <div class="text-body-2 text-medium-emphasis">As an Admin, you can choose to bypass this condition. Do you want to proceed?</div>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showConditionWarning = false">Cancel</v-btn>
+          <v-btn color="warning" variant="tonal" @click="confirmBypass">Select Anyway</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { VInput } from 'vuetify/components'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useApi } from '@/composables/useApi'
+import { useAuthStore } from '@/stores/auth'
+import { formatPrice } from '@/utils/formatPrice'
 
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
+const authStore = useAuthStore()
 
+const isAdmin = computed(() => authStore.isAdmin)
 const today = new Date().toISOString().split('T')[0]
 
 // State
 const loading = ref(true)
 const saving = ref(false)
+const rfq = ref<any>({})
 const rfqItems = ref<any[]>([])
 const procurementRecords = ref<any[]>([])
 const expandedRows = ref(new Set<number>())
 const validUntil = ref('')
 const finalPriceOverride = ref<number | null>(null)
 
-// Global coefs applied to all records (bulk setter)
+// Global coefs
 const globalCoef1 = ref<number | null>(null)
 const globalCoef2 = ref<number | null>(null)
 const globalCoef3 = ref<number | null>(null)
 
-watch(globalCoef1, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_1 = val; r.customUnitPrice = null }) })
-watch(globalCoef2, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_2 = val; r.customUnitPrice = null }) })
-watch(globalCoef3, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_3 = val; r.customUnitPrice = null }) })
-
-// selections: simple map of recordId → selected boolean
+// selections
 const selections = ref<Record<number, boolean>>({})
-// Track which items have their AR parent selected to show shops
 const showShopsForItem = ref<Record<number, boolean>>({})
 
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 
-// Get all selected records from the live procurementRecords array
+// Warning Logic
+const showConditionWarning = ref(false)
+const warningMessage = ref('')
+const pendingSelectionRecord = ref<any>(null)
+
+// Computed
 const selectedRecords = computed(() =>
   procurementRecords.value.filter(r => selections.value[r.id])
 )
-
 const selectedCount = computed(() => selectedRecords.value.length)
-
 const selectedTotal = computed(() =>
   selectedRecords.value.reduce((sum, r) => sum + calcTotalPrice(r), 0)
 )
 
-// Edit mode
 const editQuoteId = computed(() => (route.query.editQuoteId as string) || null)
 const isEditMode = computed(() => !!editQuoteId.value)
 const existingQuote = ref<any>(null)
@@ -405,13 +444,13 @@ const backUrl = computed(() =>
     : `/rfqs/${route.params.id}`
 )
 
-// Global coefs multiply with row coefs continuously now
+// Watch global coefs
+watch(globalCoef1, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_1 = val; r.customUnitPrice = null }) })
+watch(globalCoef2, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_2 = val; r.customUnitPrice = null }) })
+watch(globalCoef3, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_3 = val; r.customUnitPrice = null }) })
 
 onMounted(async () => {
   await loadData()
-
-  // Guard: if RFQ already has an active (non-rejected) quote, redirect to it.
-  // Rejected quotes are kept for history — a new quote can be created after rejection.
   if (!isEditMode.value) {
     try {
       const existingQuotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
@@ -423,25 +462,16 @@ onMounted(async () => {
       }
     } catch {}
   }
+  if (editQuoteId.value) await loadExistingQuote()
 
-  // If editing, load existing quote and pre-select items
-  if (editQuoteId.value) {
-    await loadExistingQuote()
-  }
-
-  // Auto-expand all items that have records
   rfqItems.value.forEach(item => {
     if (getRecordCount(item.id) > 0) {
       expandedRows.value.add(item.id)
-      // Auto-show shops if item has AR records
       const hasAR = procurementRecords.value.some(r => r.rfqItemId === item.id && r.condition === 'AR' && !r.isShop)
-      if (hasAR && hasShops(item.id)) {
-        showShopsForItem.value[item.id] = true
-      }
+      if (hasAR && hasShops(item.id)) showShopsForItem.value[item.id] = true
     }
   })
   expandedRows.value = new Set(expandedRows.value)
-  showShopsForItem.value = { ...showShopsForItem.value }
 })
 
 async function loadData() {
@@ -451,7 +481,7 @@ async function loadData() {
       api.get<any>(`/rfqs/${route.params.id}`),
       api.get<any[]>(`/rfqs/${route.params.id}/supplier-quotes`)
     ])
-
+    rfq.value = rfqData
     rfqItems.value = (rfqData.items || []).map((i: any) => ({
       id: i.id,
       partNumberName: i.partNumberName,
@@ -461,38 +491,16 @@ async function loadData() {
       condition: i.condition || ''
     }))
 
-    // Flatten parent records + nested shop records into one list
     const flatRecords: any[] = []
     for (const r of records || []) {
-      flatRecords.push({
-        ...r,
-        coef_1: r.coef_1 ?? 1,
-        coef_2: r.coef_2 ?? 1,
-        coef_3: r.coef_3 ?? 1,
-        customTotalPrice: null,
-        customUnitPrice: null,
-        isShop: false,
-      })
+      flatRecords.push({ ...r, coef_1: r.coef_1 ?? 1, coef_2: r.coef_2 ?? 1, coef_3: r.coef_3 ?? 1, isShop: false })
       for (const shop of r.shopRecords || []) {
-        flatRecords.push({
-          ...shop,
-          coef_1: shop.coef_1 ?? 1,
-          coef_2: shop.coef_2 ?? 1,
-          coef_3: shop.coef_3 ?? 1,
-          customTotalPrice: null,
-          customUnitPrice: null,
-          isShop: true,
-          parentProcurementId: r.id,
-        })
+        flatRecords.push({ ...shop, coef_1: shop.coef_1 ?? 1, coef_2: shop.coef_2 ?? 1, coef_3: shop.coef_3 ?? 1, isShop: true, parentProcurementId: r.id })
       }
     }
     procurementRecords.value = flatRecords
-
-    // Initialize all selections to false
     const sel: Record<number, boolean> = {}
-    procurementRecords.value.forEach((r: any) => {
-      sel[r.id] = false
-    })
+    procurementRecords.value.forEach((r: any) => { sel[r.id] = false })
     selections.value = sel
   } catch (e) {
     showSnack('Failed to load data', 'error')
@@ -501,15 +509,53 @@ async function loadData() {
   }
 }
 
-// ──── Helpers ────
-
-function hasArForItem(itemId: number): boolean {
-  return procurementRecords.value.some(
-    r => r.rfqItemId === itemId && (r.condition || '').toUpperCase() === 'AR'
-  )
+function isLineDisabled(record: any) {
+  const dep = record.supplierDependency || 'Normal'
+  if (dep === 'NoQuote' && !isAdmin.value) return true
+  if (dep === 'EndUser' && rfq.value.customerBase == 5) return true
+  if (dep === 'Certificated' && !record.isCertificated) return true
+  return false
 }
 
-// ──── Calculation helpers ────
+function getDisabledReason(record: any) {
+  const dep = record.supplierDependency || 'Normal'
+  if (dep === 'NoQuote' && !isAdmin.value) return 'Only Admin can use NoQuote suppliers'
+  if (dep === 'EndUser' && rfq.value.customerBase == 5) return 'EndUser supplier not allowed for Customer Base 5'
+  if (dep === 'Certificated' && !record.isCertificated) return 'Must be marked as Certificated in Procurements'
+  return ''
+}
+
+function toggleSelection(record: any) {
+  if (isLineDisabled(record)) {
+    if (isAdmin.value) {
+      warningMessage.value = getDisabledReason(record)
+      pendingSelectionRecord.value = record
+      showConditionWarning.value = true
+      return
+    }
+    return
+  }
+  selections.value[record.id] = !selections.value[record.id]
+  selections.value = { ...selections.value }
+  if (record.condition === 'AR' && !record.isShop && selections.value[record.id]) {
+    showShopsForItem.value[record.rfqItemId] = true
+    showShopsForItem.value = { ...showShopsForItem.value }
+  }
+}
+
+function confirmBypass() {
+  if (pendingSelectionRecord.value) {
+    const r = pendingSelectionRecord.value
+    selections.value[r.id] = !selections.value[r.id]
+    selections.value = { ...selections.value }
+    if (r.condition === 'AR' && !r.isShop && selections.value[r.id]) {
+      showShopsForItem.value[r.rfqItemId] = true
+      showShopsForItem.value = { ...showShopsForItem.value }
+    }
+  }
+  showConditionWarning.value = false
+  pendingSelectionRecord.value = null
+}
 
 function calcUnitPrice(q: any): number {
   const price = Number(q.price) || 0
@@ -518,21 +564,15 @@ function calcUnitPrice(q: any): number {
   const c1 = Number(q.coef_1) || 1
   const c2 = Number(q.coef_2) || 1
   const c3 = Number(q.coef_3) || 1
-
   if (q.isShop) {
-    // For shop records: Unit Price = Cost Price + Repair Cost + Shipping Cost (per unit) * Coefs
     const repairCost = Number(q.fixPrice) || 0
     return (price + repairCost + (shipping / qty)) * c1 * c2 * c3
-  } else {
-    // For regular records: Unit Price = (price + shipping per unit) * Coefs
-    return (price + (shipping / qty)) * c1 * c2 * c3
   }
+  return (price + (shipping / qty)) * c1 * c2 * c3
 }
 
 function getUnitPrice(q: any): number {
-  if (q.customUnitPrice != null && Number(q.customUnitPrice) > 0) {
-    return Number(q.customUnitPrice)
-  }
+  if (q.customUnitPrice != null && Number(q.customUnitPrice) > 0) return Number(q.customUnitPrice)
   return calcUnitPrice(q)
 }
 
@@ -542,18 +582,12 @@ function calcTotalPrice(q: any): number {
 
 function onUnitPriceInput(record: any, event: Event) {
   const val = parseFloat((event.target as HTMLInputElement).value)
-  if (!isNaN(val) && val > 0) {
-    record.customUnitPrice = val
-  } else {
-    record.customUnitPrice = null
-  }
+  if (!isNaN(val) && val > 0) record.customUnitPrice = val
+  else record.customUnitPrice = null
 }
-
-// ──── Record helpers ────
 
 function getItemRecords(itemId: number) {
   const records = procurementRecords.value.filter(r => r.rfqItemId === itemId)
-  // Only show shops if showShopsForItem is true for this item
   const showShops = showShopsForItem.value[itemId] || false
   return records.filter(r => !r.isShop || showShops)
 }
@@ -571,77 +605,39 @@ function getRecordCount(itemId: number) {
   return procurementRecords.value.filter(r => r.rfqItemId === itemId).length
 }
 
+function hasArForItem(itemId: number): boolean {
+  return procurementRecords.value.some(r => r.rfqItemId === itemId && (r.condition || '').toUpperCase() === 'AR')
+}
+
 function toggleExpand(itemId: number) {
-  if (expandedRows.value.has(itemId)) {
-    expandedRows.value.delete(itemId)
-  } else {
+  if (expandedRows.value.has(itemId)) expandedRows.value.delete(itemId)
+  else {
     expandedRows.value.add(itemId)
-    // Auto-show shops if item has AR records
     const hasAR = procurementRecords.value.some(r => r.rfqItemId === itemId && r.condition === 'AR' && !r.isShop)
-    if (hasAR && hasShops(itemId)) {
-      showShopsForItem.value[itemId] = true
-      showShopsForItem.value = { ...showShopsForItem.value }
-    }
+    if (hasAR && hasShops(itemId)) showShopsForItem.value[itemId] = true
   }
   expandedRows.value = new Set(expandedRows.value)
 }
-
-// ──── Selection logic ────
-
-function toggleSelection(record: any) {
-  selections.value[record.id] = !selections.value[record.id]
-  selections.value = { ...selections.value }
-
-  // Auto-show shops when an AR record is selected
-  if (record.condition === 'AR' && !record.isShop && selections.value[record.id]) {
-    showShopsForItem.value[record.rfqItemId] = true
-    showShopsForItem.value = { ...showShopsForItem.value }
-  }
-}
-
-// ──── Load existing quote for edit ────
 
 async function loadExistingQuote() {
   try {
     existingQuote.value = await api.get<any>(`/quotes/${editQuoteId.value}`)
     const eq = existingQuote.value
-
-    // Pre-fill validUntil, finalPrice
-    if (eq.validUntil) {
-      validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0] as string
-    }
-    if (eq.finalPrice != null) {
-      finalPriceOverride.value = eq.finalPrice
-    }
-
-    // Pre-select procurement records that match quote items
+    if (eq.validUntil) validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0]
+    if (eq.finalPrice != null) finalPriceOverride.value = eq.finalPrice
     if (eq.items && Array.isArray(eq.items)) {
       for (const qi of eq.items) {
-        // First try to match by procumentRecordId (exact match)
         if (qi.procumentRecordId) {
-          const exactMatch = procurementRecords.value.find(
-            (r: any) => r.id === qi.procumentRecordId
-          )
+          const exactMatch = procurementRecords.value.find((r: any) => r.id === qi.procumentRecordId)
           if (exactMatch) {
             selections.value[exactMatch.id] = true
-            
-            // Restore manual overrides
             const calc = calcUnitPrice(exactMatch)
-            if (qi.unitPrice && Math.abs(Number(qi.unitPrice) - calc) > 0.001) {
-              exactMatch.customUnitPrice = Number(qi.unitPrice)
-            }
-            
+            if (qi.unitPrice && Math.abs(Number(qi.unitPrice) - calc) > 0.001) exactMatch.customUnitPrice = Number(qi.unitPrice)
             continue
           }
         }
-
-        // Fallback: match by rfqItemId (pick first unselected record)
-        const matchingRecords = procurementRecords.value.filter(
-          (r: any) => r.rfqItemId === qi.rfqItemId && !selections.value[r.id]
-        )
-        if (matchingRecords.length > 0) {
-          selections.value[matchingRecords[0].id] = true
-        }
+        const matchingRecords = procurementRecords.value.filter((r: any) => r.rfqItemId === qi.rfqItemId && !selections.value[r.id])
+        if (matchingRecords.length > 0) selections.value[matchingRecords[0].id] = true
       }
       selections.value = { ...selections.value }
     }
@@ -650,19 +646,14 @@ async function loadExistingQuote() {
   }
 }
 
-// ──── Save Quote (Create or Update) ────
-
 async function saveQuote() {
   const selected = selectedRecords.value
-
   if (selected.length === 0) {
     showSnack('Please select at least one supplier price', 'warning')
     return
   }
-
   saving.value = true
   try {
-    // 1. Save coefs/unitPrice/totalPrice back to procurement records
     const quotesToUpdate = selected.map(r => {
       const effectiveUnit = getUnitPrice(r)
       const effectiveTotal = effectiveUnit * (Number(r.qty) || 1)
@@ -687,58 +678,33 @@ async function saveQuote() {
         coef_3: r.coef_3 ?? 1,
         unitPrice: effectiveUnit,
         totalPrice: effectiveTotal,
-        // Must preserve these fields — without them the backend wipes FixPrice,
-        // clears ParentProcumentId, and may misclassify the Type on update.
         type: r.type || (r.isShop ? 'Shop' : 'Procument'),
         fixPrice: r.fixPrice ?? null,
-        parentProcumentId: r.parentProcumentId ?? null,
+        parentProcumentId: r.parentProcurementId ?? null,
       }
     })
-
     if (quotesToUpdate.length > 0) {
-      await api.post(
-        `/rfqs/${route.params.id}/supplier-quotes/bulk`,
-        { quotes: quotesToUpdate }
-      )
+      await api.post(`/rfqs/${route.params.id}/supplier-quotes/bulk`, { quotes: quotesToUpdate })
     }
-
-    // 2. Create/update the sales quote
-    const items = selected.map(r => {
-      return {
-        rfqItemId: r.rfqItemId,
-        procumentRecordId: r.id,
-        qty: r.qty,
-        unitPrice: getUnitPrice(r),
-        condition: r.condition || null,
-        alt: r.alt || null,
-        leadTimeDays: null
-      }
-    })
-
-    const payload = {
-      rfqId: Number(route.params.id),
-      validUntil: validUntil.value || null,
-      finalPrice: finalPriceOverride.value || null,
-      items
-    }
-
+    const items = selected.map(r => ({
+      rfqItemId: r.rfqItemId,
+      procumentRecordId: r.id,
+      qty: r.qty,
+      unitPrice: getUnitPrice(r),
+      condition: r.condition || null,
+      alt: r.alt || null,
+      leadTimeDays: null
+    }))
+    const payload = { rfqId: Number(route.params.id), validUntil: validUntil.value || null, finalPrice: finalPriceOverride.value || null, items }
     if (isEditMode.value) {
       await api.put(`/quotes/${editQuoteId.value}`, payload)
       showSnack('Quote updated successfully', 'success')
-      setTimeout(() => {
-        router.push(`/quotes/${editQuoteId.value}`)
-      }, 500)
+      setTimeout(() => router.push(`/quotes/${editQuoteId.value}`), 500)
     } else {
       const created = await api.post<any>('/quotes', payload)
       showSnack('Quote created successfully', 'success')
       const newQuoteId = created?.id || created?.Id
-      setTimeout(() => {
-        if (newQuoteId) {
-          router.push(`/quotes/${newQuoteId}`)
-        } else {
-          router.push(`/rfqs/${route.params.id}`)
-        }
-      }, 500)
+      setTimeout(() => { if (newQuoteId) router.push(`/quotes/${newQuoteId}`); else router.push(`/rfqs/${route.params.id}`) }, 500)
     }
   } catch {
     showSnack(isEditMode.value ? 'Failed to update quote' : 'Failed to create quote', 'error')
@@ -1006,6 +972,14 @@ function showSnack(text: string, color: string) {
 
 .quote-row.selected-row td[style*="position: sticky"] {
   background: rgba(74, 222, 128, 0.15) !important;
+}
+
+.disabled-row {
+  opacity: 0.6;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+.opacity-30 {
+  opacity: 0.3;
 }
 
 /* Checkbox */

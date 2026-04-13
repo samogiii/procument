@@ -9,7 +9,7 @@ public class CreateRFQRequest
 {
     public string Name { get; set; } = string.Empty;
     public DateTime LeadTime { get; set; }
-    public DateTime CreatedAt { get; set; }
+    public DateTime ReceivedDate { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public long UserId { get; set; }
     public string? Notes { get; set; }
@@ -75,9 +75,11 @@ public class RFQResponse
     public string Name { get; set; } = string.Empty;
     public string Status { get; set; } = "Open";
     public DateTime LeadTime { get; set; }
+    public DateTime ReceivedDate { get; set; }
     public DateTime CreatedAt { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string? CustomerCode { get; set; }
+    public int? CustomerBase { get; set; }
     public long CustomerId { get; set; }
     public string? UserName { get; set; }
     public long? UserId { get; set; }

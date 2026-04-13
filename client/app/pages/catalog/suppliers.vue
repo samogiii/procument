@@ -35,9 +35,19 @@
       @save="save"
     >
       <v-text-field v-model="form.name" label="Name" class="mb-2" />
+      <v-text-field v-model="form.username" label="Username" class="mb-2" />
+      <v-select
+        v-model="form.dependency"
+        :items="dependencyOptions"
+        label="Dependency"
+        class="mb-2"
+        variant="outlined"
+        density="compact"
+      />
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
-      <v-text-field v-model="form.address" label="Address" />
+      <v-text-field v-model="form.address" label="Address" class="mb-2" />
+      <v-textarea v-model="form.description" label="Description" rows="3" />
     </CrudDialog>
 
     <ConfirmDialog
@@ -53,17 +63,27 @@
 const {
   items, loading, saving, search, showDialog,
   isEditing, filteredItems, form,
-  loadItems, openDialog, save, deleteItem,
+  loadItems, openDialog, save: saveCrud, deleteItem,
 } = useCrud('/suppliers', {
-  defaultForm: () => ({ name: '', email: '', phone: '', address: '' }),
-  searchFields: ['name', 'email', 'phone'],
+  defaultForm: () => ({ name: '', username: '', dependency: '', description: '', email: '', phone: '', address: '' }),
+  searchFields: ['name', 'username', 'email', 'phone'],
 })
+
+const dependencyOptions = ['Normal','Certificated', 'NoQuote', 'EndUser']
+
+async function save() {
+  if (!dependencyOptions.includes(form.value.dependency)) return
+  await saveCrud()
+}
 
 const headers = [
   { title: 'Name', key: 'name' },
+  { title: 'Username', key: 'username' },
+  { title: 'Dependency', key: 'dependency' },
   { title: 'Email', key: 'email' },
   { title: 'Phone', key: 'phone' },
   { title: 'Address', key: 'address' },
+
   { title: 'Status', key: 'isActive', width: '100px' },
   { title: '', key: 'actions', sortable: false, width: '100px' },
 ]

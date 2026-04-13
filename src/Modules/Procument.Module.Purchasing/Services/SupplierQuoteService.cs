@@ -101,7 +101,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         }
 
         // Resolve or create supplier by name
-        var supplier = await ResolveSupplierAsync(request.SupplierName);
+        var supplier = await ResolveSupplierAsync(request.SupplierName, userId);
 
         ProcumentRecord record;
 
@@ -137,6 +137,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.TagDate = request.TagDate;
             record.Note = request.Note;
             record.MyNotes = request.MyNotes;
+            record.IsCertificated = request.IsCertificated;
             // Auto-set Type to "Shop" only when Condition is "IN" (repair shop record).
             // AR condition = parent procurement record (stays "Procument").
             record.Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument");
@@ -168,6 +169,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 TagDate = request.TagDate,
                 Note = request.Note,
                 MyNotes = request.MyNotes,
+                IsCertificated = request.IsCertificated,
                 Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument"),
                 FixPrice = request.FixPrice,
                 ParentProcumentId = request.ParentProcumentId,
@@ -320,23 +322,46 @@ public class SupplierQuoteService : ISupplierQuoteService
 
     // ──── Helpers ────
 
-    private async Task<Supplier> ResolveSupplierAsync(string supplierName)
+    private async Task<Supplier> ResolveSupplierAsync(string supplierName, long userId)
     {
         var trimmed = supplierName.Trim();
-        var supplier = await _db.Set<Supplier>()
-            .FirstOrDefaultAsync(s => s.Name == trimmed);
+        var lower = trimmed.ToLower();
 
-        if (supplier == null)
+        var user = await _db.Set<User>().FindAsync(userId);
+        bool isAdmin = user?.Role == "Admin";
+
+        // Check if an existing supplier (active or not) exists by name
+        var existing = await _db.Set<Supplier>()
+            .FirstOrDefaultAsync(s => s.Name.ToLower() == lower);
+
+        if (existing != null)
         {
-            supplier = new Supplier
+            // If it was soft-deleted (IsActive = false), reactivate it
+            if (!existing.IsActive)
             {
-                Name = trimmed,
-                CreatedAt = DateTime.UtcNow,
-                IsActive = true
-            };
-            _db.Set<Supplier>().Add(supplier);
-            await _db.SaveChangesAsync();
+                existing.IsActive = true;
+                // If it was "Disabled", move it back to Approved (if admin) or Pending
+                if (existing.Status == "Disabled")
+                {
+                    existing.Status = isAdmin ? "Approved" : "Pending";
+                }
+                await _db.SaveChangesAsync();
+            }
+            // If it's active but Pending/Rejected/Approved, just return it
+            return existing;
         }
+
+        // No match — create a new one
+        var supplier = new Supplier
+        {
+            Name = trimmed,
+            CreatedAt = DateTime.UtcNow,
+            IsActive = true,
+            Status = isAdmin ? "Approved" : "Pending",
+            RequestedByUserId = userId
+        };
+        _db.Set<Supplier>().Add(supplier);
+        await _db.SaveChangesAsync();
 
         return supplier;
     }
@@ -347,6 +372,8 @@ public class SupplierQuoteService : ISupplierQuoteService
         RFQItemId = r.RFQItemId,
         SupplierId = r.SupplierId,
         SupplierName = r.Supplier.Name,
+        SupplierStatus = r.Supplier.Status ?? "Approved",
+        SupplierDependency = r.Supplier.Dependency,
         Qty = r.Qty,
         Price = r.Price,
         Condition = r.Condition,
@@ -364,6 +391,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         LeadTime = r.LeadTime,
         Note = r.Note,
         MyNotes = r.MyNotes,
+        IsCertificated = r.IsCertificated,
         Type = r.Type ?? "Procument",
         FixPrice = r.FixPrice,
         ParentProcumentId = r.ParentProcumentId,

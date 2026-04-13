@@ -37,7 +37,7 @@ export const useAuthStore = defineStore('auth', {
             return !!this.user?.token && !this.isTokenExpired
         },
         isAdmin: (state) => state.user?.role === 'Admin',
-        isAmir: (state) => state.user?.name === 'AMJ',
+        isAmir: (state) => state.user?.name === 'AMJ' || state.user?.name === "KZM",
         newRFQ: (state) => state.user?.name === 'AHM',
         ilsUsers: (state) => state.user?.name === 'System Admin'
             || state.user?.name === 'SYD'

@@ -30,7 +30,11 @@
       "Bash(grep -n \"saveQuote\\\\|createCommission\\\\|commission\" /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/create-quote/index.vue)",
       "Bash(grep -n \"showShops\\\\|isShop\\\\|Type.*Shop\\\\|Condition.*AR\" /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/create-quote/index.vue)",
       "Bash(find /c/Users/Sam/Desktop/Projects/procument -type f -name *nvoi* -o -name *Invoice*)",
-      "Bash(ls -lh /c/Users/Sam/Desktop/Projects/procument/src/Procument.Data/Migrations/*Invoice*)"
+      "Bash(ls -lh /c/Users/Sam/Desktop/Projects/procument/src/Procument.Data/Migrations/*Invoice*)",
+      "Bash(wc -l /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/index.vue /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/index.vue)",
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Supplier* -o -type d -name *Procurement*)",
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules/Procument.Module.Purchasing -type f -name *.cs)",
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument/client/app/pages -type f -name *.vue)"
     ]
   }
 }

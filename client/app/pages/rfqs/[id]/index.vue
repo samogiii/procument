@@ -6,7 +6,16 @@
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold d-flex align-center gap-2">
           RFQ #{{ route.params.id }}
-          <v-chip :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
+          <v-tooltip v-if="['No Quote', 'Waiting For Admin'].includes(rfq.status) && rfq.noQuoteReason" location="bottom">
+            <template #activator="{ props: tp }">
+              <v-chip v-bind="tp" :color="statusColor" size="small" class="ml-1">
+                {{ rfq.status || 'Open' }}
+                <v-icon icon="mdi-information-outline" size="14" class="ml-1" />
+              </v-chip>
+            </template>
+            <span>{{ rfq.noQuoteReason }}</span>
+          </v-tooltip>
+          <v-chip v-else :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
         </h1>
         <p class="text-caption text-medium-emphasis mt-1 text-truncate d-flex align-center gap-2" v-if="rfq.name">
           {{ rfq.name }}
@@ -67,6 +76,10 @@
                 <span class="font-weight-medium" style="color: rgba(var(--v-theme-on-surface),0.55);">
                   {{ new Date(rfq.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                 </span>
+              </p>
+              <p class="text-caption text-medium-emphasis mb-0" v-if="rfq.receivedDate && new Date(rfq.receivedDate).getFullYear() > 2000">
+                <span style="color: rgba(var(--v-theme-on-surface),0.45);">Received:</span>
+                {{ new Date(rfq.receivedDate).toLocaleDateString() }}
               </p>
             </div>
           </div>
@@ -270,12 +283,39 @@
           <v-chip v-if="rfq.status === 'No Quote'" color="deep-purple" variant="tonal" size="small" prepend-icon="mdi-cancel">
             No Quote
           </v-chip>
-          <v-tooltip v-if="rfq.status === 'No Quote' && rfq.noQuoteReason" location="bottom">
+          <v-chip v-if="rfq.status === 'Waiting For Admin'" color="orange" variant="tonal" size="small" prepend-icon="mdi-clock-outline">
+            Waiting For Admin
+          </v-chip>
+          <v-tooltip v-if="(rfq.status === 'No Quote' || rfq.status === 'Waiting For Admin') && rfq.noQuoteReason" location="bottom">
             <template #activator="{ props: tp }">
               <v-icon v-bind="tp" icon="mdi-information-outline" color="deep-purple" size="18" class="ml-1 cursor-pointer" />
             </template>
             <span>{{ rfq.noQuoteReason }}</span>
           </v-tooltip>
+
+          <!-- Admin Accept/Reject No Quote -->
+          <template v-if="isAdmin && rfq.status === 'Waiting For Admin'">
+            <v-btn
+              size="small"
+              variant="flat"
+              color="success"
+              prepend-icon="mdi-check"
+              :loading="acceptNoQuoteLoading"
+              @click="acceptNoQuote"
+            >
+              Accept No Quote
+            </v-btn>
+            <v-btn
+              size="small"
+              variant="flat"
+              color="error"
+              prepend-icon="mdi-close"
+              :loading="rejectNoQuoteLoading"
+              @click="rejectNoQuote"
+            >
+              Reject No Quote
+            </v-btn>
+          </template>
 
           <!-- No Quote button: only for Open / In Progress -->
           <v-btn
@@ -332,6 +372,32 @@
         prepend-icon="mdi-cancel"
       >
         <strong>No Quote Reason:</strong> {{ rfq.noQuoteReason }}
+      </v-alert>
+
+      <!-- Rejected Supplier Banner (user-facing) -->
+      <v-alert
+        v-if="!isAdmin && rejectedSupplierQuotes.length > 0"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mb-3"
+        prepend-icon="mdi-account-alert-outline"
+      >
+        <strong>{{ rejectedSupplierQuotes.length }} supplier(s) were rejected.</strong>
+        Please correct and resubmit — click the red indicator next to the supplier name.
+      </v-alert>
+
+      <!-- Pending Supplier Banner (user-facing) -->
+      <v-alert
+        v-if="!isAdmin && pendingSupplierQuotes.length > 0"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mb-3"
+        prepend-icon="mdi-clock-outline"
+      >
+        <strong>{{ pendingSupplierQuotes.length }} supplier(s) pending admin approval.</strong>
+        They will appear in quotes once approved.
       </v-alert>
 
       <div class="excel-container">
@@ -622,6 +688,7 @@
                             <th style="min-width: 80px;">LeadTime</th>
                             <th style="min-width: 160px;">Note</th>
                             <th style="min-width: 160px;">My Notes</th>
+                            <th style="width: 40px" class="text-center">Cert</th>
                             <th style="min-width: 60px;"></th>
                           </tr>
                         </thead>
@@ -637,6 +704,19 @@
                                 @input="searchSupplier(quote.supplierName)"
                                 list="supplier-suggestions"
                               />
+                              <div
+                                v-if="quote.supplierStatus === 'Pending'"
+                                style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
+                              >
+                                ⏳ Pending approval
+                              </div>
+                              <div
+                                v-else-if="quote.supplierStatus === 'Rejected'"
+                                style="font-size:10px; color:#ef4444; padding: 1px 4px; line-height:1.4; cursor:pointer; text-decoration:underline;"
+                                @click="openResubmit(quote)"
+                              >
+                                ❌ Rejected — click to correct &amp; resubmit
+                              </div>
                             </td>
                             <td>
                               <select class="quote-input quote-select" v-model="quote.condition">
@@ -774,6 +854,15 @@
                                 v-model="quote.myNotes"
                               />
                             </td>
+                            <td class="text-center">
+                              <v-checkbox
+                                v-if="quote.supplierDependency === 'Certificated'"
+                                v-model="quote.isCertificated"
+                                density="compact"
+                                hide-details
+                                class="ma-0 pa-0 d-inline-block"
+                              />
+                            </td>
                             <td class="text-center" style="white-space: nowrap;">
                               <v-btn
                                 v-if="quote.condition === 'AR'"
@@ -785,13 +874,12 @@
                                 :title="'Shops (' + (quote.shopRecords || []).length + ')'"
                               />
                               <v-btn
-                                icon="mdi-close"
-                                size="x-small"
-                                variant="text"
-                                color="error"
-                                @click="removeQuote(item.id, qIdx)"
-                              />
-                            </td>
+                                  icon="mdi-close"
+                                  size="x-small"
+                                  variant="text"
+                                  color="error"
+                                  @click="confirmRemoveQuote(item.id, qIdx)"
+                                />                            </td>
                           </tr>
                           <!-- Shop Records sub-table (collapsible, for AR condition) -->
                           <tr v-if="quote.condition === 'AR' && isShopExpanded(quote.id || `new-${qIdx}`, item.id)">
@@ -843,6 +931,7 @@
                                       <th>LeadTime</th>
                                       <th>Note</th>
                                       <th>My Notes</th>
+                                      <th style="width: 40px" class="text-center">Cert</th>
                                       <th style="width: 70px;"></th>
                                     </tr>
                                   </thead>
@@ -898,9 +987,17 @@
                                       <td><input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="shop.leadTime" /></td>
                                       <td><VTextarea rows="2" placeholder="Note..." v-model="shop.note" hide-details density="compact" variant="plain" /></td>
                                       <td><VTextarea rows="2" placeholder="My Notes..." v-model="shop.myNotes" hide-details density="compact" variant="plain" /></td>
-                                      <td class="text-center" style="white-space: nowrap;">
-                                        <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="removeShopQuote(item, quote, sIdx)" />
+                                      <td class="text-center">
+                                        <v-checkbox
+                                          v-if="shop.supplierDependency === 'Certificated'"
+                                          v-model="shop.isCertificated"
+                                          density="compact"
+                                          hide-details
+                                          class="ma-0 pa-0 d-inline-block"
+                                        />
                                       </td>
+                                      <td class="text-center" style="white-space: nowrap;">
+                                        <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="confirmRemoveShop(item, quote, sIdx)" />                                      </td>
                                     </tr>
                                   </tbody>
                                 </table>
@@ -1244,10 +1341,52 @@
       </v-card>
     </v-dialog>
 
+    <!-- Resubmit Supplier Dialog -->
+    <v-dialog v-model="resubmitDialog" max-width="440">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-account-sync-outline" color="error" class="mr-2" />
+          Correct Supplier Name
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="error" variant="tonal" density="compact" class="mb-4">
+            This supplier was rejected. Enter the correct supplier name and resubmit for admin approval.
+          </v-alert>
+          <v-text-field
+            v-model="resubmitName"
+            label="Correct Supplier Name"
+            variant="outlined"
+            density="compact"
+            autofocus
+          />
+        </v-card-text>
+        <v-card-actions class="justify-end pa-4">
+          <v-btn variant="text" @click="resubmitDialog = false">Cancel</v-btn>
+          <v-btn color="primary" variant="tonal" :loading="resubmitSaving" :disabled="!resubmitName.trim()" @click="doResubmit">
+            Resubmit
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
+
+    <ConfirmDialog
+      v-model="showConfirmQuote"
+      title="Delete Supplier Quote?"
+      message="Are you sure you want to remove this quote?"
+      @confirm="doRemoveQuote"
+    />
+
+    <ConfirmDialog
+      v-model="showConfirmShop"
+      title="Delete Shop Record?"
+      message="Are you sure you want to remove this shop record?"
+      @confirm="doRemoveShop"
+    />
   </div>
 </template>
 
@@ -1270,7 +1409,7 @@ const existingQuoteId = ref<number | null>(null)
 const editableItems = ref<any[]>([])
 const supplierQuotes = ref<any[]>([])
 const linkedSuppliers = ref<Record<number, { id: number; name: string }[]>>({})
-const supplierSuggestions = ref<{ id: number; name: string }[]>([])
+const supplierSuggestions = ref<{ id: number; name: string; dependency: string }[]>([])
 const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 const expandedRows = ref(new Set<number>())
 const focusedField = ref('')
@@ -1282,6 +1421,12 @@ const saving = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+// Delete Confirmations
+const showConfirmQuote = ref(false)
+const showConfirmShop = ref(false)
+const deleteTargetQuote = ref<{ itemId: number; idx: number } | null>(null)
+const deleteTargetShop = ref<{ item: any; parentQuote: any; idx: number } | null>(null)
 
 // Dialogs
 const showPermissions = ref(false)
@@ -1566,6 +1711,19 @@ function addShopRow(item: any, parentQuote: any) {
   expandedShops.value = new Set(expandedShops.value)
 }
 
+function confirmRemoveShop(item: any, parentQuote: any, sIdx: number) {
+  deleteTargetShop.value = { item, parentQuote, idx: sIdx }
+  showConfirmShop.value = true
+}
+
+async function doRemoveShop() {
+  if (!deleteTargetShop.value) return
+  const { item, parentQuote, idx } = deleteTargetShop.value
+  await removeShopQuote(item, parentQuote, idx)
+  deleteTargetShop.value = null
+  showConfirmShop.value = false
+}
+
 async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
   const shop = parentQuote.shopRecords[sIdx]
   if (shop.id) {
@@ -1711,6 +1869,19 @@ function addQuoteRow(itemId: number) {
   })
 }
 
+function confirmRemoveQuote(itemId: number, qIdx: number) {
+  deleteTargetQuote.value = { itemId, idx: qIdx }
+  showConfirmQuote.value = true
+}
+
+async function doRemoveQuote() {
+  if (!deleteTargetQuote.value) return
+  const { itemId, idx } = deleteTargetQuote.value
+  await removeQuote(itemId, idx)
+  deleteTargetQuote.value = null
+  showConfirmQuote.value = false
+}
+
 async function removeQuote(itemId: number, qIdx: number) {
   const itemQuotes = getItemQuotes(itemId)
   const quote = itemQuotes[qIdx]
@@ -1732,21 +1903,50 @@ async function removeQuote(itemId: number, qIdx: number) {
 // ──── No Quote ────
 const showNoQuoteConfirm = ref(false)
 const noQuoteLoading = ref(false)
+const acceptNoQuoteLoading = ref(false)
+const rejectNoQuoteLoading = ref(false)
 const noQuoteReason = ref('')
 
 async function doNoQuote() {
   noQuoteLoading.value = true
   try {
+    const targetStatus = isAdmin.value ? 'No Quote' : 'Waiting For Admin'
     await api.patch(`/rfqs/${route.params.id}/status`, { status: 'No Quote', noQuoteReason: noQuoteReason.value.trim() })
-    rfq.value.status = 'No Quote'
+    rfq.value.status = targetStatus
     rfq.value.noQuoteReason = noQuoteReason.value.trim()
     showNoQuoteConfirm.value = false
     noQuoteReason.value = ''
-    showSnack('RFQ marked as No Quote', 'success')
+    showSnack(isAdmin.value ? 'RFQ marked as No Quote' : 'No Quote request sent to Admin', 'success')
   } catch {
     showSnack('Failed to update status', 'error')
   } finally {
     noQuoteLoading.value = false
+  }
+}
+
+async function acceptNoQuote() {
+  acceptNoQuoteLoading.value = true
+  try {
+    await api.post(`/rfqs/${route.params.id}/accept-no-quote`)
+    rfq.value.status = 'No Quote'
+    showSnack('No Quote request accepted', 'success')
+  } catch {
+    showSnack('Failed to accept No Quote', 'error')
+  } finally {
+    acceptNoQuoteLoading.value = false
+  }
+}
+
+async function rejectNoQuote() {
+  rejectNoQuoteLoading.value = true
+  try {
+    await api.post(`/rfqs/${route.params.id}/reject-no-quote`)
+    rfq.value.status = 'In Progress'
+    showSnack('No Quote request rejected', 'info')
+  } catch {
+    showSnack('Failed to reject No Quote', 'error')
+  } finally {
+    rejectNoQuoteLoading.value = false
   }
 }
 
@@ -1810,6 +2010,41 @@ async function saveDeadline() {
   }
 }
 
+// ──── Supplier Resubmit ────
+
+const resubmitDialog = ref(false)
+const resubmitSaving = ref(false)
+const resubmitName = ref('')
+const resubmitTarget = ref<any>(null)
+
+const pendingSupplierQuotes = computed(() =>
+  supplierQuotes.value.filter(q => q.supplierStatus === 'Pending')
+)
+const rejectedSupplierQuotes = computed(() =>
+  supplierQuotes.value.filter(q => q.supplierStatus === 'Rejected')
+)
+
+function openResubmit(quote: any) {
+  resubmitTarget.value = quote
+  resubmitName.value = quote.supplierName || ''
+  resubmitDialog.value = true
+}
+
+async function doResubmit() {
+  if (!resubmitTarget.value?.supplierId || !resubmitName.value.trim()) return
+  resubmitSaving.value = true
+  try {
+    await api.post(`/suppliers/${resubmitTarget.value.supplierId}/resubmit`, { name: resubmitName.value.trim() })
+    showSnack('Resubmitted for approval', 'success')
+    resubmitDialog.value = false
+    await loadData()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to resubmit', 'error')
+  } finally {
+    resubmitSaving.value = false
+  }
+}
+
 // ──── Supplier Name Autocomplete ────
 let supplierSearchDebounce: any = null
 function searchSupplier(val: string) {
@@ -1820,7 +2055,7 @@ function searchSupplier(val: string) {
   }
   supplierSearchDebounce = setTimeout(async () => {
     try {
-      supplierSuggestions.value = await api.get<{ id: number; name: string }[]>(`/suppliers/search?q=${encodeURIComponent(val)}`)
+      supplierSuggestions.value = await api.get<{ id: number; name: string; dependency: string }[]>(`/suppliers/search?q=${encodeURIComponent(val)}`)
     } catch {
       supplierSuggestions.value = []
     }
@@ -1858,9 +2093,11 @@ async function saveAll() {
     await Promise.all(itemPromises)
 
     // 2. Save all supplier quotes (parent records first)
-    const quotesToSave = supplierQuotes.value
-      .filter(q => q.supplierName?.trim())
-      .map(q => ({
+    const quotesToSave: any[] = []
+    for (const q of supplierQuotes.value) {
+      if (!q.supplierName?.trim()) continue
+
+      quotesToSave.push({
         id: q.id || null,
         rfqItemId: q.rfqItemId,
         supplierName: q.supplierName,
@@ -1876,8 +2113,10 @@ async function saveAll() {
         leadTime: q.leadTime || null,
         note: q.note || null,
         myNotes: q.myNotes || null,
+        isCertificated: q.isCertificated || false,
         type: q.type || 'Procument',
-      }))
+      })
+    }
 
     if (quotesToSave.length > 0) {
       await api.post(
@@ -1899,6 +2138,7 @@ async function saveAll() {
       if (!savedParent) continue
       for (const shop of q.shopRecords) {
         if (!shop.supplierName?.trim()) continue
+
         shopQuotesToSave.push({
           id: shop.id || null,
           rfqItemId: q.rfqItemId,
@@ -1916,6 +2156,7 @@ async function saveAll() {
           leadTime: shop.leadTime || null,
           note: shop.note || null,
           myNotes: shop.myNotes || null,
+          isCertificated: shop.isCertificated || false,
           type: 'Shop',
           parentProcumentId: savedParent.id,
         })
