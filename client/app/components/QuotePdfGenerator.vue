@@ -51,7 +51,7 @@
         </v-row>
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2">
-            <v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details />
+            <v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" />
           </v-col>
           <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2">
             <v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" />
@@ -164,7 +164,8 @@ watch(selectedPreset, (val) => {
     companyPhone.value = preset.phone || ''
     companyWebsite.value = preset.website || ''
     companyEmail.value = preset.email || ''
-    companyTerms.value = preset.termsAndConditions || ''
+    // Prefer customer's terms & conditions over preset's
+    companyTerms.value = props.quote?.customerTermsAndConditions || preset.termsAndConditions || ''
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
@@ -198,7 +199,26 @@ function moveDown(i: number) {
   sortedItems.value = arr
 }
 
-watch(model, (open) => { if (open) { loadPresets(); initSortedItems() } })
+watch(model, (open) => {
+  if (open) {
+    loadPresets()
+    initSortedItems()
+    if (props.quote?.customerBase == 3) {
+      const currencyType = props.quote?.customerCurrencyType || 'Dollar'
+      if (currencyType === 'Dollar') {
+        currency.value = 'Dollar (USD)'
+        exchangeRate.value = 1
+      } else if (currencyType === 'Yuan') {
+        currency.value = 'China Yuan (CNY)'
+        exchangeRate.value = 7
+      } else if (currencyType === 'Both') {
+        currency.value = 'Dollar (USD)'
+        exchangeRate.value = 7
+        // For Both, default to Dollar but allow user to switch
+      }
+    }
+  }
+})
 watch(() => props.quote?.items, initSortedItems, { immediate: true })
 
 const footerText = ref('If you have any questions about this quotation, please contact')
@@ -220,6 +240,13 @@ function onLogoUpload(files: File[] | File | null) {
 }
 
 const fmt = (n: number) => formatPrice(n)
+
+// ── Currency lock based on customer settings ──
+const currencyLocked = computed(() => {
+  if (props.quote?.customerBase !== 3) return false
+  const currencyType = props.quote?.customerCurrencyType || 'Dollar'
+  return currencyType !== 'Both'
+})
 
 // ── Hex → slightly-lighter tint for even rows ──
 function hexToRgb(hex: string) {
@@ -467,67 +494,76 @@ async function downloadPdf() {
     const authStore = useAuthStore()
     const q = props.quote
     const items: any[] = sortedItems.value.length ? sortedItems.value : (q.items || [])
-    const isYuan = currency.value === 'China Yuan (CNY)'
-    const rate = isYuan ? (exchangeRate.value || 1) : 1
 
-    const payload = {
-      companyName: companyName.value,
-      companyLocation: companyLocation.value,
-      companyPhone: companyPhone.value,
-      companyWebsite: companyWebsite.value,
-      companyEmail: companyEmail.value,
-      logoBase64: logoDataUrl.value || null,
-      primaryColor: theme.value.primary,
-      accentColor: theme.value.accent,
-      quoteNumber: q.quoteNumber || '',
-      quoteDate: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—',
-      validUntil: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—',
-      rfqName: q.rfqName || '—',
-      currency: currency.value,
-      currencySymbol: isYuan ? '¥' : '$',
-      exchangeRate: rate,
-      customerName: q.customerName || '—',
-      customerBillTo: q.customerBillTo || null,
-      customerShipTo: q.customerShipTo || q.customerBillTo || null,
-      items: items.map((it: any) => ({
-        rfqReference: it.rfqReference || null,
-        partNumberName: it.partNumberName || null,
-        alt: it.alt || null,
-        description: it.description || null,
-        qty: it.qty || 0,
-        condition: it.condition || null,
-        leadTime: it.leadTime || null,
-        unitPrice: Number(it.unitPrice) || 0,
-        totalPrice: Number(it.totalPrice) || 0,
-        certName: it.certName || null,
-        tagDate: it.tagDate || null,
-        note: it.note || null,
-      })),
-      subtotal: Number(q.totalAmount) || 0,
-      tax: taxAmount.value || 0,
-      shipping: shippingAmount.value || 0,
-      other: otherAmount.value || 0,
-      comments: comments.value || null,
-      terms: companyTerms.value || null,
-      footerText: footerText.value || null,
+    // Check if customerCurrencyType is Both - generate two PDFs
+    const currencyType = props.quote?.customerCurrencyType || 'Dollar'
+    const isBoth = props.quote?.customerBase === 3 && currencyType === 'Both'
+
+    const currenciesToGenerate = isBoth
+      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
+      : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
+
+    for (const curr of currenciesToGenerate) {
+      const payload = {
+        companyName: companyName.value,
+        companyLocation: companyLocation.value,
+        companyPhone: companyPhone.value,
+        companyWebsite: companyWebsite.value,
+        companyEmail: companyEmail.value,
+        logoBase64: logoDataUrl.value || null,
+        primaryColor: theme.value.primary,
+        accentColor: theme.value.accent,
+        quoteNumber: q.quoteNumber || '',
+        quoteDate: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—',
+        validUntil: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—',
+        rfqName: q.rfqName || '—',
+        currency: curr.currency,
+        currencySymbol: curr.symbol,
+        exchangeRate: curr.rate,
+        customerName: q.customerName || '—',
+        customerBillTo: q.customerBillTo || null,
+        customerShipTo: q.customerShipTo || q.customerBillTo || null,
+        items: items.map((it: any) => ({
+          rfqReference: it.rfqReference || null,
+          partNumberName: it.partNumberName || null,
+          alt: it.alt || null,
+          description: it.description || null,
+          qty: it.qty || 0,
+          condition: it.condition || null,
+          leadTime: it.leadTime || null,
+          unitPrice: Number(it.unitPrice) || 0,
+          totalPrice: Number(it.totalPrice) || 0,
+          certName: it.certName || null,
+          tagDate: it.tagDate || null,
+          note: it.note || null,
+        })),
+        subtotal: Number(q.totalAmount) || 0,
+        tax: taxAmount.value || 0,
+        shipping: shippingAmount.value || 0,
+        other: otherAmount.value || 0,
+        comments: comments.value || null,
+        terms: companyTerms.value || null,
+        footerText: footerText.value || null,
+      }
+
+      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/generate`, {
+        method: 'POST',
+        body: payload,
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+      const url = window.URL.createObjectURL(response)
+      const link = document.createElement('a')
+      link.href = url
+      const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
+      const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
+      const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}${currencySuffix}.pdf`
+      link.setAttribute('download', fileName)
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode?.removeChild(link)
+      window.URL.revokeObjectURL(url)
     }
-
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/generate`, {
-      method: 'POST',
-      body: payload,
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
-    const url = window.URL.createObjectURL(response)
-    const link = document.createElement('a')
-    link.href = url
-    const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
-    const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}.pdf`
-    link.setAttribute('download', fileName)
-    document.body.appendChild(link)
-    link.click()
-    link.parentNode?.removeChild(link)
-    window.URL.revokeObjectURL(url)
   } catch (err) {
     console.error('PDF generation failed:', err)
   } finally {

@@ -69,7 +69,7 @@
         <!-- Detail Row (Expanded) -->
         <template #expanded-row="{ columns, item }">
           <tr>
-            <td :colspan="columns.length" class="pa-4 bg-surface-lighten-1">
+            <td :colspan="columns.length" class="pa-4 bg-surface-lighten-4">
               <div class="d-flex flex-column gap-2">
                 <!-- Details Text -->
                 <div class="text-body-2 font-italic text-medium-emphasis mb-2 border-l-4 pl-3 py-1" style="border-color: rgba(var(--v-theme-primary), 0.5)">

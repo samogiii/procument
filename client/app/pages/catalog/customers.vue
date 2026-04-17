@@ -55,7 +55,15 @@
       <v-textarea v-model="form.billTo" label="Bill To" class="mb-2" />
       <v-textarea v-model="form.shippingAccount" label="Shipping Account" class="mb-2" />
       <v-textarea v-model="form.description" label="Description" rows="3" auto-grow class="mb-2" />
-      <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" />
+      <v-textarea v-model="form.termsAndConditions" label="Terms and Conditions" rows="3" auto-grow class="mb-2" />
+      <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" class="mb-2" />
+      <v-select
+        v-if="isAdmin && form.base === 3"
+        v-model="form.currencyType"
+        :items="['Dollar', 'Yuan', 'Both']"
+        label="Currency Type"
+        class="mb-2"
+      />
     </CrudDialog>
 
     <ConfirmDialog
@@ -76,7 +84,7 @@ const {
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', contactPerson: '', shipTo: '', billTo: '', shippingAccount: '', description: '', base: null as number | null }),
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', contactPerson: '', shipTo: '', billTo: '', shippingAccount: '', description: '', base: null as number | null, termsAndConditions: '', currencyType: '' }),
   searchFields: ['name', 'customerCode', 'email', 'phone', 'contactPerson', 'description'],
 })
 
@@ -122,5 +130,11 @@ async function doDelete() {
 }
 
 // ─── Init ───
-onMounted(() => loadItems())
+const route = useRoute()
+onMounted(() => {
+  loadItems()
+  if (route.query.search) {
+    search.value = String(route.query.search)
+  }
+})
 </script>

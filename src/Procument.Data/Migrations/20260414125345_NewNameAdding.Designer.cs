@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260414125345_NewNameAdding")]
+    partial class NewNameAdding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -142,9 +145,6 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CurrencyType")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("CustomerCode")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -178,12 +178,7 @@ namespace Procument.Data.Migrations
                     b.Property<string>("ShippingAccount")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("TermsAndConditions")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
-
-                    b.HasIndex("Name");
 
                     b.ToTable("Customers", (string)null);
                 });
@@ -223,16 +218,9 @@ namespace Procument.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name");
-
                     b.HasIndex("SupplierId");
 
-                    b.ToTable("PartNumbers", null, t =>
-                        {
-                            t.HasTrigger("trg_PopulateNewName");
-                        });
-
-                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
+                    b.ToTable("PartNumbers", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Catalog.Entities.PartNumberSupplier", b =>
@@ -307,18 +295,12 @@ namespace Procument.Data.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Username")
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("Name");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("Username");
 
                     b.ToTable("Suppliers", (string)null);
                 });
@@ -354,7 +336,7 @@ namespace Procument.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "EntityName");
+                    b.HasIndex("UserId");
 
                     b.HasIndex("EntityName", "EntityId", "UserId");
 
@@ -1022,12 +1004,9 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("ReceivedDate")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("RejectionNote")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint");
@@ -1039,8 +1018,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("UserId", "Status");
 
                     b.ToTable("RFQs", (string)null);
                 });
@@ -1413,8 +1390,6 @@ namespace Procument.Data.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("Alt");
 
                     b.HasIndex("PartNumberId");
 

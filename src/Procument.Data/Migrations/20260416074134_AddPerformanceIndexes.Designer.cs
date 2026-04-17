@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416074134_AddPerformanceIndexes")]
+    partial class AddPerformanceIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -142,9 +145,6 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CurrencyType")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("CustomerCode")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -176,9 +176,6 @@ namespace Procument.Data.Migrations
                         .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("ShippingAccount")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("TermsAndConditions")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
@@ -1021,9 +1018,6 @@ namespace Procument.Data.Migrations
 
                     b.Property<DateTime>("ReceivedDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("RejectionNote")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Status")
                         .IsRequired()

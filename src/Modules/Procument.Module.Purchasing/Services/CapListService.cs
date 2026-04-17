@@ -27,6 +27,7 @@ public class CapListService : ICapListService
         var items = await _db.Set<CapListItem>()
             .Include(i => i.PartNumber)
             .Include(i => i.Company)
+            .Include(i => i.ProcumentRecord)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
@@ -188,61 +189,112 @@ public class CapListService : ICapListService
     public async Task<BulkImportResult> BulkImportAsync(BulkImportCapListRequest request)
     {
         var result = new BulkImportResult();
+        if (request.Rows == null || !request.Rows.Any()) return result;
 
-        var allPartNumbers = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
-            .ToListAsync();
-        var allSuppliers = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
-            .ToListAsync();
+        // 1. Performance Tuning: Disable change tracking overhead for bulk operation
+        _db.ChangeTracker.AutoDetectChangesEnabled = false;
 
-        var toAdd = new List<CapListItem>();
-
-        foreach (var row in request.Rows)
+        try
         {
-            var pn = allPartNumbers.FirstOrDefault(p =>
-                p.Name.Equals(row.PartNumberName.Trim(), StringComparison.OrdinalIgnoreCase));
+            // 2. Identify all unique names in the request to minimize DB hits
+            var requestedPnNames = request.Rows
+                .Select(r => r.PartNumberName?.Trim())
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            if (pn == null)
-            {
-                result.Skipped++;
-                result.Errors.Add($"PartNumber '{row.PartNumberName}' not found");
-                continue;
-            }
+            var requestedCompNames = request.Rows
+                .Select(r => r.CompanyName?.Trim())
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            long companyId = 0;
-            if (!string.IsNullOrWhiteSpace(row.CompanyName))
+            // 3. Targeted Fetching: Only get what we need from DB
+            var existingPns = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
+                .Where(p => requestedPnNames.Contains(p.Name))
+                .ToDictionaryAsync(p => p.Name.ToLower(), p => p);
+
+            var existingSuppliers = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
+                .Where(s => requestedCompNames.Contains(s.Name))
+                .ToDictionaryAsync(s => s.Name.ToLower(), s => s);
+
+            // Temporary caches for items created during this specific import
+            var newPns = new Dictionary<string, Procument.Module.Catalog.Entities.PartNumber>();
+            var newSuppliers = new Dictionary<string, Procument.Module.Catalog.Entities.Supplier>();
+
+            int batchSize = 1000;
+            int counter = 0;
+
+            foreach (var row in request.Rows)
             {
-                var supplier = allSuppliers.FirstOrDefault(s =>
-                    s.Name.Equals(row.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (supplier == null)
+                var pnName = row.PartNumberName?.Trim();
+                var compName = row.CompanyName?.Trim();
+
+                if (string.IsNullOrWhiteSpace(pnName) || string.IsNullOrWhiteSpace(compName))
                 {
                     result.Skipped++;
-                    result.Errors.Add($"Company '{row.CompanyName}' not found");
                     continue;
                 }
-                companyId = supplier.Id;
-            }
-            else
-            {
-                result.Skipped++;
-                result.Errors.Add($"Company is required for row with PartNumber '{row.PartNumberName}'");
-                continue;
+
+                var pnLower = pnName.ToLower();
+                var compLower = compName.ToLower();
+
+                // ── Resolve or Create PartNumber ──
+                if (!existingPns.TryGetValue(pnLower, out var pn) && !newPns.TryGetValue(pnLower, out pn))
+                {
+                    pn = new Procument.Module.Catalog.Entities.PartNumber
+                    {
+                        Name = pnName,
+                        Description = row.Description,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    newPns[pnLower] = pn;
+                    _db.Set<Procument.Module.Catalog.Entities.PartNumber>().Add(pn);
+                }
+
+                // ── Resolve or Create Supplier ──
+                if (!existingSuppliers.TryGetValue(compLower, out var supplier) && !newSuppliers.TryGetValue(compLower, out supplier))
+                {
+                    supplier = new Procument.Module.Catalog.Entities.Supplier
+                    {
+                        Name = compName,
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        Status = "Approved"
+                    };
+                    newSuppliers[compLower] = supplier;
+                    _db.Set<Procument.Module.Catalog.Entities.Supplier>().Add(supplier);
+                }
+
+                // ── Add CapListItem ──
+                var item = new CapListItem
+                {
+                    PartNumber = pn, // EF handles the relationship linking
+                    Company = supplier,
+                    Description = row.Description,
+                    IsRepair = row.IsRepair,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Set<CapListItem>().Add(item);
+                
+                result.Created++;
+                counter++;
+
+                // 4. Batch Save to prevent memory overflow
+                if (counter % batchSize == 0)
+                {
+                    await _db.SaveChangesAsync();
+                    // Optional: If memory is still high, consider disposing and recreating context
+                    // or manually detaching entities. For now, batching SaveChanges is the biggest win.
+                }
             }
 
-            toAdd.Add(new CapListItem
-            {
-                PartNumberId = pn.Id,
-                Description = row.Description,
-                CompanyId = companyId,
-                IsRepair = row.IsRepair,
-                CreatedAt = DateTime.UtcNow
-            });
-            result.Created++;
-        }
-
-        if (toAdd.Any())
-        {
-            _db.Set<CapListItem>().AddRange(toAdd);
+            // Final save for remaining items
             await _db.SaveChangesAsync();
+        }
+        finally
+        {
+            _db.ChangeTracker.AutoDetectChangesEnabled = true;
         }
 
         return result;
@@ -257,6 +309,7 @@ public class CapListService : ICapListService
         CompanyId = item.CompanyId,
         CompanyName = item.Company?.Name ?? "",
         IsRepair = item.IsRepair,
+        Condition = item.ProcumentRecord?.Condition,
         ProcumentRecordId = item.ProcumentRecordId,
         CreatedAt = item.CreatedAt
     };

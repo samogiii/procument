@@ -551,7 +551,17 @@ async function loadItems() {
 
 async function loadPurchaseOrders() {
   try {
-    const pos = await api.get<any[]>('/purchase-orders') || []
+    const accumulated: any[] = []
+    let page = 1
+    while (true) {
+      const res = await api.get<any>(`/purchase-orders?page=${page}&pageSize=200`)
+      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
+      accumulated.push(...batch)
+      if (batch.length < 200 || accumulated.length >= total) break
+      page++
+    }
+    const pos = accumulated
     purchaseOrders.value = pos
     // Check lock status for each PO in parallel
     await Promise.all(pos.map(async (po: any) => {

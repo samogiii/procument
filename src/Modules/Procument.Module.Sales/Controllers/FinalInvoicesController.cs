@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 
 using Microsoft.AspNetCore.Mvc;
 
+using Procument.Shared.DTOs;
+
 using Procument.Module.Sales.DTOs;
 
 using Procument.Module.Sales.Services;
@@ -43,15 +45,12 @@ public class FinalInvoicesController : ControllerBase
 
 
     [HttpGet]
-
-    public async Task<IActionResult> GetAll()
-
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200)
     {
-
-        var result = await _service.GetAllAsync();
-
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        var result = await _service.GetAllAsync(pq);
         return Ok(result);
-
     }
 
 
@@ -257,6 +256,10 @@ public class FinalInvoicesController : ControllerBase
             customerShipToPhone = fi.CustomerShipToPhone,
 
             customerShipToAccount = fi.CustomerShipToAccount,
+
+            customerTermsAndConditions = fi.CustomerTermsAndConditions,
+
+            customerCurrencyType = fi.CustomerCurrencyType,
 
             items = fi.Items.Select(i => new
 

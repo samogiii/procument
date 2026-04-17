@@ -149,25 +149,25 @@
                       <thead>
                         <tr>
                           <th style="opacity:1; width: 40px; position: sticky; left: 0; background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);"></th>
-                          <th style="opacity:1; min-width: 80px; position: sticky; left: 40px; background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
-                          <th style="width: 130px;">Alt P/N</th>
-                          <th style="width: 80px;">Condition</th>
-                          <th style="width: 70px;">Qty</th>
-                          <th style="width: 100px;">Cert</th>
-                          <th style="width: 100px;">Tag Date</th>
-                          <th style="width: 120px;">Shipping Point</th>
-                          <th style="width: 110px;">Shipping Cost</th>
-                          <th style="width: 110px;">Lead Time</th>
-                          <th style="width: 250px;">Note</th>
-                          <th v-if="hasArForItem(item.id)" style="width: 100px; color: #ff9800;">Repair Cost</th>
-                          <th style="width: 110px;">Buy Price</th>
-                          <th style="width: 120px;">Total Buy Price</th>
-                          <th style="width: 75px;">Coef 1</th>
-                          <th style="width: 75px;">Coef 2</th>
-                          <th style="width: 75px;">Coef 3</th>
-                          <th style="width: 110px;">Unit Price</th>
-                          <th style="width: 120px;">Total Price</th>
-                          <th style="width: 140px; color: #a78bfa;">My Notes</th>
+                          <th @click="toggleSort('supplierName')" style="opacity:1; min-width: 80px; position: sticky; left: 40px; background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border); cursor:pointer; user-select:none; white-space:nowrap;">Supplier <v-icon :icon="sortIcon('supplierName')" size="13" :color="sortColor('supplierName')" /></th>
+                          <th @click="toggleSort('alt')" style="width: 130px; cursor:pointer; user-select:none; white-space:nowrap;">Alt P/N <v-icon :icon="sortIcon('alt')" size="13" :color="sortColor('alt')" /></th>
+                          <th @click="toggleSort('condition')" style="width: 80px; cursor:pointer; user-select:none; white-space:nowrap;">Condition <v-icon :icon="sortIcon('condition')" size="13" :color="sortColor('condition')" /></th>
+                          <th @click="toggleSort('qty')" style="width: 70px; cursor:pointer; user-select:none; white-space:nowrap;">Qty <v-icon :icon="sortIcon('qty')" size="13" :color="sortColor('qty')" /></th>
+                          <th @click="toggleSort('certName')" style="width: 100px; cursor:pointer; user-select:none; white-space:nowrap;">Cert <v-icon :icon="sortIcon('certName')" size="13" :color="sortColor('certName')" /></th>
+                          <th @click="toggleSort('tagDate')" style="width: 100px; cursor:pointer; user-select:none; white-space:nowrap;">Tag Date <v-icon :icon="sortIcon('tagDate')" size="13" :color="sortColor('tagDate')" /></th>
+                          <th @click="toggleSort('shippingPoint')" style="width: 120px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Point <v-icon :icon="sortIcon('shippingPoint')" size="13" :color="sortColor('shippingPoint')" /></th>
+                          <th @click="toggleSort('shippingCost')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Cost <v-icon :icon="sortIcon('shippingCost')" size="13" :color="sortColor('shippingCost')" /></th>
+                          <th @click="toggleSort('leadTime')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Lead Time <v-icon :icon="sortIcon('leadTime')" size="13" :color="sortColor('leadTime')" /></th>
+                          <th @click="toggleSort('note')" style="width: 250px; cursor:pointer; user-select:none; white-space:nowrap;">Note <v-icon :icon="sortIcon('note')" size="13" :color="sortColor('note')" /></th>
+                          <th v-if="hasArForItem(item.id)" @click="toggleSort('fixPrice')" style="width: 100px; color: #ff9800; cursor:pointer; user-select:none; white-space:nowrap;">Repair Cost <v-icon :icon="sortIcon('fixPrice')" size="13" :color="sortColor('fixPrice')" /></th>
+                          <th @click="toggleSort('price')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Buy Price <v-icon :icon="sortIcon('price')" size="13" :color="sortColor('price')" /></th>
+                          <th @click="toggleSort('totalBuyPrice')" style="width: 120px; cursor:pointer; user-select:none; white-space:nowrap;">Total Buy Price <v-icon :icon="sortIcon('totalBuyPrice')" size="13" :color="sortColor('totalBuyPrice')" /></th>
+                          <th @click="toggleSort('coef_1')" style="width: 75px; cursor:pointer; user-select:none; white-space:nowrap;">Coef 1 <v-icon :icon="sortIcon('coef_1')" size="13" :color="sortColor('coef_1')" /></th>
+                          <th @click="toggleSort('coef_2')" style="width: 75px; cursor:pointer; user-select:none; white-space:nowrap;">Coef 2 <v-icon :icon="sortIcon('coef_2')" size="13" :color="sortColor('coef_2')" /></th>
+                          <th @click="toggleSort('coef_3')" style="width: 75px; cursor:pointer; user-select:none; white-space:nowrap;">Coef 3 <v-icon :icon="sortIcon('coef_3')" size="13" :color="sortColor('coef_3')" /></th>
+                          <th @click="toggleSort('unitPrice')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Unit Price <v-icon :icon="sortIcon('unitPrice')" size="13" :color="sortColor('unitPrice')" /></th>
+                          <th @click="toggleSort('totalPrice')" style="width: 120px; cursor:pointer; user-select:none; white-space:nowrap;">Total Price <v-icon :icon="sortIcon('totalPrice')" size="13" :color="sortColor('totalPrice')" /></th>
+                          <th @click="toggleSort('myNotes')" style="width: 140px; color: #a78bfa; cursor:pointer; user-select:none; white-space:nowrap;">My Notes <v-icon :icon="sortIcon('myNotes')" size="13" :color="sortColor('myNotes')" /></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -462,6 +462,20 @@ onMounted(async () => {
       }
     } catch {}
   }
+  if (rfq.value.customerBase == 3 && !isEditMode.value) {
+    if (rfq.value.customerCurrencyType == 'Both') {
+      // For Both currency type, only apply default commission
+      globalCoef1.value = 1.1
+    } else {
+      // For Dollar or Yuan, apply both coefficients
+      globalCoef1.value = 1.1
+      globalCoef2.value = 1.22
+    }
+  }
+  else if(!isEditMode.value){
+    globalCoef1.value = 1.1
+  }
+
   if (editQuoteId.value) await loadExistingQuote()
 
   rfqItems.value.forEach(item => {
@@ -586,10 +600,58 @@ function onUnitPriceInput(record: any, event: Event) {
   else record.customUnitPrice = null
 }
 
+// ── Column Sorting ──
+const sortKey = ref('')
+const sortDir = ref<'asc' | 'desc'>('asc')
+
+function toggleSort(key: string) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDir.value = 'asc'
+  }
+}
+
+function sortIcon(key: string): string {
+  if (sortKey.value !== key) return 'mdi-sort'
+  return sortDir.value === 'asc' ? 'mdi-sort-ascending' : 'mdi-sort-descending'
+}
+
+function sortColor(key: string): string {
+  return sortKey.value === key ? '#60a5fa' : '#555'
+}
+
+function sortRecords(records: any[]): any[] {
+  if (!sortKey.value) return records
+  return [...records].sort((a, b) => {
+    let av: any, bv: any
+    if (sortKey.value === 'totalBuyPrice') {
+      av = (Number(a.price) || 0) * (Number(a.qty) || 1)
+      bv = (Number(b.price) || 0) * (Number(b.qty) || 1)
+    } else if (sortKey.value === 'unitPrice') {
+      av = getUnitPrice(a)
+      bv = getUnitPrice(b)
+    } else if (sortKey.value === 'totalPrice') {
+      av = calcTotalPrice(a)
+      bv = calcTotalPrice(b)
+    } else {
+      av = a[sortKey.value]
+      bv = b[sortKey.value]
+    }
+    if (av == null || av === '') return 1
+    if (bv == null || bv === '') return -1
+    const avn = Number(av), bvn = Number(bv)
+    if (!isNaN(avn) && !isNaN(bvn)) return sortDir.value === 'asc' ? avn - bvn : bvn - avn
+    const cmp = String(av).localeCompare(String(bv))
+    return sortDir.value === 'asc' ? cmp : -cmp
+  })
+}
+
 function getItemRecords(itemId: number) {
   const records = procurementRecords.value.filter(r => r.rfqItemId === itemId)
   const showShops = showShopsForItem.value[itemId] || false
-  return records.filter(r => !r.isShop || showShops)
+  return sortRecords(records.filter(r => !r.isShop || showShops))
 }
 
 function hasShops(itemId: number): boolean {
@@ -623,7 +685,7 @@ async function loadExistingQuote() {
   try {
     existingQuote.value = await api.get<any>(`/quotes/${editQuoteId.value}`)
     const eq = existingQuote.value
-    if (eq.validUntil) validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0]
+    if (eq.validUntil) validUntil.value = new Date(eq.validUntil).toISOString().split('T')[0] ?? ''
     if (eq.finalPrice != null) finalPriceOverride.value = eq.finalPrice
     if (eq.items && Array.isArray(eq.items)) {
       for (const qi of eq.items) {

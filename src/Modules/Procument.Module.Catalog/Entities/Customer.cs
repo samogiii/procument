@@ -14,4 +14,6 @@ public class Customer : AuditableEntity
     public string? ShippingAccount { get; set; }
     public string? Description { get; set; }
     public int? Base { get; set; }
+    public string? TermsAndConditions { get; set; }
+    public string? CurrencyType { get; set; }
 }

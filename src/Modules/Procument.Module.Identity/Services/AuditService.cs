@@ -78,10 +78,10 @@ public class AuditService : IAuditService
         await LogBusinessAsync(userId, userName, "RFQ", rfqId.ToString(), displayName, "StatusChange", description);
     }
 
-    public async Task LogRFQNoQuoteRejectedAsync(long? userId, string userName, long rfqId, string rfqName, string? reason)
+    public async Task LogRFQNoQuoteRejectedAsync(long? userId, string userName, long rfqId, string rfqName, string? reason, string? rejectionNote = null)
     {
         var displayName = $"RFQ #{rfqId}";
-        var description = $"Rejected For No Quote {displayName}.{(!string.IsNullOrEmpty(reason) ? $" Reason: {reason}" : "")}";
+        var description = $"Rejected For No Quote {displayName}.{(!string.IsNullOrEmpty(reason) ? $" Reason: {reason}" : "")}{(!string.IsNullOrEmpty(rejectionNote) ? $" Note: {rejectionNote}" : "")}";
         await LogBusinessAsync(userId, userName, "RFQ", rfqId.ToString(), displayName, "StatusChange", description);
     }
 

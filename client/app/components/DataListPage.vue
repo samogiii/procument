@@ -130,6 +130,8 @@ const props = withDefaults(defineProps<{
   customFilter?: (items: any[]) => any[]
   /** Unique key for persisting filters in localStorage. If not set, filters are not persisted. */
   pageKey?: string
+  /** Extra query params to append to server-side API calls (e.g. { customer: 'Acme', status: 'Sent' }) */
+  extraParams?: Record<string, string | string[]>
 }>(), {
   serverSide: false,
   itemsPerPage: 50,
@@ -163,9 +165,25 @@ const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)
 
-const filteredStatusOptions = computed(() =>
-  (props.statusOptions || []).filter(s => s !== 'All')
-)
+// Statuses that exist in items AFTER customFilter but BEFORE statusFilter.
+// This makes the status dropdown cascade: pick a customer → only their statuses appear.
+const availableStatuses = computed(() => {
+  const set = new Set<string>()
+  let source = internalItems.value
+  if (props.customFilter) source = props.customFilter(source)
+  source.forEach((item: any) => { if (item.status) set.add(item.status) })
+  return set
+})
+
+const filteredStatusOptions = computed(() => {
+  const declared = (props.statusOptions || []).filter(s => s !== 'All')
+  // While loading (no items yet) show all declared options so the dropdown isn't empty.
+  if (availableStatuses.value.size === 0) return declared
+  // Otherwise narrow to statuses that actually exist given the current non-status filters.
+  return declared.length
+    ? declared.filter(s => availableStatuses.value.has(s))
+    : Array.from(availableStatuses.value).sort()
+})
 
 const filteredClientItems = computed(() => {
   let result = internalItems.value
@@ -204,6 +222,12 @@ async function loadServerItems(options: any) {
     if (statusFilter.value?.length) {
       statusFilter.value.forEach((s: string) => params.append('status', s))
     }
+    if (props.extraParams) {
+      for (const [key, val] of Object.entries(props.extraParams)) {
+        if (Array.isArray(val)) val.forEach((v: string) => { if (v) params.append(key, v) })
+        else if (val) params.append(key, val)
+      }
+    }
 
     const url = `${props.apiUrl}?${params.toString()}`
     const res = await api.get<any>(url)
@@ -217,17 +241,30 @@ async function loadServerItems(options: any) {
   }
 }
 
-// ─── Client-side loading ───
+// ─── Client-side loading (progressive, race-safe) ───
+let _clientLoadId = 0
 async function loadClientItems() {
+  const id = ++_clientLoadId
   loading.value = true
+  internalItems.value = []
+  let page = 1
+  const batchSize = 200
   try {
-    const res = await api.get<any>(props.apiUrl + '?pageSize=9999')
-    // Handle both plain array and paginated { items } responses
-    internalItems.value = Array.isArray(res) ? res : (res.items || res.Items || [])
+    while (true) {
+      const res = await api.get<any>(`${props.apiUrl}?page=${page}&pageSize=${batchSize}`)
+      if (_clientLoadId !== id) return
+      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+      const total: number = (!Array.isArray(res) && res != null)
+        ? (res.totalCount ?? res.TotalCount ?? batch.length)
+        : batch.length
+      internalItems.value = [...internalItems.value, ...batch]
+      if (batch.length < batchSize || internalItems.value.length >= total) break
+      page++
+    }
   } catch (e) {
     console.error(`[DataListPage] Failed to load ${props.apiUrl}`, e)
   } finally {
-    loading.value = false
+    if (_clientLoadId === id) loading.value = false
   }
 }
 
@@ -250,6 +287,9 @@ if (props.serverSide) {
   watch(statusFilter, () => {
     loadServerItems({ ...lastServerOptions.value, page: 1 })
   })
+  watch(() => props.extraParams, () => {
+    loadServerItems({ ...lastServerOptions.value, page: 1 })
+  }, { deep: true })
 }
 
 // ─── Lifecycle ───

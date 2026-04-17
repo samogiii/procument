@@ -3,12 +3,13 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
+using Procument.Shared.DTOs;
 
 namespace Procument.Module.Purchasing.Services;
 
 public interface IPurchaseOrderService
 {
-    Task<List<POResponse>> GetAllAsync();
+    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page);
     Task<POResponse?> GetByIdAsync(long id);
     Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync();
     Task<POResponse> CreateAsync(CreatePORequest request);
@@ -41,6 +42,16 @@ public class PurchaseOrderService : IPurchaseOrderService
             .OrderBy(i => i.Id)
             .ToListAsync();
 
+        // Batch-load all overridden suppliers to avoid N+1
+        var overriddenSupplierIds = items
+            .Where(i => i.SupplierId.HasValue)
+            .Select(i => i.SupplierId!.Value)
+            .Distinct()
+            .ToList();
+        var overriddenSuppliers = overriddenSupplierIds.Count > 0
+            ? await _db.Set<Supplier>().Where(s => overriddenSupplierIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id)
+            : new Dictionary<long, Supplier>();
+
         // Resolve InvoiceId from InvoiceItemId via raw lookup
         var invoiceItemIds = items.Where(i => i.InvoiceItemId.HasValue).Select(i => i.InvoiceItemId!.Value).Distinct().ToList();
         var invoiceItemMap = await ResolveInvoiceFromItemIds(invoiceItemIds);
@@ -52,12 +63,8 @@ public class PurchaseOrderService : IPurchaseOrderService
             var rfq = rfqItem?.RFQ;
             // Resolve supplier: use POItem.SupplierId first, fallback to ProcumentRecord.Supplier
             string? supplierName = null;
-            if (i.SupplierId.HasValue)
-            {
-                // If SupplierId was overridden on the POItem, resolve it
-                var supplier = _db.Set<Supplier>().Find(i.SupplierId.Value);
-                supplierName = supplier?.Name;
-            }
+            if (i.SupplierId.HasValue && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var ovSup))
+                supplierName = ovSup.Name;
             supplierName ??= proc?.Supplier?.Name;
 
             var invoiceInfo = i.InvoiceItemId.HasValue && invoiceItemMap.ContainsKey(i.InvoiceItemId.Value)
@@ -85,9 +92,14 @@ public class PurchaseOrderService : IPurchaseOrderService
         }).ToList();
     }
 
-    public async Task<List<POResponse>> GetAllAsync()
+    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page)
     {
-        var pos = await _db.Set<PurchaseOrder>()
+        var query = _db.Set<PurchaseOrder>().OrderByDescending(po => po.CreatedAt);
+
+        var total = await query.CountAsync();
+        var pos = await query
+            .Skip((page.Page - 1) * page.PageSize)
+            .Take(page.PageSize)
             .Include(po => po.Supplier)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.PartNumber)
@@ -96,13 +108,12 @@ public class PurchaseOrderService : IPurchaseOrderService
                     .ThenInclude(pr => pr!.Supplier)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.TrackNumbers)
-            .OrderByDescending(po => po.CreatedAt)
             .ToListAsync();
 
-        // Resolve invoice numbers for all POs
         var invoiceMap = await ResolveInvoiceNumbers(pos.Where(p => p.InvoiceId.HasValue).Select(p => p.InvoiceId!.Value).Distinct().ToList());
+        var items = pos.Select(po => MapToResponse(po, po.InvoiceId.HasValue && invoiceMap.ContainsKey(po.InvoiceId.Value) ? invoiceMap[po.InvoiceId.Value] : null)).ToList();
 
-        return pos.Select(po => MapToResponse(po, po.InvoiceId.HasValue && invoiceMap.ContainsKey(po.InvoiceId.Value) ? invoiceMap[po.InvoiceId.Value] : null)).ToList();
+        return new PagedResult<POResponse> { Items = items, TotalCount = total, Page = page.Page, PageSize = page.PageSize };
     }
 
     public async Task<POResponse?> GetByIdAsync(long id)

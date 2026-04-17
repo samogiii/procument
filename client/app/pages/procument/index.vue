@@ -85,6 +85,8 @@
           <v-autocomplete
             v-model="customerFilter"
             :items="customerOptions"
+            item-title="title"
+            item-value="value"
             label="Customer"
             hide-details
             multiple
@@ -149,7 +151,7 @@
             </div>
           </template>
           <template #item.status="{ item }">
-            <v-tooltip v-if="['No Quote', 'Waiting For Admin'].includes(item.rfqStatus) && item.noQuoteReason" location="bottom">
+            <v-tooltip v-if="item.rejectionNote || (['No Quote', 'Waiting For Admin'].includes(item.rfqStatus) && item.noQuoteReason)" location="bottom">
               <template #activator="{ props: tp }">
                 <v-chip
                   v-bind="tp"
@@ -161,7 +163,7 @@
                   <v-icon icon="mdi-information-outline" size="14" class="ml-1" />
                 </v-chip>
               </template>
-              <span>{{ item.noQuoteReason }}</span>
+              <span>{{ item.noQuoteReason }}{{ item.rejectionNote ? ` (Admin: ${item.rejectionNote})` : '' }}</span>
             </v-tooltip>
             <v-chip
               v-else
@@ -940,7 +942,20 @@ const userFilter = pf.user
 const customerFilter = pf.customer
 const pnSearch = pf.pnSearch
 const isAdmin = computed(() => authStore.isAdmin)
-const statusOptions = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected']
+
+// Status options: cascade by customer+user (shows only statuses in the filtered set)
+const statusOptions = computed(() => {
+  const set = new Set<string>()
+  let source = allItems.value
+  if (customerFilter.value?.length)
+    source = source.filter((item: any) => customerFilter.value.includes(item.customerName))
+  if (userFilter.value?.length)
+    source = source.filter((item: any) =>
+      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
+    )
+  source.forEach((item: any) => { if (item.rfqStatus) set.add(item.rfqStatus) })
+  return Array.from(set).sort()
+})
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -963,16 +978,15 @@ const partNumberOptions = computed(() => {
   return Array.from(set).sort()
 })
 
+// User options: cascade by status+customer
 const userOptions = computed(() => {
   const map = new Map<number, string>()
-  
-  // Filter items used for options by selected status if any
-  let sourceItems = allItems.value
-  if (statusFilter.value?.length) {
-    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
-  }
-
-  sourceItems.forEach((item: any) => {
+  let source = allItems.value
+  if (statusFilter.value?.length)
+    source = source.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
+  if (customerFilter.value?.length)
+    source = source.filter((item: any) => customerFilter.value.includes(item.customerName))
+  source.forEach((item: any) => {
     ;(item.assignedUsers || []).forEach((u: any) => {
       if (u.id && u.name) map.set(u.id, u.name)
     })
@@ -980,17 +994,23 @@ const userOptions = computed(() => {
   return Array.from(map, ([id, name]) => ({ id, name }))
 })
 
+// Customer options: cascade by status+user
 const customerOptions = computed(() => {
-  const set = new Set<string>()
-  
-  // Filter items used for options by selected status if any
-  let sourceItems = allItems.value
-  if (statusFilter.value?.length) {
-    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
-  }
-
-  sourceItems.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
-  return Array.from(set).sort()
+  const map = new Map<string, string>()
+  let source = allItems.value
+  if (statusFilter.value?.length)
+    source = source.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
+  if (userFilter.value?.length)
+    source = source.filter((item: any) =>
+      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
+    )
+  source.forEach((item: any) => {
+    if (item.customerName && !map.has(item.customerName))
+      map.set(item.customerName, item.customerCode || '')
+  })
+  return Array.from(map.entries())
+    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title))
 })
 
 const filteredItems = computed(() => {
@@ -1004,7 +1024,10 @@ const filteredItems = computed(() => {
     )
   }
   if (customerFilter.value?.length) {
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+    result = result.filter((item: any) =>
+      customerFilter.value.includes(item.customerName) ||
+      (item.customerCode && customerFilter.value.includes(item.customerCode))
+    )
   }
   if (pnSearch.value?.trim()) {
     const q = pnSearch.value.trim().toLowerCase()
@@ -1015,7 +1038,7 @@ const filteredItems = computed(() => {
   }
   if (showPendingOnly.value) {
     result = result.filter((item: any) =>
-      (item.supplierQuotes || []).some((q: any) => q.supplierStatus === 'Pending')
+      (item.supplierQuotes || []).some((q: any) => q.supplierStatus === 'Pending' || q.supplierStatus === 'Rejected')
     )
   }
   return result
@@ -1048,8 +1071,17 @@ onMounted(() => loadData())
 async function loadData() {
   loading.value = true
   try {
-    const data = await api.get<any[]>('/procument-page')
-    allItems.value = (data || []).map((item: any) => ({
+    const accumulated: any[] = []
+    let _page = 1
+    while (true) {
+      const res = await api.get<any>(`/procument-page?page=${_page}&pageSize=200`)
+      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
+      accumulated.push(...batch)
+      if (batch.length < 200 || accumulated.length >= total) break
+      _page++
+    }
+    allItems.value = accumulated.map((item: any) => ({
       ...item,
       altPartNumbers: [
         ...(item.alternatives || []).map((a: any) => a.name),

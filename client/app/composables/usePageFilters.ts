@@ -2,6 +2,10 @@
  * Composable for persisting page filters to localStorage.
  * Each page gets its own storage key based on `pageKey`.
  *
+ * Uses Nuxt's `useState` so that every component sharing the same
+ * pageKey (e.g. a page + its child DataListPage) gets the EXACT SAME
+ * reactive ref — no status-drift, no stale cascading options.
+ *
  * Usage:
  *   const { filters, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
  *     search: '',
@@ -15,10 +19,7 @@ export function usePageFilters<T extends Record<string, any>>(pageKey: string, d
   const STORAGE_PREFIX = 'pf_'
   const storageKey = STORAGE_PREFIX + pageKey
 
-  // Build reactive refs for each filter key
-  const filters = {} as { [K in keyof T]: Ref<T[K]> }
-
-  // Try to load saved state from localStorage
+  // Load saved state from localStorage (client only)
   let saved: Partial<T> = {}
   if (import.meta.client) {
     try {
@@ -27,19 +28,27 @@ export function usePageFilters<T extends Record<string, any>>(pageKey: string, d
     } catch {}
   }
 
-  // Create a ref for each filter, restoring from saved or using default
+  // Build reactive refs using useState so all components sharing the same
+  // pageKey share the IDENTICAL ref objects (singleton per key per app instance).
+  const filters = {} as { [K in keyof T]: Ref<T[K]> }
+
   for (const key of Object.keys(defaults) as (keyof T)[]) {
     const initial = saved[key] !== undefined ? saved[key] : defaults[key]
-    filters[key] = ref(initial) as any
+    // useState key is globally unique per key — if already created (e.g. by parent
+    // component), the factory is ignored and the existing ref is returned.
+    filters[key] = useState<T[typeof key]>(
+      `${storageKey}__${String(key)}`,
+      () => initial as any
+    ) as any
   }
 
-  // Persist to localStorage whenever any filter changes
+  // Persist to localStorage whenever any filter in THIS call's defaults changes.
+  // Reads existing storage first so keys owned by other calls aren't wiped.
   function persist() {
     if (!import.meta.client) return
     try {
       const raw = localStorage.getItem(storageKey)
-      const data = raw ? JSON.parse(raw) : {}
-      
+      const data: Record<string, any> = raw ? JSON.parse(raw) : {}
       for (const key of Object.keys(defaults)) {
         data[key] = unref(filters[key as keyof T])
       }
@@ -47,22 +56,20 @@ export function usePageFilters<T extends Record<string, any>>(pageKey: string, d
     } catch {}
   }
 
-  // Watch all filter refs
   for (const key of Object.keys(defaults) as (keyof T)[]) {
     watch(filters[key], persist, { deep: true })
   }
 
-  // Clear all filters back to defaults
+  // Clear only the keys declared in THIS call's defaults back to their default values.
   function clearFilters() {
     for (const key of Object.keys(defaults) as (keyof T)[]) {
       (filters[key] as Ref<any>).value = Array.isArray(defaults[key])
-        ? [...defaults[key]]
+        ? [...(defaults[key] as any[])]
         : defaults[key]
     }
-    // persist() will be triggered by watchers above
   }
 
-  // Computed: whether any filter differs from its default
+  // Computed: whether any filter in THIS call's defaults differs from its default
   const hasActiveFilters = computed(() => {
     for (const key of Object.keys(defaults) as (keyof T)[]) {
       const val = unref(filters[key])

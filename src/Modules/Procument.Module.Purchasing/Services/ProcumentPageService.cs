@@ -5,13 +5,14 @@ using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
+using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
 
 namespace Procument.Module.Purchasing.Services;
 
 public interface IProcumentPageService
 {
-    Task<List<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin);
+    Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin, PageQuery page);
     Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId);
 }
 
@@ -26,15 +27,16 @@ public class ProcumentPageService : IProcumentPageService
         _permissionService = permissionService;
     }
 
-    public async Task<List<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin)
+    public async Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin, PageQuery page)
     {
-        // 1. Build base query for RFQ headers with items
-        IQueryable<RFQHeader> rfqQuery = _db.Set<RFQHeader>()
-            .Include(r => r.Customer)
-            .Include(r => r.User)
-            .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber)
-                    .ThenInclude(pn => pn.Alternatives);
+        // 1. Build base RFQ item query
+        IQueryable<RFQItem> itemQuery = _db.Set<RFQItem>()
+            .Include(i => i.PartNumber)
+                .ThenInclude(pn => pn.Alternatives)
+            .Include(i => i.RFQ)
+                .ThenInclude(r => r.Customer)
+            .Include(i => i.RFQ)
+                .ThenInclude(r => r.User);
 
         // 2. Permission filter for non-admins
         if (!isAdmin)
@@ -45,28 +47,34 @@ public class ProcumentPageService : IProcumentPageService
                 .ToListAsync();
 
             var permittedRfqIds = permittedRfqIdsStr
-                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .Select(id => long.TryParse(id, out var l) ? l : -1L)
+                .Where(l => l > 0)
                 .ToList();
 
-            rfqQuery = rfqQuery.Where(r => r.UserId == userId || permittedRfqIds.Contains(r.Id));
+            itemQuery = itemQuery.Where(i => i.RFQ.UserId == userId || permittedRfqIds.Contains(i.RFQId));
         }
 
-        var rfqs = await rfqQuery
-            .OrderByDescending(r => r.Id)
+        // 3. Search filter
+        if (!string.IsNullOrWhiteSpace(page.Search))
+        {
+            var s = page.Search.Trim();
+            itemQuery = itemQuery.Where(i =>
+                i.PartNumber.Name.Contains(s) ||
+                i.RFQ.Name.Contains(s) ||
+                i.RFQ.Customer.Name.Contains(s));
+        }
+
+        // 4. Count + paginate
+        var total = await itemQuery.CountAsync();
+        var pageItems = await itemQuery
+            .OrderByDescending(i => i.RFQId)
+            .ThenBy(i => i.Id)
+            .Skip((page.Page - 1) * page.PageSize)
+            .Take(page.PageSize)
             .ToListAsync();
 
-        // 3. Collect all RFQ IDs and load permissions + supplier quotes in batch
-        var rfqIds = rfqs.Select(r => r.Id).ToList();
-        var rfqIdStrings = rfqIds.Select(id => id.ToString()).ToList();
-
-        // Batch-load permissions for assigned users
-        var allPermissions = await _db.Set<EntityPermission>()
-            .Include(p => p.User)
-            .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
-            .ToListAsync();
-
-        // Batch-load all supplier quotes (ProcumentRecords) for these RFQs, excluding shop records at top level
-        var allRfqItemIds = rfqs.SelectMany(r => r.RFQItems.Select(i => i.Id)).ToList();
+        // 5. Batch-load supplier quotes for this page's items only
+        var allRfqItemIds = pageItems.Select(i => i.Id).ToList();
         var allSupplierQuotes = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
             .Include(r => r.ShopRecords)
@@ -74,11 +82,20 @@ public class ProcumentPageService : IProcumentPageService
             .Where(r => allRfqItemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
             .ToListAsync();
 
-        // 4. Build flat response
+        // 6. Batch-load permissions for this page's unique RFQ IDs
+        var rfqIds = pageItems.Select(i => i.RFQId).Distinct().ToList();
+        var rfqIdStrings = rfqIds.Select(id => id.ToString()).ToList();
+        var allPermissions = await _db.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
+            .ToListAsync();
+
+        // 7. Build flat response
         var result = new List<ProcumentPageItemResponse>();
 
-        foreach (var rfq in rfqs)
+        foreach (var item in pageItems)
         {
+            var rfq = item.RFQ;
             // Build assigned users from permissions
             var perms = allPermissions.Where(p => p.EntityId == rfq.Id.ToString()).ToList();
             var assignedUsers = perms
@@ -87,9 +104,7 @@ public class ProcumentPageService : IProcumentPageService
                 .Select(g => g.First())
                 .ToList();
 
-            foreach (var item in rfq.RFQItems)
-            {
-                var quotes = allSupplierQuotes
+            var quotes = allSupplierQuotes
                     .Where(q => q.RFQItemId == item.Id)
                     .Select(q => new SupplierQuoteResponse
                     {
@@ -181,10 +196,15 @@ public class ProcumentPageService : IProcumentPageService
                         .Select(a => new ProcumentPageAltResponse { Id = a.Id, Name = a.Name })
                         .ToList(),
                 });
-            }
         }
 
-        return result;
+        return new PagedResult<ProcumentPageItemResponse>
+        {
+            Items = result,
+            TotalCount = total,
+            Page = page.Page,
+            PageSize = page.PageSize
+        };
     }
 
     public async Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId)

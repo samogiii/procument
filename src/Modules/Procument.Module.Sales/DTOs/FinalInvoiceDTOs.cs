@@ -28,6 +28,8 @@ public class FinalInvoiceResponse
     public string? CustomerShipToEmail { get; set; }
     public string? CustomerShipToPhone { get; set; }
     public string? CustomerShipToAccount { get; set; }
+    public string? CustomerTermsAndConditions { get; set; }
+    public string? CustomerCurrencyType { get; set; }
     public List<FinalInvoiceItemResponse> Items { get; set; } = new();
 }
 
@@ -75,4 +77,25 @@ public class EligibleProformaResponse
     public string CustomerName { get; set; } = "";
     public string? CustomerCode { get; set; }
     public decimal TotalAmount { get; set; }
+}
+
+/// <summary>
+/// Lightweight row used by the Final Invoices list page. Skips line items and the
+/// deep RFQ-traversal that the detail DTO needs — list queries stay a single flat SELECT.
+/// </summary>
+public class FinalInvoiceListItem
+{
+    public long Id { get; set; }
+    public string InvoiceNumber { get; set; } = "";
+    public decimal TotalAmount { get; set; }
+    public string Status { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? DueDate { get; set; }
+    public DateTime? PaidDate { get; set; }
+    public long ProformaInvoiceId { get; set; }
+    public string ProformaInvoiceNumber { get; set; } = "";
+    public long CustomerId { get; set; }
+    public string CustomerName { get; set; } = "";
+    public string? CustomerCode { get; set; }
+    public int ItemCount { get; set; }
 }

@@ -7,6 +7,7 @@ using Procument.Module.Purchasing.Services;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
+using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
 using Procument.Shared.Services;
 using Procument.Module.RFQ.Entities;
@@ -29,11 +30,13 @@ public class PurchaseOrdersController : ControllerBase
         _lockGuard = lockGuard;
     }
 
-    /// <summary>Get all purchase orders.</summary>
+    /// <summary>Get all purchase orders (paginated).</summary>
     [HttpGet]
-    public async Task<ActionResult<List<POResponse>>> GetAll()
+    public async Task<ActionResult<PagedResult<POResponse>>> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200)
     {
-        var result = await _poService.GetAllAsync();
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        var result = await _poService.GetAllAsync(pq);
         return Ok(result);
     }
 

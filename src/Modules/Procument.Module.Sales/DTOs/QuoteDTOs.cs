@@ -54,6 +54,8 @@ public class QuoteResponse
     public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
+    public string? CustomerTermsAndConditions { get; set; }
+    public string? CustomerCurrencyType { get; set; }
     public string? UserName { get; set; }
     public List<QuoteAssignedUserResponse> AssignedUsers { get; set; } = new();
     public string? RejectionNote { get; set; }

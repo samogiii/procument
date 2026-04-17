@@ -7,6 +7,7 @@ using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
+using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
 
 namespace Procument.Module.RFQ.Services;
@@ -15,11 +16,11 @@ public interface IRFQService
 {
     Task<RFQResponse> CreateAsync(CreateRFQRequest request);
     Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
-    Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin);
+    Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isAdmin, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string? customerSearch = null);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
-    Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null);
+    Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null, string? rejectionNote = null);
     Task<bool> UpdateNotesAsync(long rfqId, string? notes);
     Task<bool> UpdateNameAsync(long rfqId, string name);
     Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime);
@@ -179,96 +180,136 @@ public class RFQService : IRFQService
         return response;
     }
 
-    public async Task<List<RFQResponse>> GetAllAsync(long userId, bool isAdmin)
+    public async Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isAdmin, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string? customerSearch = null)
     {
-        IQueryable<RFQHeader> query = _db.Set<RFQHeader>()
-            .Include(r => r.Customer)
-            .Include(r => r.User)
-            .Include(r => r.RFQItems)
-                .ThenInclude(i => i.PartNumber)
-                    .ThenInclude(pn => pn.Alternatives).OrderBy(x=> x.Id);
+        IQueryable<RFQHeader> query = _db.Set<RFQHeader>();
 
+        // ── 1. Permission filter ──
         if (!isAdmin)
         {
-            // Filter: Owner OR HasPermission
-            // Note: EF Core translation for Any with local variables might differ based on version, but 10.0 should be fine.
-            // Using a subquery approach for permissions join might be more efficient but this is cleaner.
-            // Since EntityId is string, we need to convert r.Id to string or use client eval? 
-            // EF Core might not translate `r.Id.ToString()`. 
-            // Better to perform a join or separate query for IDs.
-
-            // Let's get list of RFQ IDs user has permission to first.
-            var permittedRfqIdsStr = await _db.Set<EntityPermission>()
+            var permittedIdsStr = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "RFQ")
                 .Select(p => p.EntityId)
                 .ToListAsync();
 
-            var permittedRfqIds = permittedRfqIdsStr
-                .Select(id => long.TryParse(id, out var l) ? l : -1)
+            var permittedIds = permittedIdsStr
+                .Select(id => long.TryParse(id, out var l) ? l : -1L)
+                .Where(l => l > 0)
                 .ToList();
 
-            query = query.Where(r => r.UserId == userId || permittedRfqIds.Contains(r.Id));
+            query = query.Where(r => r.UserId == userId || permittedIds.Contains(r.Id));
         }
 
-        var rfqs = await query
-            .OrderByDescending(r => r.Id)
+        // ── 2. Client-requested filters ──
+        if (!string.IsNullOrWhiteSpace(page.Search))
+        {
+            var s = page.Search.Trim();
+            query = query.Where(r => r.Name.Contains(s) || r.Customer.Name.Contains(s));
+        }
+
+        if (!string.IsNullOrWhiteSpace(pnSearch))
+        {
+            var pn = pnSearch.Trim();
+            query = query.Where(r => r.RFQItems.Any(i => i.PartNumber.Name.Contains(pn)));
+        }
+
+        if (statuses != null && statuses.Length > 0)
+            query = query.Where(r => statuses.Contains(r.Status));
+
+        if (userIds != null && userIds.Length > 0)
+        {
+            var userIdList = userIds.ToList();
+            query = query.Where(r => r.UserId != null && userIdList.Contains(r.UserId.Value));
+        }
+
+        if (!string.IsNullOrWhiteSpace(customerSearch))
+        {
+            var cs = customerSearch.Trim();
+            query = query.Where(r => r.Customer.Name.Contains(cs) || (r.Customer.CustomerCode != null && r.Customer.CustomerCode.Contains(cs)));
+        }
+
+        // ── 3. Sort + paginate (flat projection — no Alternatives loaded) ──
+        query = query.OrderByDescending(r => r.Id);
+
+        var total = await query.CountAsync();
+        var rows = await query
+            .Skip((page.Page - 1) * page.PageSize)
+            .Take(page.PageSize)
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                r.Status,
+                r.LeadTime,
+                r.ReceivedDate,
+                r.CreatedAt,
+                r.NoQuoteReason,
+                r.RejectionNote,
+                r.ExType,
+                r.UserId,
+                UserName = r.User != null ? r.User.Name : null,
+                CustomerName = r.Customer != null ? r.Customer.Name : "",
+                CustomerCode = r.Customer != null ? r.Customer.CustomerCode : null,
+                CustomerId = r.CustomerId,
+                ItemCount = r.RFQItems.Count()
+            })
             .ToListAsync();
 
-        var responses = rfqs.Select(MapToResponse).ToList();
+        // ── 4. Batch-load permissions and unread status for this page only ──
+        var rfqIds = rows.Select(r => r.Id).ToList();
+        var rfqIdStrings = rfqIds.Select(id => id.ToString()).ToList();
 
-        // Batch-load unread status for current user
-        var rfqIdsLong = rfqs.Select(r => r.Id).ToList();
-        var unreadRecords = await _db.Set<RFQUserRead>()
-            .Where(r => r.UserId == userId && rfqIdsLong.Contains(r.RFQId) && !r.IsRead)
+        var permissions = await _db.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
+            .ToListAsync();
+
+        var unreadIds = await _db.Set<RFQUserRead>()
+            .Where(r => r.UserId == userId && rfqIds.Contains(r.RFQId) && !r.IsRead)
             .Select(r => r.RFQId)
             .ToListAsync();
+        var unreadSet = new HashSet<long>(unreadIds);
 
-        foreach (var resp in responses)
+        // ── 5. Build response ──
+        var items = rows.Select(r =>
         {
-            resp.IsUnread = unreadRecords.Contains(resp.Id);
-        }
+            var perms = permissions.Where(p => p.EntityId == r.Id.ToString()).ToList();
+            return new RFQListItem
+            {
+                Id = r.Id,
+                Name = r.Name,
+                Status = r.Status,
+                LeadTime = r.LeadTime,
+                ReceivedDate = r.ReceivedDate,
+                CreatedAt = r.CreatedAt,
+                NoQuoteReason = r.NoQuoteReason,
+                RejectionNote = r.RejectionNote,
+                ExType = r.ExType,
+                UserId = r.UserId ?? 0,
+                UserName = r.UserName,
+                CustomerName = r.CustomerName,
+                CustomerCode = r.CustomerCode,
+                CustomerId = r.CustomerId,
+                ItemCount = r.ItemCount,
+                IsUnread = unreadSet.Contains(r.Id),
+                Views = perms
+                    .Where(p => p.Permission == "View")
+                    .Select(p => new RFQListUserRef { Id = p.User.Id, Name = p.User.Name })
+                    .ToList(),
+                Edits = perms
+                    .Where(p => p.Permission == "Edit")
+                    .Select(p => new RFQListUserRef { Id = p.User.Id, Name = p.User.Name })
+                    .ToList()
+            };
+        }).ToList();
 
-        // Batch-load permissions for all RFQs
-        var rfqIds = rfqs.Select(r => r.Id.ToString()).ToList();
-        var allPermissions = await _db.Set<EntityPermission>()
-            .Include(p => p.User)
-            .Where(p => p.EntityName == "RFQ" && rfqIds.Contains(p.EntityId))
-            .ToListAsync();
-
-        foreach (var resp in responses)
+        return new PagedResult<RFQListItem>
         {
-            var perms = allPermissions.Where(p => p.EntityId == resp.Id.ToString()).ToList();
-
-            resp.Views = perms
-                .Where(p => p.Permission == "View")
-                .Select(p => new UserResponse
-                {
-                    Id = p.User.Id,
-                    Name = p.User.Name,
-                    Email = p.User.Email,
-                    Role = p.User.Role,
-                    IsActive = p.User.IsActive,
-                    CreatedAt = p.User.CreatedAt,
-                    AssignedAt = p.CreatedAt
-                })
-                .ToList();
-
-            resp.Edits = perms
-                .Where(p => p.Permission == "Edit")
-                .Select(p => new UserResponse
-                {
-                    Id = p.User.Id,
-                    Name = p.User.Name,
-                    Email = p.User.Email,
-                    Role = p.User.Role,
-                    IsActive = p.User.IsActive,
-                    CreatedAt = p.User.CreatedAt,
-                    AssignedAt = p.CreatedAt
-                })
-                .ToList();
-        }
-
-        return responses;
+            Items = items,
+            TotalCount = total,
+            Page = page.Page,
+            PageSize = page.PageSize
+        };
     }
 
     // ──── Update Item ────
@@ -406,7 +447,7 @@ public class RFQService : IRFQService
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null)
+    public async Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null, string? rejectionNote = null)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
         if (rfq == null) return false;
@@ -422,6 +463,13 @@ public class RFQService : IRFQService
         {
             rfq.NoQuoteReason = null;
         }
+
+        // Handle rejection note when reverting from No Quote
+        if (rejectionNote != null)
+        {
+            rfq.RejectionNote = rejectionNote;
+        }
+        // Don't clear rejectionNote when reverting to In Progress - keep it for user reference
 
         await _db.SaveChangesAsync();
         return true;
@@ -467,11 +515,13 @@ public class RFQService : IRFQService
         CustomerName = rfq.Customer.Name,
         CustomerCode = rfq.Customer.CustomerCode,
         CustomerBase = rfq.Customer.Base,
+        CustomerCurrencyType = rfq.Customer.CurrencyType,
         CustomerId = rfq.CustomerId,
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,
         Notes = rfq.Notes,
         NoQuoteReason = rfq.NoQuoteReason,
+        RejectionNote = rfq.RejectionNote,
         ExType = rfq.ExType,
         Items = rfq.RFQItems.Select(i => new RFQItemResponse
         {

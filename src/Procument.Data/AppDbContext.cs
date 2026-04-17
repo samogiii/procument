@@ -58,13 +58,19 @@ public class AppDbContext : DbContext
   {
     base.OnModelCreating(modelBuilder);
 
-    // ───────────────────────────────────────────
-    // Identity Module
-    // ───────────────────────────────────────────
-    modelBuilder.Entity<User>(entity =>
+
+
+
+        modelBuilder.Entity<PartNumber>()
+        .ToTable(tb => tb.HasTrigger("trg_PopulateNewName"));
+        // ───────────────────────────────────────────
+        // Identity Module
+        // ───────────────────────────────────────────
+        modelBuilder.Entity<User>(entity =>
     {
       entity.ToTable("Users");
       entity.HasKey(e => e.Id);
+      
       entity.Property(e => e.Name).HasMaxLength(200);
       entity.Property(e => e.Email).HasMaxLength(200);
       entity.Property(e => e.Password).HasMaxLength(500);
@@ -86,6 +92,8 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
       entity.HasIndex(e => new { e.EntityName, e.EntityId, e.UserId });
+      // Composite index used by permission-filtered list queries (e.g. RFQService.GetAllAsync)
+      entity.HasIndex(e => new { e.UserId, e.EntityName });
     });
 
     // ───────────────────────────────────────────
@@ -119,6 +127,9 @@ public class AppDbContext : DbContext
       entity.Property(e => e.ShipTo).HasMaxLength(500);
       entity.Property(e => e.BillTo).HasMaxLength(500);
       entity.Property(e => e.Base).IsRequired(false);
+
+      // Speeds up catalog search-by-name
+      entity.HasIndex(e => e.Name);
     });
 
     modelBuilder.Entity<Supplier>(entity =>
@@ -129,12 +140,19 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Email).HasMaxLength(200);
       entity.Property(e => e.Phone).HasMaxLength(50);
       entity.Property(e => e.Address).HasMaxLength(500);
+
+      // Speeds up search-by-name, username lookups, and the "Approved" filter used by
+      // supplier dropdowns and the ResolveSupplierAsync lookup in SupplierQuoteService.
+      entity.HasIndex(e => e.Name);
+      entity.HasIndex(e => e.Username);
+      entity.HasIndex(e => e.Status);
     });
 
     modelBuilder.Entity<PartNumber>(entity =>
     {
       entity.ToTable("PartNumbers");
       entity.HasKey(e => e.Id);
+      entity.Property(e => e.NewName).HasMaxLength(200);
       entity.Property(e => e.Name).HasMaxLength(200);
       entity.Property(e => e.Description).HasMaxLength(1000);
 
@@ -144,6 +162,8 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.SupplierId);
+      // Speeds up part-number search-by-name (used everywhere in the app)
+      entity.HasIndex(e => e.Name);
     });
 
     modelBuilder.Entity<PartNumberSupplier>(entity =>
@@ -200,6 +220,8 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.CustomerId);
       entity.HasIndex(e => e.UserId);
       entity.HasIndex(e => e.CreatedAt);
+      // Composite for the RFQ list filtered by owner + status
+      entity.HasIndex(e => new { e.UserId, e.Status });
     });
 
     modelBuilder.Entity<RFQItem>(entity =>
@@ -286,6 +308,8 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.QuoteId);
+      // Speeds up alternate-part-number searches across quote items
+      entity.HasIndex(e => e.Alt);
     });
 
     modelBuilder.Entity<Invoice>(entity =>

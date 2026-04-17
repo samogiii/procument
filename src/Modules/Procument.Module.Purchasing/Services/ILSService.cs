@@ -164,45 +164,80 @@ public class ILSService : IILSService
     public async Task<BulkImportResult> BulkImportAsync(BulkImportILSRequest request)
     {
         var result = new BulkImportResult();
-        var allPartNumbers = await _db.Set<PartNumber>().ToListAsync();
-        var toAdd = new List<ILSItem>();
+        if (request.Rows == null || !request.Rows.Any()) return result;
 
-        foreach (var row in request.Rows)
+        _db.ChangeTracker.AutoDetectChangesEnabled = false;
+
+        try
         {
-            var pn = allPartNumbers.FirstOrDefault(p =>
-                p.Name.Equals(row.PartNumberName.Trim(), StringComparison.OrdinalIgnoreCase));
+            var requestedPnNames = request.Rows
+                .Select(r => r.PartNumberName?.Trim())
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            if (pn == null)
+            var existingPns = await _db.Set<PartNumber>()
+                .Where(p => requestedPnNames.Contains(p.Name))
+                .ToDictionaryAsync(p => p.Name.ToLower(), p => p);
+
+            var newPns = new Dictionary<string, PartNumber>();
+
+            int batchSize = 1000;
+            int counter = 0;
+
+            foreach (var row in request.Rows)
             {
-                result.Skipped++;
-                result.Errors.Add($"PartNumber '{row.PartNumberName}' not found");
-                continue;
+                var pnName = row.PartNumberName?.Trim();
+                if (string.IsNullOrWhiteSpace(pnName))
+                {
+                    result.Skipped++;
+                    continue;
+                }
+
+                var pnLower = pnName.ToLower();
+
+                if (!existingPns.TryGetValue(pnLower, out var pn) && !newPns.TryGetValue(pnLower, out pn))
+                {
+                    pn = new PartNumber
+                    {
+                        Name = pnName,
+                        Description = row.Description,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    newPns[pnLower] = pn;
+                    _db.Set<PartNumber>().Add(pn);
+                }
+
+                DateOnly? tagDate = null;
+                if (!string.IsNullOrWhiteSpace(row.TagDate) && DateOnly.TryParse(row.TagDate, out var d))
+                    tagDate = d;
+
+                _db.Set<ILSItem>().Add(new ILSItem
+                {
+                    PartNumber = pn,
+                    Description = row.Description,
+                    AltPartNumber = row.AltPartNumber,
+                    Price = row.Price,
+                    Qty = row.Qty,
+                    Condition = row.Condition,
+                    TagDate = tagDate,
+                    CertName = row.CertName,
+                    LeadTime = row.LeadTime,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                result.Created++;
+                counter++;
+
+                if (counter % batchSize == 0)
+                    await _db.SaveChangesAsync();
             }
 
-            DateOnly? tagDate = null;
-            if (!string.IsNullOrWhiteSpace(row.TagDate) && DateOnly.TryParse(row.TagDate, out var d))
-                tagDate = d;
-
-            toAdd.Add(new ILSItem
-            {
-                PartNumberId = pn.Id,
-                Description = row.Description,
-                AltPartNumber = row.AltPartNumber,
-                Price = row.Price,
-                Qty = row.Qty,
-                Condition = row.Condition,
-                TagDate = tagDate,
-                CertName = row.CertName,
-                LeadTime = row.LeadTime,
-                CreatedAt = DateTime.UtcNow
-            });
-            result.Created++;
-        }
-
-        if (toAdd.Any())
-        {
-            _db.Set<ILSItem>().AddRange(toAdd);
             await _db.SaveChangesAsync();
+        }
+        finally
+        {
+            _db.ChangeTracker.AutoDetectChangesEnabled = true;
         }
 
         return result;

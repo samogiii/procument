@@ -21,6 +21,7 @@ public class CapListItemResponse
     public long CompanyId { get; set; }
     public string CompanyName { get; set; } = "";
     public bool IsRepair { get; set; }
+    public string? Condition { get; set; }
     public long? ProcumentRecordId { get; set; }
     public DateTime CreatedAt { get; set; }
 }

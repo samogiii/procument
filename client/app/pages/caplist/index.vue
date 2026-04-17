@@ -100,9 +100,14 @@
             <v-chip v-else size="small" color="info" variant="tonal">Supply</v-chip>
           </template>
           <template #item.procumentRecordId="{ item }">
-            <v-chip v-if="item.procumentRecordId" size="x-small" color="warning" variant="tonal" prepend-icon="mdi-link">
-              Shop #{{ item.procumentRecordId }}
-            </v-chip>
+            <div v-if="item.procumentRecordId" class="d-flex align-center gap-1">
+              <v-chip size="x-small" color="warning" variant="tonal" prepend-icon="mdi-link">
+                #{{ item.procumentRecordId }}
+              </v-chip>
+              <v-chip v-if="item.condition" size="x-small" color="primary" variant="flat">
+                {{ item.condition }}
+              </v-chip>
+            </div>
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click.stop="openEditDialog(item)" />
@@ -318,7 +323,7 @@
                   <div class="flex-grow-1">
                     <div class="d-flex align-center gap-2 flex-wrap mb-1">
                       <span class="font-weight-bold text-body-2" style="font-family: monospace;">{{ shop.partNumberName }}</span>
-                      <v-chip size="x-small" color="warning" variant="tonal">AR</v-chip>
+                      <v-chip size="x-small" color="warning" variant="tonal">{{ shop.condition || 'AR' }}</v-chip>
                       <span class="text-caption text-medium-emphasis">{{ shop.rfqName }}</span>
                     </div>
                     <div class="d-flex flex-wrap gap-3 text-caption">
@@ -470,17 +475,22 @@
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-4">
-          <v-tabs v-model="supplierTab" class="mb-3">
-            <v-tab value="all">
-              All Items ({{ supplierItems.length }})
-            </v-tab>
-            <v-tab value="repair">
-              Repair ({{ supplierRepairItems.length }})
-            </v-tab>
-            <v-tab value="supply">
-              Supply ({{ supplierSupplyItems.length }})
-            </v-tab>
-          </v-tabs>
+          <div class="d-flex align-center gap-4 mb-3">
+            <v-tabs v-model="supplierTab" hide-slider density="compact" class="flex-grow-1">
+              <v-tab value="all" class="text-none">All ({{ supplierItems.length }})</v-tab>
+              <v-tab value="repair" class="text-none">Repair ({{ supplierRepairItems.length }})</v-tab>
+              <v-tab value="supply" class="text-none">Supply ({{ supplierSupplyItems.length }})</v-tab>
+            </v-tabs>
+            <v-btn
+              :color="hideSupplierDuplicates ? 'primary' : 'grey'"
+              :variant="hideSupplierDuplicates ? 'flat' : 'tonal'"
+              size="small"
+              prepend-icon="mdi-filter-variant-remove"
+              @click="hideSupplierDuplicates = !hideSupplierDuplicates"
+            >
+              Hide Duplicates
+            </v-btn>
+          </div>
 
           <v-data-table
             :headers="supplierHeaders"
@@ -503,9 +513,14 @@
               <v-chip v-else size="x-small" color="info" variant="tonal">Supply</v-chip>
             </template>
             <template #item.procumentRecordId="{ item }">
-              <v-chip v-if="item.procumentRecordId" size="x-small" color="warning" variant="tonal" prepend-icon="mdi-link">
-                Shop #{{ item.procumentRecordId }}
-              </v-chip>
+              <div v-if="item.procumentRecordId" class="d-flex align-center gap-1">
+                <v-chip size="x-small" color="warning" variant="tonal" prepend-icon="mdi-link">
+                  #{{ item.procumentRecordId }}
+                </v-chip>
+                <v-chip v-if="item.condition" size="x-small" color="primary" variant="flat">
+                  {{ item.condition }}
+                </v-chip>
+              </div>
             </template>
           </v-data-table>
         </v-card-text>
@@ -565,6 +580,7 @@ const activeTab = ref('all')
 const showSupplierDialog = ref(false)
 const selectedSupplier = ref<any>(null)
 const supplierTab = ref('all')
+const hideSupplierDuplicates = ref(false)
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -626,9 +642,20 @@ const supplierRepairItems = computed(() => supplierItems.value.filter(i => i.isR
 const supplierSupplyItems = computed(() => supplierItems.value.filter(i => !i.isRepair))
 
 const filteredSupplierItems = computed(() => {
-  if (supplierTab.value === 'repair') return supplierRepairItems.value
-  if (supplierTab.value === 'supply') return supplierSupplyItems.value
-  return supplierItems.value
+  let baseItems = supplierItems.value
+  if (supplierTab.value === 'repair') baseItems = supplierRepairItems.value
+  if (supplierTab.value === 'supply') baseItems = supplierSupplyItems.value
+
+  if (hideSupplierDuplicates.value) {
+    const seen = new Set<string>()
+    return baseItems.filter(i => {
+      const pn = (i.partNumberName || '').trim().toUpperCase()
+      if (seen.has(pn)) return false
+      seen.add(pn)
+      return true
+    })
+  }
+  return baseItems
 })
 
 const supplierHeaders = [

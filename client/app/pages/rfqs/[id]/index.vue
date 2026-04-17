@@ -6,14 +6,14 @@
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold d-flex align-center gap-2">
           RFQ #{{ route.params.id }}
-          <v-tooltip v-if="['No Quote', 'Waiting For Admin'].includes(rfq.status) && rfq.noQuoteReason" location="bottom">
+          <v-tooltip v-if="rfq.rejectionNote || (['No Quote', 'Waiting For Admin'].includes(rfq.status) && rfq.noQuoteReason)" location="bottom">
             <template #activator="{ props: tp }">
               <v-chip v-bind="tp" :color="statusColor" size="small" class="ml-1">
                 {{ rfq.status || 'Open' }}
                 <v-icon icon="mdi-information-outline" size="14" class="ml-1" />
               </v-chip>
             </template>
-            <span>{{ rfq.noQuoteReason }}</span>
+            <span class="text-red">{{ rfq.noQuoteReason }}{{ rfq.rejectionNote ? ` (Admin: ${rfq.rejectionNote})` : '' }}</span>
           </v-tooltip>
           <v-chip v-else :color="statusColor" size="small" class="ml-1">{{ rfq.status || 'Open' }}</v-chip>
         </h1>
@@ -286,12 +286,25 @@
           <v-chip v-if="rfq.status === 'Waiting For Admin'" color="orange" variant="tonal" size="small" prepend-icon="mdi-clock-outline">
             Waiting For Admin
           </v-chip>
-          <v-tooltip v-if="(rfq.status === 'No Quote' || rfq.status === 'Waiting For Admin') && rfq.noQuoteReason" location="bottom">
+          <v-tooltip v-if="rfq.rejectionNote || ((rfq.status === 'No Quote' || rfq.status === 'Waiting For Admin') && rfq.noQuoteReason)" location="bottom">
             <template #activator="{ props: tp }">
               <v-icon v-bind="tp" icon="mdi-information-outline" color="deep-purple" size="18" class="ml-1 cursor-pointer" />
             </template>
-            <span>{{ rfq.noQuoteReason }}</span>
+            <span class="text-red">{{ rfq.noQuoteReason }}{{ rfq.rejectionNote ? ` (Admin: ${rfq.rejectionNote})` : '' }}</span>
           </v-tooltip>
+
+          <!-- Admin: Revert No Quote to In Progress -->
+          <v-btn
+            v-if="isAdmin && rfq.status === 'No Quote'"
+            size="small"
+            variant="flat"
+            color="info"
+            prepend-icon="mdi-undo"
+            :loading="revertNoQuoteLoading"
+            @click="revertNoQuote"
+          >
+            Revert to In Progress
+          </v-btn>
 
           <!-- Admin Accept/Reject No Quote -->
           <template v-if="isAdmin && rfq.status === 'Waiting For Admin'">
@@ -364,14 +377,27 @@
 
       <!-- No Quote Reason Banner -->
       <v-alert
-        v-if="rfq.status === 'No Quote' && rfq.noQuoteReason"
+        v-if="rfq.status === 'No Quote' && (rfq.noQuoteReason || rfq.rejectionNote)"
         type="warning"
         variant="tonal"
         density="compact"
         class="mb-3"
         prepend-icon="mdi-cancel"
       >
-        <strong>No Quote Reason:</strong> {{ rfq.noQuoteReason }}
+        <div v-if="rfq.noQuoteReason"><strong>No Quote Reason:</strong> {{ rfq.noQuoteReason }}</div>
+        <div v-if="rfq.rejectionNote" class="mt-2"><strong>Admin Note:</strong> {{ rfq.rejectionNote }}</div>
+      </v-alert>
+
+      <!-- Rejection Note Banner (shown when status is not No Quote but rejectionNote exists) -->
+      <v-alert
+        v-if="rfq.status !== 'No Quote' && rfq.rejectionNote"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mb-3"
+        prepend-icon="mdi-information"
+      >
+        <strong>Previous Rejection Note:</strong> {{ rfq.rejectionNote }}
       </v-alert>
 
       <!-- Rejected Supplier Banner (user-facing) -->
@@ -1269,6 +1295,34 @@
       </v-card>
     </v-dialog>
 
+    <!-- Reject No Quote Dialog -->
+    <v-dialog v-model="showRejectNoQuoteDialog" max-width="500" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-close-circle" color="error" class="mr-2" />
+          Reject No Quote Request?
+        </v-card-title>
+        <v-card-text>
+          <p class="mb-3">This will reject the No Quote request and revert the RFQ status to <strong>In Progress</strong>. You can optionally add a message to explain why.</p>
+          <v-textarea
+            v-model="rejectionNote"
+            label="Message to User (Optional)"
+            placeholder="Why are you rejecting this No Quote request?"
+            variant="outlined"
+            density="compact"
+            rows="3"
+            hide-details
+            auto-grow
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showRejectNoQuoteDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="rejectNoQuoteLoading" @click="doRejectNoQuote">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Delete Item Confirmation -->
     <v-dialog v-model="showDeleteItemConfirm" max-width="400">
       <v-card class="glass-card">
@@ -1902,10 +1956,13 @@ async function removeQuote(itemId: number, qIdx: number) {
 
 // ──── No Quote ────
 const showNoQuoteConfirm = ref(false)
+const showRejectNoQuoteDialog = ref(false)
 const noQuoteLoading = ref(false)
 const acceptNoQuoteLoading = ref(false)
 const rejectNoQuoteLoading = ref(false)
+const revertNoQuoteLoading = ref(false)
 const noQuoteReason = ref('')
+const rejectionNote = ref('')
 
 async function doNoQuote() {
   noQuoteLoading.value = true
@@ -1938,15 +1995,39 @@ async function acceptNoQuote() {
 }
 
 async function rejectNoQuote() {
+  showRejectNoQuoteDialog.value = true
+}
+
+async function doRejectNoQuote() {
   rejectNoQuoteLoading.value = true
   try {
-    await api.post(`/rfqs/${route.params.id}/reject-no-quote`)
+    await api.post(`/rfqs/${route.params.id}/reject-no-quote`, { rejectionNote: rejectionNote.value.trim() || null })
     rfq.value.status = 'In Progress'
+    rfq.value.rejectionNote = rejectionNote.value.trim() || null
+    showRejectNoQuoteDialog.value = false
+    rejectionNote.value = ''
     showSnack('No Quote request rejected', 'info')
   } catch {
     showSnack('Failed to reject No Quote', 'error')
   } finally {
     rejectNoQuoteLoading.value = false
+  }
+}
+
+async function revertNoQuote() {
+  revertNoQuoteLoading.value = true
+  try {
+    await api.post(`/rfqs/${route.params.id}/revert-no-quote`, {})
+    rfq.value.status = 'Open'
+    // Clear all assigned users locally to reflect unassignment
+    if (rfq.value.assignedUsers) rfq.value.assignedUsers = []
+    if (rfq.value.views) rfq.value.views = []
+    // Keep noQuoteReason and rejectionNote for user reference
+    showSnack('RFQ reverted to Open and all users unassigned', 'success')
+  } catch {
+    showSnack('Failed to revert status', 'error')
+  } finally {
+    revertNoQuoteLoading.value = false
   }
 }
 

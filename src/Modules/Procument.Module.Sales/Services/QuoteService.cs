@@ -6,6 +6,7 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.Sales.Enums;
+using Procument.Shared.DTOs;
 
 namespace Procument.Module.Sales.Services;
 
@@ -73,6 +74,7 @@ public class QuoteService : IQuoteService
     public async Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin)
     {
         var quote = await _db.Set<Quote>()
+            .AsNoTrackingWithIdentityResolution()
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
@@ -422,6 +424,8 @@ public class QuoteService : IQuoteService
             CustomerContactPerson = q.Customer.ContactPerson,
             CustomerBillTo = q.Customer.BillTo,
             CustomerShipTo = q.Customer.ShipTo,
+            CustomerTermsAndConditions = q.Customer.TermsAndConditions,
+            CustomerCurrencyType = q.Customer.CurrencyType,
             CustomerBase = q.Customer.Base,
             UserName = q.User?.Name,
             AssignedUsers = assignedUsers ?? new(),

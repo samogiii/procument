@@ -466,7 +466,9 @@
                     <div class="d-flex align-center gap-2 flex-wrap mb-1">
                       <span class="font-weight-bold text-body-2" style="font-family: monospace;">{{ shop.partNumberName }}</span>
                       <span v-if="shop.altPartNumber" class="text-caption" style="color: #fbbf24;">{{ shop.altPartNumber }}</span>
-                      <v-chip size="x-small" color="warning" variant="tonal">AR</v-chip>
+                      <v-chip size="x-small" :color="conditionColor(shop.condition || 'AR')" variant="tonal">
+                        {{ shop.condition || 'AR' }}
+                      </v-chip>
                       <span class="text-caption text-medium-emphasis">RFQ #{{ shop.rfqId }} · {{ shop.rfqName }}</span>
                     </div>
                     <div class="d-flex flex-wrap gap-3 text-caption">
@@ -1282,9 +1284,9 @@ async function importARShops() {
         partNumberId: shop.partNumberId,
         description: null,
         altPartNumber: shop.altPartNumber || null,
-        price: shop.fixPrice ?? shop.price,
+        price: (Number(shop.price) || 0) + (Number(shop.fixPrice) || 0),
         qty: shop.qty,
-        condition: 'AR',
+        condition: shop.condition || 'AR',
         tagDate: shop.tagDate || null,
         certName: shop.certName || null,
         leadTime: shop.leadTime || null,

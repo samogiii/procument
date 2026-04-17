@@ -60,55 +60,49 @@ public static class FinalInvoiceDocument
                     col.Item().PaddingBottom(12).Row(row =>
                     {
                         // Bill To
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(bc =>
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
+                            .Column(bc =>
+                            {
+                                void Field(string label, string? val)
                                 {
-                                    void Field(string label, string? val)
+                                    if (string.IsNullOrWhiteSpace(val)) return;
+                                    bc.Item().Text(t =>
                                     {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        bc.Item().Text(t =>
-                                        {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
-                                        bc.Item().Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    Field("Contact Person", req.CustomerBillToContactPerson);
-                                    Field("Email", req.CustomerBillToEmail);
-                                    Field("Phone", req.CustomerBillToPhone);
-                                });
-                        });
+                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    });
+                                }
+                                bc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
+                                bc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
+                                    bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                Field("Contact Person", req.CustomerBillToContactPerson);
+                                Field("Email", req.CustomerBillToEmail);
+                                Field("Phone", req.CustomerBillToPhone);
+                            });
 
                         // Ship To
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(bc =>
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
+                            .Column(sc =>
+                            {
+                                void Field(string label, string? val)
                                 {
-                                    void Field(string label, string? val)
+                                    if (string.IsNullOrWhiteSpace(val)) return;
+                                    sc.Item().Text(t =>
                                     {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        bc.Item().Text(t =>
-                                        {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
-                                        bc.Item().Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    Field("Contact Person", req.CustomerShipToContactPerson);
-                                    Field("Email", req.CustomerShipToEmail);
-                                    Field("Phone", req.CustomerShipToPhone);
-                                    Field("Account", req.CustomerShipToAccount);
-                                });
-                        });
+                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    });
+                                }
+                                sc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
+                                sc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                    sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                Field("Contact Person", req.CustomerShipToContactPerson);
+                                Field("Email", req.CustomerShipToEmail);
+                                Field("Phone", req.CustomerShipToPhone);
+                                Field("Account", req.CustomerShipToAccount);
+                            });
                     });
 
                     // Items table (incl. Discount, Track # + Carrier)
@@ -237,9 +231,9 @@ public static class FinalInvoiceDocument
             // Header — 10 columns; narrower to fit Track # and Carrier
             outer.Item().Row(hr =>
             {
-                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Track #", "Carrier"];
-                float[] widths   = [24,    18,  0,           0,             24,    24,   46,    50,           54,      50,        0,         0];
-                float[] rels     = [0,     0,   1.6f,        1.8f,          0,     0,    0,     0,            0,       0,         1.1f,      1.1f];
+                string[] headers = ["#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Track #", "Carrier"];
+                float[] widths   = [18,  0,           0,             24,    24,   46,    50,           54,      50,        0,         0];
+                float[] rels     = [0,   1.6f,        1.8f,          0,     0,    0,     0,            0,       0,         1.1f,      1.1f];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -270,7 +264,7 @@ public static class FinalInvoiceDocument
                                 if (bold) s.Bold();
                             });
 
-                    Cell(r.ConstantItem(24), it.RfqReference ?? "—", Colors.Grey.Darken1);
+                    //Cell(r.ConstantItem(24), it.RfqReference ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(18), (idx + 1).ToString(), Colors.Grey.Darken1);
                     Cell(r.RelativeItem(1.6f), it.PartNumber ?? "—", primary, bold: true);
                     Cell(r.RelativeItem(1.8f), it.Description ?? "—", Colors.Grey.Darken1);

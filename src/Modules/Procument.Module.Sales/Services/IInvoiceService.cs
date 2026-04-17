@@ -1,11 +1,12 @@
 using Procument.Module.Sales.DTOs;
 using Procument.Shared.Audit;
+using Procument.Shared.DTOs;
 
 namespace Procument.Module.Sales.Services;
 
 public interface IInvoiceService
 {
-    Task<PagedResult<InvoiceResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin);
+    Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null);
     Task<InvoiceResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<InvoiceResponse> CreateAsync(CreateInvoiceRequest request, long userId);
     Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request);

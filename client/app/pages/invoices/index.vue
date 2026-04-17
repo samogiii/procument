@@ -3,7 +3,6 @@
     title="Proforma Invoices"
     :headers="headers"
     api-url="/invoices"
-    :status-options="['All', 'Pending', 'Paid', 'Overdue']"
     detail-route="/invoices"
     show-select
     v-model="selectedInvoices"
@@ -11,33 +10,14 @@
     page-key="invoices"
   >
     <template #filters>
-      <v-select
-        v-model="customerFilter"
-        :items="customerOptions"
-        label="Customer"
-        hide-details
-        multiple
-        chips
-        closable-chips
-        clearable
-        style="min-width: 140px; max-width: 260px;"
-      />
-      <!-- <v-text-field
-        v-model="dateFrom"
-        label="From"
-        type="date"
-        hide-details
-        clearable
-        style="min-width: 130px; max-width: 160px;"
-      />
       <v-text-field
-        v-model="dateTo"
-        label="To"
-        type="date"
+        v-model="customerSearch"
+        label="Customer"
+        prepend-inner-icon="mdi-domain"
         hide-details
         clearable
-        style="min-width: 130px; max-width: 160px;"
-      /> -->
+        style="min-width: 160px; max-width: 260px;"
+      />
     </template>
 
     <template #item.status="{ item }">
@@ -133,38 +113,15 @@ const availableQuotes = ref<any[]>([])
 const selectedQuote = ref<any>(null)
 const selectedInvoices = ref<number[]>([])
 
-const customerFilter = ref<string[]>([])
-const dateFrom = ref<string | null>(null)
-const dateTo = ref<string | null>(null)
-
-const customers = ref<any[]>([])
-
-onMounted(async () => {
-  try {
-    const res = await api.get<any>('/invoices?pageSize=9999')
-    const items = Array.isArray(res) ? res : (res.items || res.Items || [])
-    const custSet = new Set<string>()
-    items.forEach((inv: any) => { if (inv.customerName) custSet.add(inv.customerName) })
-    customers.value = Array.from(custSet).sort()
-  } catch {}
-})
-
-const customerOptions = computed(() => customers.value)
+const customerSearch = ref('')
 
 function applyFilters(items: any[]) {
-  let result = items
-  if (customerFilter.value?.length) {
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
-  }
-  if (dateFrom.value) {
-    const from = new Date(dateFrom.value).getTime()
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
-  }
-  if (dateTo.value) {
-    const to = new Date(dateTo.value).getTime() + 86400000
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
-  }
-  return result
+  if (!customerSearch.value?.trim()) return items
+  const q = customerSearch.value.trim().toLowerCase()
+  return items.filter((item: any) =>
+    item.customerName?.toLowerCase().includes(q) ||
+    item.customerCode?.toLowerCase().includes(q)
+  )
 }
 
 const headers = [

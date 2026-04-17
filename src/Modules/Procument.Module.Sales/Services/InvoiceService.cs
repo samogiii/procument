@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Sales.DTOs;
+using Procument.Shared.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
 using Procument.Shared.Audit;
@@ -21,16 +22,15 @@ public class InvoiceService : IInvoiceService
         _permissionService = permissionService;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .Include(i => i.Customer)
-            .Include(i => i.Quote) // Needed for owner check
+            .Include(i => i.Quote)
             .Include(i => i.InvoiceItems);
 
         if (!isAdmin)
         {
-            // 1. Get Permitted Invoice IDs
             var permittedInvoiceIdsStr = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "Invoice")
                 .Select(p => p.EntityId)
@@ -40,30 +40,42 @@ public class InvoiceService : IInvoiceService
                 .Select(id => long.TryParse(id, out var l) ? l : -1)
                 .ToList();
 
-            // 2. Filter: Owner (via Quote) OR Assigned Permission
             query = query.Where(i => i.Quote.UserId == userId || permittedIds.Contains(i.Id));
         }
+
+        if (!string.IsNullOrWhiteSpace(page.Search))
+        {
+            var s = page.Search.Trim();
+            query = query.Where(i => i.InvoiceNumber.Contains(s) || i.Customer.Name.Contains(s));
+        }
+
+        if (!string.IsNullOrWhiteSpace(status) && status != "All")
+            query = query.Where(i => i.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(customer))
+            query = query.Where(i => i.Customer.Name.Contains(customer));
 
         query = query.OrderByDescending(i => i.CreatedAt);
 
         var totalCount = await query.CountAsync();
         var items = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .Skip((page.Page - 1) * page.PageSize)
+            .Take(page.PageSize)
             .ToListAsync();
 
         return new PagedResult<InvoiceResponse>
         {
             Items = items.Select(MapToResponse).ToList(),
             TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
+            Page = page.Page,
+            PageSize = page.PageSize
         };
     }
 
     public async Task<InvoiceResponse?> GetByIdAsync(long id, long userId, bool isAdmin)
     {
         var invoice = await _db.Set<Invoice>()
+            .AsNoTrackingWithIdentityResolution()
             .Include(i => i.Customer)
             .Include(i => i.Quote)
             .Include(i => i.InvoiceItems)
@@ -306,6 +318,8 @@ public class InvoiceService : IInvoiceService
             CustomerBillTo = i.Customer?.BillTo,
             CustomerShipTo = i.Customer?.ShipTo,
             CustomerShippingAccount = i.Customer?.ShippingAccount,
+            CustomerTermsAndConditions = i.Customer?.TermsAndConditions,
+            CustomerCurrencyType = i.Customer?.CurrencyType,
             RejectionNote = i.RejectionNote,
             Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
             {

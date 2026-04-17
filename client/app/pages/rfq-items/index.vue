@@ -60,6 +60,8 @@
           <v-select
             v-model="customerFilter"
             :items="customerOptions"
+            item-title="title"
+            item-value="value"
             label="Customer"
             hide-details
             multiple
@@ -159,7 +161,12 @@ const userFilter = pf.user
 const customerFilter = pf.customer
 const partNumberFilter = pf.partNumber
 
-const statusOptions = ['Open', 'In Progress', 'No Quote', 'Quoted', 'Closed', 'Completed', 'Cancelled']
+// Status options: unique statuses from loaded items
+const statusOptions = computed(() => {
+  const set = new Set<string>()
+  allItems.value.forEach((item: any) => { if (item.status) set.add(item.status) })
+  return Array.from(set).sort()
+})
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -192,9 +199,14 @@ const userOptions = computed(() => {
 })
 
 const customerOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
-  return Array.from(set).sort()
+  const map = new Map<string, string>()
+  allItems.value.forEach((item: any) => {
+    if (item.customerName && !map.has(item.customerName))
+      map.set(item.customerName, item.customerCode || '')
+  })
+  return Array.from(map.entries())
+    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title))
 })
 
 const filteredItems = computed(() => {
@@ -208,7 +220,10 @@ const filteredItems = computed(() => {
     )
   }
   if (customerFilter.value?.length) {
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+    result = result.filter((item: any) =>
+      customerFilter.value.includes(item.customerName) ||
+      (item.customerCode && customerFilter.value.includes(item.customerCode))
+    )
   }
   if (partNumberFilter.value?.length) {
     result = result.filter((item: any) => partNumberFilter.value.includes(item.partNumberName))

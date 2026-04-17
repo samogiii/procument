@@ -34,6 +34,11 @@ public class UpdateStatusRequest
     public string? NoQuoteReason { get; set; }
 }
 
+public class RejectNoQuoteRequest
+{
+    public string? RejectionNote { get; set; }
+}
+
 public class UpdateExTypeRequest
 {
     public int? ExType { get; set; }
@@ -69,6 +74,36 @@ public class AddRFQItemRequest
 
 // ──── Response DTOs ────
 
+/// <summary>Lightweight projection returned by the paginated list endpoint.</summary>
+public class RFQListItem
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Status { get; set; } = "Open";
+    public DateTime LeadTime { get; set; }
+    public DateTime ReceivedDate { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string CustomerName { get; set; } = "";
+    public string? CustomerCode { get; set; }
+    public long CustomerId { get; set; }
+    public string? NoQuoteReason { get; set; }
+    public string? RejectionNote { get; set; }
+    public int? ExType { get; set; }
+    public long UserId { get; set; }
+    public string? UserName { get; set; }
+    public bool IsUnread { get; set; }
+    public int ItemCount { get; set; }
+    public List<RFQListUserRef> Views { get; set; } = new();
+    public List<RFQListUserRef> Edits { get; set; } = new();
+}
+
+public class RFQListUserRef
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? AssignedAt { get; set; }
+}
+
 public class RFQResponse
 {
     public long Id { get; set; }
@@ -80,11 +115,13 @@ public class RFQResponse
     public string CustomerName { get; set; } = string.Empty;
     public string? CustomerCode { get; set; }
     public int? CustomerBase { get; set; }
+    public string? CustomerCurrencyType { get; set; }
     public long CustomerId { get; set; }
     public string? UserName { get; set; }
     public long? UserId { get; set; }
     public string? Notes { get; set; }
     public string? NoQuoteReason { get; set; }
+    public string? RejectionNote { get; set; }
     public int? ExType { get; set; }
 
     public bool IsUnread { get; set; }

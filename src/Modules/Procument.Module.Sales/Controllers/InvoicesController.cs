@@ -6,6 +6,7 @@ using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Audit;
+using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
 using Procument.Shared.Services;
 using System.Security.Claims;
@@ -29,10 +30,13 @@ public class InvoicesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<PagedResult<InvoiceResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    public async Task<ActionResult<PagedResult<InvoiceResponse>>> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
+        [FromQuery] string? status = null, [FromQuery] string? customer = null)
     {
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
         var (userId, isAdmin) = GetUserContext();
-        var result = await _invoiceService.GetAllAsync(page, pageSize, userId, isAdmin);
+        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer);
         return Ok(result);
     }
 

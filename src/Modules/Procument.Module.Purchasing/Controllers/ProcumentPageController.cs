@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
+using Procument.Shared.DTOs;
 
 namespace Procument.Module.Purchasing.Controllers;
 
@@ -17,12 +18,14 @@ public class ProcumentPageController : ControllerBase
         _service = service;
     }
 
-    /// <summary>Get all RFQ items with their supplier quotes for the Procument page.</summary>
+    /// <summary>Get all RFQ items with their supplier quotes for the Procument page (paginated).</summary>
     [HttpGet]
-    public async Task<ActionResult<List<ProcumentPageItemResponse>>> GetAll()
+    public async Task<ActionResult<PagedResult<ProcumentPageItemResponse>>> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
     {
+        var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isAdmin) = GetUserContext();
-        var result = await _service.GetAllItemsAsync(userId, isAdmin);
+        var result = await _service.GetAllItemsAsync(userId, isAdmin, pq);
         return Ok(result);
     }
 

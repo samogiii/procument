@@ -61,71 +61,50 @@ public static class InvoiceDocument
                     col.Item().PaddingBottom(12).Row(row =>
                     {
                         // Bill To
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(bc =>
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
+                            .Column(bc =>
+                            {
+                                void Field(string label, string? val)
                                 {
-                                    void Field(string label, string? val)
+                                    if (string.IsNullOrWhiteSpace(val)) return;
+                                    bc.Item().Text(t =>
                                     {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        bc.Item().Text(t =>
-                                        {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    bc.Item().Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
-                                    {
-                                        bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerContactPerson))
-                                    {
-                                        bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillToEmail))
-                                    {
-                                        bc.Item().PaddingTop(2).Text($"Email: {req.CustomerBillToEmail}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillToPhone))
-                                    {
-                                        bc.Item().PaddingTop(2).Text($"Phone: {req.CustomerBillToPhone}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                });
-                        });
+                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    });
+                                }
+                                bc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
+                                bc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
+                                    bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                if (!string.IsNullOrWhiteSpace(req.CustomerContactPerson))
+                                    bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                Field("Email", req.CustomerBillToEmail);
+                                Field("Phone", req.CustomerBillToPhone);
+                            });
 
                         // Ship To
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(sc =>
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
+                            .Column(sc =>
+                            {
+                                void Field(string label, string? val)
                                 {
-                                    sc.Item().Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                    if (string.IsNullOrWhiteSpace(val)) return;
+                                    sc.Item().Text(t =>
                                     {
-                                        sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToContactPerson))
-                                    {
-                                        sc.Item().PaddingTop(2).Text($"Contact: {req.CustomerShipToContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToEmail))
-                                    {
-                                        sc.Item().PaddingTop(2).Text($"Email: {req.CustomerShipToEmail}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToPhone))
-                                    {
-                                        sc.Item().PaddingTop(2).Text($"Phone: {req.CustomerShipToPhone}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipToAccount))
-                                    {
-                                        sc.Item().PaddingTop(2).Text($"Account: {req.CustomerShipToAccount}").FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    }
-                                });
-                        });
+                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    });
+                                }
+                                sc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
+                                sc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                    sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                Field("Contact", req.CustomerShipToContactPerson);
+                                Field("Email", req.CustomerShipToEmail);
+                                Field("Phone", req.CustomerShipToPhone);
+                                Field("Account", req.CustomerShipToAccount);
+                            });
                     });
 
                     // Items table
@@ -199,9 +178,9 @@ public static class InvoiceDocument
             // Header row
             outer.Item().Row(hr =>
             {
-                string[] headers = ["Ref", "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Delivery"];
-                float[] widths   = [26,    20,  0,           0,             26,    26,   55,    55,           58,    55,        58];
-                float[] rels     = [0,     0,   2.2f,        2.2f,          0,     0,    0,     0,            0,     0,         0];
+                string[] headers = [ "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Delivery"];
+                float[] widths   = [   20,  0,           0,             26,    26,   55,    55,           58,    55,        58];
+                float[] rels     = [    0,   2.2f,        2.2f,          0,     0,    0,     0,            0,     0,         0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -232,7 +211,7 @@ public static class InvoiceDocument
                                 if (bold) s.Bold();
                             });
 
-                    Cell(r.ConstantItem(26), it.RfqReference ?? "—", Colors.Grey.Darken1);
+                    //Cell(r.ConstantItem(26), it.RfqReference ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
                     Cell(r.RelativeItem(2.2f), it.PartNumberName ?? "—", primary, bold: true);
                     Cell(r.RelativeItem(2.2f), it.Description ?? "—", Colors.Grey.Darken1);

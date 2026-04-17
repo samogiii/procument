@@ -62,6 +62,8 @@ public class InvoiceResponse
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
     public string? CustomerShippingAccount { get; set; }
+    public string? CustomerTermsAndConditions { get; set; }
+    public string? CustomerCurrencyType { get; set; }
     public string? RejectionNote { get; set; }
 
     public List<InvoiceItemResponse> Items { get; set; } = new();

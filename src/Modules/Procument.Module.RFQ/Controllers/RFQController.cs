@@ -6,6 +6,7 @@ using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.RFQ.Services;
+using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
 using Procument.Shared.Services;
 
@@ -37,12 +38,19 @@ public class RFQsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
-    /// <summary>Get all RFQs.</summary>
+    /// <summary>Get all RFQs (paginated).</summary>
     [HttpGet]
-    public async Task<ActionResult<List<RFQResponse>>> GetAll()
+    public async Task<ActionResult<PagedResult<RFQListItem>>> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
+        [FromQuery] string? search = null,
+        [FromQuery] string[]? status = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] long[]? userId_filter = null,
+        [FromQuery] string? customer = null)
     {
+        var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isAdmin) = GetUserContext();
-        var result = await _rfqService.GetAllAsync(userId, isAdmin);
+        var result = await _rfqService.GetAllAsync(userId, isAdmin, pq, status, pnSearch, userId_filter, customer);
         return Ok(result);
     }
 
@@ -146,6 +154,36 @@ public class RFQsController : ControllerBase
         return NotFound();
     }
 
+    /// <summary>Admin reverts a 'No Quote' RFQ back to Open and unassigns all users.</summary>
+    [HttpPost("{id:long}/revert-no-quote")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> RevertNoQuote(long id)
+    {
+        var rfq = await _db.Set<RFQHeader>().FindAsync(id);
+        if (rfq == null) return NotFound();
+
+        var (userId, _) = GetUserContext();
+        var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
+
+        var oldStatus = rfq.Status;
+
+        var success = await _rfqService.UpdateStatusAsync(id, "Open", null);
+        if (!success) return BadRequest();
+
+        var permissions = await _db.Set<EntityPermission>()
+            .Where(p => p.EntityName == "RFQ" && p.EntityId == id.ToString())
+            .ToListAsync();
+        if (permissions.Count > 0)
+        {
+            _db.Set<EntityPermission>().RemoveRange(permissions);
+            await _db.SaveChangesAsync();
+        }
+
+        await _auditService.LogRFQStatusChangedAsync(userId, userName, id, rfq.Name, oldStatus, "Open", "Reverted from No Quote; all users unassigned");
+
+        return Ok();
+    }
+
     /// <summary>Admin accepts a 'No Quote' request.</summary>
     [HttpPost("{id:long}/accept-no-quote")]
     [Authorize(Roles = "Admin")]
@@ -169,7 +207,7 @@ public class RFQsController : ControllerBase
     /// <summary>Admin rejects a 'No Quote' request.</summary>
     [HttpPost("{id:long}/reject-no-quote")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> RejectNoQuote(long id)
+    public async Task<IActionResult> RejectNoQuote(long id, [FromBody] RejectNoQuoteRequest request)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
@@ -178,14 +216,14 @@ public class RFQsController : ControllerBase
         var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
 
         var oldReason = rfq.NoQuoteReason;
-        
-        // Revert to In Progress
-        var success = await _rfqService.UpdateStatusAsync(id, "In Progress", null);
+
+        // Revert to In Progress with rejection note
+        var success = await _rfqService.UpdateStatusAsync(id, "In Progress", null, request.RejectionNote);
         if (success)
         {
-            await _auditService.LogRFQNoQuoteRejectedAsync(userId, userName, id, rfq.Name, oldReason);
+            await _auditService.LogRFQNoQuoteRejectedAsync(userId, userName, id, rfq.Name, oldReason, request.RejectionNote);
 
-            // ── Notification: Mark as unread for creator and assigned users ──
+            // ── Notification: Create notification for creator and assigned users ──
             var usersToNotify = await _db.Set<EntityPermission>()
                 .Where(p => p.EntityName == "RFQ" && p.EntityId == id.ToString())
                 .Select(p => p.UserId)
@@ -194,15 +232,35 @@ public class RFQsController : ControllerBase
             if (rfq.UserId.HasValue) usersToNotify.Add(rfq.UserId.Value);
             usersToNotify = usersToNotify.Distinct().Where(u => u != userId).ToList();
 
+            var message = $"No Quote request for RFQ #{id} ({rfq.Name}) was rejected.";
+            if (!string.IsNullOrEmpty(request.RejectionNote))
+            {
+                message += $" Admin note: {request.RejectionNote}";
+            }
+
             foreach (var targetUserId in usersToNotify)
             {
-                var record = await _db.Set<RFQUserRead>()
+                _db.Set<Notification>().Add(new Notification
+                {
+                    UserId = targetUserId,
+                    Type = "Rejection",
+                    EntityName = "RFQ",
+                    EntityId = id,
+                    EntityNumber = rfq.Name,
+                    Message = message,
+                    RejectionNote = request.RejectionNote,
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                // Also mark RFQ as unread
+                var readRecord = await _db.Set<RFQUserRead>()
                     .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == targetUserId);
 
-                if (record != null)
+                if (readRecord != null)
                 {
-                    record.IsRead = false;
-                    record.UpdatedAt = DateTime.UtcNow;
+                    readRecord.IsRead = false;
+                    readRecord.UpdatedAt = DateTime.UtcNow;
                 }
                 else
                 {

@@ -73,19 +73,32 @@
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
           />
-          <v-autocomplete
-            v-model="customerFilter"
-            :items="customerOptions"
-            label="Customer"
-            hide-details
-            multiple
-            chips
-            closable-chips
-            clearable
-            density="compact"
-            variant="outlined"
-            style="min-width: 140px; max-width: 260px;"
-          />
+          <div class="d-flex align-center gap-1">
+            <v-autocomplete
+              v-model="customerFilter"
+              :items="customerOptions"
+              item-title="title"
+              item-value="value"
+              label="Customer"
+              prepend-inner-icon="mdi-domain"
+              hide-details
+              multiple
+              chips
+              closable-chips
+              clearable
+              density="compact"
+              variant="outlined"
+              style="min-width: 180px; max-width: 300px;"
+            />
+            <v-btn
+              v-if="customerOptions.length"
+              size="x-small"
+              variant="tonal"
+              color="secondary"
+              title="Select all customers"
+              @click="selectAllCustomers"
+            >All</v-btn>
+          </div>
           
           <v-btn
             v-if="hasActiveFilters"
@@ -102,7 +115,6 @@
         <v-data-table
           :headers="headers"
           :items="filteredItems"
-          :search="search"
           :loading="loading"
           :items-per-page="50"
           hover
@@ -139,7 +151,7 @@
             <template v-else>{{ item.customerCode || '—' }}</template>
           </template>
           <template #item.status="{ item }">
-            <v-tooltip v-if="['No Quote', 'Waiting For Admin'].includes(item.status) && item.noQuoteReason" location="bottom">
+            <v-tooltip class="background-color:#f00" v-if="item.rejectionNote || (['No Quote', 'Waiting For Admin'].includes(item.status) && item.noQuoteReason)" location="bottom">
               <template #activator="{ props: tp }">
                 <v-chip
                   v-bind="tp"
@@ -151,7 +163,7 @@
                   <v-icon icon="mdi-information-outline" size="14" class="ml-1" />
                 </v-chip>
               </template>
-              <span>{{ item.noQuoteReason }}</span>
+              <span class="text-red">{{ item.noQuoteReason }}{{ item.rejectionNote ? ` (Admin: ${item.rejectionNote})` : '' }}</span>
             </v-tooltip>
             <v-chip
               v-else
@@ -178,7 +190,7 @@
             </div>
           </template>
           <template #item.itemCount="{ item }">
-            <v-chip size="small" color="secondary">{{ item.items?.length || 0 }} parts</v-chip>
+            <v-chip size="small" color="secondary">{{ item.itemCount || 0 }} parts</v-chip>
           </template>
           <!-- <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" variant="text" size="small" :to="`/rfqs/${item.id}`" />
@@ -696,14 +708,12 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const { statusColor: rfqStatusColor } = useStatusColor()
-const rfqStatusOptions = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
   user: [] as number[],
-  customer: [] as string[],
-  partNumber: [] as string[],
   pnSearch: '',
+  customer: [] as string[],
 })
 // If URL has ?status=X, apply it once on load
 if (route.query.status && pf.status.value.length === 0) {
@@ -740,88 +750,99 @@ const loading = ref(false)
 const items = ref<any[]>([])
 const statusFilter = pf.status
 const userFilter = pf.user
-const customerFilter = pf.customer
-const partNumberFilter = pf.partNumber
 const pnSearch = pf.pnSearch
-const dateFrom = ref<string | null>(null)
-const dateTo = ref<string | null>(null)
+const customerFilter = pf.customer
 
+// Helper: deduplicated list of assigned users (views + edits) for one RFQ item
+function assignedOf(item: any): { id: number; name: string }[] {
+  const seen = new Set<number>()
+  const out: { id: number; name: string }[] = []
+  for (const u of [...(item.views || []), ...(item.edits || [])]) {
+    if (u.id && !seen.has(u.id)) { seen.add(u.id); out.push({ id: u.id, name: u.name }) }
+  }
+  return out
+}
+
+// ── Cascading filter options ──
+// Each option set is built from items that pass ALL OTHER active filters (not its own).
+// This ensures: pick customer → user+status options narrow, pick user → customer+status narrow, etc.
+
+// Base after customer+user (no status) — used by statusOptions
+const baseForStatus = computed(() => {
+  let r = items.value
+  if (customerFilter.value?.length)
+    r = r.filter((item: any) => customerFilter.value.includes(item.customerName))
+  if (userFilter.value?.length)
+    r = r.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
+  return r
+})
+
+// Base after status+user (no customer) — used by customerOptions
+const baseForCustomer = computed(() => {
+  let r = items.value
+  if (statusFilter.value?.length)
+    r = r.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
+  if (userFilter.value?.length)
+    r = r.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
+  return r
+})
+
+// Base after status+customer (no user) — used by userOptions
+const baseForUser = computed(() => {
+  let r = items.value
+  if (statusFilter.value?.length)
+    r = r.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
+  if (customerFilter.value?.length)
+    r = r.filter((item: any) => customerFilter.value.includes(item.customerName))
+  return r
+})
+
+// Status options: only statuses present after customer+user filter
+const ALL_RFQ_STATUSES = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
+const rfqStatusOptions = computed(() => {
+  if (baseForStatus.value.length === 0 && !customerFilter.value?.length && !userFilter.value?.length)
+    return ALL_RFQ_STATUSES
+  const set = new Set(baseForStatus.value.map((item: any) => item.status || 'Open'))
+  return ALL_RFQ_STATUSES.filter(s => set.has(s))
+})
+
+// User options: assigned users, cascades by status+customer
 const userOptions = computed(() => {
   const map = new Map<number, string>()
-  
-  // Filter items used for options by selected status if any
-  let sourceItems = items.value
-  if (statusFilter.value?.length) {
-    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  }
-
-  sourceItems.forEach((item: any) => {
-    ;[...(item.views || []), ...(item.edits || [])].forEach((u: any) => {
-      if (u.id && u.name) map.set(u.id, u.name)
-    })
+  baseForUser.value.forEach((item: any) => {
+    assignedOf(item).forEach(u => { if (!map.has(u.id)) map.set(u.id, u.name) })
   })
   return Array.from(map, ([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 })
 
+// Customer options: cascades by status+user
 const customerOptions = computed(() => {
-  const set = new Set<string>()
-  
-  // Filter items used for options by selected status if any
-  let sourceItems = items.value
-  if (statusFilter.value?.length) {
-    sourceItems = sourceItems.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  }
-
-  sourceItems.forEach((item: any) => { if (item.customerName) set.add(item.customerName) })
-  return Array.from(set).sort()
-})
-
-const partNumberOptions = computed(() => {
-  const set = new Set<string>()
-  items.value.forEach((item: any) => {
-    ;(item.items || []).forEach((ri: any) => {
-      if (ri.partNumberName) set.add(ri.partNumberName)
-    })
+  const map = new Map<string, string>()
+  baseForCustomer.value.forEach((item: any) => {
+    if (item.customerName && !map.has(item.customerName))
+      map.set(item.customerName, item.customerCode || '')
   })
-  return Array.from(set).sort()
+  return Array.from(map.entries())
+    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title))
 })
 
+// All filters applied client-side on loaded items
 const filteredItems = computed(() => {
   let result = items.value
-  if (statusFilter.value?.length) {
+  if (statusFilter.value?.length)
     result = result.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  }
-  if (userFilter.value?.length) {
-    result = result.filter((item: any) => {
-      const allUsers = [...(item.views || []), ...(item.edits || [])]
-      return allUsers.some((u: any) => userFilter.value.includes(u.id))
-    })
-  }
-  if (customerFilter.value?.length) {
+  if (customerFilter.value?.length)
     result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
-  }
-  if (partNumberFilter.value?.length) {
-    result = result.filter((item: any) =>
-      (item.items || []).some((ri: any) => partNumberFilter.value.includes(ri.partNumberName))
-    )
-  }
-  if (pnSearch.value?.trim()) {
-    const q = pnSearch.value.trim().toLowerCase()
-    result = result.filter((item: any) =>
-      (item.partNumbers || '').toLowerCase().includes(q) ||
-      (item.altPartNumbers || '').toLowerCase().includes(q)
-    )
-  }
-  if (dateFrom.value) {
-    const from = new Date(dateFrom.value).getTime()
-    result = result.filter((item: any) => new Date(item.receivedDate).getTime() >= from)
-  }
-  if (dateTo.value) {
-    const to = new Date(dateTo.value).getTime() + 86400000
-    result = result.filter((item: any) => new Date(item.receivedDate).getTime() < to)
-  }
+  if (userFilter.value?.length)
+    result = result.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
   return result
 })
+
+function selectAllCustomers() {
+  customerFilter.value = customerOptions.value.map((opt: any) => opt.value) as string[]
+}
 
 const headers = [
   { title: 'ID', key: 'id', width: '80px' },
@@ -835,20 +856,42 @@ const headers = [
   { title: 'Received Date', key: 'receivedDate' },
 ]
 
-onMounted(() => loadItems())
-
+let _rfqLoadId = 0
 async function loadItems() {
+  const id = ++_rfqLoadId
   loading.value = true
+  items.value = []
+  const batchSize = 200
+  const params = new URLSearchParams()
+  if (search.value?.trim()) params.set('search', search.value.trim())
+  if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
   try {
-    const res = await api.get<any[]>('/rfqs')
-    items.value = (res || []).map((rfq: any) => ({
-      ...rfq,
-      partNumbers: (rfq.items || []).map((ri: any) => ri.partNumberName).filter(Boolean).join(', '),
-      altPartNumbers: (rfq.items || []).flatMap((ri: any) => (ri.alternatives || []).map((a: any) => a.name)).filter(Boolean).join(', '),
-    }))
+    let page = 1
+    while (true) {
+      params.set('page', String(page))
+      params.set('pageSize', String(batchSize))
+      const res = await api.get<any>(`/rfqs?${params.toString()}`)
+      if (_rfqLoadId !== id) return
+      const batch: any[] = res.items ?? res.Items ?? []
+      const total: number = res.totalCount ?? res.TotalCount ?? batch.length
+      items.value = [...items.value, ...batch]
+      if (batch.length < batchSize || items.value.length >= total) break
+      page++
+    }
   } catch {}
-  finally { loading.value = false }
+  finally { if (_rfqLoadId === id) loading.value = false }
 }
+
+let rfqDebounce: any = null
+function debouncedLoad() {
+  clearTimeout(rfqDebounce)
+  rfqDebounce = setTimeout(() => loadItems(), 350)
+}
+
+watch(search, debouncedLoad)
+watch(pnSearch, debouncedLoad)
+
+onMounted(() => loadItems())
 
 function goToRfq(pointerEvent: Event, rowData: { item: any }) {
   if (rowData && rowData.item && rowData.item.id) {
@@ -1168,6 +1211,7 @@ function parseDateToISO(raw: string): string {
   const parts = raw.split('/')
   if (parts.length === 3) {
     const [m, d, y] = parts
+    if (!y || !m || !d) return raw
     return `${y.trim()}-${m.trim().padStart(2, '0')}-${d.trim().padStart(2, '0')}`
   }
   return raw
@@ -1196,7 +1240,7 @@ function parseBulkRFQs() {
   const groupMap = new Map<string, GroupMeta>()
 
   for (let i = startIdx; i < lines.length; i++) {
-    const cols = lines[i].split('\t')
+    const cols = (lines[i] ?? '').split('\t')
     const rfqName = (cols[0] || '').trim()
     const partNumber = (cols[2] || '').trim()
     if (!rfqName || !partNumber) continue

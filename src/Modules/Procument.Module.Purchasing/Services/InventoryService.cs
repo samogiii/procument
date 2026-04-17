@@ -154,64 +154,103 @@ public class InventoryService : IInventoryService
     public async Task<BulkImportResult> BulkImportAsync(BulkImportInventoryRequest request)
     {
         var result = new BulkImportResult();
+        if (request.Rows == null || !request.Rows.Any()) return result;
 
-        var allPartNumbers = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
-            .ToListAsync();
-        var allSuppliers = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
-            .ToListAsync();
+        _db.ChangeTracker.AutoDetectChangesEnabled = false;
 
-        var toAdd = new List<InventoryItem>();
-
-        foreach (var row in request.Rows)
+        try
         {
-            var pn = allPartNumbers.FirstOrDefault(p =>
-                p.Name.Equals(row.PartNumberName.Trim(), StringComparison.OrdinalIgnoreCase));
+            var requestedPnNames = request.Rows
+                .Select(r => r.PartNumberName?.Trim())
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            if (pn == null)
-            {
-                result.Skipped++;
-                result.Errors.Add($"PartNumber '{row.PartNumberName}' not found");
-                continue;
-            }
+            var requestedCompNames = request.Rows
+                .Select(r => r.CompanyName?.Trim())
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            long companyId = 0;
-            if (!string.IsNullOrWhiteSpace(row.CompanyName))
+            var existingPns = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
+                .Where(p => requestedPnNames.Contains(p.Name))
+                .ToDictionaryAsync(p => p.Name.ToLower(), p => p);
+
+            var existingSuppliers = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
+                .Where(s => requestedCompNames.Contains(s.Name))
+                .ToDictionaryAsync(s => s.Name.ToLower(), s => s);
+
+            var newPns = new Dictionary<string, Procument.Module.Catalog.Entities.PartNumber>();
+            var newSuppliers = new Dictionary<string, Procument.Module.Catalog.Entities.Supplier>();
+
+            int batchSize = 1000;
+            int counter = 0;
+
+            foreach (var row in request.Rows)
             {
-                var supplier = allSuppliers.FirstOrDefault(s =>
-                    s.Name.Equals(row.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (supplier == null)
+                var pnName = row.PartNumberName?.Trim();
+                var compName = row.CompanyName?.Trim();
+
+                if (string.IsNullOrWhiteSpace(pnName) || string.IsNullOrWhiteSpace(compName))
                 {
                     result.Skipped++;
-                    result.Errors.Add($"Company '{row.CompanyName}' not found");
                     continue;
                 }
-                companyId = supplier.Id;
-            }
-            else
-            {
-                result.Skipped++;
-                result.Errors.Add($"Company is required for row with PartNumber '{row.PartNumberName}'");
-                continue;
+
+                var pnLower = pnName.ToLower();
+                var compLower = compName.ToLower();
+
+                // ── Resolve or Create PartNumber ──
+                if (!existingPns.TryGetValue(pnLower, out var pn) && !newPns.TryGetValue(pnLower, out pn))
+                {
+                    pn = new Procument.Module.Catalog.Entities.PartNumber
+                    {
+                        Name = pnName,
+                        Description = row.Description,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    newPns[pnLower] = pn;
+                    _db.Set<Procument.Module.Catalog.Entities.PartNumber>().Add(pn);
+                }
+
+                // ── Resolve or Create Supplier ──
+                if (!existingSuppliers.TryGetValue(compLower, out var supplier) && !newSuppliers.TryGetValue(compLower, out supplier))
+                {
+                    supplier = new Procument.Module.Catalog.Entities.Supplier
+                    {
+                        Name = compName,
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        Status = "Approved"
+                    };
+                    newSuppliers[compLower] = supplier;
+                    _db.Set<Procument.Module.Catalog.Entities.Supplier>().Add(supplier);
+                }
+
+                _db.Set<InventoryItem>().Add(new InventoryItem
+                {
+                    PartNumber = pn,
+                    Company = supplier,
+                    Description = row.Description,
+                    Qty = row.Qty,
+                    Condition = row.Condition,
+                    Price = row.Price,
+                    SerialNumber = row.SerialNumber,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                result.Created++;
+                counter++;
+
+                if (counter % batchSize == 0)
+                    await _db.SaveChangesAsync();
             }
 
-            toAdd.Add(new InventoryItem
-            {
-                PartNumberId = pn.Id,
-                Description = row.Description,
-                Qty = row.Qty,
-                CompanyId = companyId,
-                Condition = row.Condition,
-                Price = row.Price,
-                SerialNumber = row.SerialNumber,
-                CreatedAt = DateTime.UtcNow
-            });
-            result.Created++;
-        }
-
-        if (toAdd.Any())
-        {
-            _db.Set<InventoryItem>().AddRange(toAdd);
             await _db.SaveChangesAsync();
+        }
+        finally
+        {
+            _db.ChangeTracker.AutoDetectChangesEnabled = true;
         }
 
         return result;

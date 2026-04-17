@@ -31,6 +31,11 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
             sqlOptions.CommandTimeout(60);
             sqlOptions.EnableRetryOnFailure(3);
         })
+        // NOTE: Tracking stays at the default (TrackAll) because the codebase relies on the
+        // "FindAsync(id) → mutate → SaveChanges" pattern in dozens of places. Global NoTracking
+        // silently breaks those writes. Read-heavy/list endpoints opt into NoTracking explicitly
+        // via .AsNoTracking() or by projecting with .Select(...) to a DTO (projections don't
+        // track anyway).
         .AddInterceptors(interceptor);
 });
 
@@ -92,7 +97,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowClient", policy =>
     {
-        policy.WithOrigins("http://192.168.37.100:3000", "http://localhost:3000")
+        policy.WithOrigins("http://192.168.37.100:3000", "http://localhost:3000", "http://192.168.3.3:3000")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();

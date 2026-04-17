@@ -19,13 +19,14 @@
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
+          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
+          <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
+          <v-col cols="12" :md="currency === 'China Yuan (CNY)' ? 2 : 4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
           <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
@@ -118,7 +119,8 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    companyTerms.value = preset.termsAndConditions || ''
+    // Prefer customer's terms & conditions over preset's
+    companyTerms.value = props.invoice?.customerTermsAndConditions || preset.termsAndConditions || ''
   }
 })
 
@@ -135,6 +137,20 @@ watch(model, (open) => {
     shipToEmail.value = props.invoice?.customerEmail || ''
     shipToPhone.value = props.invoice?.customerPhone || ''
     shipToAccount.value = props.invoice?.customerShippingAccount || ''
+    if (props.invoice?.customerBase == 3) {
+      const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
+      if (currencyType === 'Dollar') {
+        currency.value = 'Dollar (USD)'
+        exchangeRate.value = 1
+      } else if (currencyType === 'Yuan') {
+        currency.value = 'China Yuan (CNY)'
+        exchangeRate.value = 7
+      } else if (currencyType === 'Both') {
+        currency.value = 'Dollar (USD)'
+        exchangeRate.value = 7
+        // For Both, default to Dollar but allow user to switch
+      }
+    }
   }
 })
 
@@ -150,6 +166,7 @@ const taxAmount = ref(0)
 const shippingAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
+const exchangeRate = ref(7.0)
 const comments = ref('No Comments')
 const contactPerson = ref('')
 const billTo = ref('')
@@ -190,6 +207,13 @@ function onLogoUpload(files: File[] | File | null) {
 
 const fmt = (n: number) => formatPrice(n)
 
+// ── Currency lock based on customer settings ──
+const currencyLocked = computed(() => {
+  if (props.invoice?.customerBase !== 3) return false
+  const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
+  return currencyType !== 'Both'
+})
+
 const renderedHtml = computed(() => {
   const inv = props.invoice
   if (!inv.id) return ''
@@ -199,22 +223,25 @@ const renderedHtml = computed(() => {
   const logoImg = logo ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />` : ''
   const invDate = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—'
   const dueDate = inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—'
-  const subtotal = Number(inv.totalAmount) || 0
-  const tax = taxAmount.value || 0
-  const shipping = shippingAmount.value || 0
-  const other = otherAmount.value || 0
+  const isYuan = currency.value === 'China Yuan (CNY)'
+  const sym = isYuan ? '¥' : '$'
+  const rate = isYuan ? (exchangeRate.value || 1) : 1
+  const subtotal = (Number(inv.totalAmount) || 0) * rate
+  const tax = (taxAmount.value || 0) * rate
+  const shipping = (shippingAmount.value || 0) * rate
+  const other = (otherAmount.value || 0) * rate
   const grandTotal = subtotal + tax + shipping + other
 
   const primary = theme.value.primary
   const accent = theme.value.accent
   const rowEven = lighten(primary, 0.96)
 
-  const totalDiscount = items.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0)
+  const totalDiscount = items.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0) * rate
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : rowEven
     const discountCell = it.discount > 0
-      ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-$${fmt(Number(it.discount))}</td>`
+      ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(Number(it.discount) * rate)}</td>`
       : `<td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#9ca3af; border-bottom:1px solid #eef0f3;">—</td>`
     return `
     <tr style="background:${bg};">
@@ -225,8 +252,8 @@ const renderedHtml = computed(() => {
       <td style="padding:9px 8px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>
       <td style="padding:9px 8px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
       <td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.certName || '—'}</td>
-      <td style="padding:9px 10px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
-      <td style="padding:9px 10px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
+      <td style="padding:9px 10px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
+      <td style="padding:9px 10px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
       ${discountCell}
       <td style="padding:9px 10px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.leadTime || '—'}</td>
     </tr>`
@@ -328,12 +355,12 @@ const renderedHtml = computed(() => {
         <div>${bankSection}</div>
         <div style="min-width:260px;">
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(subtotal)}</td></tr>
-            ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; border-bottom:1px solid #eef0f3; font-weight:600;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-$${fmt(totalDiscount)}</td></tr>` : ''}
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
-            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(shipping)}</td></tr>
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">$${fmt(other)}</td></tr>
-            <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(subtotal - totalDiscount + tax + shipping + other)}</td></tr>
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal)}</td></tr>
+            ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; border-bottom:1px solid #eef0f3; font-weight:600;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
+            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shipping)}</td></tr>
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
+            <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(subtotal - totalDiscount + tax + shipping + other)}</td></tr>
           </table>
         </div>
       </div>
@@ -369,78 +396,90 @@ async function downloadPdf() {
     const inv = props.invoice
     const items: any[] = inv.items || []
 
-    const payload = {
-      companyName: companyName.value,
-      companyLocation: companyLocation.value,
-      companyPhone: companyPhone.value,
-      companyWebsite: companyWebsite.value,
-      companyEmail: companyEmail.value,
-      logoBase64: logoDataUrl.value || null,
-      primaryColor: theme.value.primary,
-      accentColor: theme.value.accent,
-      invoiceNumber: `INV-${inv.id}`,
-      invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
-      dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
-      status: inv.status || '—',
-      customerPONumber: inv.customerPONumber || null,
-      currency: currency.value,
-      currencySymbol: '$',
-      customerName: inv.customerName || '—',
-      customerContactPerson: contactPerson.value || null,
-      customerBillTo: billTo.value || inv.customerBillTo || null,
-      customerBillToEmail: billToEmail.value || null,
-      customerBillToPhone: billToPhone.value || null,
-      customerShipTo: shipTo.value || inv.customerShipTo || inv.customerBillTo || null,
-      customerShipToContactPerson: shipToContactPerson.value || null,
-      customerShipToEmail: shipToEmail.value || null,
-      customerShipToPhone: shipToPhone.value || null,
-      customerShipToAccount: shipToAccount.value || null,
-      beneficiaryName: beneficiaryName.value || null,
-      beneficiaryAddress: beneficiaryAddress.value || null,
-      bankName: bankName.value || null,
-      bankAddress: bankAddress.value || null,
-      bankAccount: bankAccount.value || null,
-      swiftCode: swiftCode.value || null,
-      items: items.map((it: any) => ({
-        rfqReference: it.rfqReference || null,
-        partNumberName: it.partNumberName || null,
-        description: it.description || null,
-        qty: it.qty || 0,
-        condition: it.condition || null,
-        certName: it.certName || null,
-        unitPrice: Number(it.unitPrice) || 0,
-        totalPrice: Number(it.totalPrice) || 0,
-        discount: it.discount > 0 ? Number(it.discount) : null,
-        deliveryDate: it.expectedDeliveryDate
-          ? new Date(it.expectedDeliveryDate).toLocaleDateString()
-          : null,
-        leadTime: it.leadTime || null,
-      })),
-      subtotal: Number(inv.totalAmount) || 0,
-      tax: taxAmount.value || 0,
-      shipping: shippingAmount.value || 0,
-      other: otherAmount.value || 0,
-      comments: comments.value || null,
-      terms: companyTerms.value || null,
-      footerText: footerText.value || null,
-    }
+    // Check if customerCurrencyType is Both - generate two PDFs
+    const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
+    const isBoth = props.invoice?.customerBase === 3 && currencyType === 'Both'
 
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/invoice`, {
-      method: 'POST',
-      body: payload,
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
-    const url = window.URL.createObjectURL(response)
-    const link = document.createElement('a')
-    link.href = url
-    const customerName = inv.customerName || 'Customer'
-    const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_')
-    link.setAttribute('download', `PI-${inv.id}-${sanitizedCustomerName}.pdf`)
-    document.body.appendChild(link)
-    link.click()
-    link.parentNode?.removeChild(link)
-    window.URL.revokeObjectURL(url)
+    const currenciesToGenerate = isBoth
+      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
+      : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
+
+    for (const curr of currenciesToGenerate) {
+      const payload = {
+        companyName: companyName.value,
+        companyLocation: companyLocation.value,
+        companyPhone: companyPhone.value,
+        companyWebsite: companyWebsite.value,
+        companyEmail: companyEmail.value,
+        logoBase64: logoDataUrl.value || null,
+        primaryColor: theme.value.primary,
+        accentColor: theme.value.accent,
+        invoiceNumber: `INV-${inv.id}`,
+        invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
+        dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
+        status: inv.status || '—',
+        customerPONumber: inv.customerPONumber || null,
+        currency: curr.currency,
+        currencySymbol: curr.symbol,
+        exchangeRate: curr.rate,
+        customerName: inv.customerName || '—',
+        customerContactPerson: contactPerson.value || null,
+        customerBillTo: billTo.value || inv.customerBillTo || null,
+        customerBillToEmail: billToEmail.value || null,
+        customerBillToPhone: billToPhone.value || null,
+        customerShipTo: shipTo.value || inv.customerShipTo || inv.customerBillTo || null,
+        customerShipToContactPerson: shipToContactPerson.value || null,
+        customerShipToEmail: shipToEmail.value || null,
+        customerShipToPhone: shipToPhone.value || null,
+        customerShipToAccount: shipToAccount.value || null,
+        beneficiaryName: beneficiaryName.value || null,
+        beneficiaryAddress: beneficiaryAddress.value || null,
+        bankName: bankName.value || null,
+        bankAddress: bankAddress.value || null,
+        bankAccount: bankAccount.value || null,
+        swiftCode: swiftCode.value || null,
+        items: items.map((it: any) => ({
+          rfqReference: it.rfqReference || null,
+          partNumberName: it.partNumberName || null,
+          description: it.description || null,
+          qty: it.qty || 0,
+          condition: it.condition || null,
+          certName: it.certName || null,
+          unitPrice: (Number(it.unitPrice) || 0) * curr.rate,
+          totalPrice: (Number(it.totalPrice) || 0) * curr.rate,
+          discount: it.discount > 0 ? Number(it.discount) * curr.rate : null,
+          deliveryDate: it.expectedDeliveryDate
+            ? new Date(it.expectedDeliveryDate).toLocaleDateString()
+            : null,
+          leadTime: it.leadTime || null,
+        })),
+        subtotal: (Number(inv.totalAmount) || 0) * curr.rate,
+        tax: (taxAmount.value || 0) * curr.rate,
+        shipping: (shippingAmount.value || 0) * curr.rate,
+        other: (otherAmount.value || 0) * curr.rate,
+        comments: comments.value || null,
+        terms: companyTerms.value || null,
+        footerText: footerText.value || null,
+      }
+
+      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/invoice`, {
+        method: 'POST',
+        body: payload,
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+      const url = window.URL.createObjectURL(response)
+      const link = document.createElement('a')
+      link.href = url
+      const customerName = inv.customerName || 'Customer'
+      const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_')
+      const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
+      link.setAttribute('download', `PI-${inv.id}-${sanitizedCustomerName}${currencySuffix}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode?.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    }
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

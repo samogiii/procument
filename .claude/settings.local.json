@@ -34,7 +34,8 @@
       "Bash(wc -l /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/index.vue /c/Users/Sam/Desktop/Projects/procument/client/app/pages/rfqs/[id]/index.vue)",
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Supplier* -o -type d -name *Procurement*)",
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules/Procument.Module.Purchasing -type f -name *.cs)",
-      "Bash(find /c/Users/Sam/Desktop/Projects/procument/client/app/pages -type f -name *.vue)"
+      "Bash(find /c/Users/Sam/Desktop/Projects/procument/client/app/pages -type f -name *.vue)",
+      "Bash(Select-Object -Last 30)"
     ]
   }
 }

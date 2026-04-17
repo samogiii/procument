@@ -3,7 +3,7 @@
     title="Quotes"
     :headers="headers"
     api-url="/quotes"
-    :status-options="['All', 'Draft', 'Sent', 'Accepted', 'Rejected']"
+    :status-options="quoteStatusOptions"
     detail-route="/quotes"
     :custom-filter="applyFilters"
     page-key="quotes"
@@ -60,6 +60,8 @@
       <v-autocomplete
         v-model="customerFilter"
         :items="customerOptions"
+        item-title="title"
+        item-value="value"
         label="Customer"
         hide-details
         multiple
@@ -84,13 +86,62 @@
           </v-btn>
     </template>
 
+    <template #item.quoteNumber="{ item }">
+      <nuxt-link :to="`/quotes/${item.id}`" class="text-primary font-weight-bold text-decoration-none" @click.stop>
+        {{ item.quoteNumber || `#${item.id}` }}
+      </nuxt-link>
+    </template>
+
+    <template #item.rfqName="{ item }">
+      <nuxt-link v-if="item.rfqId" :to="`/rfqs/${item.rfqId}`" class="text-primary text-decoration-none" @click.stop>
+        {{ item.rfqName || `RFQ #${item.rfqId}` }}
+      </nuxt-link>
+      <span v-else class="text-medium-emphasis">—</span>
+    </template>
+
     <template #item.customerName="{ item }">
-      <template v-if="isAdmin">{{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span></template>
-      <template v-else>{{ item.customerCode || '—' }}</template>
+      <span
+        v-if="item.customerName"
+        class="text-primary text-decoration-none"
+        style="cursor:pointer;"
+        @click.stop="router.push(`/catalog/customers?search=${encodeURIComponent(item.customerName)}`)"
+      >
+        <template v-if="isAdmin">{{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span></template>
+        <template v-else>{{ item.customerCode || '—' }}</template>
+      </span>
+      <span v-else class="text-medium-emphasis">—</span>
     </template>
 
     <template #item.status="{ item }">
-      <StatusChip :status="item.status" />
+      <v-menu v-if="isAdmin" :close-on-content-click="true">
+        <template #activator="{ props: mp }">
+          <v-chip
+            :color="statusColor(item.status)"
+            v-bind="mp"
+            size="small"
+            class="cursor-pointer"
+            append-icon="mdi-chevron-down"
+            @click.stop
+          >
+            {{ item.status }}
+          </v-chip>
+        </template>
+        <v-list density="compact" style="min-width: 160px">
+          <v-list-subheader>Change Status</v-list-subheader>
+          <v-list-item
+            v-for="s in quoteStatuses"
+            :key="s.value"
+            :active="item.status === s.value"
+            @click.stop="onStatusClick(item, s.value)"
+          >
+            <template #prepend>
+              <v-icon :icon="s.icon" :color="s.color" size="18" />
+            </template>
+            <v-list-item-title>{{ s.label }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
+      <StatusChip v-else :status="item.status" />
     </template>
 
     <template #item.totalAmount="{ item }">
@@ -137,13 +188,95 @@
 
   <BulkPermissionManager v-model="showBulkPerms" entity-name="Quote" />
   <BulkQuoteDownload v-model="showBulkDownload" />
+
+  <!-- Rejection dialog -->
+  <v-dialog v-model="showRejectDialog" max-width="450">
+    <v-card class="glass-card">
+      <v-card-title class="d-flex align-center pa-4">
+        <v-icon icon="mdi-close-circle" color="error" class="mr-2" />
+        Reject Quote
+      </v-card-title>
+      <v-card-text class="pa-4">
+        <v-textarea
+          v-model="rejectionNote"
+          label="Rejection reason"
+          rows="3"
+          auto-grow
+          variant="outlined"
+        />
+      </v-card-text>
+      <v-card-actions class="pa-4">
+        <v-spacer />
+        <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
+        <v-btn color="error" variant="tonal" :loading="statusSaving" @click="confirmReject">Reject</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
+    {{ snackbarText }}
+  </v-snackbar>
 </template>
 
 <script setup lang="ts">
+const router = useRouter()
 const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const isAmir = computed(() => authStore.isAmir)
+const { statusColor } = useStatusColor()
+
+const quoteStatuses = [
+  { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
+  { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
+  { value: 'Accepted', label: 'Accepted', icon: 'mdi-check-circle', color: 'success' },
+  { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
+]
+
+const showRejectDialog = ref(false)
+const rejectingItem = ref<any>(null)
+const rejectionNote = ref('')
+const statusSaving = ref(false)
+const snackbar = ref(false)
+const snackbarText = ref('')
+const snackbarColor = ref('success')
+
+function onStatusClick(item: any, status: string) {
+  if (status === item.status) return
+  if (status === 'Rejected') {
+    rejectingItem.value = item
+    rejectionNote.value = ''
+    showRejectDialog.value = true
+    return
+  }
+  doChangeStatus(item, status)
+}
+
+async function doChangeStatus(item: any, status: string, note?: string) {
+  statusSaving.value = true
+  try {
+    await api.patch(`/quotes/${item.id}/status`, { status, rejectionNote: note || null })
+    item.status = status
+    item.rejectionNote = note || null
+    snackbarText.value = `Status changed to ${status}`
+    snackbarColor.value = 'success'
+    snackbar.value = true
+  } catch {
+    snackbarText.value = 'Failed to change status'
+    snackbarColor.value = 'error'
+    snackbar.value = true
+  } finally {
+    statusSaving.value = false
+  }
+}
+
+async function confirmReject() {
+  if (rejectingItem.value) {
+    await doChangeStatus(rejectingItem.value, 'Rejected', rejectionNote.value)
+  }
+  showRejectDialog.value = false
+  rejectingItem.value = null
+}
 const showBulkPerms = ref(false)
 const showBulkDownload = ref(false)
 
@@ -188,6 +321,13 @@ function searchByPN(val: string | null) {
 
 const allQuotes = ref<any[]>([])
 
+// Status options: unique statuses from loaded quotes (not filtered)
+const quoteStatusOptions = computed(() => {
+  const set = new Set<string>(['All'])
+  allQuotes.value.forEach((q: any) => { if (q.status) set.add(q.status) })
+  return Array.from(set).sort()
+})
+
 onMounted(async () => {
   try {
     const res = await api.get<any>('/quotes?pageSize=9999')
@@ -195,45 +335,64 @@ onMounted(async () => {
   } catch {}
 })
 
-const userOptions = computed(() => {
-  const userSet = new Map<string, string>()
-  const sourceItems = statusFilter.value?.length
+// Base set filtered by status (shared starting point for cascading options)
+const statusFilteredQuotes = computed(() =>
+  statusFilter.value?.length
     ? allQuotes.value.filter((q: any) => statusFilter.value.includes(q.status))
     : allQuotes.value
+)
 
-  sourceItems.forEach((q: any) => {
-    if (q.userName) userSet.set(q.userName, q.userName)
-    if (q.assignedUsers?.length) {
-      q.assignedUsers.forEach((u: any) => {
-        if (u.name) userSet.set(u.name, u.name)
-      })
-    }
+// User options: only ASSIGNED users (not creator), cascades by customerFilter
+const userOptions = computed(() => {
+  const userSet = new Map<string, string>()
+  let source = statusFilteredQuotes.value
+  // cascade: if customer filter active, only users from those customers
+  if (customerFilter.value?.length) {
+    source = source.filter((q: any) =>
+      customerFilter.value.includes(q.customerName) ||
+      (q.customerCode && customerFilter.value.includes(q.customerCode))
+    )
+  }
+  source.forEach((q: any) => {
+    ;(q.assignedUsers || []).forEach((u: any) => {
+      if (u.name) userSet.set(u.name, u.name)
+    })
   })
   return Array.from(userSet.values()).sort()
 })
 
+// Customer options: cascades by userFilter (assigned users only)
 const customerOptions = computed(() => {
-  const custSet = new Set<string>()
-  const sourceItems = statusFilter.value?.length
-    ? allQuotes.value.filter((q: any) => statusFilter.value.includes(q.status))
-    : allQuotes.value
-
-  sourceItems.forEach((q: any) => {
-    if (q.customerName) custSet.add(q.customerName)
+  const custMap = new Map<string, string>()
+  let source = statusFilteredQuotes.value
+  // cascade: if user filter active, only customers where those users are assigned
+  if (userFilter.value?.length) {
+    source = source.filter((q: any) =>
+      (q.assignedUsers || []).some((u: any) => userFilter.value.includes(u.name))
+    )
+  }
+  source.forEach((q: any) => {
+    if (q.customerName && !custMap.has(q.customerName))
+      custMap.set(q.customerName, q.customerCode || '')
   })
-  return Array.from(custSet).sort()
+  return Array.from(custMap.entries())
+    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title))
 })
 
 function applyFilters(items: any[]) {
   let result = items
+  // Filter by ASSIGNED users only — not the quote creator
   if (userFilter.value?.length) {
     result = result.filter((item: any) =>
-      userFilter.value.includes(item.userName) ||
       item.assignedUsers?.some((u: any) => userFilter.value.includes(u.name))
     )
   }
   if (customerFilter.value?.length) {
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
+    result = result.filter((item: any) =>
+      customerFilter.value.includes(item.customerName) ||
+      (item.customerCode && customerFilter.value.includes(item.customerCode))
+    )
   }
   if (dateFrom.value) {
     const from = new Date(dateFrom.value).getTime()

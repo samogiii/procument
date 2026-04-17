@@ -19,9 +19,10 @@
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
+          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
+          <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="3"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
@@ -113,7 +114,8 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    companyTerms.value = preset.termsAndConditions || ''
+    // Prefer customer's terms & conditions over preset's
+    companyTerms.value = pdfData.value?.customerTermsAndConditions || preset.termsAndConditions || ''
   }
 })
 
@@ -131,6 +133,7 @@ const pdfData = ref<any>({})
 const taxAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
+const exchangeRate = ref(7.0)
 const comments = ref('No Comments')
 const contactPerson = ref('')
 const billTo = ref('')
@@ -170,6 +173,20 @@ watch(model, async (open) => {
         const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
         pdfData.value = data
         if (data.notes) comments.value = data.notes
+        if (data.customerBase == 3) {
+          const currencyType = data.customerCurrencyType || 'Dollar'
+          if (currencyType === 'Dollar') {
+            currency.value = 'Dollar (USD)'
+            exchangeRate.value = 1
+          } else if (currencyType === 'Yuan') {
+            currency.value = 'China Yuan (CNY)'
+            exchangeRate.value = 7
+          } else if (currencyType === 'Both') {
+            currency.value = 'Dollar (USD)'
+            exchangeRate.value = 7
+            // For Both, default to Dollar but allow user to switch
+          }
+        }
         contactPerson.value = data.customerContactPerson || ''
         billTo.value = data.customerBillTo || ''
         shipTo.value = data.customerShipTo || data.customerBillTo || ''
@@ -180,6 +197,10 @@ watch(model, async (open) => {
         shipToContactPerson.value = data.customerContactPerson || ''
         shipToEmail.value = data.customerShipToEmail || ''
         shipToPhone.value = data.customerShipToPhone || ''
+        // Apply customer terms if present (overrides preset terms)
+        if (data.customerTermsAndConditions) {
+          companyTerms.value = data.customerTermsAndConditions
+        }
       } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
       finally { loadingData.value = false }
     }
@@ -187,6 +208,13 @@ watch(model, async (open) => {
 })
 
 const fmt = (n: number) => formatPrice(n)
+
+// ── Currency lock based on customer settings ──
+const currencyLocked = computed(() => {
+  if (pdfData.value.customerBase !== 3) return false
+  const currencyType = pdfData.value.customerCurrencyType || 'Dollar'
+  return currencyType !== 'Both'
+})
 
 const renderedHtml = computed(() => {
   const d = pdfData.value
@@ -198,17 +226,20 @@ const renderedHtml = computed(() => {
 
   const invDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'
   const dueDate = d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—'
-  const subtotal = Number(d.totalAmount) || 0
-  const shippingCost = Number(d.shippingCost) || 0
-  const tax = taxAmount.value || 0
-  const other = otherAmount.value || 0
-  const totalDiscount = items.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0)
+  const isYuan = currency.value === 'China Yuan (CNY)'
+  const sym = isYuan ? '¥' : '$'
+  const rate = isYuan ? (exchangeRate.value || 1) : 1
+  const subtotal = (Number(d.totalAmount) || 0) * rate
+  const shippingCost = (Number(d.shippingCost) || 0) * rate
+  const tax = (taxAmount.value || 0) * rate
+  const other = (otherAmount.value || 0) * rate
+  const totalDiscount = items.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0) * rate
   const grandTotal = subtotal - totalDiscount + shippingCost + tax + other
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : '#f7f8fa'
     const discountCell = it.discount > 0
-      ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-$${fmt(Number(it.discount))}</td>`
+      ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(Number(it.discount) * rate)}</td>`
       : `<td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#9ca3af; border-bottom:1px solid #eef0f3;">—</td>`
     return `
     <tr style="background:${bg};">
@@ -219,8 +250,8 @@ const renderedHtml = computed(() => {
       <td style="padding:9px 8px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.qty}</td>
       <td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
       <td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.certification || '—'}</td>
-      <td style="padding:9px 10px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
-      <td style="padding:9px 10px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
+      <td style="padding:9px 10px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
+      <td style="padding:9px 10px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
       ${discountCell}
       <td style="padding:9px 10px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.trackNumber || ''}</td>
       <td style="padding:9px 10px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.carrier || ''}</td>
@@ -323,12 +354,12 @@ const renderedHtml = computed(() => {
         </div>
         <div style="min-width:260px;">
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(subtotal)}</td></tr>
-            ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; font-weight:600; border-bottom:1px solid #eef0f3;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-$${fmt(totalDiscount)}</td></tr>` : ''}
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
-            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(shippingCost)}</td></tr>
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">$${fmt(other)}</td></tr>
-            <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(grandTotal)}</td></tr>
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal)}</td></tr>
+            ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; font-weight:600; border-bottom:1px solid #eef0f3;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
+            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shippingCost)}</td></tr>
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
+            <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(grandTotal)}</td></tr>
           </table>
         </div>
       </div>
@@ -364,77 +395,89 @@ async function downloadPdf() {
     const d = pdfData.value
     const items: any[] = d.items || []
 
-    const payload = {
-      companyName: companyName.value,
-      companyLocation: companyLocation.value,
-      companyPhone: companyPhone.value,
-      companyWebsite: companyWebsite.value,
-      companyEmail: companyEmail.value,
-      logoBase64: logoDataUrl.value || null,
-      primaryColor: theme.value.primary,
-      accentColor: theme.value.accent,
-      invoiceNumber: d.invoiceNumber || '',
-      invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
-      dueDate: d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—',
-      proformaRef: d.proformaInvoiceNumber || null,
-      customerPONumber: d.customerPONumber || null,
-      currency: currency.value,
-      currencySymbol: '$',
-      customerName: d.customerName || '—',
-      customerContactPerson: contactPerson.value || d.customerContactPerson || null,
-      customerBillTo: billTo.value || d.customerBillTo || null,
-      customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
-      customerBillToPhone: billToPhone.value || d.customerBillToPhone || null,
-      customerBillToContactPerson: billToContactPerson.value || d.customerContactPerson || null,
-      customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
-      customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
-      customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
-      customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
-      customerShipToAccount: d.customerShipToAccount || null,
-      beneficiaryName: beneficiaryName.value || null,
-      beneficiaryAddress: beneficiaryAddress.value || null,
-      bankName: bankName.value || null,
-      bankAddress: bankAddress.value || null,
-      bankAccount: bankAccount.value || null,
-      swiftCode: swiftCode.value || null,
-      shippingMethod: d.shippingMethod || null,
-      shippingCost: Number(d.shippingCost) || 0,
-      items: items.map((it: any) => ({
-        rfqReference: it.rfqReference || null,
-        partNumber: it.partNumber || null,
-        description: it.description || null,
-        qty: it.qty || 0,
-        condition: it.condition || null,
-        certification: it.certification || null,
-        unitPrice: Number(it.unitPrice) || 0,
-        totalPrice: Number(it.totalPrice) || 0,
-        discount: it.discount > 0 ? Number(it.discount) : null,
-        trackNumber: it.trackNumber || null,
-        carrier: it.carrier || null,
-      })),
-      subtotal: Number(d.totalAmount) || 0,
-      tax: taxAmount.value || 0,
-      other: otherAmount.value || 0,
-      comments: comments.value || null,
-      terms: companyTerms.value || null,
-      footerText: footerText.value || null,
-    }
+    // Check if customerCurrencyType is Both - generate two PDFs
+    const currencyType = pdfData.value.customerCurrencyType || 'Dollar'
+    const isBoth = pdfData.value.customerBase === 3 && currencyType === 'Both'
 
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/final-invoice`, {
-      method: 'POST',
-      body: payload,
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
-    const url = window.URL.createObjectURL(response)
-    const link = document.createElement('a')
-    link.href = url
-    const customerName = (d.customerName || '').replace(/\s+/g, '_')
-    link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}-${customerName}.pdf`)
-    document.body.appendChild(link)
-    link.click()
-    link.parentNode?.removeChild(link)
-    window.URL.revokeObjectURL(url)
+    const currenciesToGenerate = isBoth
+      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
+      : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
+
+    for (const curr of currenciesToGenerate) {
+      const payload = {
+        companyName: companyName.value,
+        companyLocation: companyLocation.value,
+        companyPhone: companyPhone.value,
+        companyWebsite: companyWebsite.value,
+        companyEmail: companyEmail.value,
+        logoBase64: logoDataUrl.value || null,
+        primaryColor: theme.value.primary,
+        accentColor: theme.value.accent,
+        invoiceNumber: d.invoiceNumber || '',
+        invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
+        dueDate: d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—',
+        proformaRef: d.proformaInvoiceNumber || null,
+        customerPONumber: d.customerPONumber || null,
+        currency: curr.currency,
+        currencySymbol: curr.symbol,
+        exchangeRate: curr.rate,
+        customerName: d.customerName || '—',
+        customerContactPerson: contactPerson.value || d.customerContactPerson || null,
+        customerBillTo: billTo.value || d.customerBillTo || null,
+        customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
+        customerBillToPhone: billToPhone.value || d.customerBillToPhone || null,
+        customerBillToContactPerson: billToContactPerson.value || d.customerContactPerson || null,
+        customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
+        customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
+        customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
+        customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
+        customerShipToAccount: d.customerShipToAccount || null,
+        beneficiaryName: beneficiaryName.value || null,
+        beneficiaryAddress: beneficiaryAddress.value || null,
+        bankName: bankName.value || null,
+        bankAddress: bankAddress.value || null,
+        bankAccount: bankAccount.value || null,
+        swiftCode: swiftCode.value || null,
+        shippingMethod: d.shippingMethod || null,
+        shippingCost: Number(d.shippingCost) || 0,
+        items: items.map((it: any) => ({
+          rfqReference: it.rfqReference || null,
+          partNumber: it.partNumber || null,
+          description: it.description || null,
+          qty: it.qty || 0,
+          condition: it.condition || null,
+          certification: it.certification || null,
+          unitPrice: (Number(it.unitPrice) || 0) * curr.rate,
+          totalPrice: (Number(it.totalPrice) || 0) * curr.rate,
+          discount: it.discount > 0 ? Number(it.discount) * curr.rate : null,
+          trackNumber: it.trackNumber || null,
+          carrier: it.carrier || null,
+        })),
+        subtotal: (Number(d.totalAmount) || 0) * curr.rate,
+        tax: (taxAmount.value || 0) * curr.rate,
+        other: (otherAmount.value || 0) * curr.rate,
+        comments: comments.value || null,
+        terms: companyTerms.value || null,
+        footerText: footerText.value || null,
+      }
+
+      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/final-invoice`, {
+        method: 'POST',
+        body: payload,
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+      const url = window.URL.createObjectURL(response)
+      const link = document.createElement('a')
+      link.href = url
+      const customerName = (d.customerName || '').replace(/\s+/g, '_')
+      const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
+      link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}-${customerName}${currencySuffix}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode?.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    }
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

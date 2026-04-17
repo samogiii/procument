@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
+using Procument.Shared.DTOs;
 
 namespace Procument.Module.Catalog.Controllers;
 
@@ -18,10 +19,20 @@ public class CustomersController : ControllerBase
     public CustomersController(DbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult> GetAll()
+    public async Task<ActionResult> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
     {
-        var items = await _db.Set<Customer>()
-            .OrderBy(c => c.Name)
+        var query = _db.Set<Customer>().OrderBy(c => c.Name);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            query = (IOrderedQueryable<Customer>)query.Where(c => c.Name.Contains(s) || (c.CustomerCode != null && c.CustomerCode.Contains(s)));
+        }
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((pq.Page - 1) * pq.PageSize)
+            .Take(pq.PageSize)
             .Select(c => new
             {
                 c.Id,
@@ -35,12 +46,14 @@ public class CustomersController : ControllerBase
                 c.ShippingAccount,
                 c.Description,
                 c.Base,
+                c.TermsAndConditions,
+                c.CurrencyType,
                 c.IsActive,
                 c.CreatedAt
             })
             .ToListAsync();
 
-        return Ok(items);
+        return Ok(new PagedResult<object> { Items = items.Cast<object>().ToList(), TotalCount = total, Page = pq.Page, PageSize = pq.PageSize });
     }
 
     [HttpGet("search")]
@@ -74,6 +87,8 @@ public class CustomersController : ControllerBase
             ShippingAccount = dto.ShippingAccount,
             Description = dto.Description,
             Base = dto.Base,
+            TermsAndConditions = dto.TermsAndConditions,
+            CurrencyType = dto.CurrencyType,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -98,6 +113,8 @@ public class CustomersController : ControllerBase
         entity.ShippingAccount = dto.ShippingAccount;
         entity.Description = dto.Description;
         entity.Base = dto.Base;
+        entity.TermsAndConditions = dto.TermsAndConditions;
+        entity.CurrencyType = dto.CurrencyType;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -126,6 +143,8 @@ public class CustomerDto
     public string? ShippingAccount { get; set; }
     public string? Description { get; set; }
     public int? Base { get; set; }
+    public string? TermsAndConditions { get; set; }
+    public string? CurrencyType { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -141,11 +160,21 @@ public class SuppliersController : ControllerBase
     public SuppliersController(DbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult> GetAll()
+    public async Task<ActionResult> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
     {
-        var items = await _db.Set<Supplier>()
-            .Where(s => s.IsActive)
-            .OrderBy(s => s.Name)
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        IQueryable<Supplier> query = _db.Set<Supplier>().Where(s => s.IsActive);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            query = query.Where(x => x.Name.Contains(s) || (x.Username != null && x.Username.Contains(s)));
+        }
+        query = query.OrderBy(x => x.Name);
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((pq.Page - 1) * pq.PageSize)
+            .Take(pq.PageSize)
             .Select(s => new
             {
                 s.Id,
@@ -163,7 +192,7 @@ public class SuppliersController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(items);
+        return Ok(new PagedResult<object> { Items = items.Cast<object>().ToList(), TotalCount = total, Page = pq.Page, PageSize = pq.PageSize });
     }
 
     /// <summary>Search suppliers — returns Approved and Pending suppliers.</summary>
@@ -354,12 +383,21 @@ public class PartNumbersController : ControllerBase
     public PartNumbersController(DbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<ActionResult> GetAll()
+    public async Task<ActionResult> GetAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
     {
-        var items = await _db.Set<PartNumber>()
-            .Include(p => p.Supplier)
-            .Include(p => p.Alternatives)
-            .OrderBy(p => p.Name)
+        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        IQueryable<PartNumber> query = _db.Set<PartNumber>();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            query = query.Where(p => p.Name.Contains(s) || p.Alternatives.Any(a => a.Name.Contains(s)));
+        }
+        query = query.OrderBy(p => p.Name);
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((pq.Page - 1) * pq.PageSize)
+            .Take(pq.PageSize)
             .Select(p => new
             {
                 p.Id,
@@ -373,7 +411,7 @@ public class PartNumbersController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(items);
+        return Ok(new PagedResult<object> { Items = items.Cast<object>().ToList(), TotalCount = total, Page = pq.Page, PageSize = pq.PageSize });
     }
 
     [HttpGet("search")]

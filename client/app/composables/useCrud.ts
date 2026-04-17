@@ -47,14 +47,30 @@ export function useCrud<TForm extends Record<string, any>>(
     })
 
     // ─── Actions ───
+    let _loadId = 0
     async function loadItems() {
+        const id = ++_loadId
         loading.value = true
+        const accumulated: any[] = []
+        let page = 1
+        const batchSize = 200
         try {
-            items.value = await api.get<any[]>(apiPath)
+            while (true) {
+                const res = await api.get<any>(`${apiPath}?page=${page}&pageSize=${batchSize}`)
+                if (_loadId !== id) return
+                const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+                const total: number = (!Array.isArray(res) && res != null)
+                    ? (res.totalCount ?? res.TotalCount ?? batch.length)
+                    : batch.length
+                accumulated.push(...batch)
+                if (batch.length < batchSize || accumulated.length >= total) break
+                page++
+            }
+            items.value = accumulated
         } catch (e) {
             console.error(`[useCrud] Failed to load ${apiPath}`, e)
         } finally {
-            loading.value = false
+            if (_loadId === id) loading.value = false
         }
     }
 

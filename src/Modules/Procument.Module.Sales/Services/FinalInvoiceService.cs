@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Procument.Shared.DTOs;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Sales.DTOs;
@@ -8,7 +9,7 @@ namespace Procument.Module.Sales.Services;
 
 public interface IFinalInvoiceService
 {
-    Task<List<FinalInvoiceResponse>> GetAllAsync();
+    Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page);
     Task<FinalInvoiceResponse?> GetByIdAsync(long id);
     Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
     Task<bool> UpdateStatusAsync(long id, string status);
@@ -26,21 +27,44 @@ public class FinalInvoiceService : IFinalInvoiceService
         _db = db;
     }
 
-    public async Task<List<FinalInvoiceResponse>> GetAllAsync()
+    /// <summary>
+    /// List endpoint — paginated and projected to a flat DTO so the query is a single
+    /// SELECT with only the columns the list page actually displays. Avoids the 5-level
+    /// Include/ThenInclude chain used by <see cref="GetByIdAsync"/>.
+    /// </summary>
+    public async Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page)
     {
-        var invoices = await _db.Set<FinalInvoice>()
-            .Include(fi => fi.Customer)
-            .Include(fi => fi.ProformaInvoice)
-            .Include(fi => fi.Items).ThenInclude(i => i.PartNumber)
-            .Include(fi => fi.Items).ThenInclude(i => i.InvoiceItem)
-                .ThenInclude(ii => ii!.QuoteItem)
-                    .ThenInclude(qi => qi!.RFQItem)
-                        .ThenInclude(ri => ri!.RFQ)
-                            .ThenInclude(r => r!.RFQItems)
-            .OrderByDescending(fi => fi.CreatedAt)
-            .ToListAsync();
+        var q = _db.Set<FinalInvoice>().AsQueryable();
 
-        return invoices.Select(MapToResponse).ToList();
+        if (!string.IsNullOrWhiteSpace(page.Search))
+        {
+            var s = page.Search.Trim();
+            q = q.Where(fi =>
+                fi.InvoiceNumber.Contains(s)
+             || (fi.Customer != null && fi.Customer.Name.Contains(s))
+             || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s)));
+        }
+
+        var projected = q
+            .OrderByDescending(fi => fi.CreatedAt)
+            .Select(fi => new FinalInvoiceListItem
+            {
+                Id = fi.Id,
+                InvoiceNumber = fi.InvoiceNumber,
+                TotalAmount = fi.TotalAmount,
+                Status = fi.Status,
+                CreatedAt = fi.CreatedAt,
+                DueDate = fi.DueDate,
+                PaidDate = fi.PaidDate,
+                ProformaInvoiceId = fi.ProformaInvoiceId,
+                ProformaInvoiceNumber = fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : "",
+                CustomerId = fi.CustomerId,
+                CustomerName = fi.Customer != null ? fi.Customer.Name : "",
+                CustomerCode = fi.Customer != null ? fi.Customer.CustomerCode : null,
+                ItemCount = fi.Items.Count()
+            });
+
+        return await projected.ToPagedResultAsync(page);
     }
 
     public async Task<FinalInvoiceResponse?> GetByIdAsync(long id)
@@ -237,6 +261,8 @@ public class FinalInvoiceService : IFinalInvoiceService
             CustomerBillTo = fi.Customer?.BillTo,
             CustomerBillToEmail = fi.Customer?.Email,
             CustomerBillToPhone = fi.Customer?.Phone,
+            CustomerTermsAndConditions = fi.Customer?.TermsAndConditions,
+            CustomerCurrencyType = fi.Customer?.CurrencyType,
             //CustomerBillToContactPerson = fi.Customer?.ContactPerson,
             CustomerShipTo = fi.Customer?.ShipTo,
             CustomerShipToContactPerson = fi.Customer?.ContactPerson,

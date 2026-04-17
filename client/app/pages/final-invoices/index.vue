@@ -21,6 +21,8 @@
           <v-select
             v-model="customerFilter"
             :items="customerOptions"
+            item-title="title"
+            item-value="value"
             label="Customer"
             hide-details
             class="mx-2"
@@ -125,9 +127,14 @@ const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
 const customerOptions = computed(() => {
-  const set = new Set<string>()
-  invoices.value.forEach((inv: any) => { if (inv.customerName) set.add(inv.customerName) })
-  return Array.from(set).sort()
+  const map = new Map<string, string>()
+  invoices.value.forEach((inv: any) => {
+    if (inv.customerName && !map.has(inv.customerName))
+      map.set(inv.customerName, inv.customerCode || '')
+  })
+  return Array.from(map.entries())
+    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title))
 })
 
 const filteredInvoices = computed(() => {
@@ -160,7 +167,17 @@ const { statusColor } = useStatusColor()
 onMounted(async () => {
   loading.value = true
   try {
-    invoices.value = await api.get<any[]>('/final-invoices')
+    const accumulated: any[] = []
+    let page = 1
+    while (true) {
+      const res = await api.get<any>(`/final-invoices?page=${page}&pageSize=200`)
+      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
+      accumulated.push(...batch)
+      if (batch.length < 200 || accumulated.length >= total) break
+      page++
+    }
+    invoices.value = accumulated
   } catch {}
   finally { loading.value = false }
 })

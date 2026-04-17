@@ -24,6 +24,8 @@ export default defineVuetifyConfiguration({
                     success: '#66BB6A',
                     'on-background': '#E6EDF3',
                     'on-surface': '#E6EDF3',
+                    tooltip: '#8B0000',
+                    'on-tooltip': '#FFFFFF',
                 },
             },
             procumentLight: {
@@ -43,6 +45,8 @@ export default defineVuetifyConfiguration({
                     success: '#2E7D32',
                     'on-background': '#1A2332',
                     'on-surface': '#1A2332',
+                    tooltip: '#FFCDD2',
+                    'on-tooltip': '#000000',
                 },
             },
         },
@@ -67,6 +71,9 @@ export default defineVuetifyConfiguration({
         },
         VDataTableServer: {
             density: 'comfortable',
+        },
+        VTooltip: {
+            color: 'tooltip',
         },
     },
 })
