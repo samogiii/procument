@@ -8,7 +8,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/procument-page")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class ProcumentPageController : ControllerBase
 {
     private readonly IProcumentPageService _service;
@@ -46,7 +46,7 @@ public class ProcumentPageController : ControllerBase
         {
             userId = id;
         }
-        bool isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         return (userId, isAdmin);
     }
 }

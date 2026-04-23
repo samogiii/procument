@@ -14,6 +14,7 @@ public class AvailabilityRecord
     public string? CertName { get; set; }
     public string? LeadTime { get; set; }
     public string? AltPartNumber { get; set; }
+    public string? TagDate { get; set; }
 }
 
 public class PartAvailabilityResponse

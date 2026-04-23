@@ -25,6 +25,7 @@ public class ProcumentRecord : BaseEntity
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
     public bool IsCertificated { get; set; }
+    public int SortOrder { get; set; }
 
     // Shop fields
     public string Type { get; set; } = "Procument";

@@ -49,6 +49,179 @@
       </v-col>
     </v-row>
 
+    <!-- ── Admin Approval (visible to Admin/SuperAdmin; action buttons for SuperAdmin only) ── -->
+    <v-card class="glass-card mb-6" v-if="isAdmin">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-shield-check" class="mr-2" size="20" color="warning" />
+        Admin Approval
+        <v-spacer />
+        <v-chip
+          size="small"
+          :color="approvalColor(po.adminApproval)"
+          :prepend-icon="approvalIcon(po.adminApproval)"
+        >{{ po.adminApproval || 'Pending' }}</v-chip>
+      </v-card-title>
+      <v-card-text>
+        <div v-if="po.adminApprovalNote" class="mb-3 text-body-2 text-medium-emphasis">
+          <strong>Note:</strong> {{ po.adminApprovalNote }}
+        </div>
+        <div v-if="po.adminApproval !== 'Approved' && isSuperAdmin" class="d-flex flex-wrap gap-2">
+          <v-btn color="success" variant="flat" prepend-icon="mdi-check" :loading="approving" @click="approvePo">Accept</v-btn>
+          <v-btn color="error" variant="tonal" prepend-icon="mdi-close" :loading="approving" @click="showRejectDialog = true">Reject</v-btn>
+        </div>
+        <v-alert v-else-if="po.adminApproval !== 'Approved' && !isSuperAdmin" type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-lock">
+          This PO is locked — only a SuperAdmin can Accept or Reject it.
+        </v-alert>
+        <v-alert v-else type="success" variant="tonal" density="compact" class="mt-2" icon="mdi-check-circle">
+          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — Payment role can now process this PO.
+        </v-alert>
+      </v-card-text>
+    </v-card>
+
+    <!-- ── Payment Approval (visible if rejected or after admin approval) ── -->
+    <v-card class="glass-card mb-6" v-if="po.adminApproval === 'Approved' || po.paymentApproval === 'Rejected'">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-cash-check" class="mr-2" size="20" color="success" />
+        Payment Approval
+        <v-spacer />
+        <v-chip
+          size="small"
+          :color="po.paymentApproval === 'Rejected' ? 'error' : (po.paymentStatus === 'Submitted' ? 'success' : 'warning')"
+          :prepend-icon="po.paymentApproval === 'Rejected' ? 'mdi-close-circle' : (po.paymentStatus === 'Submitted' ? 'mdi-check-circle' : 'mdi-clock-outline')"
+        >
+          {{ po.paymentApproval === 'Rejected' ? 'Rejected by Payment' : (po.paymentStatus === 'Submitted' ? 'Payment Submitted' : 'Awaiting Payment') }}
+        </v-chip>
+      </v-card-title>
+      <v-card-text>
+        <v-alert v-if="po.paymentApproval === 'Rejected'" type="error" variant="tonal" class="mb-3" icon="mdi-alert-circle">
+          <strong>Rejected by Payment:</strong> {{ po.paymentApprovalNote }}
+          <div class="text-caption mt-1">Please check the files, replace if necessary, and resubmit (SuperAdmin must re-approve).</div>
+        </v-alert>
+        <div v-else-if="po.paymentStatus === 'Submitted'" class="text-body-2">
+          Payment has been submitted and is pending final acceptance.
+        </div>
+        <div v-else class="text-body-2 text-medium-emphasis">
+          Awaiting payment submission from the Payment department.
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <!-- ── Supplier Documents (visible to everyone who can see the PO) ── -->
+    <v-card class="glass-card mb-6" v-if="po.invoiceId && po.supplierId">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-folder-multiple-outline" class="mr-2" size="20" color="primary" />
+        Supplier Documents
+        <v-chip v-if="supplierDocs.length" size="x-small" class="ml-2" variant="tonal" color="primary">{{ supplierDocs.length }}</v-chip>
+        <v-spacer />
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              variant="tonal"
+              color="primary"
+              size="small"
+              prepend-icon="mdi-upload"
+              append-icon="mdi-chevron-down"
+              :loading="uploadingSupplierDoc"
+              v-bind="menuProps"
+            >Upload</v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item @click="triggerUpload('supplier_invoice')">
+              <template #prepend>
+                <v-icon icon="mdi-file-document-outline" size="18" color="primary" />
+              </template>
+              <v-list-item-title>Supplier Invoice</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="triggerUpload('supplier_bank_info')">
+              <template #prepend>
+                <v-icon icon="mdi-bank-outline" size="18" color="success" />
+              </template>
+              <v-list-item-title>Supplier Bank Info</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
+        <input ref="supplierDocInputRef" type="file" class="d-none" @change="onSupplierDocSelected" />
+      </v-card-title>
+      <v-card-text>
+        <div v-if="!supplierDocs.length" class="text-body-2 text-medium-emphasis">
+          No supplier documents uploaded yet. Click <strong>Upload</strong> to add one.
+        </div>
+        <div v-else class="d-flex flex-column gap-2">
+          <div
+            v-for="f in supplierDocs"
+            :key="f.name"
+            class="d-flex align-center gap-3 pa-2 rounded file-row"
+          >
+            <v-icon icon="mdi-file-document-outline" color="primary" size="22" />
+            <div class="d-flex flex-column" style="min-width:0; flex:1;">
+              <span class="text-body-2 font-weight-medium text-truncate">{{ f.name }}</span>
+              <span class="text-caption text-medium-emphasis">
+                {{ formatBytes(f.size) }} · {{ new Date(f.modifiedAt).toLocaleString() }}
+              </span>
+            </div>
+            <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierDoc(f.name)">Download</v-btn>
+            <v-btn
+              v-if="isAdmin"
+              size="small"
+              variant="text"
+              color="error"
+              icon="mdi-delete"
+              :loading="deletingDoc === f.name"
+              @click="deleteSupplierDoc(f.name)"
+            />
+          </div>
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <!-- ── Full RFQ → Quote → Invoice → PO Trail (Admin only) ── -->
+    <v-card class="glass-card mb-6" v-if="isAdmin && enriched">
+      <v-card-title>
+        <v-icon icon="mdi-chart-timeline-variant" class="mr-2" size="20" />
+        Item Trail — RFQ → Procurement → Quote → Invoice → PO
+      </v-card-title>
+      <v-card-text class="pa-0">
+        <v-table density="compact" class="enriched-table">
+          <thead>
+            <tr>
+              <th>Part</th>
+              <th>Description</th>
+              <th>Qty</th>
+              <th>Customer</th>
+              <th>RFQ</th>
+              <th>Proc. Supplier</th>
+              <th>Buy Price</th>
+              <th>Quote</th>
+              <th>Quote Price</th>
+              <th>Invoice</th>
+              <th>Inv. Price</th>
+              <th>PO Supplier</th>
+              <th>PO Price</th>
+              <th>PO Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(it, idx) in (enriched.items || [])" :key="idx">
+              <td class="font-weight-medium">{{ it.partNumber || '—' }}</td>
+              <td class="text-medium-emphasis" style="max-width: 280px; white-space: normal;">{{ it.description || '—' }}</td>
+              <td>{{ it.qty }}</td>
+              <td>{{ it.customerName || '—' }}</td>
+              <td>{{ it.rfqNumber || '—' }}</td>
+              <td>{{ it.procurementSupplier || '—' }}</td>
+              <td>{{ it.procurementBuyPrice != null ? '$' + formatPrice(it.procurementBuyPrice) : '—' }}</td>
+              <td>{{ it.quoteNumber || '—' }}</td>
+              <td>{{ it.quoteUnitPrice != null ? '$' + formatPrice(it.quoteUnitPrice) : '—' }}</td>
+              <td>{{ it.invoiceNumber || '—' }}</td>
+              <td>{{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice) : '—' }}</td>
+              <td>{{ it.poSupplier || '—' }}</td>
+              <td>${{ formatPrice(it.poUnitPrice) }}</td>
+              <td class="font-weight-bold">${{ formatPrice(it.poTotalPrice) }}</td>
+            </tr>
+          </tbody>
+        </v-table>
+      </v-card-text>
+    </v-card>
+
     <!-- ── Import Details ── -->
     <v-card class="glass-card mb-6">
       <v-card-title class="d-flex align-center">
@@ -208,6 +381,22 @@
       </v-card>
     </v-dialog>
 
+    <!-- Reject PO Dialog -->
+    <v-dialog v-model="showRejectDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="text-h6">Reject Purchase Order</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-3">Provide a reason for rejection (optional):</p>
+          <v-textarea v-model="rejectionNote" label="Rejection Note" variant="outlined" rows="3" auto-grow />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="approving" @click="rejectPo">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
@@ -226,19 +415,19 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const poStatuses = [
-  { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
-  { value: 'Accept', label: 'Accept', icon: 'mdi-check-circle', color: 'success' },
-  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'warning' },
-  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'teal' },
+  { value: 'Waiting For Admin Approval', label: 'Waiting For Admin Approval', icon: 'mdi-shield-clock', color: 'warning' },
+  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'orange' },
+  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'success' },
   { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
   { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
   { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
-  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'orange' },
-  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'green' },
+  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'info' },
+  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
 ]
 
 const isAdmin = computed(() => authStore.isAdmin)
+const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 const showPdf = ref(false)
 
 const entityId = computed(() => String(route.params.id))
@@ -248,6 +437,14 @@ const poStatusColor = computed(() => {
   const found = poStatuses.find(s => s.value === po.value.status)
   return found?.color || 'grey'
 })
+
+// ── Company Presets ──
+const apiPresets = ref<any[]>([])
+async function loadPresets() {
+  try {
+    apiPresets.value = await api.get('/company-presets')
+  } catch {}
+}
 
 // ── Import Details ──
 const editingImport = ref(false)
@@ -283,11 +480,90 @@ async function saveImport() {
     importOriginal.value = { ...saved }
     editingImport.value = false
     showSnack('Import details saved', 'success')
+    // Auto-generate DasturPardakht (DP) PDF (best-effort; don't fail the save flow on PDF errors)
+    try { await generateAndUploadDpPdf() } catch (e) { console.error('DP PDF generation failed', e) }
   } catch {
     showSnack('Failed to save import details', 'error')
   } finally {
     savingImport.value = false
   }
+}
+
+async function generateAndUploadDpPdf() {
+  if (!po.value?.invoiceId || !po.value?.supplierId) return
+
+  // Ensure dependencies are loaded
+  if (!enriched.value) await loadEnriched()
+  if (!apiPresets.value.length) await loadPresets()
+
+  // Build items from enriched trail if available, else from po.items
+  const trailItems = (enriched.value?.items || []).filter((it: any) =>
+    it.poSupplier && it.poSupplier === po.value.supplierName
+  )
+  const items = (trailItems.length ? trailItems : (po.value.items || [])).map((it: any) => ({
+    partNumber: it.partNumber || it.partNumberName || '—',
+    qty: it.qty || 0,
+    poSupplier: it.poSupplier || po.value.supplierName || '—',
+    quotePrice: it.quoteUnitPrice ?? null,
+    poPrice: it.poUnitPrice ?? it.unitPrice ?? 0,
+    poTotal: it.poTotalPrice ?? it.totalPrice ?? 0,
+  }))
+  const grandTotal = items.reduce((s: number, i: any) => s + Number(i.poTotal || 0), 0)
+
+  // Map customerBase to Company Preset name
+  let companyPresetName = ''
+  // Use enriched items first as they contain the customerBase from RFQ
+  const firstItem = (enriched.value?.items || []).find((it: any) => it.customerBase != null)
+  if (firstItem) {
+    const match = apiPresets.value.find((p: any) => p.sortOrder === firstItem.customerBase)
+    if (match) {
+      companyPresetName = match.name
+    } else {
+      console.warn(`No CompanyPreset found with sortOrder ${firstItem.customerBase}`)
+    }
+  } else {
+    console.warn('No items with customerBase found in enriched trail')
+  }
+
+  const payload = {
+    poNumber: po.value.poNumber,
+    documentDate: new Date().toISOString().slice(0, 10),
+    supplierName: po.value.supplierName,
+    currency: po.value.currency || 'USD',
+    currencySymbol: '$',
+    companyPresetName,
+    bankName: importForm.value.bankName,
+    bankAccountNumber: importForm.value.bankAccountNumber,
+    bankAddress: importForm.value.bankAddress,
+    bankCity: importForm.value.bankCity,
+    bankCountry: importForm.value.bankCountry,
+    swiftCode: importForm.value.swiftCode || null,
+    notes: importForm.value.notes,
+    items,
+    grandTotal,
+  }
+
+  console.log('Generating DP PDF with payload:', payload)
+
+  const blob = await $fetch<Blob>(`${config.public.apiBase}/pdf/dp`, {
+    method: 'POST',
+    body: payload,
+    headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    responseType: 'blob',
+  })
+
+  // Upload the generated PDF to supplier folder under category "dp"
+  const form = new FormData()
+  const file = new File([blob], `DP-${po.value.poNumber || 'document'}.pdf`, { type: 'application/pdf' })
+  form.append('file', file)
+  form.append('category', 'dp')
+  await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/upload`, {
+    method: 'POST',
+    body: form,
+    headers: { Authorization: `Bearer ${authStore.user?.token}` },
+  })
+  await loadSupplierDocs()
+  showSnack('DP PDF generated', 'success')
 }
 
 // ── Track Numbers ──
@@ -341,17 +617,179 @@ async function deleteTrack(item: any, trackId: number) {
   }
 }
 
+// ── Admin Approval ──
+const approving = ref(false)
+const showRejectDialog = ref(false)
+const rejectionNote = ref('')
+const enriched = ref<any>(null)
+
+function approvalColor(v: string | undefined) {
+  if (v === 'Approved') return 'success'
+  if (v === 'Rejected') return 'error'
+  return 'warning'
+}
+function approvalIcon(v: string | undefined) {
+  if (v === 'Approved') return 'mdi-check-circle'
+  if (v === 'Rejected') return 'mdi-close-circle'
+  return 'mdi-clock-outline'
+}
+
+async function approvePo() {
+  approving.value = true
+  try {
+    await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision: 'Approved', note: null })
+    po.value.adminApproval = 'Approved'
+    po.value.adminApprovalAt = new Date().toISOString()
+    po.value.status = 'Waiting For Payment'
+    showSnack('PO approved', 'success')
+  } catch { showSnack('Failed to approve', 'error') }
+  finally { approving.value = false }
+}
+
+async function rejectPo() {
+  approving.value = true
+  try {
+    await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision: 'Rejected', note: rejectionNote.value || null })
+    po.value.adminApproval = 'Rejected'
+    po.value.adminApprovalNote = rejectionNote.value || null
+    po.value.status = 'Waiting For Admin Approval'
+    showRejectDialog.value = false
+    rejectionNote.value = ''
+    showSnack('PO rejected', 'warning')
+  } catch { showSnack('Failed to reject', 'error') }
+  finally { approving.value = false }
+}
+
+async function loadEnriched() {
+  try {
+    enriched.value = await api.get(`/purchase-orders/${route.params.id}/enriched`)
+  } catch {}
+}
+
+// ── Supplier Documents ──
+type SupplierFile = { name: string; size: number; modifiedAt: string }
+const supplierDocs = ref<SupplierFile[]>([])
+const uploadingSupplierDoc = ref(false)
+const deletingDoc = ref<string | null>(null)
+const supplierDocInputRef = ref<HTMLInputElement | null>(null)
+const uploadCategory = ref<string>('supplier_invoice')
+const config = useRuntimeConfig()
+
+function triggerUpload(category: string) {
+  uploadCategory.value = category
+  supplierDocInputRef.value?.click()
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0, b = bytes
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++ }
+  return `${b.toFixed(b < 10 && i > 0 ? 1 : 0)} ${units[i]}`
+}
+
+async function loadSupplierDocs() {
+  if (!po.value?.invoiceId || !po.value?.supplierId) return
+  try {
+    const data = await api.get<any>(`/documents/proforma-invoice/${po.value.invoiceId}`)
+    const section = (data?.suppliers || []).find((s: any) => s.supplierId === po.value.supplierId)
+    supplierDocs.value = (section?.files || []).filter((f: SupplierFile) =>
+      f.name.startsWith('Supplier Invoice') ||
+      f.name.startsWith('supplier_invoice') ||
+      f.name.startsWith('Supplier Bank Info') ||
+      f.name.startsWith('supplier_bank_info') ||
+      f.name.startsWith('DP') ||
+      f.name.startsWith('dp ')
+    )
+  } catch {
+    supplierDocs.value = []
+  }
+}
+
+async function onSupplierDocSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !po.value?.invoiceId || !po.value?.supplierId) return
+  uploadingSupplierDoc.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('category', uploadCategory.value || 'supplier_invoice')
+    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/upload`, {
+      method: 'POST',
+      body: form,
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    showSnack('Supplier document uploaded', 'success')
+    await loadSupplierDocs()
+  } catch (err: any) {
+    showSnack(err?.data?.message || 'Upload failed', 'error')
+  } finally {
+    uploadingSupplierDoc.value = false
+    if (input) input.value = ''
+  }
+}
+
+async function downloadSupplierDoc(name: string) {
+  if (!po.value?.invoiceId || !po.value?.supplierId) return
+  try {
+    const blob = await $fetch<Blob>(
+      `${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/file`,
+      {
+        method: 'GET',
+        query: { name },
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+        responseType: 'blob',
+      }
+    )
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = name
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  } catch { showSnack('Download failed', 'error') }
+}
+
+async function deleteSupplierDoc(name: string) {
+  if (!po.value?.invoiceId || !po.value?.supplierId) return
+  if (!confirm(`Delete "${name}"?`)) return
+  deletingDoc.value = name
+  try {
+    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/file`, {
+      method: 'DELETE',
+      query: { name },
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    showSnack('Deleted', 'success')
+    await loadSupplierDocs()
+  } catch { showSnack('Delete failed', 'error') }
+  finally { deletingDoc.value = null }
+}
+
 // ── Load Data ──
 onMounted(async () => {
   try { po.value = await api.get(`/purchase-orders/${route.params.id}`) } catch {}
-  await Promise.all([loadImportDetail(), checkLock()])
+  await Promise.all([loadImportDetail(), checkLock(), loadEnriched(), loadSupplierDocs(), loadPresets()])
 })
 
 // ── Status ──
 async function changeStatus(newStatus: string) {
   if (newStatus === po.value.status) return
+
+  // 1. If waiting for admin approval, manual change is blocked
+  if (po.value.adminApproval !== 'Approved' && po.value.status === 'Waiting For Admin Approval') {
+    showSnack('Cannot manually change status until SuperAdmin approves', 'warning')
+    return
+  }
+
+  // 2. If waiting for payment, manual change is blocked
+  if (po.value.adminApproval === 'Approved' && po.value.paymentStatus !== 'Submitted') {
+    showSnack('Cannot manually change status while Awaiting Payment', 'warning')
+    return
+  }
+
   try {
-    await api.patch(`/purchase-orders/${route.params.id}/status`, { status: newStatus })
+    await api.patch(`/purchase-orders/${po.value.id}/status`, { status: newStatus })
     po.value.status = newStatus
     showSnack(`Status changed to ${newStatus}`, 'success')
   } catch {
@@ -365,3 +803,15 @@ function showSnack(text: string, color: string) {
   snackbar.value = true
 }
 </script>
+
+<style scoped>
+/* Theme-aware file row — adapts to both light and dark themes via Vuetify CSS vars. */
+.file-row {
+  background-color: rgba(var(--v-theme-on-surface), 0.06);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  transition: background-color 0.15s ease;
+}
+.file-row:hover {
+  background-color: rgba(var(--v-theme-on-surface), 0.1);
+}
+</style>

@@ -12,6 +12,11 @@ public class User : AuditableEntity
 
 public static class UserRoles
 {
+    public const string SuperAdmin = "SuperAdmin";
     public const string Admin = "Admin";
     public const string Expert = "Expert";
+    public const string Payment = "Payment";
+
+    /// <summary>Roles that have Admin-level permissions (Admin + SuperAdmin).</summary>
+    public static readonly string[] AdminRoles = new[] { Admin, SuperAdmin };
 }

@@ -52,6 +52,7 @@ builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>(
 // ─── Application Services ───
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IFinalInvoiceLockGuard, FinalInvoiceLockGuard>();
+builder.Services.AddSingleton<IDocumentStorageService, DocumentStorageService>();
 
 // ─── JWT Authentication ───
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -78,8 +79,8 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("ExpertOrAdmin", policy => policy.RequireRole("Admin", "Expert"));
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin", "SuperAdmin"));
+    options.AddPolicy("ExpertOrAdmin", policy => policy.RequireRole("Admin", "SuperAdmin", "Expert"));
 });
 
 // ─── Controllers + Audit Filter ───
@@ -95,9 +96,13 @@ builder.Services.AddOpenApi();
 // ─── CORS ───
 builder.Services.AddCors(options =>
 {
+    // Fully open CORS — allow any origin, header, and method.
+    // SetIsOriginAllowed(_ => true) is required (instead of AllowAnyOrigin) when
+    // AllowCredentials() is used, because the spec forbids "*" with credentials.
+    // Each request's own Origin is echoed back as Access-Control-Allow-Origin.
     options.AddPolicy("AllowClient", policy =>
     {
-        policy.WithOrigins("http://192.168.37.100:3000", "http://localhost:3000", "http://192.168.3.3:3000")
+        policy.SetIsOriginAllowed(_ => true)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -138,11 +143,52 @@ if (app.Environment.IsDevelopment())
     .WithOpenApi();
 }
 
-if (app.Environment.IsDevelopment())
+// CORS must run BEFORE HttpsRedirection — otherwise a 307 redirect is returned
+// without the Access-Control-Allow-Origin header and the browser blocks the request
+// (this is what the "No 'Access-Control-Allow-Origin' header is present" error was).
+app.UseCors("AllowClient");
+
+// Global exception handler — runs INSIDE CORS so 500 responses still carry the
+// Access-Control-Allow-Origin header. Without this, unhandled exceptions short-circuit
+// the pipeline before CORS writes headers, and the browser reports a misleading
+// "No 'Access-Control-Allow-Origin' header" error instead of the real 500 body.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("GlobalExceptionHandler");
+        logger.LogError(ex, "Unhandled exception on {Method} {Path}", context.Request.Method, context.Request.Path);
+
+        if (!context.Response.HasStarted)
+        {
+            context.Response.Clear();
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/json";
+            var payload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                error = ex.GetType().Name,
+                message = ex.Message,
+                // Keep stack only in Development; strip in production if you later want to hide it.
+                stack = app.Environment.IsDevelopment() ? ex.ToString() : null,
+            });
+            await context.Response.WriteAsync(payload);
+        }
+    }
+});
+
+// HTTPS redirect is disabled in development because the client hits the API over plain
+// HTTP on the LAN (e.g. http://192.168.37.100:3333). Re-enable behind a reverse proxy
+// that terminates TLS, or in non-dev environments.
+if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
-app.UseCors("AllowClient");
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

@@ -8,6 +8,7 @@ using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Entities;
 using Procument.Module.Purchasing.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Services;
 
@@ -15,11 +16,13 @@ public class InvoiceService : IInvoiceService
 {
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
+    private readonly IDocumentStorageService _documentStorage;
 
-    public InvoiceService(DbContext db, IPermissionService permissionService)
+    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage)
     {
         _db = db;
         _permissionService = permissionService;
+        _documentStorage = documentStorage;
     }
 
     public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null)
@@ -153,6 +156,10 @@ public class InvoiceService : IInvoiceService
         // Set InvoiceNumber to INV-{Id} now that the Id is assigned
         invoice.InvoiceNumber = $"INV-{invoice.Id}";
         await _db.SaveChangesAsync();
+
+        // Create the document folder for this Proforma Invoice
+        try { _documentStorage.EnsureProformaInvoiceFolder(invoice.InvoiceNumber); }
+        catch { /* folder creation must not fail invoice creation */ }
 
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
     }
@@ -288,11 +295,13 @@ public class InvoiceService : IInvoiceService
 
     private static InvoiceResponse MapToResponse(Invoice i)
     {
-        // Build rank map from the full ordered RFQ item list (same logic as QuoteService)
+        // Build rank map from the full ordered RFQ item list (same logic as QuoteService).
+        // Null-safe: on the list endpoint RFQ.RFQItems is NOT eagerly loaded, so guard the
+        // nested collection access. If items aren't loaded we just skip rank-building.
         var rfqItemRank = i.InvoiceItems?
             .Select(ii => ii.QuoteItem?.RFQItem?.RFQ)
-            .Where(r => r != null)
-            .SelectMany(r => r!.RFQItems)
+            .Where(r => r != null && r!.RFQItems != null)
+            .SelectMany(r => r!.RFQItems!)
             .DistinctBy(ri => ri.Id)
             .OrderBy(ri => ri.Id)
             .Select((ri, idx) => new { ri.Id, rank = idx + 1 })

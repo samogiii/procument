@@ -7,7 +7,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/caplist")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class CapListController : ControllerBase
 {
     private readonly ICapListService _capListService;
@@ -43,7 +43,7 @@ public class CapListController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Delete(long id)
     {
         var deleted = await _capListService.DeleteAsync(id);
@@ -51,7 +51,7 @@ public class CapListController : ControllerBase
     }
 
     [HttpGet("ar-shop-suggestions")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetARShopSuggestions()
     {
         var suggestions = await _capListService.GetARShopSuggestionsAsync();

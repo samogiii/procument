@@ -14,7 +14,7 @@ namespace Procument.Module.RFQ.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class RFQsController : ControllerBase
 {
     private readonly IRFQService _rfqService;
@@ -79,7 +79,7 @@ public class RFQsController : ControllerBase
         {
             userId = id;
         }
-        bool isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         return (userId, isAdmin);
     }
 
@@ -101,7 +101,7 @@ public class RFQsController : ControllerBase
 
     /// <summary>Delete an RFQ item if it has no linked quote items. Admin only.</summary>
     [HttpDelete("items/{itemId:long}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteItem(long itemId)
     {
         var item =await  _rfqService.DeleteRFQItem(itemId);
@@ -156,7 +156,7 @@ public class RFQsController : ControllerBase
 
     /// <summary>Admin reverts a 'No Quote' RFQ back to Open and unassigns all users.</summary>
     [HttpPost("{id:long}/revert-no-quote")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> RevertNoQuote(long id)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
@@ -186,7 +186,7 @@ public class RFQsController : ControllerBase
 
     /// <summary>Admin accepts a 'No Quote' request.</summary>
     [HttpPost("{id:long}/accept-no-quote")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> AcceptNoQuote(long id)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
@@ -206,7 +206,7 @@ public class RFQsController : ControllerBase
 
     /// <summary>Admin rejects a 'No Quote' request.</summary>
     [HttpPost("{id:long}/reject-no-quote")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> RejectNoQuote(long id, [FromBody] RejectNoQuoteRequest request)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);

@@ -20,6 +20,7 @@ public interface IQuoteService
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
+    Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin);
 }
 
 public class QuoteService : IQuoteService
@@ -137,7 +138,7 @@ public class QuoteService : IQuoteService
         var quoteItems = new List<QuoteItem>();
         decimal totalAmount = 0;
 
-        foreach (var itemReq in request.Items)
+        foreach (var (itemReq, index) in request.Items.Select((req, i) => (req, i)))
         {
             var rfqItem = await _db.Set<RFQItem>()
                 .Include(i => i.PartNumber)
@@ -157,7 +158,8 @@ public class QuoteService : IQuoteService
                 TotalPrice = totalPrice,
                 Condition = itemReq.Condition,
                 Alt = itemReq.Alt,
-                LeadTimeDays = itemReq.LeadTimeDays
+                LeadTimeDays = itemReq.LeadTimeDays,
+                SortOrder = index
             });
         }
 
@@ -336,7 +338,7 @@ public class QuoteService : IQuoteService
         decimal totalAmount = 0;
         var newItems = new List<QuoteItem>();
 
-        foreach (var itemReq in request.Items)
+        foreach (var (itemReq, index) in request.Items.Select((req, i) => (req, i)))
         {
             var rfqItem = await _db.Set<RFQItem>()
                 .Include(i => i.PartNumber)
@@ -356,7 +358,8 @@ public class QuoteService : IQuoteService
                 TotalPrice = totalPrice,
                 Condition = itemReq.Condition,
                 Alt = itemReq.Alt,
-                LeadTimeDays = itemReq.LeadTimeDays
+                LeadTimeDays = itemReq.LeadTimeDays,
+                SortOrder = index
             });
         }
 
@@ -370,6 +373,29 @@ public class QuoteService : IQuoteService
 
         await _db.SaveChangesAsync();
         return await GetByIdAsync(quote.Id, userId, true);
+    }
+
+    public async Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin)
+    {
+        var quote = await _db.Set<Quote>()
+            .Include(q => q.QuoteItems)
+            .FirstOrDefaultAsync(q => q.Id == quoteId);
+        if (quote == null) return false;
+
+        if (!isAdmin && quote.UserId != userId)
+        {
+            var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
+            if (!hasPermission) return false;
+        }
+
+        var orderMap = items.ToDictionary(i => i.Id, i => i.SortOrder);
+        foreach (var qi in quote.QuoteItems)
+        {
+            if (orderMap.TryGetValue(qi.Id, out var so))
+                qi.SortOrder = so;
+        }
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     /// <summary>
@@ -433,9 +459,13 @@ public class QuoteService : IQuoteService
             RFQName = q.RFQ?.Name,
             FinalPrice = q.FinalPrice,
             SentAt = q.SentAt,
-            Items = q.QuoteItems.OrderBy(qi => qi.RFQItemId).Select(qi => new QuoteItemResponse
+            Items = q.QuoteItems
+                .OrderBy(qi => qi.SortOrder)
+                .ThenBy(qi => qi.RFQItemId)
+                .Select(qi => new QuoteItemResponse
             {
                 Id = qi.Id,
+                SortOrder = qi.SortOrder,
                 PartNumberName = qi.PartNumber?.Name ?? "",
                 Description = qi.PartNumber?.Description,
                 PartNumberId = qi.PartNumberId,
@@ -457,7 +487,8 @@ public class QuoteService : IQuoteService
                 BuyPrice = qi.ProcumentRecord?.Price,
                 SupplierName = qi.ProcumentRecord?.Supplier?.Name,
                 ShippingCost = qi.ProcumentRecord?.ShippingCost,
-                FixPrice = qi.ProcumentRecord?.FixPrice
+                FixPrice = qi.ProcumentRecord?.FixPrice,
+                ProcumentRecordSortOrder = qi.ProcumentRecord?.SortOrder ?? 0,
             }).ToList()
         };
     }

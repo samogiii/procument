@@ -44,7 +44,7 @@ public class NotificationService : INotificationService
     public async Task CreateForAllAdminsAsync(string type, string entityName, long entityId, string entityNumber, string message)
     {
         var adminIds = await _db.Set<Module.Identity.Entities.User>()
-            .Where(u => u.Role == "Admin" && u.IsActive)
+            .Where(u => (u.Role == "Admin" || u.Role == "SuperAdmin") && u.IsActive)
             .Select(u => u.Id)
             .ToListAsync();
 

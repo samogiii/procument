@@ -1009,7 +1009,11 @@ const customerOptions = computed(() => {
       map.set(item.customerName, item.customerCode || '')
   })
   return Array.from(map.entries())
-    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .map(([name, code]) => ({
+      // Admins see "Name (Code)"; non-admins (User role) see only the Code.
+      title: isAdmin.value ? (code ? `${name} (${code})` : name) : (code || '—'),
+      value: name,
+    }))
     .sort((a, b) => a.title.localeCompare(b.title))
 })
 
@@ -1032,7 +1036,7 @@ const filteredItems = computed(() => {
   if (pnSearch.value?.trim()) {
     const q = pnSearch.value.trim().toLowerCase()
     result = result.filter((item: any) =>
-      (item.partNumbers || '').toLowerCase().includes(q) ||
+      (item.partNumberName || '').toLowerCase().includes(q) ||
       (item.altPartNumbers || '').toLowerCase().includes(q)
     )
   }
@@ -1162,7 +1166,7 @@ function applySuggestion(item: any, suggestion: any) {
     showSnack(`${suggestion.supplierName} is already added`, 'warning')
     return
   }
-  editableQuotes.value[key].push({
+  editableQuotes.value[key].unshift({
     id: null,
     rfqItemId: item.rfqItemId,
     supplierName: suggestion.supplierName,
@@ -1189,7 +1193,8 @@ function applySuggestion(item: any, suggestion: any) {
 function applyAllSuggestions(item: any) {
   const suggestions = getSuggestions(item.rfqItemId)
   let added = 0
-  for (const s of suggestions.recentQuotes) {
+  // Reverse to maintain order when using unshift (first suggestion ends up at top)
+  for (const s of [...suggestions.recentQuotes].reverse()) {
     const key = item.rfqItemId
     const alreadyExists = (editableQuotes.value[key] || []).some(
       (q: any) => q.supplierName?.toLowerCase() === s.supplierName?.toLowerCase()
@@ -1208,7 +1213,7 @@ function applyAvailability(item: any, rec: any) {
   const key = item.rfqItemId
   if (!editableQuotes.value[key]) editableQuotes.value[key] = []
   if (!expandedArray.value.includes(key)) expandedArray.value.push(key)
-  editableQuotes.value[key].push({
+  editableQuotes.value[key].unshift({
     id: null,
     rfqItemId: item.rfqItemId,
     supplierName: rec.label || '',
@@ -1217,7 +1222,7 @@ function applyAvailability(item: any, rec: any) {
     condition: rec.condition || item.condition || 'NE',
     alt: rec.altPartNumber || '',
     certName: rec.certName || '',
-    tagDate: '',
+    tagDate: rec.tagDate || '',
     shippingCost: null,
     shippingPoint: '',
     unit: 'EA',
@@ -1240,7 +1245,7 @@ function addQuoteRow(item: any) {
   if (!editableQuotes.value[key]) {
     editableQuotes.value[key] = []
   }
-  editableQuotes.value[key]!.push({
+  editableQuotes.value[key]!.unshift({
     id: null,
     rfqItemId: item.rfqItemId,
     supplierName: '',

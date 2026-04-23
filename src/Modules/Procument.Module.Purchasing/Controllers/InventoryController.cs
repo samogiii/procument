@@ -7,7 +7,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/inventory")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class InventoryController : ControllerBase
 {
     private readonly IInventoryService _inventoryService;
@@ -43,7 +43,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Delete(long id)
     {
         var deleted = await _inventoryService.DeleteAsync(id);

@@ -12,7 +12,7 @@ namespace Procument.Module.Catalog.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class CustomersController : ControllerBase
 {
     private readonly DbContext _db;
@@ -62,14 +62,25 @@ public class CustomersController : ControllerBase
         if (string.IsNullOrWhiteSpace(q) || q.Length < 1)
             return Ok(Array.Empty<object>());
 
+        // Match by Name OR CustomerCode so non-admin users (who only see codes) can search.
         var results = await _db.Set<Customer>()
-            .Where(c => c.Name.Contains(q) && c.IsActive)
+            .Where(c => c.IsActive && (c.Name.Contains(q) || (c.CustomerCode != null && c.CustomerCode.Contains(q))))
             .OrderBy(c => c.Name)
             .Take(10)
-            .Select(c => new { c.Id, c.Name })
+            .Select(c => new { c.Id, c.Name, c.CustomerCode })
             .ToListAsync();
 
         return Ok(results);
+    }
+
+    [HttpGet("by-name")]
+    public async Task<ActionResult> GetByName([FromQuery] string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return BadRequest("Name is required.");
+        var customer = await _db.Set<Customer>()
+            .FirstOrDefaultAsync(c => c.Name == name && c.IsActive);
+        if (customer == null) return NotFound();
+        return Ok(new { customer.Id, customer.Name, customer.ExWork });
     }
 
     [HttpPost]
@@ -89,6 +100,7 @@ public class CustomersController : ControllerBase
             Base = dto.Base,
             TermsAndConditions = dto.TermsAndConditions,
             CurrencyType = dto.CurrencyType,
+            ExWork = dto.ExWork,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -115,6 +127,7 @@ public class CustomersController : ControllerBase
         entity.Base = dto.Base;
         entity.TermsAndConditions = dto.TermsAndConditions;
         entity.CurrencyType = dto.CurrencyType;
+        entity.ExWork = dto.ExWork;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -145,6 +158,7 @@ public class CustomerDto
     public int? Base { get; set; }
     public string? TermsAndConditions { get; set; }
     public string? CurrencyType { get; set; }
+    public int? ExWork { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -153,7 +167,7 @@ public class CustomerDto
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class SuppliersController : ControllerBase
 {
     private readonly DbContext _db;
@@ -215,7 +229,7 @@ public class SuppliersController : ControllerBase
 
     /// <summary>Get all pending suppliers (admin review page).</summary>
     [HttpGet("pending")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> GetPending()
     {
         var items = await _db.Set<Supplier>()
@@ -239,7 +253,7 @@ public class SuppliersController : ControllerBase
 
     /// <summary>Approve a pending supplier.</summary>
     [HttpPost("{id:long}/approve")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Approve(long id)
     {
         var entity = await _db.Set<Supplier>().FindAsync(id);
@@ -252,7 +266,7 @@ public class SuppliersController : ControllerBase
 
     /// <summary>Reject a pending supplier — user must correct the name.</summary>
     [HttpPost("{id:long}/reject")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Reject(long id)
     {
         var entity = await _db.Set<Supplier>().FindAsync(id);
@@ -376,7 +390,7 @@ public class ResubmitSupplierDto
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class PartNumbersController : ControllerBase
 {
     private readonly DbContext _db;

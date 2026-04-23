@@ -13,6 +13,7 @@ public class QuoteItem : BaseEntity
     public decimal TotalPrice { get; set; }
     public string? Condition { get; set; }
     public int? LeadTimeDays { get; set; }
+    public int SortOrder { get; set; }
 
     // Foreign keys
     public long QuoteId { get; set; }

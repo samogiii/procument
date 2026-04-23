@@ -62,5 +62,17 @@ public class SupplierQuoteResponse
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
+    public int SortOrder { get; set; }
     public List<SupplierQuoteResponse> ShopRecords { get; set; } = new();
+}
+
+public class UpdateSupplierQuotesOrderRequest
+{
+    public List<SupplierQuoteOrderEntry> Items { get; set; } = new();
+}
+
+public class SupplierQuoteOrderEntry
+{
+    public long Id { get; set; }
+    public int SortOrder { get; set; }
 }

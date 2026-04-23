@@ -16,4 +16,5 @@ public class Customer : AuditableEntity
     public int? Base { get; set; }
     public string? TermsAndConditions { get; set; }
     public string? CurrencyType { get; set; }
+    public int? ExWork { get; set; }
 }

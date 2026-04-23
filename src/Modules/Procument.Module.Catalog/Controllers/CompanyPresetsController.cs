@@ -7,14 +7,14 @@ namespace Procument.Module.Catalog.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class CompanyPresetsController : ControllerBase
 {
     private readonly DbContext _db;
     public CompanyPresetsController(DbContext db) => _db = db;
 
     [HttpGet]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> GetAll()
     {
         // Auto-seed defaults if table is empty
@@ -99,7 +99,7 @@ public class CompanyPresetsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Create([FromBody] CompanyPresetDto dto)
     {
         var preset = new CompanyPreset
@@ -125,7 +125,7 @@ public class CompanyPresetsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Update(long id, [FromBody] CompanyPresetDto dto)
     {
         var preset = await _db.Set<CompanyPreset>().FindAsync(id);
@@ -155,7 +155,7 @@ public class CompanyPresetsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Delete(long id)
     {
         var preset = await _db.Set<CompanyPreset>().FindAsync(id);

@@ -54,7 +54,7 @@ public class AuthController : ControllerBase
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,SuperAdmin")]
 public class UsersController : ControllerBase
 {
     private readonly IAuthService _authService;

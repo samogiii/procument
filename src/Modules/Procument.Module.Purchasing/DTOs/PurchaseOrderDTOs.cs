@@ -40,7 +40,29 @@ public class POResponse
     public long? InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
     public string? RejectionNote { get; set; }
+    public string AdminApproval { get; set; } = "Pending";
+    public string? AdminApprovalNote { get; set; }
+    public DateTime? AdminApprovalAt { get; set; }
+    public string PaymentStatus { get; set; } = "NotStarted";
+    public DateTime? PaymentSubmittedAt { get; set; }
+    public string PaymentApproval { get; set; } = "Pending";
+    public string? PaymentApprovalNote { get; set; }
+    public DateTime? PaymentApprovalAt { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
+}
+
+public class UpdateAdminApprovalRequest
+{
+    /// <summary>Approved | Rejected</summary>
+    public string Decision { get; set; } = string.Empty;
+    public string? Note { get; set; }
+}
+
+public class UpdatePaymentApprovalRequest
+{
+    /// <summary>Accepted | Rejected</summary>
+    public string Decision { get; set; } = string.Empty;
+    public string? Note { get; set; }
 }
 
 public class POItemResponse

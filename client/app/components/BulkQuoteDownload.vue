@@ -34,7 +34,7 @@
           />
           <v-select
             v-model="statusFilter"
-            :items="['All', 'Draft', 'Sent', 'Accepted', 'Rejected']"
+            :items="['Sent', 'Accepted']"
             label="Status"
             variant="outlined"
             density="compact"
@@ -169,7 +169,7 @@ const authStore = useAuthStore()
 const quotes = ref<any[]>([])
 const loading = ref(false)
 const search = ref('')
-const statusFilter = ref('All')
+const statusFilter = ref('Sent')
 const selected = ref<number[]>([])
 const downloading = ref(false)
 const downloadingId = ref<number | null>(null)
@@ -301,10 +301,19 @@ async function loadPresets(): Promise<any[]> {
 }
 
 async function generateAndDownload(q: any, preset: any) {
-  const items: any[] = (q.items || []).sort((a: any, b: any) => {
-    const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : (typeof a.rfqItemId === 'number' ? a.rfqItemId : 999)
-    const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : (typeof b.rfqItemId === 'number' ? b.rfqItemId : 999)
-    return aRef - bRef
+  const items: any[] = [...(q.items || [])].sort((a: any, b: any) => {
+    // Primary: Group by RFQ item (rfqReference or rfqItemId)
+    const aRef = typeof a.rfqRef === 'string' ? a.rfqRef : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
+    const bRef = typeof b.rfqRef === 'string' ? b.rfqRef : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
+    if (aRef !== bRef) return aRef.localeCompare(bRef)
+    // Secondary: Sort by ProcumentRecordSortOrder (supplier order within RFQ item)
+    const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    if (aProcSo !== bProcSo) return aProcSo - bProcSo
+    // Tertiary: Fallback to quote item sortOrder
+    const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
+    const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
+    return aSo - bSo
   })
 
   const primary = preset?.primaryColor || '#1a2744'

@@ -76,28 +76,33 @@
                     <td>{{ po.supplierName || '—' }}</td>
                     <td class="text-right cell-price">${{ formatPrice(po.totalAmount) }}</td>
                     <td @click.stop>
-                      <v-menu :disabled="po._locked">
-                        <template #activator="{ props: menuProps }">
-                          <v-chip :color="poStatusColor(po.status)" size="x-small" variant="tonal" v-bind="menuProps" class="cursor-pointer" :append-icon="po._locked ? 'mdi-lock' : 'mdi-chevron-down'">
-                            {{ po.status }}
-                          </v-chip>
-                        </template>
-                        <v-list density="compact" style="min-width: 200px">
-                          <v-list-subheader>Change Status</v-list-subheader>
-                          <v-list-item
-                            v-for="s in poStatusOptions"
-                            :key="s.value"
-                            :value="s.value"
-                            :active="po.status === s.value"
-                            @click="changePOStatus(po, s.value)"
-                          >
-                            <template #prepend>
-                              <v-icon :icon="s.icon" :color="s.color" size="18" />
-                            </template>
-                            <v-list-item-title>{{ s.label }}</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-menu>
+                      <div class="d-flex flex-column gap-1">
+                        <v-menu :disabled="po._locked">
+                          <template #activator="{ props: menuProps }">
+                            <v-chip :color="poStatusColor(po.status)" size="x-small" variant="tonal" v-bind="menuProps" class="cursor-pointer" :append-icon="po._locked ? 'mdi-lock' : 'mdi-chevron-down'">
+                              {{ po.status }}
+                            </v-chip>
+                          </template>
+                          <v-list density="compact" style="min-width: 200px">
+                            <v-list-subheader>Change Status</v-list-subheader>
+                            <v-list-item
+                              v-for="s in poStatusOptions"
+                              :key="s.value"
+                              :value="s.value"
+                              :active="po.status === s.value"
+                              @click="changePOStatus(po, s.value)"
+                            >
+                              <template #prepend>
+                                <v-icon :icon="s.icon" :color="s.color" size="18" />
+                              </template>
+                              <v-list-item-title>{{ s.label }}</v-list-item-title>
+                            </v-list-item>
+                          </v-list>
+                        </v-menu>
+                        <v-chip v-if="po.paymentApproval === 'Rejected'" color="error" size="x-small" variant="flat" prepend-icon="mdi-alert-circle">
+                          Payment Rejected
+                        </v-chip>
+                      </div>
                     </td>
                     <td class="text-center">{{ po.items?.length || 0 }}</td>
                     <td class="text-medium-emphasis" style="font-size: 12px;">{{ po.createdAt ? new Date(po.createdAt).toLocaleDateString() : '—' }}</td>
@@ -410,15 +415,14 @@ const purchaseOrders = ref<any[]>([])
 const saving = ref(false)
 
 const poStatusColorMap: Record<string, string> = {
-  'Sent': 'info',
-  'Accept': 'success',
-  'Waiting For Payment': 'warning',
-  'Payment Done': 'teal',
+  'Waiting For Admin Approval': 'warning',
+  'Waiting For Payment': 'orange',
+  'Payment Done': 'success',
   'Ship To Warehouse 1': 'indigo',
   'Ship To Warehouse 2': 'deep-purple',
   'Ship To Warehouse 3': 'blue-grey',
-  'Ship To Customer': 'orange',
-  'Completed': 'green',
+  'Ship To Customer': 'info',
+  'Completed': 'teal',
   'Cancelled': 'grey',
 }
 function poStatusColor(status: string) {
@@ -429,20 +433,34 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const poStatusOptions = [
-  { value: 'Sent', label: 'Sent', icon: 'mdi-send', color: 'info' },
-  { value: 'Accept', label: 'Accept', icon: 'mdi-check-circle', color: 'success' },
-  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'warning' },
-  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'teal' },
+  { value: 'Waiting For Admin Approval', label: 'Waiting For Admin Approval', icon: 'mdi-shield-clock', color: 'warning' },
+  { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'orange' },
+  { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'success' },
   { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
   { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
   { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
-  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'orange' },
-  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'green' },
+  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'info' },
+  { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
 ]
 
 async function changePOStatus(po: any, newStatus: string) {
   if (newStatus === po.status) return
+  
+  // 1. If waiting for admin approval, manual change is blocked
+  if (po.adminApproval !== 'Approved' && po.status === 'Waiting For Admin Approval') {
+    showSnack('Cannot manually change status until SuperAdmin approves', 'warning')
+    return
+  }
+
+  // 2. If waiting for payment, manual change is blocked
+  if (po.adminApproval === 'Approved' && po.paymentStatus !== 'Submitted') {
+    showSnack('Cannot manually change status while Awaiting Payment', 'warning')
+    return
+  }
+
+  // Once payment status is 'Submitted' (Payment Done), admin can change freely.
+
   try {
     await api.patch(`/purchase-orders/${po.id}/status`, { status: newStatus })
     po.status = newStatus

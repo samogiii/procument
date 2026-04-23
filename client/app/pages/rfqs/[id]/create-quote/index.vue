@@ -49,6 +49,7 @@
             step="0.01"
             min="0"
             style="min-width: 90px; max-width: 110px;"
+            :disabled="rfq.customerBase == 3 && rfq.customerCurrencyType == 'Both'"
           />
           <v-text-field
             v-model.number="globalCoef3"
@@ -464,12 +465,17 @@ onMounted(async () => {
   }
   if (rfq.value.customerBase == 3 && !isEditMode.value) {
     if (rfq.value.customerCurrencyType == 'Both') {
-      // For Both currency type, only apply default commission
+      // For Both: Coef 1 = 1.1, Coef 2 is Locked at 1.0
       globalCoef1.value = 1.1
-    } else {
-      // For Dollar or Yuan, apply both coefficients
+      globalCoef2.value = 1.0
+    } else if (rfq.value.customerCurrencyType == 'Yuan') {
+      // For Yuan: Coef 1 = 1.1, Coef 2 = 1.22
       globalCoef1.value = 1.1
       globalCoef2.value = 1.22
+    } else {
+      // For USA/Dollar: Coef 1 = 1.1
+      globalCoef1.value = 1.1
+      globalCoef2.value = 1.0
     }
   }
   else if(!isEditMode.value){

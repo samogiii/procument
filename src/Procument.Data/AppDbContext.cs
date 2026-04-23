@@ -127,6 +127,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.ShipTo).HasMaxLength(500);
       entity.Property(e => e.BillTo).HasMaxLength(500);
       entity.Property(e => e.Base).IsRequired(false);
+      entity.Property(e => e.ExWork).IsRequired(false);
 
       // Speeds up catalog search-by-name
       entity.HasIndex(e => e.Name);
@@ -454,8 +455,13 @@ public class AppDbContext : DbContext
       entity.Property(e => e.PONumber).HasMaxLength(100);
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.AdminApproval).HasMaxLength(20).HasDefaultValue("Pending");
+      entity.Property(e => e.AdminApprovalNote).HasMaxLength(1000);
+      entity.Property(e => e.PaymentStatus).HasMaxLength(20).HasDefaultValue("NotStarted");
 
       entity.HasIndex(e => e.PONumber).IsUnique();
+      entity.HasIndex(e => e.AdminApproval);
+      entity.HasIndex(e => e.PaymentStatus);
 
       entity.HasOne(e => e.Supplier)
                 .WithMany()

@@ -65,6 +65,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{ invoice: any }>()
+const emit = defineEmits<{ (e: 'pdf-uploaded'): void }>()
 const model = defineModel<boolean>({ default: false })
 
 const api = useApi()
@@ -401,8 +402,18 @@ async function downloadPdf() {
     const isBoth = props.invoice?.customerBase === 3 && currencyType === 'Both'
 
     const currenciesToGenerate = isBoth
-      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
-      : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
+      ? [
+          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' }, 
+          { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7, nameSuffix: ' - Yuan' }
+        ]
+      : [
+          { 
+            currency: currency.value, 
+            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', 
+            rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1,
+            nameSuffix: '' 
+          }
+        ]
 
     for (const curr of currenciesToGenerate) {
       const payload = {
@@ -473,13 +484,29 @@ async function downloadPdf() {
       link.href = url
       const customerName = inv.customerName || 'Customer'
       const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_')
-      const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
-      link.setAttribute('download', `PI-${inv.id}-${sanitizedCustomerName}${currencySuffix}.pdf`)
+      const fileName = `PI-${inv.id}-${sanitizedCustomerName}${curr.nameSuffix}.pdf`
+      link.setAttribute('download', fileName)
       document.body.appendChild(link)
       link.click()
       link.parentNode?.removeChild(link)
       window.URL.revokeObjectURL(url)
+
+      // Auto-upload to the PI document folder (our_pi category)
+      try {
+        const form = new FormData()
+        form.append('file', new File([response], fileName, { type: 'application/pdf' }))
+        const category = isBoth
+          ? (curr.currency.includes('CNY') ? 'our_pi_yuan' : 'our_pi_dollar')
+          : 'our_pi'
+        form.append('category', category)
+        await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${inv.id}/upload`, {
+          method: 'POST',
+          body: form,
+          headers: { Authorization: `Bearer ${authStore.user?.token}` },
+        })
+      } catch (uploadErr) { console.warn('PDF auto-upload failed:', uploadErr) }
     }
+    emit('pdf-uploaded')
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }

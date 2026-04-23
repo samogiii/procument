@@ -156,94 +156,132 @@ public class InventoryService : IInventoryService
         var result = new BulkImportResult();
         if (request.Rows == null || !request.Rows.Any()) return result;
 
+        // 1. Group and Aggregate incoming rows
+        // Key: PN Name | Company Name | Serial Number | Condition | Description
+        var groupedRows = request.Rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.PartNumberName) && !string.IsNullOrWhiteSpace(r.CompanyName))
+            .GroupBy(r => new
+            {
+                PnName = r.PartNumberName.Trim().ToLower(),
+                CompName = r.CompanyName.Trim().ToLower(),
+                SN = (r.SerialNumber ?? "").Trim().ToLower(),
+                Cond = (r.Condition ?? "").Trim().ToLower(),
+                Desc = (r.Description ?? "").Trim().ToLower()
+            })
+            .Select(g => new
+            {
+                Key = g.Key,
+                OriginalPnName = g.First().PartNumberName.Trim(),
+                OriginalCompName = g.First().CompanyName.Trim(),
+                TotalQty = g.Sum(x => x.Qty),
+                Price = g.First().Price, // Take price from first occurrence
+                OriginalDescription = g.First().Description,
+                OriginalCondition = g.First().Condition,
+                OriginalSerialNumber = g.First().SerialNumber
+            })
+            .ToList();
+
+        result.Skipped = request.Rows.Count - groupedRows.Count; // Initial skip based on missing required fields or grouping
+
         _db.ChangeTracker.AutoDetectChangesEnabled = false;
 
         try
         {
-            var requestedPnNames = request.Rows
-                .Select(r => r.PartNumberName?.Trim())
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var requestedCompNames = request.Rows
-                .Select(r => r.CompanyName?.Trim())
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // 2. Pre-resolve PartNumbers and Suppliers
+            var pnNames = groupedRows.Select(r => r.Key.PnName).Distinct().ToList();
+            var compNames = groupedRows.Select(r => r.Key.CompName).Distinct().ToList();
 
             var existingPns = await _db.Set<Procument.Module.Catalog.Entities.PartNumber>()
-                .Where(p => requestedPnNames.Contains(p.Name))
+                .Where(p => pnNames.Contains(p.Name.ToLower()))
                 .ToDictionaryAsync(p => p.Name.ToLower(), p => p);
 
             var existingSuppliers = await _db.Set<Procument.Module.Catalog.Entities.Supplier>()
-                .Where(s => requestedCompNames.Contains(s.Name))
+                .Where(s => compNames.Contains(s.Name.ToLower()))
                 .ToDictionaryAsync(s => s.Name.ToLower(), s => s);
 
             var newPns = new Dictionary<string, Procument.Module.Catalog.Entities.PartNumber>();
             var newSuppliers = new Dictionary<string, Procument.Module.Catalog.Entities.Supplier>();
 
-            int batchSize = 1000;
-            int counter = 0;
+            // 3. Pre-fetch existing inventory items to check for updates
+            // We only fetch items that match the PNs and Suppliers in the import
+            var supplierIds = existingSuppliers.Values.Select(s => s.Id).ToList();
+            var pnIds = existingPns.Values.Select(p => p.Id).ToList();
 
-            foreach (var row in request.Rows)
+            var existingInventory = await _db.Set<InventoryItem>()
+                .Where(i => pnIds.Contains(i.PartNumberId) && supplierIds.Contains(i.CompanyId))
+                .ToListAsync();
+
+            // Index existing inventory for fast lookup
+            // Key: PNId | CompanyId | SN | Cond | Desc (normalized)
+            // Use a loop instead of ToDictionary to handle cases where the DB already has duplicates
+            var inventoryLookup = new Dictionary<string, InventoryItem>();
+            foreach (var item in existingInventory)
             {
-                var pnName = row.PartNumberName?.Trim();
-                var compName = row.CompanyName?.Trim();
-
-                if (string.IsNullOrWhiteSpace(pnName) || string.IsNullOrWhiteSpace(compName))
+                var key = $"{item.PartNumberId}|{item.CompanyId}|{(item.SerialNumber ?? "").Trim().ToLower()}|{(item.Condition ?? "").Trim().ToLower()}|{(item.Description ?? "").Trim().ToLower()}";
+                if (!inventoryLookup.ContainsKey(key))
                 {
-                    result.Skipped++;
-                    continue;
+                    inventoryLookup[key] = item;
                 }
+            }
 
-                var pnLower = pnName.ToLower();
-                var compLower = compName.ToLower();
-
-                // ── Resolve or Create PartNumber ──
-                if (!existingPns.TryGetValue(pnLower, out var pn) && !newPns.TryGetValue(pnLower, out pn))
+            foreach (var group in groupedRows)
+            {
+                // Resolve or Create PartNumber
+                if (!existingPns.TryGetValue(group.Key.PnName, out var pn) && !newPns.TryGetValue(group.Key.PnName, out pn))
                 {
                     pn = new Procument.Module.Catalog.Entities.PartNumber
                     {
-                        Name = pnName,
-                        Description = row.Description,
+                        Name = group.OriginalPnName,
+                        Description = group.OriginalDescription,
                         CreatedAt = DateTime.UtcNow
                     };
-                    newPns[pnLower] = pn;
+                    newPns[group.Key.PnName] = pn;
                     _db.Set<Procument.Module.Catalog.Entities.PartNumber>().Add(pn);
+                    await _db.SaveChangesAsync(); // Need ID for lookup/assignment
                 }
 
-                // ── Resolve or Create Supplier ──
-                if (!existingSuppliers.TryGetValue(compLower, out var supplier) && !newSuppliers.TryGetValue(compLower, out supplier))
+                // Resolve or Create Supplier
+                if (!existingSuppliers.TryGetValue(group.Key.CompName, out var supplier) && !newSuppliers.TryGetValue(group.Key.CompName, out supplier))
                 {
                     supplier = new Procument.Module.Catalog.Entities.Supplier
                     {
-                        Name = compName,
+                        Name = group.OriginalCompName,
                         CreatedAt = DateTime.UtcNow,
                         IsActive = true,
                         Status = "Approved"
                     };
-                    newSuppliers[compLower] = supplier;
+                    newSuppliers[group.Key.CompName] = supplier;
                     _db.Set<Procument.Module.Catalog.Entities.Supplier>().Add(supplier);
+                    await _db.SaveChangesAsync(); // Need ID
                 }
 
-                _db.Set<InventoryItem>().Add(new InventoryItem
+                var lookupKey = $"{pn.Id}|{supplier.Id}|{group.Key.SN}|{group.Key.Cond}|{group.Key.Desc}";
+
+                if (inventoryLookup.TryGetValue(lookupKey, out var existingItem))
                 {
-                    PartNumber = pn,
-                    Company = supplier,
-                    Description = row.Description,
-                    Qty = row.Qty,
-                    Condition = row.Condition,
-                    Price = row.Price,
-                    SerialNumber = row.SerialNumber,
-                    CreatedAt = DateTime.UtcNow
-                });
-
-                result.Created++;
-                counter++;
-
-                if (counter % batchSize == 0)
-                    await _db.SaveChangesAsync();
+                    // Aggregation: Increase QTY
+                    existingItem.Qty += group.TotalQty;
+                    _db.Set<InventoryItem>().Update(existingItem);
+                    result.Updated++;
+                }
+                else
+                {
+                    // Create New
+                    var newItem = new InventoryItem
+                    {
+                        PartNumberId = pn.Id,
+                        CompanyId = supplier.Id,
+                        Description = group.OriginalDescription,
+                        Qty = group.TotalQty,
+                        Condition = group.OriginalCondition,
+                        Price = group.Price,
+                        SerialNumber = group.OriginalSerialNumber,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.Set<InventoryItem>().Add(newItem);
+                    inventoryLookup[lookupKey] = newItem; // Add to lookup so if another group in the batch matches, it aggregates
+                    result.Created++;
+                }
             }
 
             await _db.SaveChangesAsync();

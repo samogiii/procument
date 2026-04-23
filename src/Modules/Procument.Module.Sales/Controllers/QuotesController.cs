@@ -15,7 +15,7 @@ namespace Procument.Module.Sales.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class QuotesController : ControllerBase
 {
     private readonly IQuoteService _quoteService;
@@ -117,7 +117,7 @@ public class QuotesController : ControllerBase
         else if (request.Status == "Sent")
         {
             // Notify all admins that a quote needs review
-            var adminIds = await _db.Set<User>().Where(u => u.Role == "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
+            var adminIds = await _db.Set<User>().Where(u => (u.Role == "Admin" || u.Role == "SuperAdmin") && u.IsActive).Select(u => u.Id).ToListAsync();
             foreach (var aid in adminIds)
             {
                 _db.Set<Notification>().Add(new Notification
@@ -185,6 +185,7 @@ public class QuotesController : ControllerBase
                 QuoteId = qi.Quote.Id,
                 QuoteNumber = qi.Quote.QuoteNumber,
                 PartNumberName = qi.PartNumber!.Name,
+                MatchedAlt = qi.PartNumber.Alternatives.Where(a => a.Name.Contains(q)).Select(a => a.Name).FirstOrDefault() ?? (qi.Alt != null && qi.Alt.Contains(q) ? qi.Alt : null),
                 CustomerName = qi.Quote.Customer.Name,
                 Status = qi.Quote.Status,
                 TotalAmount = qi.Quote.TotalAmount
@@ -194,6 +195,16 @@ public class QuotesController : ControllerBase
             .ToListAsync();
 
         return Ok(results);
+    }
+
+    /// <summary>Update quote items sort order.</summary>
+    [HttpPatch("{id:long}/items-order")]
+    [Auditable("Quote", "UpdateItemsOrder", CaptureBody = true)]
+    public async Task<IActionResult> UpdateItemsOrder(long id, [FromBody] UpdateItemsOrderRequest request)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var ok = await _quoteService.UpdateItemsOrderAsync(id, request.Items, userId, isAdmin);
+        return ok ? Ok() : NotFound();
     }
 
     /// <summary>Delete a quote.</summary>
@@ -213,7 +224,7 @@ public class QuotesController : ControllerBase
         {
             userId = id;
         }
-        bool isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         return (userId, isAdmin);
     }
 }

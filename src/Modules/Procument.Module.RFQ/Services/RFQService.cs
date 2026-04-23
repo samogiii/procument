@@ -210,7 +210,9 @@ public class RFQService : IRFQService
         if (!string.IsNullOrWhiteSpace(pnSearch))
         {
             var pn = pnSearch.Trim();
-            query = query.Where(r => r.RFQItems.Any(i => i.PartNumber.Name.Contains(pn)));
+            query = query.Where(r => r.RFQItems.Any(i => 
+                i.PartNumber.Name.Contains(pn) || 
+                i.PartNumber.Alternatives.Any(a => a.Name.Contains(pn))));
         }
 
         if (statuses != null && statuses.Length > 0)

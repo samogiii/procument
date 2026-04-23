@@ -222,13 +222,13 @@
               class="mb-3"
             />
 
-            <!-- Customer Name (autocomplete) -->
+            <!-- Customer Name (autocomplete) — Admins see Name (Code); Users see Code only -->
             <v-combobox
               v-model="form.customerName"
-              :items="customerSuggestions"
-              item-title="name"
+              :items="customerDisplayItems"
+              item-title="display"
               item-value="name"
-              label="Customer Name *"
+              :label="isAdmin ? 'Customer Name *' : 'Customer Code *'"
               prepend-inner-icon="mdi-domain"
               :rules="[rules.required]"
               :loading="customerLoading"
@@ -404,9 +404,19 @@
               >
                 <template #item="{ item: suggestion, props: itemProps }">
                   <v-list-item v-bind="itemProps">
+                    <template #title>
+                      <div class="d-flex align-center gap-2">
+                        <span class="font-weight-bold">{{ suggestion.raw.name }}</span>
+                        <v-chip v-if="isAltMatch(suggestion.raw, partSearchTexts[index])" size="x-small" color="warning" variant="flat">Alt Match</v-chip>
+                      </div>
+                    </template>
                     <template #subtitle>
-                      <span v-if="suggestion.raw.description">{{ suggestion.raw.description }}</span>
-                      <span v-else class="font-italic text-medium-emphasis">No description</span>
+                      <div class="text-caption">
+                        <div v-if="suggestion.raw.description" class="text-truncate">{{ suggestion.raw.description }}</div>
+                        <div v-if="suggestion.raw.alternatives?.length" class="text-grey">
+                          Alts: {{ suggestion.raw.alternatives.map((a: any) => a.name).join(', ') }}
+                        </div>
+                      </div>
                     </template>
                   </v-list-item>
                 </template>
@@ -563,10 +573,10 @@
             <v-col cols="12" md="5">
               <v-combobox
                 v-model="bulkDefaults.customerName"
-                :items="bulkCustomerSuggestions"
-                item-title="name"
+                :items="bulkCustomerDisplayItems"
+                item-title="display"
                 item-value="name"
-                label="Customer Name *"
+                :label="isAdmin ? 'Customer Name *' : 'Customer Code *'"
                 density="compact"
                 variant="outlined"
                 hide-details
@@ -588,7 +598,7 @@
           <!-- Paste area -->
           <p class="text-caption text-medium-emphasis mb-1">
             Paste rows from Excel (tab-separated). Columns:
-            <strong>RFQ Name &nbsp;|&nbsp; # &nbsp;|&nbsp; Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition &nbsp;|&nbsp; Priority &nbsp;|&nbsp; Alt &nbsp;|&nbsp; Received Date &nbsp;|&nbsp; Deadline</strong>
+            <strong>RFQ Name &nbsp;|&nbsp; # &nbsp;|&nbsp; Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition &nbsp;|&nbsp; Priority &nbsp;|&nbsp; Alt &nbsp;|&nbsp; Remark &nbsp;|&nbsp; Received Date &nbsp;|&nbsp; Deadline</strong>
             — Alt values separated by comma (,). Rows with the same RFQ Name are grouped into one RFQ.
           </p>
           <v-textarea
@@ -646,8 +656,8 @@
                         <th>Qty</th>
                         <th>Condition</th>
                         <th>Priority</th>
-                        <th>Remark</th>
                         <th>Alternatives</th>
+                        <th>Remark</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -658,13 +668,13 @@
                         <td>{{ row.qty }}</td>
                         <td>{{ row.condition || '—' }}</td>
                         <td>{{ row.priority || '—' }}</td>
-                        <td>{{ row.remark || '—' }}</td>
                         <td>
                           <div class="d-flex flex-wrap gap-1">
                             <v-chip v-for="alt in row.alternatives" :key="alt" size="x-small" color="warning" variant="tonal">{{ alt }}</v-chip>
                             <span v-if="!row.alternatives.length" class="text-medium-emphasis">—</span>
                           </div>
                         </td>
+                        <td>{{ row.remark || '—' }}</td>
                       </tr>
                     </tbody>
                   </v-table>
@@ -824,7 +834,11 @@ const customerOptions = computed(() => {
       map.set(item.customerName, item.customerCode || '')
   })
   return Array.from(map.entries())
-    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .map(([name, code]) => ({
+      // Admins see "Name (Code)"; non-admins (User role) see only the Code.
+      title: isAdmin.value ? (code ? `${name} (${code})` : name) : (code || '—'),
+      value: name,
+    }))
     .sort((a, b) => a.title.localeCompare(b.title))
 })
 
@@ -899,6 +913,15 @@ function goToRfq(pointerEvent: Event, rowData: { item: any }) {
   }
 }
 
+function isAltMatch(part: any, search: string) {
+  if (!search || search.length < 2) return false
+  const q = search.toLowerCase()
+  // If the main name matches, it's not an "Alt Match" (it's a primary match)
+  if (part.name?.toLowerCase().includes(q)) return false
+  // Check alternatives
+  return (part.alternatives || []).some((a: any) => a.name?.toLowerCase().includes(q))
+}
+
 // ── Create Modal state ──
 const showCreate = ref(false)
 const formRef = ref<any>(null)
@@ -948,6 +971,19 @@ const customerLoading = ref(false)
 const customerSearchText = ref('')
 let customerDebounce: any = null
 
+// Display-only mapping: Admins see "Name (Code)"; non-admins (User role) see ONLY the code.
+// The stored `name` is preserved as `item-value` so submission logic stays unchanged.
+const customerDisplayItems = computed(() =>
+  customerSuggestions.value.map((c: any) => ({
+    ...c,
+    display: isAdmin.value
+      ? (c.customerCode ? `${c.name} (${c.customerCode})` : c.name)
+      // Non-admin (User role): show ONLY the customer code. If a customer has no code,
+      // show a placeholder rather than leak the name.
+      : (c.customerCode || '— No code —'),
+  }))
+)
+
 function searchCustomers(val: string) {
   customerSearchText.value = val || ''
   clearTimeout(customerDebounce)
@@ -963,6 +999,22 @@ function searchCustomers(val: string) {
     finally { customerLoading.value = false }
   }, 300)
 }
+
+// Auto-set ExType when customer changes
+watch(() => form.value.customerName, async (newVal: any) => {
+  if (!newVal) return
+  const name = typeof newVal === 'object' ? newVal.name : newVal
+  if (!name) return
+
+  try {
+    const cust = await api.get<any>(`/customers/by-name?name=${encodeURIComponent(name)}`)
+    if (cust && cust.exWork != null) {
+      form.value.exType = cust.exWork
+    }
+  } catch (err) {
+    // Silent fail if customer not found or endpoint fails
+  }
+})
 
 // ── Part Number Autocomplete ──
 const partSuggestions = ref<Record<number, any[]>>({})
@@ -1186,13 +1238,29 @@ const bulkCustomerSuggestions = ref<any[]>([])
 const bulkCustomerLoading = ref(false)
 let bulkCustomerDebounce: any = null
 
+// Same display rule for the bulk-import customer combobox.
+const bulkCustomerDisplayItems = computed(() =>
+  bulkCustomerSuggestions.value.map((c: any) => ({
+    ...c,
+    display: isAdmin.value
+      ? (c.customerCode ? `${c.name} (${c.customerCode})` : c.name)
+      // Non-admin (User role): show ONLY the customer code. If a customer has no code,
+      // show a placeholder rather than leak the name.
+      : (c.customerCode || '— No code —'),
+  }))
+)
+
 function searchBulkCustomers(val: string) {
   clearTimeout(bulkCustomerDebounce)
   if (!val || val.length < 1) { bulkCustomerSuggestions.value = []; return }
   bulkCustomerDebounce = setTimeout(async () => {
     bulkCustomerLoading.value = true
-    try { bulkCustomerSuggestions.value = await api.get<any[]>(`/customers/search?q=${encodeURIComponent(val)}`) }
-    catch {} finally { bulkCustomerLoading.value = false }
+    try {
+      const result = await api.get<any[]>(`/customers/search?q=${encodeURIComponent(val)}`)
+      bulkCustomerSuggestions.value = Array.isArray(result) ? result : []
+    } catch {
+      bulkCustomerSuggestions.value = []
+    } finally { bulkCustomerLoading.value = false }
   }, 300)
 }
 
@@ -1235,7 +1303,7 @@ function parseBulkRFQs() {
 
   // Column layout:
   // 0: RFQ Name | 1: # (row order, skip) | 2: Part Number | 3: Description
-  // 4: Qty | 5: Condition | 6: Priority | 7: Alt | 8: Received Date | 9: Deadline
+  // 4: Qty | 5: Condition | 6: Priority | 7: Alt | 8: Remark | 9: Received Date | 10: Deadline
   interface GroupMeta { items: BulkRFQItem[]; receivedDate: string; deadline: string }
   const groupMap = new Map<string, GroupMeta>()
 
@@ -1251,13 +1319,14 @@ function parseBulkRFQs() {
     const priority = (cols[6] || '').trim()
     const altRaw = (cols[7] || '').trim()
     const alternatives = altRaw ? altRaw.split(',').map(a => a.trim()).filter(Boolean) : []
-    const receivedDate = parseDateToISO((cols[8] || '').trim())
-    const deadline = parseDateToISO((cols[9] || '').trim())
+    const remark = (cols[8] || '').trim()
+    const receivedDate = parseDateToISO((cols[9] || '').trim())
+    const deadline = parseDateToISO((cols[10] || '').trim())
 
     if (!groupMap.has(rfqName)) {
       groupMap.set(rfqName, { items: [], receivedDate, deadline })
     }
-    groupMap.get(rfqName)!.items.push({ partNumber, description, qty, condition, priority, remark: '', alternatives })
+    groupMap.get(rfqName)!.items.push({ partNumber, description, qty, condition, priority, remark, alternatives })
     // Always use last-seen dates (they're the same per RFQ)
     if (receivedDate) groupMap.get(rfqName)!.receivedDate = receivedDate
     if (deadline) groupMap.get(rfqName)!.deadline = deadline
@@ -1352,6 +1421,7 @@ async function submitBulkRFQs() {
     showBulkImport.value = false
     await loadItems()
   } catch (e: any) {
+    console.log(e)
     bulkSubmitError.value = e?.data?.message || 'Bulk import failed.'
   } finally {
     bulkImporting.value = false

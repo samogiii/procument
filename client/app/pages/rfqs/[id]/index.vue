@@ -1864,7 +1864,7 @@ function applyAvailability(item: any, rec: any) {
     condition: rec.condition || item.condition || 'NE',
     alt: rec.altPartNumber || '',
     certName: rec.certName || '',
-    tagDate: '',
+    tagDate: rec.tagDate || '',
     shippingCost: null,
     shippingPoint: '',
     unit: 'EA',

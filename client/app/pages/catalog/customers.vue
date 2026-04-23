@@ -32,6 +32,12 @@
           <template #item.isActive="{ item }">
             <StatusChip :status="item.isActive ? 'Active' : 'Inactive'" />
           </template>
+          <template #item.exWork="{ item }">
+            <v-chip v-if="item.exWork != null" size="x-small" variant="tonal" color="primary">
+              {{ exWorkOptions.find(o => o.value === item.exWork)?.title || '—' }}
+            </v-chip>
+            <span v-else>—</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" variant="text" size="x-small" @click="openDialog(item)" class="mr-1" />
             <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="confirmDelete(item.id)" />
@@ -56,6 +62,15 @@
       <v-textarea v-model="form.shippingAccount" label="Shipping Account" class="mb-2" />
       <v-textarea v-model="form.description" label="Description" rows="3" auto-grow class="mb-2" />
       <v-textarea v-model="form.termsAndConditions" label="Terms and Conditions" rows="3" auto-grow class="mb-2" />
+      <v-select
+        v-model="form.exWork"
+        :items="exWorkOptions"
+        item-title="title"
+        item-value="value"
+        label="Logistics Preference (ExWork)"
+        class="mb-2"
+        clearable
+      />
       <v-text-field v-if="isAdmin" v-model.number="form.base" label="Base" type="number" class="mb-2" />
       <v-select
         v-if="isAdmin && form.base === 3"
@@ -79,12 +94,18 @@
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
+const exWorkOptions = [
+  { title: 'Ex Warehouse', value: 0 },
+  { title: 'Ex Vendor', value: 1 },
+  { title: 'Ex Customer', value: 2 },
+]
+
 const {
   items, loading, saving, search, showDialog, editingId, form,
   isEditing, filteredItems,
   loadItems, openDialog, save, deleteItem,
 } = useCrud('/customers', {
-  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', contactPerson: '', shipTo: '', billTo: '', shippingAccount: '', description: '', base: null as number | null, termsAndConditions: '', currencyType: '' }),
+  defaultForm: () => ({ name: '', customerCode: '', email: '', phone: '', contactPerson: '', shipTo: '', billTo: '', shippingAccount: '', description: '', base: null as number | null, termsAndConditions: '', currencyType: '', exWork: null as number | null }),
   searchFields: ['name', 'customerCode', 'email', 'phone', 'contactPerson', 'description'],
 })
 
@@ -99,6 +120,7 @@ const headers = computed(() => {
   const h = [
     { title: 'Name', key: 'name' },
     { title: 'Code', key: 'customerCode' },
+    { title: 'ExWork', key: 'exWork', width: '130px' },
     { title: 'Email', key: 'email' },
     { title: 'Phone', key: 'phone' },
     { title: 'Contact Person', key: 'contactPerson' },
@@ -110,7 +132,7 @@ const headers = computed(() => {
     { title: '', key: 'actions', sortable: false, width: '100px' },
   ]
   if (isAdmin.value) {
-    h.splice(6, 0, { title: 'Base', key: 'base', width: '100px' })
+    h.splice(7, 0, { title: 'Base', key: 'base', width: '100px' })
   }
   return h
 })

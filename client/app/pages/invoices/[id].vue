@@ -195,7 +195,10 @@
       {{ snackbarText }}
     </v-snackbar>
 
-    <InvoicePdfGenerator v-model="showPdf" :invoice="invoice" />
+    <!-- Documents -->
+    <InvoiceDocuments :invoice-id="Number(route.params.id)" class="mt-6" ref="documentsRef" />
+
+    <InvoicePdfGenerator v-model="showPdf" :invoice="invoice" @pdf-uploaded="documentsRef?.loadDocuments()" />
   </div>
 </template>
 
@@ -206,6 +209,7 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const invoice = ref<any>({})
+const documentsRef = ref<any>(null)
 const showPermissions = ref(false)
 const showAudit = ref(false)
 const snackbar = ref(false)

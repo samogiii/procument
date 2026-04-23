@@ -211,6 +211,7 @@ const allNavItems = [
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: true, ilsOnly: false },
+  { title: 'Payment', icon: 'mdi-cash-multiple', to: '/payment', paymentOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true, ilsOnly: true },
   { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true, ilsOnly: false },
@@ -218,10 +219,12 @@ const allNavItems = [
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true, ilsOnly: false },
   { title: 'Customers', icon: 'mdi-domain', to: '/catalog/customers', customerMenu:true },
   { title: 'Supplier Requests', icon: 'mdi-account-clock-outline', to: '/catalog/supplier-requests', adminOnly: true, ilsOnly: false },
-]
+] as any[]
 
 const navItems = computed(() => {
   return allNavItems.filter(item => {
+    // Payment-only items: visible to Payment role and Admin
+    if (item.paymentOnly) return authStore.isPayment
     // ILS-only pages: only for ILS users OR Admin
     if (item.ilsOnly && !authStore.ilsUsers && !authStore.isAdmin) return false
     // Admin-only pages (non-ILS): only for Admin

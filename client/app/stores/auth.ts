@@ -8,6 +8,17 @@ interface User {
     token: string
 }
 
+/**
+ * Maps features to specific user names or roles.
+ * Easy to update when adding new users or actions.
+ */
+const FeaturePermissions = {
+    customerMenu: ['AMJ', 'KZM', 'System Admin'],
+    isAmir: ['AMJ', 'KZM', 'MGH', 'System Admin'], // Management/Supervisor group
+    newRFQ: ['AHM','GHS'],
+    ilsUsers: ['System Admin', 'SYD', 'MGH'],
+}
+
 function getTokenExpiry(token: string): number | null {
     try {
         const parts = token.split('.')
@@ -36,13 +47,27 @@ export const useAuthStore = defineStore('auth', {
         isAuthenticated(): boolean {
             return !!this.user?.token && !this.isTokenExpired
         },
-        isAdmin: (state) => state.user?.role === 'Admin',
-        customerMenu: (state) => state.user?.name ===  'AMJ' || state.user?.name ===  'KZM' || state.user?.name ===  'System Admin' , 
-        isAmir: (state) => state.user?.name === 'AMJ' || state.user?.name === "KZM" || state.user?.name === 'MGH',
-        newRFQ: (state) => state.user?.name === 'AHM',
-        ilsUsers: (state) => state.user?.name === 'System Admin'
-            || state.user?.name === 'SYD'
-            || state.user?.name === 'MGH',
+
+        // ─── Role Checks ───
+        isAdmin: (state) => state.user?.role === 'Admin' || state.user?.role === 'SuperAdmin',
+        isSuperAdmin: (state) => state.user?.role === 'SuperAdmin',
+        isPayment: (state) => state.user?.role === 'Payment' || state.user?.role === 'SuperAdmin',
+        isExpert: (state) => state.user?.role === 'Expert',
+
+        // ─── Feature/User Permissions ───
+        // Generic helper to check if current user has access to a specific feature key
+        can: (state) => (feature: keyof typeof FeaturePermissions) => {
+            if (!state.user?.name) return false
+            const allowed = FeaturePermissions[feature]
+            return allowed.includes(state.user.name) || state.user.role === 'SuperAdmin'
+        },
+
+        // Legacy getters refactored to use the central permission map
+        customerMenu(): boolean { return this.can('customerMenu') },
+        isAmir(): boolean { return this.can('isAmir') },
+        newRFQ(): boolean { return this.can('newRFQ') },
+        ilsUsers(): boolean { return this.can('ilsUsers') },
+
         userInitials: (state) => {
             if (!state.user?.name) return '?'
             return state.user.name

@@ -87,8 +87,9 @@ public class AuthService : IAuthService
         await EnsureEmailUnique(request.Email);
 
         // Validate role
-        if (request.Role != UserRoles.Admin && request.Role != UserRoles.Expert)
-            throw new ArgumentException($"Invalid role. Must be '{UserRoles.Admin}' or '{UserRoles.Expert}'.");
+        var allowedRoles = new[] { UserRoles.Admin, UserRoles.Expert, UserRoles.SuperAdmin, UserRoles.Payment };
+        if (!allowedRoles.Contains(request.Role))
+            throw new ArgumentException($"Invalid role. Must be one of: {string.Join(", ", allowedRoles)}.");
 
         var user = new User
         {

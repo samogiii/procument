@@ -60,6 +60,15 @@ public class PdfController : ControllerBase
         return File(pdf, "application/pdf", $"{name}.pdf");
     }
 
+    // ─── DasturPardakht (DP) ───────────────────────────────
+    [HttpPost("dp")]
+    public IActionResult GenerateDp([FromBody] DpPdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = DpDocument.Generate(req);
+        return File(pdf, "application/pdf", $"DP-{req.PoNumber ?? "Document"}.pdf");
+    }
+
     // ─── Quote (existing) ────────────────────────────────
     [HttpPost("generate")]
     public IActionResult Generate([FromBody] QuotePdfRequest req)

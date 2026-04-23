@@ -67,28 +67,6 @@
           </v-col>
         </v-row>
 
-        <!-- ── Item Sort Order ── -->
-        <div class="px-3 pb-3" v-if="sortedItems.length > 0">
-          <div class="text-caption font-weight-bold text-medium-emphasis mb-2">ITEM ORDER IN PDF</div>
-          <div class="d-flex flex-wrap gap-1">
-            <div
-              v-for="(it, i) in sortedItems"
-              :key="it.id || i"
-              class="sort-chip d-flex align-center gap-1"
-            >
-              <v-btn density="compact" icon size="x-small" variant="text" :disabled="i === 0" @click="moveUp(i)">
-                <v-icon size="12">mdi-chevron-up</v-icon>
-              </v-btn>
-              <span class="text-caption" style="white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">
-                {{ i + 1 }}. <strong>{{ it.alt || it.partNumberName }}</strong>
-                <span v-if="it.rfqReference" class="text-medium-emphasis ml-1">[{{ it.rfqReference }}]</span>
-              </span>
-              <v-btn density="compact" icon size="x-small" variant="text" :disabled="i === sortedItems.length - 1" @click="moveDown(i)">
-                <v-icon size="12">mdi-chevron-down</v-icon>
-              </v-btn>
-            </div>
-          </div>
-        </div>
       </v-container>
 
       <v-divider />
@@ -172,37 +150,9 @@ watch(selectedPreset, (val) => {
   }
 })
 
-// ── Item sort order ──
-const sortedItems = ref<any[]>([])
-
-function initSortedItems() {
-  const items = [...(props.quote?.items || [])]
-  items.sort((a: any, b: any) => {
-    const aRef = typeof a.rfqRef === 'number' ? a.rfqRef : (typeof a.rfqReference === 'string' ? parseInt(a.rfqReference) || 999 : (a.rfqItemId ?? 999))
-    const bRef = typeof b.rfqRef === 'number' ? b.rfqRef : (typeof b.rfqReference === 'string' ? parseInt(b.rfqReference) || 999 : (b.rfqItemId ?? 999))
-    return aRef - bRef
-  })
-  sortedItems.value = items
-}
-
-function moveUp(i: number) {
-  if (i <= 0) return
-  const arr = [...sortedItems.value]
-  ;[arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]
-  sortedItems.value = arr
-}
-
-function moveDown(i: number) {
-  if (i >= sortedItems.value.length - 1) return
-  const arr = [...sortedItems.value]
-  ;[arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]
-  sortedItems.value = arr
-}
-
 watch(model, (open) => {
   if (open) {
     loadPresets()
-    initSortedItems()
     if (props.quote?.customerBase == 3) {
       const currencyType = props.quote?.customerCurrencyType || 'Dollar'
       if (currencyType === 'Dollar') {
@@ -219,8 +169,6 @@ watch(model, (open) => {
     }
   }
 })
-watch(() => props.quote?.items, initSortedItems, { immediate: true })
-
 const footerText = ref('If you have any questions about this quotation, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
@@ -299,7 +247,35 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
 
 const renderedHtml = computed(() => {
   const q = props.quote
-  const items: any[] = sortedItems.value.length ? sortedItems.value : (q.items || [])
+  const rawItems = q.items || []
+  console.log('Raw items with procSortOrder:', rawItems.map((i: any) => ({
+    id: i.id,
+    sortOrder: i.sortOrder,
+    procSortOrder: i.procumentRecordSortOrder,
+    supplierName: i.supplierName,
+    rfqReference: i.rfqReference
+  })))
+  const items: any[] = [...rawItems].sort((a: any, b: any) => {
+    // Primary: Group by RFQ item (rfqReference or rfqItemId)
+    const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
+    const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
+    if (aRef !== bRef) return aRef.localeCompare(bRef)
+    // Secondary: Sort by ProcumentRecordSortOrder (supplier order within RFQ item)
+    const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    if (aProcSo !== bProcSo) return aProcSo - bProcSo
+    // Tertiary: Fallback to quote item sortOrder
+    const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
+    const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
+    return aSo - bSo
+  })
+  console.log('Sorted items:', items.map((i: any) => ({
+    id: i.id,
+    sortOrder: i.sortOrder,
+    procSortOrder: i.procumentRecordSortOrder,
+    supplierName: i.supplierName,
+    rfqReference: i.rfqReference
+  })))
   const logo = logoDataUrl.value
   const logoImg = logo ? `<img src="${logo}" style="max-height:150px; max-width:200px; object-fit:contain;" />` : ''
   const quoteDate = q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'
@@ -493,15 +469,38 @@ async function downloadPdf() {
     const config = useRuntimeConfig()
     const authStore = useAuthStore()
     const q = props.quote
-    const items: any[] = sortedItems.value.length ? sortedItems.value : (q.items || [])
+    const items: any[] = [...(q.items || [])].sort((a: any, b: any) => {
+      // Primary: Group by RFQ item (rfqReference or rfqItemId)
+      const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
+      const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
+      if (aRef !== bRef) return aRef.localeCompare(bRef)
+      // Secondary: Sort by ProcumentRecordSortOrder (supplier order within RFQ item)
+      const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+      const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+      if (aProcSo !== bProcSo) return aProcSo - bProcSo
+      // Tertiary: Fallback to quote item sortOrder
+      const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
+      const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
+      return aSo - bSo
+    })
 
     // Check if customerCurrencyType is Both - generate two PDFs
     const currencyType = props.quote?.customerCurrencyType || 'Dollar'
     const isBoth = props.quote?.customerBase === 3 && currencyType === 'Both'
 
     const currenciesToGenerate = isBoth
-      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
-      : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
+      ? [
+          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' }, 
+          { currency: 'China Yuan (CNY)', symbol: '¥', rate: 8.54, nameSuffix: ' - Yuan' }
+        ]
+      : [
+          { 
+            currency: currency.value, 
+            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', 
+            rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1,
+            nameSuffix: '' 
+          }
+        ]
 
     for (const curr of currenciesToGenerate) {
       const payload = {
@@ -531,16 +530,16 @@ async function downloadPdf() {
           qty: it.qty || 0,
           condition: it.condition || null,
           leadTime: it.leadTime || null,
-          unitPrice: Number(it.unitPrice) || 0,
-          totalPrice: Number(it.totalPrice) || 0,
+          unitPrice: (Number(it.unitPrice) || 0),
+          totalPrice: (Number(it.totalPrice) || 0),
           certName: it.certName || null,
           tagDate: it.tagDate || null,
           note: it.note || null,
         })),
-        subtotal: Number(q.totalAmount) || 0,
-        tax: taxAmount.value || 0,
-        shipping: shippingAmount.value || 0,
-        other: otherAmount.value || 0,
+        subtotal: (Number(q.totalAmount) || 0),
+        tax: (taxAmount.value || 0) ,
+        shipping: (shippingAmount.value || 0) ,
+        other: (otherAmount.value || 0),
         comments: comments.value || null,
         terms: companyTerms.value || null,
         footerText: footerText.value || null,
@@ -556,8 +555,7 @@ async function downloadPdf() {
       const link = document.createElement('a')
       link.href = url
       const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
-      const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
-      const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}${currencySuffix}.pdf`
+      const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}${curr.nameSuffix}.pdf`
       link.setAttribute('download', fileName)
       document.body.appendChild(link)
       link.click()
@@ -581,13 +579,5 @@ async function downloadPdf() {
   box-shadow: 0 4px 40px rgba(0,0,0,0.2);
   border-radius: 4px;
   overflow: hidden;
-}
-
-.sort-chip {
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 6px;
-  padding: 2px 4px;
-  user-select: none;
 }
 </style>

@@ -311,3 +311,57 @@ public class RfqPdfItem
     public string? Remark { get; set; }
     public List<string>? Alternatives { get; set; }
 }
+
+// ──────────────────────────────────────────────────────
+// DASTURPARDAKHT (DP)
+// ──────────────────────────────────────────────────────
+public class DpPdfRequest
+{
+    // Company
+    public string? CompanyName { get; set; }
+    public string? CompanyLocation { get; set; }
+    public string? CompanyPhone { get; set; }
+    public string? CompanyWebsite { get; set; }
+    public string? CompanyEmail { get; set; }
+    public string? LogoBase64 { get; set; }
+
+    // Theme
+    public string? PrimaryColor { get; set; }
+    public string? AccentColor { get; set; }
+
+    // Meta
+    public string? PoNumber { get; set; }
+    public string? DocumentDate { get; set; }
+    public string? SupplierName { get; set; }
+    public string? Currency { get; set; }
+    public string? CurrencySymbol { get; set; }
+    public string? CompanyPresetName { get; set; }
+
+    // Bank Details (supplier's)
+    public string? BankName { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public string? BankAddress { get; set; }
+    public string? BankCity { get; set; }
+    public string? BankCountry { get; set; }
+    public string? SwiftCode { get; set; }
+    public string? Notes { get; set; }
+
+    // Items
+    public List<DpPdfItem>? Items { get; set; }
+
+    // Totals
+    public decimal? GrandTotal { get; set; }
+
+    // Footer
+    public string? FooterText { get; set; }
+}
+
+public class DpPdfItem
+{
+    public string? PartNumber { get; set; }
+    public int Qty { get; set; }
+    public string? PoSupplier { get; set; }
+    public decimal? QuotePrice { get; set; }
+    public decimal PoPrice { get; set; }
+    public decimal PoTotal { get; set; }
+}

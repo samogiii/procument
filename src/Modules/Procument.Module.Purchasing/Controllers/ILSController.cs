@@ -7,7 +7,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/ils")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class ILSController : ControllerBase
 {
     private readonly IILSService _ilsService;
@@ -44,7 +44,7 @@ public class ILSController : ControllerBase
     }
 
     [HttpDelete("{id:long}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Delete(long id)
     {
         var deleted = await _ilsService.DeleteAsync(id);
@@ -52,7 +52,7 @@ public class ILSController : ControllerBase
     }
 
     [HttpGet("ar-shop-suggestions")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<List<ARShopSuggestionResponse>>> GetARShopSuggestions()
     {
         var suggestions = await _ilsService.GetARShopSuggestionsAsync();

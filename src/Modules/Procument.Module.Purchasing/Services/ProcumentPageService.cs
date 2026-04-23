@@ -106,6 +106,8 @@ public class ProcumentPageService : IProcumentPageService
 
             var quotes = allSupplierQuotes
                     .Where(q => q.RFQItemId == item.Id)
+                    .OrderBy(q => q.SortOrder)
+                    .ThenBy(q => q.Id)
                     .Select(q => new SupplierQuoteResponse
                     {
                         Id = q.Id,
@@ -135,7 +137,9 @@ public class ProcumentPageService : IProcumentPageService
                         Type = q.Type ?? "Procument",
                         FixPrice = q.FixPrice,
                         ParentProcumentId = q.ParentProcumentId,
+                        SortOrder = q.SortOrder,
                         ShopRecords = (q.ShopRecords ?? new List<ProcumentRecord>())
+                            .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
                             .Select(s => new SupplierQuoteResponse
                             {
                                 Id = s.Id,
@@ -165,6 +169,7 @@ public class ProcumentPageService : IProcumentPageService
                                 Type = s.Type ?? "Shop",
                                 FixPrice = s.FixPrice,
                                 ParentProcumentId = s.ParentProcumentId,
+                                SortOrder = s.SortOrder,
                             })
                             .ToList(),
                     })

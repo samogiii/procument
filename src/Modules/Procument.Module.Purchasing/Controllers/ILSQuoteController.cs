@@ -11,7 +11,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/ils-customers")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class ILSCustomersController : ControllerBase
 {
     private readonly IILSQuoteService _service;
@@ -46,7 +46,7 @@ public class ILSCustomersController : ControllerBase
     }
 
     [HttpDelete("{id:long}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Delete(long id)
     {
         var deleted = await _service.DeleteCustomerAsync(id);
@@ -60,7 +60,7 @@ public class ILSCustomersController : ControllerBase
 
 [ApiController]
 [Route("api/ils-quotes")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class ILSQuotesController : ControllerBase
 {
     private readonly IILSQuoteService _service;
@@ -109,7 +109,7 @@ public class ILSQuotesController : ControllerBase
     }
 
     [HttpPatch("{id:long}/status")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> UpdateStatus(long id, [FromBody] UpdateILSQuoteStatusRequest request)
     {
         try
@@ -124,7 +124,7 @@ public class ILSQuotesController : ControllerBase
     }
 
     [HttpDelete("{id:long}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> Delete(long id)
     {
         var deleted = await _service.DeleteQuoteAsync(id);

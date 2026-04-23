@@ -25,8 +25,86 @@ public static class DataSeeder
         await SeedPartNumbersAsync(db, logger);
         await SeedRFQsAsync(db, logger);
         await SeedProcurementRecordsAsync(db, logger);
+        await SeedWarehouseDatasetAsync(db, logger);
         await SeedQuotesAsync(db, logger);
         await SeedInvoicesAsync(db, logger);
+    }
+
+    private static async Task SeedWarehouseDatasetAsync(DbContext db, ILogger logger)
+    {
+        // Only seed if we haven't already seeded this specific set (check by name prefix)
+        if (await db.Set<RFQHeader>().AnyAsync(r => r.Name.StartsWith("WH-RFQ-"))) return;
+
+        var customers = await db.Set<Customer>().ToListAsync();
+        var users = await db.Set<User>().ToListAsync();
+        var parts = await db.Set<PartNumber>().ToListAsync();
+        var suppliers = await db.Set<Supplier>().ToListAsync();
+
+        if (!customers.Any() || !users.Any() || !parts.Any() || suppliers.Count < 10) return;
+
+        var random = new Random(1337);
+
+        for (int i = 1; i <= 10; i++)
+        {
+            var rfq = new RFQHeader
+            {
+                Name = $"WH-RFQ-{DateTime.UtcNow.Year}-{200 + i}",
+                LeadTime = DateTime.UtcNow.AddDays(random.Next(10, 30)),
+                CustomerId = customers[random.Next(customers.Count)].Id,
+                UserId = users[0].Id,
+                CreatedAt = DateTime.UtcNow,
+                ExType = 0, // Warehouse
+            };
+
+            for (int j = 1; j <= 10; j++)
+            {
+                var part = parts[random.Next(parts.Count)];
+                var rfqItem = new RFQItem
+                {
+                    PartNumberId = part.Id,
+                    Qty = random.Next(5, 100),
+                    Condition = "NE",
+                    Alt = null,
+                };
+                rfq.RFQItems.Add(rfqItem);
+            }
+
+            db.Set<RFQHeader>().Add(rfq);
+            await db.SaveChangesAsync();
+
+            // Add 10 procurement records for each item
+            foreach (var item in rfq.RFQItems)
+            {
+                var usedSuppliers = new HashSet<long>();
+                for (int k = 0; k < 10; k++)
+                {
+                    // Pick a unique supplier for each record of this item if possible, 
+                    // otherwise just random from the 10.
+                    var supp = suppliers[k % suppliers.Count];
+                    
+                    var price = Math.Round((decimal)(random.NextDouble() * 1000 + 50), 2);
+                    
+                    db.Set<ProcumentRecord>().Add(new ProcumentRecord
+                    {
+                        RFQItemId = item.Id,
+                        SupplierId = supp.Id,
+                        UserId = users[0].Id,
+                        Price = price,
+                        Qty = item.Qty,
+                        Condition = item.Condition ?? "NE",
+                        Unit = "EA",
+                        UnitPrice = (double)price,
+                        TotalPrice = (double)(price * (decimal)item.Qty),
+                        LeadTime = $"{random.Next(1, 4)} weeks",
+                        ShippingCost = Math.Round(random.NextDouble() * 100, 2),
+                        ShippingPoint = "FOB",
+                    });
+                }
+            }
+            await db.SaveChangesAsync();
+        }
+
+        logger.LogInformation("Seeded 10 Warehouse RFQs with 10 items each and 10 procurement records per item.");
     }
 
     private static async Task SeedUsersAsync(DbContext db, ILogger logger)
@@ -111,7 +189,7 @@ public static class DataSeeder
         if (await db.Set<Supplier>().AnyAsync()) return;
 
         var suppliers = new List<Supplier>();
-        for (int i = 1; i <= 5; i++)
+        for (int i = 1; i <= 10; i++)
         {
             suppliers.Add(new Supplier
             {

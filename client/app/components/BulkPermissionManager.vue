@@ -219,7 +219,8 @@ async function loadUsers() {
 async function loadCustomers() {
   loadingCustomers.value = true
   try {
-    customers.value = await api.get<any[]>('/customers')
+    const res = await api.get<any>('/customers')
+    customers.value = res?.items || []
   } catch { customers.value = [] }
   finally { loadingCustomers.value = false }
 }
@@ -228,15 +229,15 @@ async function loadEntities() {
   loadingEntities.value = true
   try {
     if (props.entityName === 'RFQ') {
-      const res = await api.get<any>('/rfqs')
-      entityItems.value = res || []
+      const res = await api.get<any[]>('/rfqs')
+      entityItems.value = res?.items || []
     } else if (props.entityName === 'Quote') {
       const res = await api.get<any>('/quotes?page=1&pageSize=500')
-      entityItems.value = res.items || []
+      entityItems.value = res?.items || []
     } else {
       // Invoice
       const res = await api.get<any>('/invoices?page=1&pageSize=500')
-      entityItems.value = res.items || []
+      entityItems.value = res?.items || []
     }
   } catch { entityItems.value = [] }
   finally { loadingEntities.value = false }

@@ -35,7 +35,8 @@
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules -type d -name *Supplier* -o -type d -name *Procurement*)",
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/src/Modules/Procument.Module.Purchasing -type f -name *.cs)",
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/client/app/pages -type f -name *.vue)",
-      "Bash(Select-Object -Last 30)"
+      "Bash(Select-Object -Last 30)",
+      "Bash(powershell -Command \"\\(Get-Content '[id].vue' -Raw\\) -replace 'authStore\\\\.token', 'authStore.user?.token' | Set-Content '[id].vue' -NoNewline\")"
     ]
   }
 }

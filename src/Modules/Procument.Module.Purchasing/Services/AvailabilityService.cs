@@ -86,6 +86,7 @@ public class AvailabilityService : IAvailabilityService
                     CertName = i.CertName,
                     LeadTime = i.LeadTime,
                     AltPartNumber = i.AltPartNumber,
+                    TagDate = i.TagDate?.ToString("yyyy-MM-dd"),
                 })
                 .ToList(),
 
@@ -103,6 +104,7 @@ public class AvailabilityService : IAvailabilityService
                     CertName = r.CertName,
                     LeadTime = r.LeadTime,
                     AltPartNumber = r.Alt,
+                    TagDate = r.TagDate?.ToString("yyyy-MM-dd"),
                 })
                 .ToList(),
 

@@ -7,7 +7,7 @@ namespace Procument.Module.Identity.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,SuperAdmin")]
 public class AuditController : ControllerBase
 {
     private readonly IAuditService _auditService;

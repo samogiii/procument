@@ -14,6 +14,7 @@ public interface ISupplierQuoteService
     Task<SupplierQuoteResponse> SaveAsync(SaveSupplierQuoteRequest request, long userId);
     Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request, long userId);
     Task<bool> DeleteAsync(long id, long userId);
+    Task<bool> UpdateOrderAsync(long rfqId, List<SupplierQuoteOrderEntry> items, long userId, bool isAdmin);
 }
 
 public class SupplierQuoteService : ISupplierQuoteService
@@ -59,6 +60,8 @@ public class SupplierQuoteService : ISupplierQuoteService
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Supplier)
             .Where(r => r.RFQItem.RFQId == rfqId && (r.Type ?? "Procument") != "Shop")
+            .OrderBy(r => r.SortOrder)
+            .ThenBy(r => r.Id)
             .ToListAsync();
 
         return records.Select(MapToResponse).ToList();
@@ -90,7 +93,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
 
         var user = await _db.Set<User>().FindAsync(userId);
-        bool isAdmin = user?.Role == "Admin";
+        bool isAdmin = user?.Role == "Admin" || user?.Role == "SuperAdmin";
 
         // Check if user is the owner of THIS RFQ
         var isOwner = await _db.Set<RFQHeader>().AnyAsync(r => r.Id == rfqId && r.UserId == userId);
@@ -257,7 +260,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         // Permission check (once for the whole bulk op)
         var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
         var user = await _db.Set<User>().FindAsync(userId);
-        bool isAdmin = user?.Role == "Admin";
+        bool isAdmin = user?.Role == "Admin" || user?.Role == "SuperAdmin";
 
         var isOwner = await _db.Set<RFQHeader>().AnyAsync(s => s.Id == rfqId && s.UserId == userId);
 
@@ -298,7 +301,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         long rfqId = record.RFQItem.RFQId;
         var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
         var user = await _db.Set<User>().FindAsync(userId);
-        bool isAdmin = user?.Role == "Admin";
+        bool isAdmin = user?.Role == "Admin" || user?.Role == "SuperAdmin";
 
         if (!isAdmin && !hasPermission)
         {
@@ -328,7 +331,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         var lower = trimmed.ToLower();
 
         var user = await _db.Set<User>().FindAsync(userId);
-        bool isAdmin = user?.Role == "Admin";
+        bool isAdmin = user?.Role == "Admin" || user?.Role == "SuperAdmin";
 
         // Check if an existing supplier (active or not) exists by name
         var existing = await _db.Set<Supplier>()
@@ -366,6 +369,35 @@ public class SupplierQuoteService : ISupplierQuoteService
         return supplier;
     }
 
+    public async Task<bool> UpdateOrderAsync(long rfqId, List<SupplierQuoteOrderEntry> items, long userId, bool isAdmin)
+    {
+        if (!isAdmin)
+        {
+            var rfq = await _db.Set<RFQHeader>().FirstOrDefaultAsync(r => r.Id == rfqId);
+            if (rfq == null) return false;
+            if (rfq.UserId != userId)
+            {
+                var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
+                if (!hasPermission) return false;
+            }
+        }
+
+        var ids = items.Select(i => i.Id).ToList();
+        var records = await _db.Set<ProcumentRecord>()
+            .Include(r => r.RFQItem)
+            .Where(r => ids.Contains(r.Id) && r.RFQItem.RFQId == rfqId)
+            .ToListAsync();
+
+        var orderMap = items.ToDictionary(i => i.Id, i => i.SortOrder);
+        foreach (var rec in records)
+        {
+            if (orderMap.TryGetValue(rec.Id, out var so))
+                rec.SortOrder = so;
+        }
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     private static SupplierQuoteResponse MapToResponse(ProcumentRecord r) => new()
     {
         Id = r.Id,
@@ -395,7 +427,9 @@ public class SupplierQuoteService : ISupplierQuoteService
         Type = r.Type ?? "Procument",
         FixPrice = r.FixPrice,
         ParentProcumentId = r.ParentProcumentId,
+        SortOrder = r.SortOrder,
         ShopRecords = (r.ShopRecords ?? new List<ProcumentRecord>())
+            .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
             .Select(s => MapToResponse(s)).ToList(),
     };
 }

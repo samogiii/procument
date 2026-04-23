@@ -39,7 +39,7 @@
         <v-btn v-if="quote.status !== 'Sent' && quote.status !== 'Accepted' && quote.status !== 'Rejected'" prepend-icon="mdi-pencil" variant="tonal" color="warning" size="small" @click="editQuote">Edit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn v-if="isAdmin && quote.status === 'Accepted'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn v-if="isAdmin && quote.status === 'Accepted' || quote.status === 'Sent'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
       </div>
     </div>
 
@@ -184,10 +184,36 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="(item, idx) in allRfqItems" :key="item.id">
+              <template v-for="(item, idx) in sortedRfqItems" :key="item.id">
                 <!-- Master Row -->
                 <tr class="master-row" :class="{ 'master-row-inactive': !itemHasSelection(item.id) }">
-                  <td class="cell-number">{{ idx + 1 }}</td>
+                  <td class="cell-number">
+                    <div class="d-flex align-center gap-1">
+                      <span>{{ idx + 1 }}</span>
+                      <div v-if="canReorder && itemHasSelection(item.id)" class="d-flex flex-column">
+                        <v-btn
+                          icon
+                          size="x-small"
+                          variant="text"
+                          density="compact"
+                          :disabled="getQuoteItemIndex(item.id) <= 0"
+                          @click="moveItem(item.id, -1)"
+                        >
+                          <v-icon size="14">mdi-chevron-up</v-icon>
+                        </v-btn>
+                        <v-btn
+                          icon
+                          size="x-small"
+                          variant="text"
+                          density="compact"
+                          :disabled="getQuoteItemIndex(item.id) < 0 || getQuoteItemIndex(item.id) >= getQuoteItemCount() - 1"
+                          @click="moveItem(item.id, 1)"
+                        >
+                          <v-icon size="14">mdi-chevron-down</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
+                  </td>
                   <td class="cell-pn" :class="{ 'cell-pn-inactive': !itemHasSelection(item.id) }">{{ item.partNumberName }}</td>
                   <td class="text-medium-emphasis" style="padding-left: 12px; font-size: 13px;">{{ item.description || '—' }}</td>
                   <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
@@ -207,6 +233,7 @@
                         <thead>
                           <tr>
                             <th style="width: 28px;"></th>
+                            <th style="width: 44px;">Order</th>
                             <th style="opacity:1; min-width: 90px; position: sticky; left: 0;  background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                             <th style="width: 120px;">Alt P/N</th>
                             <th style="width: 80px;">Condition</th>
@@ -251,6 +278,28 @@
                                 color="grey"
                                 size="16"
                               />
+                            </td>
+                            <td class="text-center" style="white-space: nowrap;">
+                              <v-btn
+                                icon
+                                size="x-small"
+                                variant="text"
+                                density="compact"
+                                :disabled="rec.isShop || isFirstProc(item.id, rec.id)"
+                                @click="moveProcRecord(item.id, rec.id, -1)"
+                              >
+                                <v-icon size="14">mdi-chevron-up</v-icon>
+                              </v-btn>
+                              <v-btn
+                                icon
+                                size="x-small"
+                                variant="text"
+                                density="compact"
+                                :disabled="rec.isShop || isLastProc(item.id, rec.id)"
+                                @click="moveProcRecord(item.id, rec.id, 1)"
+                              >
+                                <v-icon size="14">mdi-chevron-down</v-icon>
+                              </v-btn>
                             </td>
                             <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                               <span v-if="rec.isShop" style="color:#ff9800; margin-right:4px; font-size:11px;">↳ 🔧</span>{{ rec.supplierName }}
@@ -298,7 +347,7 @@
                 </tr>
               </template>
 
-              <tr v-if="!allRfqItems.length && !loading">
+              <tr v-if="!sortedRfqItems.length && !loading">
                 <td :colspan="6" class="text-center pa-8">
                   <v-icon icon="mdi-file-document-outline" size="48" color="grey-darken-1" class="mb-3" />
                   <p class="text-body-2 text-medium-emphasis">No RFQ items found</p>
@@ -486,6 +535,120 @@ function getProcRecords(rfqItemId: number) {
 
 function itemHasSelection(rfqItemId: number) {
   return getProcRecords(rfqItemId).some(r => selectedProcIds.value.has(r.id))
+}
+
+// ── Item sort ordering ──
+// Items belonging to quote are ordered by their quote item SortOrder.
+// Items not in the quote come last (preserve RFQ order).
+const sortedRfqItems = computed(() => {
+  const quoteItems: any[] = quote.value?.items || []
+  const orderMap = new Map<number, number>() // rfqItemId -> sortOrder
+  quoteItems.forEach((qi: any, idx: number) => {
+    if (qi.rfqItemId != null) {
+      orderMap.set(qi.rfqItemId, qi.sortOrder ?? idx)
+    }
+  })
+  const arr = [...allRfqItems.value]
+  arr.sort((a: any, b: any) => {
+    const aIn = orderMap.has(a.id)
+    const bIn = orderMap.has(b.id)
+    if (aIn && bIn) return (orderMap.get(a.id)! - orderMap.get(b.id)!)
+    if (aIn) return -1
+    if (bIn) return 1
+    return a.id - b.id
+  })
+  return arr
+})
+
+const canReorder = computed(() => {
+  // Only allow reordering of items that are in this quote
+  return (quote.value?.items?.length ?? 0) > 1
+})
+
+async function moveItem(rfqItemId: number, direction: -1 | 1) {
+  const quoteItems: any[] = [...(quote.value?.items || [])]
+  // Sort by current sortOrder first
+  quoteItems.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  const idx = quoteItems.findIndex((q: any) => q.rfqItemId === rfqItemId)
+  if (idx < 0) return
+  const swapIdx = idx + direction
+  if (swapIdx < 0 || swapIdx >= quoteItems.length) return
+  ;[quoteItems[idx], quoteItems[swapIdx]] = [quoteItems[swapIdx], quoteItems[idx]]
+  // Re-assign sortOrder values sequentially
+  quoteItems.forEach((qi: any, i: number) => { qi.sortOrder = i })
+  quote.value.items = quoteItems
+
+  try {
+    await api.patch(`/quotes/${route.params.id}/items-order`, {
+      items: quoteItems.map((qi: any) => ({ id: qi.id, sortOrder: qi.sortOrder })),
+    })
+  } catch {
+    showSnack('Failed to save order', 'error')
+    await loadQuote()
+  }
+}
+
+function getQuoteItemIndex(rfqItemId: number) {
+  const quoteItems: any[] = quote.value?.items || []
+  const sorted = [...quoteItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  return sorted.findIndex((q: any) => q.rfqItemId === rfqItemId)
+}
+
+function getQuoteItemCount() {
+  return quote.value?.items?.length || 0
+}
+
+// ── Procurement record (supplier) sort ordering ──
+function getParentProcs(rfqItemId: number) {
+  return getProcRecords(rfqItemId).filter((r: any) => !r.isShop)
+}
+
+function isFirstProc(rfqItemId: number, recId: number) {
+  const arr = getParentProcs(rfqItemId)
+  return arr.length === 0 || arr[0].id === recId
+}
+
+function isLastProc(rfqItemId: number, recId: number) {
+  const arr = getParentProcs(rfqItemId)
+  return arr.length === 0 || arr[arr.length - 1].id === recId
+}
+
+async function moveProcRecord(rfqItemId: number, recId: number, direction: -1 | 1) {
+  const parents = getParentProcs(rfqItemId)
+  const idx = parents.findIndex((r: any) => r.id === recId)
+  if (idx < 0) return
+  const swapIdx = idx + direction
+  if (swapIdx < 0 || swapIdx >= parents.length) return
+
+  // Reorder in local state (swap + reassign sortOrder)
+  ;[parents[idx], parents[swapIdx]] = [parents[swapIdx], parents[idx]]
+  parents.forEach((r: any, i: number) => { r.sortOrder = i })
+
+  // Rebuild allProcRecords: keep other rfq items intact, replace this rfqItem's ordering while grouping shop children under their parent
+  const others = allProcRecords.value.filter((r: any) => r.rfqItemId !== rfqItemId)
+  const shopByParent = new Map<number, any[]>()
+  for (const r of allProcRecords.value) {
+    if (r.rfqItemId === rfqItemId && r.isShop && r.parentProcumentId != null) {
+      if (!shopByParent.has(r.parentProcumentId)) shopByParent.set(r.parentProcumentId, [])
+      shopByParent.get(r.parentProcumentId)!.push(r)
+    }
+  }
+  const reinserted: any[] = []
+  for (const p of parents) {
+    reinserted.push(p)
+    const shops = shopByParent.get(p.id) || []
+    reinserted.push(...shops)
+  }
+  allProcRecords.value = [...others, ...reinserted]
+
+  try {
+    await api.patch(`/rfqs/${quote.value.rfqId}/supplier-quotes/order`, {
+      items: parents.map((r: any) => ({ id: r.id, sortOrder: r.sortOrder })),
+    })
+  } catch {
+    showSnack('Failed to save supplier order', 'error')
+    await loadQuote()
+  }
 }
 
 const showRejectDialog = ref(false)

@@ -12,7 +12,7 @@ namespace Procument.Module.Identity.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = UserRoles.Admin)]
+[Authorize(Roles = UserRoles.Admin + "," + UserRoles.SuperAdmin)]
 public class PermissionsController : ControllerBase
 {
     private readonly IPermissionService _permissionService;

@@ -339,7 +339,7 @@
           <!-- Preview -->
           <div v-if="importPreview.length > 0" class="mt-4">
             <div class="d-flex align-center gap-2 mb-2">
-              <span class="text-subtitle-2">Preview ({{ importPreview.length }} rows)</span>
+              <span class="text-subtitle-2">Preview ({{ importPreview.length }} unique entries)</span>
               <v-spacer />
               <v-btn size="x-small" variant="text" color="error" @click="importPreview = []">Clear Preview</v-btn>
             </div>
@@ -355,14 +355,15 @@
                     <th>Condition</th>
                     <th>Price</th>
                     <th>Serial Number</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(row, i) in importPreview.slice(0, 20)" :key="i">
+                  <tr v-for="(row, i) in importPreview.slice(0, 50)" :key="i">
                     <td class="text-medium-emphasis">{{ i + 1 }}</td>
                     <td class="font-weight-medium" style="font-family: monospace;">{{ row.partNumberName }}</td>
                     <td>{{ row.description || '—' }}</td>
-                    <td>{{ row.qty }}</td>
+                    <td><v-chip size="x-small" color="primary">{{ row.qty }}</v-chip></td>
                     <td>{{ row.companyName || '—' }}</td>
                     <td>
                       <v-chip v-if="row.condition" size="x-small" :color="conditionColor(row.condition)" variant="tonal">
@@ -370,20 +371,24 @@
                       </v-chip>
                       <span v-else class="text-medium-emphasis">—</span>
                     </td>
-                    <td>{{ row.price != null ? '$' + row.price : '—' }}</td>
+                    <td>{{ row.price != null ? '$' + formatPrice(row.price) : '—' }}</td>
                     <td>{{ row.serialNumber || '—' }}</td>
+                    <td>
+                      <v-chip v-if="row._aggregated" size="x-small" color="orange" variant="flat">Aggregated</v-chip>
+                      <v-chip v-else size="x-small" color="success" variant="tonal">New Row</v-chip>
+                    </td>
                   </tr>
                 </tbody>
               </table>
-              <p v-if="importPreview.length > 20" class="text-caption text-medium-emphasis mt-1">
-                + {{ importPreview.length - 20 }} more rows not shown
+              <p v-if="importPreview.length > 50" class="text-caption text-medium-emphasis mt-1">
+                + {{ importPreview.length - 50 }} more unique rows not shown
               </p>
             </div>
           </div>
         </v-card-text>
         <v-divider />
         <v-card-actions class="pa-4 pt-3">
-          <span class="text-caption text-medium-emphasis">{{ importPreview.length }} rows ready to import</span>
+          <span class="text-caption text-medium-emphasis">{{ importPreview.length }} entries ready</span>
           <v-spacer />
           <v-btn variant="text" @click="closeExcelDialog">Cancel</v-btn>
           <v-btn
@@ -828,22 +833,40 @@ function parseRows(rows: any[][]) {
       rows[0][0].toLowerCase().replace(/\s/g, '').includes('part')) {
     dataRows = rows.slice(1)
   }
-  return dataRows
+  
+  const rawData = dataRows
     .filter(row => row && row.some(c => c != null && String(c).trim() !== ''))
     .map(row => {
       const priceRaw = String(row[5] ?? '').replace(/[$,\s]/g, '')
       const price = priceRaw ? parseFloat(priceRaw) : null
       return {
         partNumberName: String(row[0] ?? '').trim(),
-        description: String(row[1] ?? '').trim() || null,
+        description: String(row[1] ?? '').trim() || '',
         qty: parseFloat(String(row[2] ?? '0')) || 0,
-        companyName: String(row[3] ?? '').trim() || null,
-        condition: String(row[4] ?? '').trim().toUpperCase() || null,
+        companyName: String(row[3] ?? '').trim() || '',
+        condition: String(row[4] ?? '').trim().toUpperCase() || '',
         price: isNaN(price!) ? null : price,
-        serialNumber: String(row[6] ?? '').trim() || null,
+        serialNumber: String(row[6] ?? '').trim() || '',
       }
     })
     .filter(row => row.partNumberName)
+
+  // ── Client-side Aggregation ──
+  const aggregated: Record<string, any> = {}
+  
+  rawData.forEach(row => {
+    // Deduplication Key: PN | SN | Cond | Desc | Company
+    const key = `${row.partNumberName}|${row.serialNumber}|${row.condition}|${row.description}|${row.companyName}`.toLowerCase()
+    
+    if (aggregated[key]) {
+      aggregated[key].qty += row.qty
+      aggregated[key]._aggregated = true
+    } else {
+      aggregated[key] = { ...row, _aggregated: false }
+    }
+  })
+
+  return Object.values(aggregated)
 }
 
 function handleFileUpload(event: Event) {
@@ -872,7 +895,8 @@ async function doExcelImport() {
   importingExcel.value = true
   try {
     const result = await api.post<any>('/inventory/bulk-import', { rows: importPreview.value })
-    showSnack(`Imported ${result.created} rows${result.skipped > 0 ? `, skipped ${result.skipped}` : ''}`)
+    const msg = `Imported ${result.created} new rows, updated ${result.updated || 0} existing.`
+    showSnack(msg)
     if (result.errors?.length) console.warn('Import errors:', result.errors)
     await loadItems()
     closeExcelDialog()
@@ -885,9 +909,9 @@ async function doExcelImport() {
 </script>
 
 <style scoped>
-.preview-table-wrapper { overflow-x: auto; max-height: 280px; overflow-y: auto; }
-.preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.preview-table th { background: rgba(var(--v-theme-surface-variant), 0.5); padding: 6px 10px; text-align: left; font-weight: 600; position: sticky; top: 0; }
-.preview-table td { padding: 5px 10px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06); }
+.preview-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.preview-table th { background: rgba(var(--v-theme-surface-variant), 0.5); padding: 8px 10px; text-align: left; font-weight: 600; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid rgba(var(--v-theme-on-surface), 0.1); }
+.preview-table td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06); }
 .preview-table tr:hover td { background: rgba(var(--v-theme-surface-variant), 0.3); }
 </style>

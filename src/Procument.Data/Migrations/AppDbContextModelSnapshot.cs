@@ -156,6 +156,9 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int?>("ExWork")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -898,6 +901,9 @@ namespace Procument.Data.Migrations
                     b.Property<string>("ShippingPoint")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
                     b.Property<long>("SupplierId")
                         .HasColumnType("bigint");
 
@@ -946,6 +952,23 @@ namespace Procument.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AdminApproval")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Pending");
+
+                    b.Property<DateTime?>("AdminApprovalAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("AdminApprovalBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AdminApprovalNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -956,6 +979,32 @@ namespace Procument.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("PaymentApproval")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("PaymentApprovalAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("PaymentApprovalBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PaymentApprovalNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PaymentStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("NotStarted");
+
+                    b.Property<DateTime?>("PaymentSubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("PaymentSubmittedBy")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("RejectionNote")
                         .HasColumnType("nvarchar(max)");
@@ -973,12 +1022,16 @@ namespace Procument.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AdminApproval");
+
                     b.HasIndex("CreatedAt");
 
                     b.HasIndex("InvoiceId");
 
                     b.HasIndex("PONumber")
                         .IsUnique();
+
+                    b.HasIndex("PaymentStatus");
 
                     b.HasIndex("SupplierId");
 
@@ -1405,6 +1458,9 @@ namespace Procument.Data.Migrations
 
                     b.Property<long?>("RFQItemId")
                         .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("TotalPrice")
                         .HasColumnType("decimal(18,2)");

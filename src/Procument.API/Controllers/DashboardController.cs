@@ -25,7 +25,7 @@ public class DashboardController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<DashboardResponse>> Get([FromQuery] long? userId = null)
     {
-        var isAdmin = User.IsInRole("Admin");
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var currentUserId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
         // Determine effective scope:
@@ -264,7 +264,7 @@ public class DashboardController : ControllerBase
     /// Admin-only: Returns list of users for the dashboard filter dropdown.
     /// </summary>
     [HttpGet("users")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> GetUsers()
     {
         var users = await _db.Users
@@ -278,7 +278,7 @@ public class DashboardController : ControllerBase
     /// Admin-only: Returns all PO items with full joined data for the "All PO Items" tab.
     /// </summary>
     [HttpGet("po-items")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<List<POItemFlatRow>>> GetAllPOItems()
     {
         var rows = await _db.POItems

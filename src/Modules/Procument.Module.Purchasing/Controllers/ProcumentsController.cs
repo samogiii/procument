@@ -9,7 +9,7 @@ namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/rfqs/{rfqId:long}/supplier-quotes")]
-[Authorize(Roles = "Admin,Expert")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class SupplierQuotesController : ControllerBase
 {
     private readonly ISupplierQuoteService _procumentService;
@@ -36,7 +36,7 @@ public class SupplierQuotesController : ControllerBase
         {
             userId = id;
         }
-        bool isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         return (userId, isAdmin);
     }
 
@@ -67,5 +67,15 @@ public class SupplierQuotesController : ControllerBase
     {
         var deleted = await _procumentService.DeleteAsync(id, GetUserId());
         return deleted ? NoContent() : NotFound();
+    }
+
+    /// <summary>Update sort order of supplier quotes for an RFQ.</summary>
+    [HttpPatch("order")]
+    [Auditable("ProcumentRecord", "UpdateOrder", CaptureBody = true)]
+    public async Task<IActionResult> UpdateOrder(long rfqId, [FromBody] UpdateSupplierQuotesOrderRequest request)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var ok = await _procumentService.UpdateOrderAsync(rfqId, request.Items, userId, isAdmin);
+        return ok ? Ok() : NotFound();
     }
 }

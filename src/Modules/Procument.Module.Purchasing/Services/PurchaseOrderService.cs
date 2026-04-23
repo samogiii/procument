@@ -4,6 +4,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Shared.DTOs;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -13,7 +14,7 @@ public interface IPurchaseOrderService
     Task<POResponse?> GetByIdAsync(long id);
     Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync();
     Task<POResponse> CreateAsync(CreatePORequest request);
-    Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, string? rejectionNote = null);
+    Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null);
     Task<bool> UpdateItemAsync(UpdatePOItemRequest request);
     Task<bool> DeleteAsync(long id);
 }
@@ -21,10 +22,12 @@ public interface IPurchaseOrderService
 public class PurchaseOrderService : IPurchaseOrderService
 {
     private readonly DbContext _db;
+    private readonly IDocumentStorageService _documentStorage;
 
-    public PurchaseOrderService(DbContext db)
+    public PurchaseOrderService(DbContext db, IDocumentStorageService documentStorage)
     {
         _db = db;
+        _documentStorage = documentStorage;
     }
 
     /// <summary>Get all unassigned POItems (POId is null) — enriched with ExType, supplier, customer.</summary>
@@ -144,13 +147,12 @@ public class PurchaseOrderService : IPurchaseOrderService
     /// <summary>Create PO and assign existing unassigned POItems to it.</summary>
     public async Task<POResponse> CreateAsync(CreatePORequest request)
     {
-        // Create PO first to get its Id
         var po = new PurchaseOrder
         {
             PONumber = "", // Will be set after getting Id
             SupplierId = request.SupplierId,
             InvoiceId = request.InvoiceId,
-            Status = "Sent",
+            Status = "Waiting For Admin Approval",
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -176,14 +178,77 @@ public class PurchaseOrderService : IPurchaseOrderService
         po.TotalAmount = totalAmount;
         await _db.SaveChangesAsync();
 
+        // Create supplier subfolders inside each related Proforma Invoice folder
+        try { await CreateSupplierFoldersForPoAsync(po, poItems); }
+        catch { /* folder creation must not fail PO creation */ }
+
         return (await GetByIdAsync(po.Id))!;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, string? rejectionNote = null)
+    /// <summary>
+    /// For every Proforma Invoice linked (directly or via POItems) to this PO,
+    /// create a supplier-named subfolder. Uses the PO's supplier name.
+    /// </summary>
+    private async Task CreateSupplierFoldersForPoAsync(PurchaseOrder po, List<POItem> poItems)
+    {
+        // Resolve supplier name (from PO)
+        var supplier = await _db.Set<Supplier>().FindAsync(po.SupplierId);
+        var supplierName = supplier?.Name ?? "Unknown Supplier";
+
+        // Collect invoice numbers: from po.InvoiceId (direct) + from POItem -> InvoiceItem -> Invoice
+        var invoiceNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (po.InvoiceId.HasValue)
+        {
+            var direct = await ResolveInvoiceNumbers(new List<long> { po.InvoiceId.Value });
+            if (direct.TryGetValue(po.InvoiceId.Value, out var n) && !string.IsNullOrWhiteSpace(n))
+                invoiceNumbers.Add(n);
+        }
+
+        var invoiceItemIds = poItems.Where(i => i.InvoiceItemId.HasValue).Select(i => i.InvoiceItemId!.Value).Distinct().ToList();
+        if (invoiceItemIds.Count > 0)
+        {
+            var map = await ResolveInvoiceFromItemIds(invoiceItemIds);
+            foreach (var kv in map)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Value.Number))
+                    invoiceNumbers.Add(kv.Value.Number!);
+            }
+        }
+
+        foreach (var invoiceNumber in invoiceNumbers)
+        {
+            _documentStorage.EnsureSupplierSubfolder(invoiceNumber, supplierName);
+        }
+    }
+
+    public async Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null)
     {
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return false;
 
+        // Restriction: Only SuperAdmin can manually set back to "Waiting For Admin Approval" or "Waiting For Payment"
+        if (!isSuperAdmin && (newStatus == "Waiting For Admin Approval" || newStatus == "Waiting For Payment"))
+        {
+            return false;
+        }
+
+        // Block manual status changes during approval/payment workflow
+        // 1. If waiting for Admin approval
+        if (po.AdminApproval != "Approved" && po.Status == "Waiting For Admin Approval")
+        {
+            // Only SuperAdmin can override or correct status at this stage
+            if (!isSuperAdmin) return false;
+        }
+        
+        // 2. If waiting for Payment (Admin approved but payment not yet submitted)
+        if (po.AdminApproval == "Approved" && po.PaymentStatus != "Submitted")
+        {
+            // Even SuperAdmin shouldn't skip the payment submission step manually via status change
+            if (!isSuperAdmin) return false;
+        }
+
+        // Once PaymentStatus == "Submitted" (Payment Done), Admin/Expert can change it to logistics steps
         po.Status = newStatus;
         await _db.SaveChangesAsync();
         return true;
@@ -308,6 +373,14 @@ public class PurchaseOrderService : IPurchaseOrderService
         InvoiceId = po.InvoiceId,
         InvoiceNumber = invoiceNumber,
         RejectionNote = po.RejectionNote,
+        AdminApproval = po.AdminApproval,
+        AdminApprovalNote = po.AdminApprovalNote,
+        AdminApprovalAt = po.AdminApprovalAt,
+        PaymentStatus = po.PaymentStatus,
+        PaymentSubmittedAt = po.PaymentSubmittedAt,
+        PaymentApproval = po.PaymentApproval,
+        PaymentApprovalNote = po.PaymentApprovalNote,
+        PaymentApprovalAt = po.PaymentApprovalAt,
         Items = po.POItems.Select(i => new POItemResponse
         {
             Id = i.Id,

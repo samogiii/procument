@@ -115,7 +115,7 @@ public class InvoicesController : ControllerBase
         else if (request.Status == "Pending")
         {
             // Notify admins
-            var adminIds = await _db.Set<User>().Where(u => u.Role == "Admin" && u.IsActive).Select(u => u.Id).ToListAsync();
+            var adminIds = await _db.Set<User>().Where(u => (u.Role == "Admin" || u.Role == "SuperAdmin") && u.IsActive).Select(u => u.Id).ToListAsync();
             foreach (var aid in adminIds)
             {
                 _db.Set<Notification>().Add(new Notification
@@ -153,7 +153,7 @@ public class InvoicesController : ControllerBase
         {
             userId = id;
         }
-        bool isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         return (userId, isAdmin);
     }
 }
