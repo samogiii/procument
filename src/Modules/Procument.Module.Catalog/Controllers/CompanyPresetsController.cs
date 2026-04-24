@@ -14,7 +14,7 @@ public class CompanyPresetsController : ControllerBase
     public CompanyPresetsController(DbContext db) => _db = db;
 
     [HttpGet]
-    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
     public async Task<ActionResult> GetAll()
     {
         // Auto-seed defaults if table is empty

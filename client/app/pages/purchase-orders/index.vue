@@ -10,30 +10,46 @@
       </div>
     </v-card>
 
+    <!-- Assign toolbar (admins only) -->
+    <div v-if="!loading && isAdmin" class="d-flex align-center mb-3">
+      <v-spacer />
+      <v-btn
+        color="primary"
+        variant="tonal"
+        size="small"
+        prepend-icon="mdi-shield-account-outline"
+        @click="showAssignDialog = true"
+      >
+        Assign Users
+      </v-btn>
+    </div>
+
+    <BulkPermissionManager v-if="isAdmin" v-model="showAssignDialog" entity-name="PO" />
+
     <!-- Tabs -->
-    <v-card v-else class="glass-card">
+    <v-card v-if="!loading" class="glass-card">
       <v-tabs v-model="activeTab" bg-color="transparent" color="primary">
         <v-tab value="orders">
           <v-icon start size="18">mdi-clipboard-list</v-icon>
           Purchase Orders
           <v-chip v-if="purchaseOrders.length" size="x-small" color="primary" variant="tonal" class="ml-2">{{ purchaseOrders.length }}</v-chip>
         </v-tab>
-        <v-tab value="warehouse">
+        <v-tab v-if="isAdmin" value="warehouse">
           <v-icon start size="18">mdi-warehouse</v-icon>
           Warehouse
           <v-chip v-if="warehouseItemCount" size="x-small" color="success" variant="tonal" class="ml-2">{{ warehouseItemCount }}</v-chip>
         </v-tab>
-        <v-tab value="vendor">
+        <v-tab v-if="isAdmin" value="vendor">
           <v-icon start size="18">mdi-truck-outline</v-icon>
           Vendor
           <v-chip v-if="vendorItemCount" size="x-small" color="info" variant="tonal" class="ml-2">{{ vendorItemCount }}</v-chip>
         </v-tab>
-        <v-tab value="customer">
+        <v-tab v-if="isAdmin" value="customer">
           <v-icon start size="18">mdi-account-group</v-icon>
           Customer
           <v-chip v-if="customerItemCount" size="x-small" color="error" variant="tonal" class="ml-2">{{ customerItemCount }}</v-chip>
         </v-tab>
-        <v-tab value="edit">
+        <v-tab v-if="isAdmin" value="edit">
           <v-icon start size="18">mdi-pencil</v-icon>
           Edit
           <v-chip v-if="allItems.length" size="x-small" color="primary" variant="tonal" class="ml-2">{{ allItems.length }}</v-chip>
@@ -65,6 +81,7 @@
                     <th style="width: 120px;">Total Amount</th>
                     <th style="width: 180px;">Status</th>
                     <th style="width: 100px;">Items</th>
+                    <th v-if="isAdmin" style="width: 200px;">Assigned Users</th>
                     <th style="width: 140px;">Created</th>
                     <th style="width: 80px;"></th>
                   </tr>
@@ -105,6 +122,21 @@
                       </div>
                     </td>
                     <td class="text-center">{{ po.items?.length || 0 }}</td>
+                    <td v-if="isAdmin" @click.stop>
+                      <div v-if="po._assignedUsers && po._assignedUsers.length" class="d-flex flex-wrap gap-1">
+                        <v-chip
+                          v-for="p in po._assignedUsers"
+                          :key="p.id"
+                          size="x-small"
+                          :color="p.permission === 'Edit' ? 'success' : 'info'"
+                          variant="tonal"
+                          :title="`${p.permission} · Assigned ${new Date(p.createdAt).toLocaleDateString()}`"
+                        >
+                          {{ p.user?.name || p.user?.email || `User #${p.userId}` }}
+                        </v-chip>
+                      </div>
+                      <span v-else class="text-medium-emphasis" style="font-size: 12px;">—</span>
+                    </td>
                     <td class="text-medium-emphasis" style="font-size: 12px;">{{ po.createdAt ? new Date(po.createdAt).toLocaleDateString() : '—' }}</td>
                     <td class="text-center">
                       <v-btn icon="mdi-arrow-right" variant="text" size="x-small" density="compact" :to="`/purchase-orders/${po.id}`" />
@@ -405,6 +437,9 @@
 
 <script setup lang="ts">
 const api = useApi()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
+const showAssignDialog = ref(false)
 
 const loading = ref(true)
 const allItems = ref<any[]>([])
@@ -590,6 +625,16 @@ async function loadPurchaseOrders() {
         po._locked = false
       }
     }))
+    // Load assigned users per PO (admin only)
+    if (isAdmin.value) {
+      await Promise.all(pos.map(async (po: any) => {
+        try {
+          po._assignedUsers = await api.get<any[]>(`/permissions/PO/${po.id}`)
+        } catch {
+          po._assignedUsers = []
+        }
+      }))
+    }
   } catch {
     // silent
   }

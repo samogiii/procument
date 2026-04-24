@@ -73,6 +73,14 @@
           :value="invoice.paidDate ? new Date(invoice.paidDate).toLocaleDateString() : 'Unpaid'"
         />
       </v-col>
+      <v-col cols="12" md="3">
+        <StatCard
+          icon="mdi-tag-outline"
+          :color="rfqExTypeMeta.color"
+          label="RFQ Ex"
+          :value="rfqExTypeMeta.label"
+        />
+      </v-col>
     </v-row>
 
     <!-- Rejection Note -->
@@ -116,29 +124,36 @@
         Line Items
         <v-spacer />
         <v-btn
-          v-if="discountDirty"
+          v-if="itemsDirty"
           variant="tonal"
           color="warning"
           size="small"
           prepend-icon="mdi-content-save"
           :loading="savingItems"
-          @click="saveItemDiscounts"
-        >Save Prices</v-btn>
+          @click="saveItemEdits"
+        >Save Changes</v-btn>
       </v-card-title>
       <v-card-text>
         <v-data-table :headers="itemHeaders" :items="itemsWithFinalPrice" density="comfortable" :items-per-page="50">
           <template #item.expectedDeliveryDate="{ item }: { item: any }">
             {{ item.expectedDeliveryDate ? new Date(item.expectedDeliveryDate).toLocaleDateString() : '—' }}
           </template>
-          <template #item.unitPrice="{ item }: { item: any }">
-            ${{ formatPrice(item.unitPrice) }}
-          </template>
-          <template #item.totalPrice="{ item }: { item: any }">
-            ${{ formatPrice(item.totalPrice) }}
-          </template>
-          <template #item.finalPrice="{ item }: { item: any }">
+          <template #item.qty="{ item }: { item: any }">
             <v-text-field
-              v-model.number="item._finalPrice"
+              v-model.number="item._qty"
+              type="number"
+              density="compact"
+              hide-details
+              variant="outlined"
+              min="1"
+              step="1"
+              style="min-width:80px; max-width:100px;"
+              @update:model-value="onItemChange(item)"
+            />
+          </template>
+          <template #item.unitPrice="{ item }: { item: any }">
+            <v-text-field
+              v-model.number="item._unitPrice"
               type="number"
               density="compact"
               hide-details
@@ -147,8 +162,14 @@
               step="0.01"
               min="0"
               style="min-width:110px; max-width:140px;"
-              @update:model-value="onFinalPriceChange(item)"
+              @update:model-value="onItemChange(item)"
             />
+            <div v-if="item.originalUnitPrice != null && item._unitPrice < item.originalUnitPrice" class="text-caption text-medium-emphasis mt-1">
+              orig ${{ formatPrice(item.originalUnitPrice) }}
+            </div>
+          </template>
+          <template #item.totalPrice="{ item }: { item: any }">
+            ${{ formatPrice((item._qty || 0) * (item._unitPrice || 0)) }}
           </template>
           <template #item.discount="{ item }: { item: any }">
             <span v-if="item._discount > 0" style="color:#e53935; font-weight:600;">
@@ -233,58 +254,78 @@ const { isLocked, checkLock } = useFinalInvoiceLock('invoice', entityId)
 const invoiceStatuses = [
   { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
   { value: 'Pending', label: 'Pending', icon: 'mdi-clock-outline', color: 'warning' },
+  { value: 'Accepted', label: 'Accepted', icon: 'mdi-check-decagram-outline', color: 'success' },
+  { value: 'Net30', label: 'Net30', icon: 'mdi-calendar-clock', color: 'indigo' },
+  { value: 'CAD', label: 'CAD', icon: 'mdi-currency-usd', color: 'cyan' },
   { value: 'Paid', label: 'Paid', icon: 'mdi-check-circle', color: 'success' },
-  { value: 'Overdue', label: 'Overdue', icon: 'mdi-alert', color: 'error' },
+  { value: 'Prepeyment', label: 'Prepeyment', icon: 'mdi-cash-marker', color: 'orange' },
   { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
 ]
 
 const itemHeaders = [
   { title: 'Part Number', key: 'partNumberName' },
   { title: 'Description', key: 'description' },
-  { title: 'Qty', key: 'qty' },
+  { title: 'Qty', key: 'qty', sortable: false },
   { title: 'Lead Time', key: 'expectedDeliveryDate' },
-  { title: 'Unit Price', key: 'unitPrice' },
-  { title: 'Original Total', key: 'totalPrice' },
-  { title: 'Final Price', key: 'finalPrice', sortable: false },
+  { title: 'Unit Price', key: 'unitPrice', sortable: false },
+  { title: 'Total', key: 'totalPrice' },
   { title: 'Discount', key: 'discount', sortable: false },
 ]
 
-// Editable items with local _finalPrice and _discount
+// Editable items with local _qty, _unitPrice, _discount
 const itemsWithFinalPrice = ref<any[]>([])
-const discountDirty = ref(false)
+const itemsDirty = ref(false)
 const savingItems = ref(false)
+
+// ── RFQ Ex box ──
+const rfqExTypeOptions = [
+  { value: 0, label: 'Ex Warehouse', color: 'success' },
+  { value: 1, label: 'Ex Vendor', color: 'info' },
+  { value: 2, label: 'Ex Customer', color: 'warning' },
+]
+const rfqExTypeMeta = computed(() => {
+  const t = invoice.value?.rfqExType
+  const found = rfqExTypeOptions.find(o => o.value === t)
+  return found ? { label: found.label, color: found.color } : { label: '—', color: 'grey' }
+})
 
 function initItemPrices() {
   itemsWithFinalPrice.value = (invoice.value.items || []).map((it: any) => ({
     ...it,
-    _finalPrice: it.discount ? Number((it.totalPrice - it.discount).toFixed(2)) : Number(it.totalPrice),
+    _qty: Number(it.qty),
+    _unitPrice: Number(it.unitPrice),
+    _origQty: Number(it.qty),
+    _origUnitPrice: Number(it.unitPrice),
     _discount: it.discount || 0,
   }))
-  discountDirty.value = false
+  itemsDirty.value = false
 }
 
-function onFinalPriceChange(item: any) {
-  const original = Number(item.totalPrice)
-  const final = Number(item._finalPrice)
-  item._discount = (final < original && final >= 0) ? Number((original - final).toFixed(2)) : 0
-  discountDirty.value = true
+function onItemChange(item: any) {
+  const ref = Number(item.originalUnitPrice ?? item._origUnitPrice ?? item._unitPrice)
+  const unit = Number(item._unitPrice || 0)
+  const qty = Number(item._qty || 0)
+  const perUnit = ref - unit
+  item._discount = perUnit > 0 ? Number((perUnit * qty).toFixed(2)) : 0
+  itemsDirty.value = true
 }
 
-async function saveItemDiscounts() {
+async function saveItemEdits() {
   savingItems.value = true
   try {
     const payload = {
       items: itemsWithFinalPrice.value.map((it: any) => ({
         id: it.id,
-        finalPrice: it._discount > 0 ? Number(it._finalPrice) : null,
+        qty: Number(it._qty) || 1,
+        unitPrice: Number(it._unitPrice) || 0,
       }))
     }
     await api.patch(`/invoices/${route.params.id}/items`, payload)
-    discountDirty.value = false
-    showSnack('Prices saved', 'success')
+    itemsDirty.value = false
+    showSnack('Items saved', 'success')
     await loadInvoice()
   } catch {
-    showSnack('Failed to save prices', 'error')
+    showSnack('Failed to save items', 'error')
   } finally {
     savingItems.value = false
   }

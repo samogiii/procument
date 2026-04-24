@@ -30,14 +30,23 @@ public class PurchaseOrdersController : ControllerBase
         _lockGuard = lockGuard;
     }
 
-    /// <summary>Get all purchase orders (paginated).</summary>
+    /// <summary>Get all purchase orders (paginated). Non-admins see only POs assigned to them via EntityPermission("PO").</summary>
     [HttpGet]
     public async Task<ActionResult<PagedResult<POResponse>>> GetAll(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 200)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize };
-        var result = await _poService.GetAllAsync(pq);
+        var (userId, isAdmin) = GetCurrentUser();
+        var result = await _poService.GetAllAsync(pq, userId, isAdmin);
         return Ok(result);
+    }
+
+    private (long userId, bool isAdmin) GetCurrentUser()
+    {
+        var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        long.TryParse(userIdStr, out var userId);
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        return (userId, isAdmin);
     }
 
     /// <summary>Get all unassigned POItems (not yet assigned to a PO).</summary>
@@ -52,6 +61,8 @@ public class PurchaseOrdersController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<ActionResult<POResponse>> GetById(long id)
     {
+        var (userId, isAdmin) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(id, userId, isAdmin)) return Forbid();
         var result = await _poService.GetByIdAsync(id);
         return result == null ? NotFound() : Ok(result);
     }
@@ -185,6 +196,8 @@ public class PurchaseOrdersController : ControllerBase
     [HttpGet("{id:long}/pdf-data")]
     public async Task<IActionResult> GetPdfData(long id)
     {
+        var (uid, isA) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(id, uid, isA)) return Forbid();
         var po = await _db.Set<PurchaseOrder>()
             .Include(p => p.Supplier)
             .Include(p => p.ImportDetail)
@@ -287,6 +300,8 @@ public class PurchaseOrdersController : ControllerBase
     [HttpGet("{poId:long}/import-detail")]
     public async Task<IActionResult> GetImportDetail(long poId)
     {
+        var (uid, isA) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(poId, uid, isA)) return Forbid();
         var detail = await _db.Set<POImportDetail>()
             .FirstOrDefaultAsync(d => d.PurchaseOrderId == poId);
 
@@ -314,6 +329,8 @@ public class PurchaseOrdersController : ControllerBase
     [HttpPut("{poId:long}/import-detail")]
     public async Task<IActionResult> SaveImportDetail(long poId, [FromBody] SavePOImportDetailRequest request)
     {
+        var (uid, isA) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(poId, uid, isA)) return Forbid();
         var po = await _db.Set<PurchaseOrder>().FindAsync(poId);
         if (po == null) return NotFound();
 
@@ -546,6 +563,8 @@ public class PurchaseOrdersController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin,Expert,Payment")]
     public async Task<IActionResult> GetEnriched(long id)
     {
+        var (uid, isA) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(id, uid, isA)) return Forbid();
         var po = await _db.Set<PurchaseOrder>()
             .Include(p => p.Supplier)
             .Include(p => p.POItems).ThenInclude(i => i.PartNumber)
@@ -608,6 +627,7 @@ public class PurchaseOrdersController : ControllerBase
                 rfqId = rfq?.Id,
                 rfqNumber = rfq?.Name,
                 customerName = rfq?.Customer?.Name,
+                customerCode = rfq?.Customer?.CustomerCode,
                 customerBase = rfq?.Customer?.Base,
 
                 // Procurement

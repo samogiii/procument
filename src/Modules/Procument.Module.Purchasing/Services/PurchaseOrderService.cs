@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Shared.DTOs;
@@ -10,8 +11,9 @@ namespace Procument.Module.Purchasing.Services;
 
 public interface IPurchaseOrderService
 {
-    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page);
+    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
     Task<POResponse?> GetByIdAsync(long id);
+    Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin);
     Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync();
     Task<POResponse> CreateAsync(CreatePORequest request);
     Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null);
@@ -95,9 +97,25 @@ public class PurchaseOrderService : IPurchaseOrderService
         }).ToList();
     }
 
-    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page)
+    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin)
     {
-        var query = _db.Set<PurchaseOrder>().OrderByDescending(po => po.CreatedAt);
+        IQueryable<PurchaseOrder> baseQ = _db.Set<PurchaseOrder>();
+
+        // Permission filter — non-admins see only POs they have an EntityPermission for
+        if (!isAdmin)
+        {
+            var permittedIdStrings = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "PO")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+            var permittedIds = permittedIdStrings
+                .Select(s => long.TryParse(s, out var l) ? l : -1L)
+                .Where(l => l > 0)
+                .ToList();
+            baseQ = baseQ.Where(po => permittedIds.Contains(po.Id));
+        }
+
+        var query = baseQ.OrderByDescending(po => po.CreatedAt);
 
         var total = await query.CountAsync();
         var pos = await query
@@ -117,6 +135,13 @@ public class PurchaseOrderService : IPurchaseOrderService
         var items = pos.Select(po => MapToResponse(po, po.InvoiceId.HasValue && invoiceMap.ContainsKey(po.InvoiceId.Value) ? invoiceMap[po.InvoiceId.Value] : null)).ToList();
 
         return new PagedResult<POResponse> { Items = items, TotalCount = total, Page = page.Page, PageSize = page.PageSize };
+    }
+
+    public async Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin)
+    {
+        if (isAdmin) return true;
+        return await _db.Set<EntityPermission>()
+            .AnyAsync(p => p.UserId == userId && p.EntityName == "PO" && p.EntityId == poId.ToString());
     }
 
     public async Task<POResponse?> GetByIdAsync(long id)
@@ -227,8 +252,16 @@ public class PurchaseOrderService : IPurchaseOrderService
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return false;
 
-        // Restriction: Only SuperAdmin can manually set back to "Waiting For Admin Approval" or "Waiting For Payment"
-        if (!isSuperAdmin && (newStatus == "Waiting For Admin Approval" || newStatus == "Waiting For Payment"))
+        // Allowed Statuses
+        var allowed = new[] { 
+            "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment", 
+            "Payment Done", "Ship To Warehouse 1", "Ship To Warehouse 2", 
+            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled" 
+        };
+        if (!allowed.Contains(newStatus)) return false;
+
+        // Restriction: Only SuperAdmin can manually set back to "Waiting For Admin Approval"
+        if (!isSuperAdmin && newStatus == "Waiting For Admin Approval")
         {
             return false;
         }
@@ -241,14 +274,20 @@ public class PurchaseOrderService : IPurchaseOrderService
             if (!isSuperAdmin) return false;
         }
         
-        // 2. If waiting for Payment (Admin approved but payment not yet submitted)
-        if (po.AdminApproval == "Approved" && po.PaymentStatus != "Submitted")
+        // 2. If waiting for Documents
+        if (po.Status == "Waiting For Documents" && newStatus != "Waiting For Payment" && newStatus != "Cancelled")
         {
-            // Even SuperAdmin shouldn't skip the payment submission step manually via status change
-            if (!isSuperAdmin) return false;
+            // Must go to Waiting For Payment next, or be cancelled
+            if (!isAdmin) return false;
         }
 
-        // Once PaymentStatus == "Submitted" (Payment Done), Admin/Expert can change it to logistics steps
+        // 3. If waiting for Payment (Admin approved but payment not yet submitted)
+        if (po.AdminApproval == "Approved" && po.Status == "Waiting For Payment" && po.PaymentStatus != "Submitted")
+        {
+            // Even SuperAdmin shouldn't skip the payment submission step manually via status change
+            if (!isSuperAdmin && newStatus != "Waiting For Documents") return false;
+        }
+
         po.Status = newStatus;
         await _db.SaveChangesAsync();
         return true;

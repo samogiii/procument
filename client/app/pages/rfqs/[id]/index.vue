@@ -471,7 +471,16 @@
                   {{ item.partNumberName }}
                   <v-icon icon="mdi-content-copy" size="12" class="copy-icon ml-1" />
                 </td>
-                <td class="cell-pn">{{ item.description }}</td>
+                <td class="cell-pn">
+                  <input
+                    v-if="isAdmin"
+                    type="text"
+                    class="item-input"
+                    placeholder="Description"
+                    v-model="item.description"
+                  />
+                  <span v-else>{{ item.description }}</span>
+                </td>
                 <td>
                   <input
                     type="number"
@@ -1565,7 +1574,8 @@ async function loadData() {
     // Create editable copies of items
     editableItems.value = (rfqData.items || []).map((i: any) => ({
       id: i.id,
-      description: i.description, 
+      description: i.description,
+      _origDescription: i.description,
       partNumberName: i.partNumberName,
       partNumberId: i.partNumberId,
       alt: i.alt || '',
@@ -2160,8 +2170,8 @@ async function saveAll() {
         unit: item.unit || null,
         isHighlighted: item.isHighlighted || false
       }))
-      // Save fleet/remark on the part number
-      if ( item.remark) {
+      // Save description/remark on the part number (admins can edit description).
+      if (item.remark || (isAdmin.value && item.description !== item._origDescription)) {
         promises.push(api.put(`/partnumbers/${item.partNumberId}`, {
           name: item.partNumberName,
           description: item.description || null,

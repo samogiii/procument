@@ -11,9 +11,13 @@ const STATUS_COLORS: Record<string, string> = {
     Rejected: 'error',
 
     // Proforma Invoice
+    Draft: 'grey',
     Pending: 'warning',
+    // Accepted: 'success',
+    Net30: 'indigo',
+    CAD: 'cyan',
     Paid: 'success',
-    Overdue: 'error',
+    Prepeyment: 'orange',
 
     // Purchase Order
     Received: 'success',

@@ -21,6 +21,15 @@
         style="max-width: 220px;"
         class="mr-3"
       />
+      <v-btn
+        icon="mdi-refresh"
+        variant="text"
+        size="small"
+        class="mr-2"
+        :loading="refreshing"
+        @click="loadDashboard(false)"
+        title="Refresh stats"
+      />
       <v-chip v-if="isAdmin" color="primary" variant="flat" prepend-icon="mdi-shield-crown" size="small">Admin</v-chip>
     </div>
 
@@ -570,6 +579,7 @@ const supplierBarSeries = computed(() => [
 ])
 
 // ─── Load data ───
+let refreshInterval: any = null
 onMounted(async () => {
   // Load users list for admin filter
   if (isAdmin.value) {
@@ -580,6 +590,15 @@ onMounted(async () => {
     }
   }
   await loadDashboard(true)
+
+  // Auto-refresh every 5 minutes
+  refreshInterval = setInterval(() => {
+    if (!loading.value) loadDashboard(false)
+  }, 5 * 60 * 1000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) clearInterval(refreshInterval)
 })
 
 // ─── Helpers ───

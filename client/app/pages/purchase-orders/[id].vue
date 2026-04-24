@@ -32,7 +32,8 @@
           </v-list-item>
         </v-list>
       </v-menu>
-      <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+      <!-- v-if="isAdmin" For admin PDF button -->
+      <v-btn  prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
     </div>
 
     <v-row class="mb-6">
@@ -73,13 +74,196 @@
           This PO is locked — only a SuperAdmin can Accept or Reject it.
         </v-alert>
         <v-alert v-else type="success" variant="tonal" density="compact" class="mt-2" icon="mdi-check-circle">
-          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — Payment role can now process this PO.
+          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — SuperAdmin has accepted the PO.
         </v-alert>
+
+        <!-- ── Document Verification (visible after SuperAdmin approval) ── -->
+        <div v-if="po.adminApproval === 'Approved'" class="mt-4 pa-4 rounded border-dashed">
+          <div class="d-flex align-center mb-4">
+            <div>
+              <div class="text-subtitle-2 font-weight-bold">Step 2: Document Verification</div>
+              <div class="text-caption text-medium-emphasis">Critical payment documents track.</div>
+            </div>
+            <v-spacer />
+            <v-chip v-if="po.status !== 'Waiting For Documents' && po.status !== 'Waiting For Admin Approval'" color="success" size="small" prepend-icon="mdi-check-decagram">Documents Verified</v-chip>
+            <v-btn
+              v-else-if="po.status === 'Waiting For Documents'"
+              color="primary"
+              variant="flat"
+              prepend-icon="mdi-file-check"
+              :loading="approving"
+              @click="acceptDocuments"
+            >Accept Documents</v-btn>
+          </div>
+
+          <v-divider class="mb-4" />
+
+          <v-row dense>
+            <!-- Customer POP -->
+            <v-col cols="12" md="4">
+              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-primary), 0.03);">
+                <div class="d-flex align-center mb-3">
+                  <v-icon icon="mdi-account-cash" size="18" class="mr-2" color="primary" />
+                  <span class="text-caption font-weight-bold uppercase">Customer POP</span>
+                  <v-spacer />
+                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="primary" @click="triggerPiUpload('customer_pop')" />
+                </div>
+                <div v-if="piDocs.filter(f => f.name.toLowerCase().includes('customer pop')).length" class="d-flex flex-column gap-2">
+                  <div v-for="f in piDocs.filter(f => f.name.toLowerCase().includes('customer pop'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                  </div>
+                </div>
+                <div v-else class="text-center py-2">
+                  <v-btn size="x-small" variant="tonal" color="primary" block prepend-icon="mdi-upload" @click="triggerPiUpload('customer_pop')">Upload</v-btn>
+                </div>
+              </div>
+            </v-col>
+            <!-- Our PI -->
+            <v-col cols="12" md="4">
+              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-info), 0.03);">
+                <div class="d-flex align-center mb-3">
+                  <v-icon icon="mdi-file-document-outline" size="18" class="mr-2" color="info" />
+                  <span class="text-caption font-weight-bold uppercase">Our PI</span>
+                  <v-spacer />
+                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="info" @click="triggerPiUpload('our_pi')" />
+                </div>
+                <div v-if="piDocs.filter(f => f.name.toLowerCase().includes('our pi')).length" class="d-flex flex-column gap-1">
+                  <div v-for="f in piDocs.filter(f => f.name.toLowerCase().includes('our pi'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                  </div>
+                </div>
+                <div v-else class="text-center py-2">
+                  <v-btn size="x-small" variant="tonal" color="info" block prepend-icon="mdi-upload" @click="triggerPiUpload('our_pi')">Upload</v-btn>
+                </div>
+              </div>
+            </v-col>
+            <!-- Our POP -->
+            <v-col cols="12" md="4">
+              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-success), 0.03);">
+                <div class="d-flex align-center mb-3">
+                  <v-icon icon="mdi-cash-register" size="18" class="mr-2" color="success" />
+                  <span class="text-caption font-weight-bold uppercase">Our POP</span>
+                  <v-spacer />
+                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="success" @click="triggerUpload('our_pop')" />
+                </div>
+                <div v-if="supplierDocs.filter(f => f.name.toLowerCase().includes('our pop') || f.name.toLowerCase().includes('our_pop')).length" class="d-flex flex-column gap-1">
+                  <div v-for="f in supplierDocs.filter(f => f.name.toLowerCase().includes('our pop') || f.name.toLowerCase().includes('our_pop'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                  </div>
+                </div>
+                <div v-else class="text-center py-2">
+                  <v-btn size="x-small" variant="tonal" color="success" block prepend-icon="mdi-upload" @click="triggerUpload('our_pop')">Upload</v-btn>
+                </div>
+              </div>
+            </v-col>
+          </v-row>
+          <input ref="piDocInputRef" type="file" class="d-none" @change="onPiDocSelected" />
+        </div>
       </v-card-text>
     </v-card>
 
-    <!-- ── Payment Approval (visible if rejected or after admin approval) ── -->
-    <v-card class="glass-card mb-6" v-if="po.adminApproval === 'Approved' || po.paymentApproval === 'Rejected'">
+    <!-- ── Assigned Users (admin only) ── -->
+    <v-card v-if="isAdmin" class="glass-card mb-6">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-shield-account-outline" class="mr-2" size="20" color="primary" />
+        Assigned Users
+        <v-chip v-if="assignedUsers.length" size="x-small" class="ml-2" variant="tonal" color="primary">{{ assignedUsers.length }}</v-chip>
+        <v-spacer />
+        <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-account-plus" @click="showAddAssignDialog = true">Assign User</v-btn>
+      </v-card-title>
+      <v-card-text>
+        <div v-if="!assignedUsers.length" class="text-body-2 text-medium-emphasis text-center py-3">
+          No users assigned to this PO yet.
+        </div>
+        <v-list v-else density="compact" class="bg-transparent">
+          <v-list-item
+            v-for="p in assignedUsers"
+            :key="p.id"
+            class="rounded mb-1"
+            style="background: rgba(var(--v-theme-on-surface), 0.04);"
+          >
+            <template #prepend>
+              <v-icon icon="mdi-account-circle-outline" color="primary" />
+            </template>
+            <v-list-item-title class="font-weight-medium">
+              {{ p.user?.username || p.user?.email || `User #${p.userId}` }}
+            </v-list-item-title>
+            <v-list-item-subtitle class="d-flex align-center gap-2 mt-1">
+              <v-chip size="x-small" :color="p.permission === 'Edit' ? 'success' : 'info'" variant="tonal">
+                {{ p.permission }}
+              </v-chip>
+              <span class="text-caption text-medium-emphasis">
+                Assigned: {{ new Date(p.createdAt).toLocaleDateString() }}
+              </span>
+            </v-list-item-subtitle>
+            <template #append>
+              <v-btn
+                icon="mdi-delete-outline"
+                size="small"
+                variant="text"
+                color="error"
+                :loading="revokingId === p.id"
+                @click="revokeAssignment(p)"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-card-text>
+    </v-card>
+
+    <!-- Assign User Dialog -->
+    <v-dialog v-model="showAddAssignDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-account-plus" class="mr-2" color="primary" />
+          Assign User to PO
+        </v-card-title>
+        <v-card-text>
+          <v-autocomplete
+            v-model="newAssignUserId"
+            :items="availableUsersForAssign"
+            item-title="label"
+            item-value="id"
+            label="User"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-account"
+          />
+          <v-select
+            v-model="newAssignPermission"
+            :items="[{ title: 'View', value: 'View' }, { title: 'Edit', value: 'Edit' }]"
+            label="Permission"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-shield-key-outline"
+            class="mt-2"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showAddAssignDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="assigning"
+            :disabled="!newAssignUserId"
+            @click="assignUser"
+          >Assign</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ── Payment Approval (admin/payment only, visible if rejected or after admin approval) ── -->
+    <v-card class="glass-card mb-6" v-if="isAdmin && (po.adminApproval === 'Approved' || po.paymentApproval === 'Rejected')">
       <v-card-title class="d-flex align-center">
         <v-icon icon="mdi-cash-check" class="mr-2" size="20" color="success" />
         Payment Approval
@@ -178,44 +362,70 @@
     <v-card class="glass-card mb-6" v-if="isAdmin && enriched">
       <v-card-title>
         <v-icon icon="mdi-chart-timeline-variant" class="mr-2" size="20" />
-        Item Trail — RFQ → Procurement → Quote → Invoice → PO
+        Item Trail — RFQ → Quote → Invoice → PO
       </v-card-title>
       <v-card-text class="pa-0">
-        <v-table density="compact" class="enriched-table">
+        <v-table density="compact" class="enriched-table header-border">
           <thead>
             <tr>
-              <th>Part</th>
-              <th>Description</th>
-              <th>Qty</th>
-              <th>Customer</th>
-              <th>RFQ</th>
-              <th>Proc. Supplier</th>
-              <th>Buy Price</th>
-              <th>Quote</th>
-              <th>Quote Price</th>
-              <th>Invoice</th>
-              <th>Inv. Price</th>
-              <th>PO Supplier</th>
-              <th>PO Price</th>
-              <th>PO Total</th>
+              <th rowspan="2" class="border-end">Part</th>
+              <th rowspan="2" class="border-end">Description</th>
+              <th rowspan="2" class="text-center border-end">Qty</th>
+              <th rowspan="2" class="border-end">Customer [Code]</th>
+              <th rowspan="2" class="border-end">RFQ</th>
+
+
+              <th rowspan="2" class="border-end">Quote</th>
+              <th rowspan="2" class="border-end">Invoice</th>
+              <th colspan="2" class="text-center border-end grouped-header">Invoice Price</th>
+              <th colspan="2" class="text-center grouped-header">PO Price</th>
+            </tr>
+            <tr>
+              <th class="text-center sub-header">UP</th>
+              <th class="text-center sub-header border-end">TP</th>
+              <th class="text-center sub-header">UP</th>
+              <th class="text-center sub-header">TP</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(it, idx) in (enriched.items || [])" :key="idx">
               <td class="font-weight-medium">{{ it.partNumber || '—' }}</td>
-              <td class="text-medium-emphasis" style="max-width: 280px; white-space: normal;">{{ it.description || '—' }}</td>
-              <td>{{ it.qty }}</td>
-              <td>{{ it.customerName || '—' }}</td>
-              <td>{{ it.rfqNumber || '—' }}</td>
-              <td>{{ it.procurementSupplier || '—' }}</td>
-              <td>{{ it.procurementBuyPrice != null ? '$' + formatPrice(it.procurementBuyPrice) : '—' }}</td>
-              <td>{{ it.quoteNumber || '—' }}</td>
-              <td>{{ it.quoteUnitPrice != null ? '$' + formatPrice(it.quoteUnitPrice) : '—' }}</td>
-              <td>{{ it.invoiceNumber || '—' }}</td>
-              <td>{{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice) : '—' }}</td>
-              <td>{{ it.poSupplier || '—' }}</td>
-              <td>${{ formatPrice(it.poUnitPrice) }}</td>
-              <td class="font-weight-bold">${{ formatPrice(it.poTotalPrice) }}</td>
+              <td class="text-medium-emphasis" style="max-width: 250px; white-space: normal;">{{ it.description || '—' }}</td>
+              <td class="text-center">{{ it.qty }}</td>
+              <td>
+                <div class="d-flex flex-column">
+                  <span>{{ it.customerName || '—' }}</span>
+                  <span v-if="it.customerCode" class="text-caption text-medium-emphasis">[{{ it.customerCode }}]</span>
+                </div>
+              </td>
+              <td>
+                <NuxtLink v-if="it.rfqId" :to="`/rfqs/${it.rfqId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
+                  {{ it.rfqNumber || '—' }}
+                </NuxtLink>
+                <span v-else>—</span>
+              </td>
+              <td>
+                <NuxtLink v-if="it.quoteId" :to="`/quotes/${it.quoteId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
+                  {{ it.quoteNumber || '—' }}
+                </NuxtLink>
+                <span v-else>—</span>
+              </td>
+              <td>
+                <NuxtLink v-if="it.invoiceId" :to="`/invoices/${it.invoiceId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
+                  {{ it.invoiceNumber || '—' }}
+                </NuxtLink>
+                <span v-else>—</span>
+              </td>
+              <!-- Invoice Price -->
+              <td class="text-center">{{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice) : '—' }}</td>
+              <td class="text-center border-end font-weight-medium" style="background: rgba(var(--v-theme-on-surface), 0.02);">
+                {{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice * it.qty) : '—' }}
+              </td>
+              <!-- PO Price -->
+              <td class="text-center">${{ formatPrice(it.poUnitPrice) }}</td>
+              <td class="text-center font-weight-bold" style="background: rgba(var(--v-theme-on-surface), 0.02);">
+                ${{ formatPrice(it.poTotalPrice) }}
+              </td>
             </tr>
           </tbody>
         </v-table>
@@ -416,6 +626,7 @@ const snackbarColor = ref('success')
 
 const poStatuses = [
   { value: 'Waiting For Admin Approval', label: 'Waiting For Admin Approval', icon: 'mdi-shield-clock', color: 'warning' },
+  { value: 'Waiting For Documents', label: 'Waiting For Documents', icon: 'mdi-file-clock', color: 'blue' },
   { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'orange' },
   { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'success' },
   { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
@@ -438,11 +649,83 @@ const poStatusColor = computed(() => {
   return found?.color || 'grey'
 })
 
+// ── Assigned Users (admin only) ──
+const assignedUsers = ref<any[]>([])
+const allUsers = ref<any[]>([])
+const showAddAssignDialog = ref(false)
+const newAssignUserId = ref<number | null>(null)
+const newAssignPermission = ref<'View' | 'Edit'>('Edit')
+const assigning = ref(false)
+const revokingId = ref<number | null>(null)
+
+const availableUsersForAssign = computed(() => {
+  const assignedIds = new Set(assignedUsers.value.map(p => p.userId))
+  return allUsers.value
+    .filter(u => !assignedIds.has(u.id))
+    .map(u => ({ id: u.id, label: u.username || u.email || `User #${u.id}` }))
+})
+
+async function loadAssignedUsers() {
+  try {
+    assignedUsers.value = await api.get(`/permissions/PO/${route.params.id}`)
+  } catch {
+    assignedUsers.value = []
+  }
+}
+
+async function loadAllUsers() {
+  try {
+    allUsers.value = await api.get('/users')
+  } catch {
+    allUsers.value = []
+  }
+}
+
+async function assignUser() {
+  if (!newAssignUserId.value) return
+  assigning.value = true
+  try {
+    await api.post('/permissions/assign', {
+      userId: newAssignUserId.value,
+      entityName: 'PO',
+      entityId: String(route.params.id),
+      permission: newAssignPermission.value,
+    })
+    showSnack('User assigned', 'success')
+    showAddAssignDialog.value = false
+    newAssignUserId.value = null
+    newAssignPermission.value = 'Edit'
+    await loadAssignedUsers()
+  } catch {
+    showSnack('Failed to assign user', 'error')
+  } finally {
+    assigning.value = false
+  }
+}
+
+async function revokeAssignment(p: any) {
+  revokingId.value = p.id
+  try {
+    await api.post('/permissions/revoke', {
+      userId: p.userId,
+      entityName: 'PO',
+      entityId: String(route.params.id),
+      permission: p.permission,
+    })
+    showSnack('User removed', 'success')
+    await loadAssignedUsers()
+  } catch {
+    showSnack('Failed to remove user', 'error')
+  } finally {
+    revokingId.value = null
+  }
+}
+
 // ── Company Presets ──
 const apiPresets = ref<any[]>([])
 async function loadPresets() {
   try {
-    apiPresets.value = await api.get('/company-presets')
+    apiPresets.value = await api.get('/companypresets')
   } catch {}
 }
 
@@ -511,15 +794,16 @@ async function generateAndUploadDpPdf() {
   const grandTotal = items.reduce((s: number, i: any) => s + Number(i.poTotal || 0), 0)
 
   // Map customerBase to Company Preset name
-  let companyPresetName = ''
+  let companyPresetName = 'JetRux'
   // Use enriched items first as they contain the customerBase from RFQ
-  const firstItem = (enriched.value?.items || []).find((it: any) => it.customerBase != null)
-  if (firstItem) {
-    const match = apiPresets.value.find((p: any) => p.sortOrder === firstItem.customerBase)
+  // const firstItem = (enriched.value?.items || []).find((it: any) => it.customerBase != null)
+  if (true) {
+    const match = apiPresets.value.find((p: any) => p.sortOrder === 105)
+    console.log(match)
     if (match) {
-      companyPresetName = match.name
+      true
     } else {
-      console.warn(`No CompanyPreset found with sortOrder ${firstItem.customerBase}`)
+      // console.warn(`No CompanyPreset found with sortOrder ${firstItem.customerBase}`)
     }
   } else {
     console.warn('No items with customerBase found in enriched trail')
@@ -640,9 +924,22 @@ async function approvePo() {
     await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision: 'Approved', note: null })
     po.value.adminApproval = 'Approved'
     po.value.adminApprovalAt = new Date().toISOString()
-    po.value.status = 'Waiting For Payment'
-    showSnack('PO approved', 'success')
+    // New Flow: After SuperAdmin approval, move to Waiting For Documents
+    po.value.status = 'Waiting For Documents'
+    await api.patch(`/purchase-orders/${po.value.id}/status`, { status: 'Waiting For Documents' })
+    showSnack('PO approved. Now waiting for documents verification.', 'success')
   } catch { showSnack('Failed to approve', 'error') }
+  finally { approving.value = false }
+}
+
+async function acceptDocuments() {
+  approving.value = true
+  try {
+    // Transition from Waiting For Documents to Waiting For Payment
+    await api.patch(`/purchase-orders/${route.params.id}/status`, { status: 'Waiting For Payment' })
+    po.value.status = 'Waiting For Payment'
+    showSnack('Documents verified. Status moved to Waiting For Payment.', 'success')
+  } catch { showSnack('Failed to verify documents', 'error') }
   finally { approving.value = false }
 }
 
@@ -667,17 +964,26 @@ async function loadEnriched() {
 }
 
 // ── Supplier Documents ──
-type SupplierFile = { name: string; size: number; modifiedAt: string }
+type SupplierFile = { name: string; size: number; modifiedAt: string; invoiceNumber?: string; originalInvoiceId?: number }
 const supplierDocs = ref<SupplierFile[]>([])
+const piDocs = ref<SupplierFile[]>([])
 const uploadingSupplierDoc = ref(false)
+const uploadingPiDoc = ref(false)
 const deletingDoc = ref<string | null>(null)
 const supplierDocInputRef = ref<HTMLInputElement | null>(null)
+const piDocInputRef = ref<HTMLInputElement | null>(null)
 const uploadCategory = ref<string>('supplier_invoice')
+const uploadPiCategory = ref<string>('customer_pop')
 const config = useRuntimeConfig()
 
 function triggerUpload(category: string) {
   uploadCategory.value = category
   supplierDocInputRef.value?.click()
+}
+
+function triggerPiUpload(category: string) {
+  uploadPiCategory.value = category
+  piDocInputRef.value?.click()
 }
 
 function formatBytes(bytes: number) {
@@ -689,38 +995,135 @@ function formatBytes(bytes: number) {
 }
 
 async function loadSupplierDocs() {
-  if (!po.value?.invoiceId || !po.value?.supplierId) return
+  if (!po.value?.supplierId) return
   try {
-    const data = await api.get<any>(`/documents/proforma-invoice/${po.value.invoiceId}`)
-    const section = (data?.suppliers || []).find((s: any) => s.supplierId === po.value.supplierId)
-    supplierDocs.value = (section?.files || []).filter((f: SupplierFile) =>
-      f.name.startsWith('Supplier Invoice') ||
-      f.name.startsWith('supplier_invoice') ||
-      f.name.startsWith('Supplier Bank Info') ||
-      f.name.startsWith('supplier_bank_info') ||
-      f.name.startsWith('DP') ||
-      f.name.startsWith('dp ')
-    )
+    // 1. Collect all unique invoice IDs linked to this PO
+    const invoiceIds = new Set<number>()
+    if (po.value.invoiceId) invoiceIds.add(po.value.invoiceId)
+    if (enriched.value?.items) {
+      enriched.value.items.forEach((it: any) => {
+        if (it.invoiceId) invoiceIds.add(it.invoiceId)
+      })
+    }
+
+    if (invoiceIds.size === 0) return
+
+    // 2. Fetch docs for each invoice in parallel
+    const allPiDocs: SupplierFile[] = []
+    const allSupplierDocs: SupplierFile[] = []
+
+    await Promise.all(Array.from(invoiceIds).map(async (id) => {
+      try {
+        const data = await api.get<any>(`/documents/proforma-invoice/${id}`)
+        const invNum = data?.invoiceNumber || String(id)
+        
+        // PI Level Docs (Customer POP, Our PI, Customer PO)
+        const piFiles = (data?.piFiles || []).map((f: any) => ({
+          ...f,
+          invoiceNumber: invNum,
+          originalInvoiceId: id
+        })).filter((f: SupplierFile) =>
+          f.name.toLowerCase().includes('customer pop') ||
+          f.name.toLowerCase().includes('customer po') ||
+          f.name.toLowerCase().includes('our pi')
+        )
+        allPiDocs.push(...piFiles)
+
+        // Supplier Level Docs (Our POP, Supplier Invoice, etc) for THIS PO's supplier
+        const section = (data?.suppliers || []).find((s: any) => s.supplierId === po.value.supplierId)
+        if (section?.files) {
+          const sFiles = section.files.map((f: any) => ({
+            ...f,
+            invoiceNumber: invNum,
+            originalInvoiceId: id
+          })).filter((f: SupplierFile) =>
+            f.name.startsWith('Supplier Invoice') ||
+            f.name.startsWith('supplier_invoice') ||
+            f.name.startsWith('Supplier Bank Info') ||
+            f.name.startsWith('supplier_bank_info') ||
+            f.name.startsWith('Our POP') ||
+            f.name.startsWith('our_pop') ||
+            f.name.startsWith('DP') ||
+            f.name.startsWith('dp ')
+          )
+          allSupplierDocs.push(...sFiles)
+        }
+      } catch (e) {
+        console.warn(`Failed to load docs for invoice ${id}`, e)
+      }
+    }))
+
+    // 3. Handle duplicates and source identification
+    const processDuplicates = (files: SupplierFile[]) => {
+      const nameGroups = new Map<string, SupplierFile[]>()
+      files.forEach(f => {
+        if (!nameGroups.has(f.name)) nameGroups.set(f.name, [])
+        // Only add if this specific file from this specific source isn't already there
+        if (!nameGroups.get(f.name)!.some(existing => existing.originalInvoiceId === f.originalInvoiceId)) {
+          nameGroups.get(f.name)!.push(f)
+        }
+      })
+
+      const finalFiles: SupplierFile[] = []
+      const hasMultipleInvoices = invoiceIds.size > 1
+
+      nameGroups.forEach((group, originalName) => {
+        group.forEach(f => {
+          // Always show invoice number if there are multiple invoices involved in this PO
+          const displayName = hasMultipleInvoices 
+            ? `${originalName} (${f.invoiceNumber})`
+            : originalName
+            
+          finalFiles.push({
+            ...f,
+            displayName
+          })
+        })
+      })
+      return finalFiles
+    }
+
+    piDocs.value = processDuplicates(allPiDocs)
+    supplierDocs.value = processDuplicates(allSupplierDocs)
+
   } catch {
     supplierDocs.value = []
+    piDocs.value = []
   }
 }
 
 async function onSupplierDocSelected(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file || !po.value?.invoiceId || !po.value?.supplierId) return
+  if (!file || !po.value?.supplierId) return
+  
+  // Collect all unique invoice IDs linked to this PO
+  const invoiceIds = new Set<number>()
+  if (po.value.invoiceId) invoiceIds.add(po.value.invoiceId)
+  if (enriched.value?.items) {
+    enriched.value.items.forEach((it: any) => {
+      if (it.invoiceId) invoiceIds.add(it.invoiceId)
+    })
+  }
+  if (invoiceIds.size === 0) return
+
   uploadingSupplierDoc.value = true
   try {
-    const form = new FormData()
-    form.append('file', file)
-    form.append('category', uploadCategory.value || 'supplier_invoice')
-    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/upload`, {
-      method: 'POST',
-      body: form,
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
-    showSnack('Supplier document uploaded', 'success')
+    const category = uploadCategory.value || 'supplier_invoice'
+    
+    // Upload to ALL linked invoices as requested
+    await Promise.all(Array.from(invoiceIds).map(async (invId) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('category', category)
+      await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/upload`, {
+        method: 'POST',
+        body: form,
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+    }))
+
+    showSnack(`Supplier document uploaded to ${invoiceIds.size} invoices`, 'success')
     await loadSupplierDocs()
   } catch (err: any) {
     showSnack(err?.data?.message || 'Upload failed', 'error')
@@ -730,32 +1133,85 @@ async function onSupplierDocSelected(e: Event) {
   }
 }
 
-async function downloadSupplierDoc(name: string) {
-  if (!po.value?.invoiceId || !po.value?.supplierId) return
+async function onPiDocSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  // Collect all unique invoice IDs linked to this PO
+  const invoiceIds = new Set<number>()
+  if (po.value.invoiceId) invoiceIds.add(po.value.invoiceId)
+  if (enriched.value?.items) {
+    enriched.value.items.forEach((it: any) => {
+      if (it.invoiceId) invoiceIds.add(it.invoiceId)
+    })
+  }
+  if (invoiceIds.size === 0) return
+
+  uploadingPiDoc.value = true
   try {
-    const blob = await $fetch<Blob>(
-      `${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/file`,
-      {
-        method: 'GET',
-        query: { name },
+    const category = uploadPiCategory.value || 'customer_pop'
+
+    // Upload to ALL linked invoices as requested
+    await Promise.all(Array.from(invoiceIds).map(async (invId) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('category', category)
+      await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${invId}/upload`, {
+        method: 'POST',
+        body: form,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
-        responseType: 'blob',
-      }
-    )
-    const url = URL.createObjectURL(blob)
+      })
+    }))
+
+    showSnack(`Document uploaded to ${invoiceIds.size} invoices`, 'success')
+    await loadSupplierDocs()
+  } catch (err: any) {
+    showSnack(err?.data?.message || 'Upload failed', 'error')
+  } finally {
+    uploadingPiDoc.value = false
+    if (input) input.value = ''
+  }
+}
+
+async function downloadSupplierDoc(name: string, overrideInvoiceId?: number) {
+  const invId = overrideInvoiceId || po.value?.invoiceId
+  if (!invId || !po.value?.supplierId) return
+  try {
+    // Try supplier folder first
+    let url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
+    
+    // If it's a PI-level doc, use the PI-level endpoint
+    if (piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))) {
+      url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
+    }
+
+    const blob = await $fetch<Blob>(url, {
+      method: 'GET',
+      query: { name },
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      responseType: 'blob',
+    })
+    const blobUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = name
+    a.href = blobUrl; a.download = name
     document.body.appendChild(a); a.click(); a.remove()
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(blobUrl)
   } catch { showSnack('Download failed', 'error') }
 }
 
-async function deleteSupplierDoc(name: string) {
-  if (!po.value?.invoiceId || !po.value?.supplierId) return
+async function deleteSupplierDoc(name: string, overrideInvoiceId?: number) {
+  const invId = overrideInvoiceId || po.value?.invoiceId
+  if (!invId) return
   if (!confirm(`Delete "${name}"?`)) return
   deletingDoc.value = name
   try {
-    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/file`, {
+    let url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
+    if (piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))) {
+      url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
+    }
+
+    await $fetch(url, {
       method: 'DELETE',
       query: { name },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -768,8 +1224,17 @@ async function deleteSupplierDoc(name: string) {
 
 // ── Load Data ──
 onMounted(async () => {
-  try { po.value = await api.get(`/purchase-orders/${route.params.id}`) } catch {}
-  await Promise.all([loadImportDetail(), checkLock(), loadEnriched(), loadSupplierDocs(), loadPresets()])
+  try { 
+    po.value = await api.get(`/purchase-orders/${route.params.id}`) 
+    // Important: wait for enriched trail to identify ALL linked invoices
+    await loadEnriched()
+    // Then load everything else
+    const tasks: Promise<any>[] = [loadImportDetail(), checkLock(), loadSupplierDocs(), loadPresets()]
+    if (isAdmin.value) {
+      tasks.push(loadAssignedUsers(), loadAllUsers())
+    }
+    await Promise.all(tasks)
+  } catch {}
 })
 
 // ── Status ──
@@ -813,5 +1278,21 @@ function showSnack(text: string, color: string) {
 }
 .file-row:hover {
   background-color: rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.enriched-table :deep(th) {
+  font-weight: bold !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 12px !important;
+}
+.enriched-table .sub-header {
+  font-size: 0.7rem !important;
+  opacity: 0.7;
+  height: 32px !important;
+}
+.grouped-header {
+  background-color: rgba(var(--v-theme-on-surface), 0.05) !important;
 }
 </style>

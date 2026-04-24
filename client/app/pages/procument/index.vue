@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <h1 class="text-h5 font-weight-bold">Procument</h1>
+      <h1 class="text-h5 font-weight-bold">RFQ Items</h1>
       <v-spacer />
     </div>
 

@@ -84,6 +84,8 @@
 const props = defineProps<{ poId: number | string }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -97,10 +99,13 @@ async function loadPresets() {
   finally { presetsLoading.value = false }
 }
 
-const companyPresetOptions = computed(() => [
-  ...apiPresets.value.map((p: any) => p.name),
-  'Custom',
-])
+// PO PDF: admins see every preset; non-admins see only the sortOrder=105 preset + Custom.
+const companyPresetOptions = computed(() => {
+  const list = isAdmin.value
+    ? apiPresets.value
+    : apiPresets.value.filter((p: any) => p.sortOrder === 105)
+  return [...list.map((p: any) => p.name), 'Custom']
+})
 
 const theme = computed(() => {
   const preset = apiPresets.value.find((p: any) => p.name === selectedPreset.value)
@@ -112,7 +117,16 @@ const theme = computed(() => {
 
 watch(apiPresets, (presets) => {
   if (!presets.length) return
-  if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
+  const base105 = presets.find((p: any) => p.sortOrder === 105)
+  if (!isAdmin.value) {
+    // Non-admins are locked to the Base-105 preset (or Custom).
+    selectedPreset.value = base105 ? base105.name : 'Custom'
+    return
+  }
+  // Admins: prefer Base 105, otherwise fall back to the first preset.
+  if (selectedPreset.value === 'Custom') {
+    selectedPreset.value = base105 ? base105.name : presets[0].name
+  }
 })
 
 watch(selectedPreset, (val) => {
@@ -271,7 +285,7 @@ const renderedHtml = computed(() => {
       <!-- ═══ Meta Row ═══ -->
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${poDate}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Status:</span> ${d.status || '—'}</div>
+        
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
 

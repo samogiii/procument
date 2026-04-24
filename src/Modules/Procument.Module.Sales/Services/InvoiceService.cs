@@ -143,7 +143,7 @@ public class InvoiceService : IInvoiceService
             QuoteId = request.QuoteId,
             CustomerId = quote.CustomerId,
             TotalAmount = totalAmount,
-            Status = "Pending",
+            Status = "Draft",
             DueDate = request.DueDate,
             CustomerPONumber = request.CustomerPONumber,
             CreatedAt = DateTime.UtcNow,
@@ -168,6 +168,7 @@ public class InvoiceService : IInvoiceService
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.InvoiceItems)
+                .ThenInclude(ii => ii.QuoteItem)
             .FirstOrDefaultAsync(i => i.Id == id);
         if (invoice == null) return false;
 
@@ -176,8 +177,28 @@ public class InvoiceService : IInvoiceService
             var item = invoice.InvoiceItems.FirstOrDefault(ii => ii.Id == itemReq.Id);
             if (item == null) continue;
 
-            if (itemReq.FinalPrice.HasValue)
+            // New path: direct qty + unit-price edits. TotalPrice is recomputed as
+            // Qty * UnitPrice and Discount is (OriginalUnitPrice - NewUnitPrice) * NewQty,
+            // where the original unit price comes from the linked QuoteItem.
+            if (itemReq.Qty.HasValue || itemReq.UnitPrice.HasValue)
             {
+                var newQty = itemReq.Qty ?? item.Qty;
+                var newUnitPrice = itemReq.UnitPrice ?? item.UnitPrice;
+                if (newQty < 1) newQty = 1;
+                if (newUnitPrice < 0) newUnitPrice = 0;
+
+                var originalUnitPrice = item.QuoteItem?.UnitPrice ?? item.UnitPrice;
+
+                item.Qty = newQty;
+                item.UnitPrice = newUnitPrice;
+                item.TotalPrice = newQty * newUnitPrice;
+
+                var perUnitDiscount = originalUnitPrice - newUnitPrice;
+                item.Discount = perUnitDiscount > 0 ? perUnitDiscount * newQty : null;
+            }
+            else if (itemReq.FinalPrice.HasValue)
+            {
+                // Legacy path: user edits the row's Final Total directly.
                 var discount = item.TotalPrice - itemReq.FinalPrice.Value;
                 item.Discount = discount > 0 ? discount : null;
             }
@@ -218,8 +239,13 @@ public class InvoiceService : IInvoiceService
         if (invoice == null) return false;
         if (!isAdmin && invoice.Quote.UserId != userId) return false;
 
-        // Only admin can change to Paid, Rejected, or Overdue
-        if ((status == "Paid" || status == "Rejected" || status == "Overdue") && !isAdmin) return false;
+        // Validation of new statuses
+        var allowedStatuses = new[] { "Draft", "Pending", "Accepted", "Net30", "CAD", "Paid", "Prepeyment", "Rejected" };
+        if (!allowedStatuses.Contains(status)) return false;
+
+        // Only admin can change to certain statuses
+        var adminOnlyStatuses = new[] { "Accepted", "Net30", "CAD", "Paid", "Prepeyment", "Rejected" };
+        if (adminOnlyStatuses.Contains(status) && !isAdmin) return false;
 
         invoice.Status = status;
         if (status == "Paid" && invoice.PaidDate == null)
@@ -236,8 +262,8 @@ public class InvoiceService : IInvoiceService
             invoice.RejectionNote = null;
         }
 
-        // When Proforma Invoice is Paid, auto-create POItems (without PO)
-        if (status == "Paid")
+        // When Proforma Invoice is NOT Draft and NOT Pending, auto-create POItems (without PO)
+        if (status != "Draft" && status != "Pending" && status != "Rejected")
         {
             foreach (var ii in invoice.InvoiceItems)
             {
@@ -330,6 +356,9 @@ public class InvoiceService : IInvoiceService
             CustomerTermsAndConditions = i.Customer?.TermsAndConditions,
             CustomerCurrencyType = i.Customer?.CurrencyType,
             RejectionNote = i.RejectionNote,
+            RfqExType = i.InvoiceItems?
+                .Select(ii => ii.QuoteItem?.RFQItem?.RFQ?.ExType)
+                .FirstOrDefault(x => x.HasValue),
             Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
             {
                 Id = ii.Id,
@@ -337,6 +366,7 @@ public class InvoiceService : IInvoiceService
                 UnitPrice = ii.UnitPrice,
                 TotalPrice = ii.TotalPrice,
                 Discount = ii.Discount,
+                OriginalUnitPrice = ii.QuoteItem?.UnitPrice,
                 ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
                 QuoteItemId = ii.QuoteItemId,
                 RFQReference = ii.QuoteItem?.RFQItemId.HasValue == true &&

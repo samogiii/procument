@@ -69,6 +69,10 @@ public class DocumentsController : ControllerBase
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
 
+        // PI-level categories (Customer POP, Our PI, Customer PO) are admin-only.
+        var isAdminUser = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        if (!isAdminUser) return Forbid();
+
         var existingFiles = _storage.ListProformaInvoiceFiles(invoice.InvoiceNumber).ToList();
         var fileName = GenerateNumberedFileName(existingFiles, category, file.FileName);
         
@@ -97,8 +101,23 @@ public class DocumentsController : ControllerBase
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound("Supplier not found.");
 
+        // Non-admins may only upload supplier_invoice, supplier_bank_info, and the auto-generated dp PDF.
+        // Our POP / Our PI / Customer POP / Quote / etc. are admin-only.
+        var isAdminUser = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        if (!isAdminUser)
+        {
+            var allowedForUser = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "supplier_invoice", "supplier_bank_info", "dp"
+            };
+            if (!string.IsNullOrWhiteSpace(category) && !allowedForUser.Contains(category))
+            {
+                return Forbid();
+            }
+        }
+
         var existingFiles = _storage.ListSupplierFiles(invoice.InvoiceNumber, supplier.Name).ToList();
-        
+
         if (category == "our_pop" && existingFiles.Any(f => f.Name.Contains("Our POP") && f.Name.Contains("_final")))
         {
             return BadRequest("A Final POP has already been uploaded for this supplier.");
@@ -192,8 +211,7 @@ public class DocumentsController : ControllerBase
         return File(result.Value.Stream, contentType, Path.GetFileName(result.Value.AbsolutePath));
     }
 
-    // ───────────── Delete ─────────────
-
+    /// <summary>Delete a PI-level document.</summary>
     [HttpDelete("proforma-invoice/{invoiceId:long}/file")]
     public async Task<IActionResult> DeletePI(long invoiceId, [FromQuery] string name)
     {
@@ -202,6 +220,7 @@ public class DocumentsController : ControllerBase
         var ok = _storage.DeleteProformaInvoiceFile(invoice.InvoiceNumber, name);
         return ok ? Ok() : NotFound();
     }
+    
 
     [HttpDelete("proforma-invoice/{invoiceId:long}/supplier/{supplierId:long}/file")]
     public async Task<IActionResult> DeleteSupplier(long invoiceId, long supplierId, [FromQuery] string name)
@@ -210,11 +229,54 @@ public class DocumentsController : ControllerBase
         if (invoice == null) return NotFound();
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound();
-        var ok = _storage.DeleteSupplierFile(invoice.InvoiceNumber, supplier.Name, name);
-        return ok ? Ok() : NotFound();
+
+        // Fan-out delete to all shared PIs
+        var piNumbers = await GetInvoiceNumbersSharedWithSupplierAsync(invoiceId, supplierId);
+        piNumbers.Add(invoice.InvoiceNumber);
+
+        foreach (var piNumber in piNumbers.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            _storage.DeleteSupplierFile(piNumber, supplier.Name, name);
+        }
+
+        return Ok();
     }
 
     // ───────────── Helpers ─────────────
+
+    /// <summary>Get Invoices that share at least one PO with the given Invoice.</summary>
+    private async Task<HashSet<string>> GetInvoiceNumbersLinkedToSamePOAsync(long invoiceId)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Find all POs that reference this PI (directly or via items)
+        var poIds = await _db.Set<PurchaseOrder>()
+            .Where(p => p.InvoiceId == invoiceId 
+                        || p.POItems.Any(i => i.InvoiceItemId.HasValue 
+                                              && _db.Set<InvoiceItem>().Any(ii => ii.Id == i.InvoiceItemId && ii.InvoiceId == invoiceId)))
+            .Select(p => p.Id)
+            .ToListAsync();
+
+        if (poIds.Count == 0) return result;
+
+        // Collect ALL PIs referenced by those same POs
+        var directInvoiceIds = await _db.Set<PurchaseOrder>()
+            .Where(p => poIds.Contains(p.Id) && p.InvoiceId.HasValue)
+            .Select(p => p.InvoiceId!.Value)
+            .ToListAsync();
+
+        var indirectInvoiceIds = await _db.Set<POItem>()
+            .Where(i => i.POId.HasValue && poIds.Contains(i.POId.Value) && i.InvoiceItemId.HasValue)
+            .Select(i => _db.Set<InvoiceItem>().Where(ii => ii.Id == i.InvoiceItemId).Select(ii => ii.InvoiceId).FirstOrDefault())
+            .ToListAsync();
+
+        var allInvoiceIds = directInvoiceIds.Concat(indirectInvoiceIds).Distinct().ToList();
+        var numbers = await _db.Set<Invoice>().Where(i => allInvoiceIds.Contains(i.Id)).Select(i => i.InvoiceNumber).ToListAsync();
+        foreach (var n in numbers) if (!string.IsNullOrWhiteSpace(n)) result.Add(n);
+        
+        return result;
+    }
+
 
     /// <summary>Get the distinct suppliers linked to a PI (via POs whose POItems reference the PI's InvoiceItems, plus POs with po.InvoiceId = piId).</summary>
     private async Task<List<Supplier>> GetSuppliersForInvoiceAsync(long invoiceId)

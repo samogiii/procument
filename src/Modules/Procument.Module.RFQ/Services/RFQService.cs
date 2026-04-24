@@ -204,7 +204,19 @@ public class RFQService : IRFQService
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
             var s = page.Search.Trim();
-            query = query.Where(r => r.Name.Contains(s) || r.Customer.Name.Contains(s));
+            // If the search term is numeric, also match by RFQ Id (exact) so users can
+            // paste/type an RFQ id in the search box and find it.
+            if (long.TryParse(s, out var searchId))
+            {
+                query = query.Where(r =>
+                    r.Id == searchId ||
+                    r.Name.Contains(s) ||
+                    r.Customer.Name.Contains(s));
+            }
+            else
+            {
+                query = query.Where(r => r.Name.Contains(s) || r.Customer.Name.Contains(s));
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(pnSearch))

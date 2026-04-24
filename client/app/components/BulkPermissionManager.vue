@@ -140,7 +140,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{
-  entityName: 'RFQ' | 'Quote' | 'Invoice'
+  entityName: 'RFQ' | 'Quote' | 'Invoice' | 'PO'
   preselectedIds?: number[]
 }>()
 
@@ -166,12 +166,14 @@ const resultType = ref<'success' | 'error'>('success')
 const entityLabel = computed(() => {
   if (props.entityName === 'RFQ') return 'RFQ'
   if (props.entityName === 'Quote') return 'Quote'
+  if (props.entityName === 'PO') return 'Purchase Order'
   return 'Proforma Invoice'
 })
 
 const entityTitleKey = computed(() => {
   if (props.entityName === 'RFQ') return 'name'
   if (props.entityName === 'Quote') return 'quoteNumber'
+  if (props.entityName === 'PO') return 'poNumber'
   return 'invoiceNumber' // Assuming Invoice has InvoiceNumber
 })
 
@@ -233,6 +235,9 @@ async function loadEntities() {
       entityItems.value = res?.items || []
     } else if (props.entityName === 'Quote') {
       const res = await api.get<any>('/quotes?page=1&pageSize=500')
+      entityItems.value = res?.items || []
+    } else if (props.entityName === 'PO') {
+      const res = await api.get<any>('/purchase-orders?page=1&pageSize=500')
       entityItems.value = res?.items || []
     } else {
       // Invoice

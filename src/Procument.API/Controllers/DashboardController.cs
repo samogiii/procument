@@ -189,55 +189,42 @@ public class DashboardController : ControllerBase
                 })
                 .ToListAsync();
 
-            // Per-user quote stats (always global for the chart)
-            // Include users who have quotes OR are assigned to RFQs
-            var usersWithQuotes = _db.Quotes
-                .GroupBy(q => new { q.UserId, q.User.Name })
-                .Select(g => new UserStatItem
+            // ── Per-user quote stats (always global for the chart) ──
+            var allUsers = await _db.Users.Select(u => new { u.Id, u.Name }).ToListAsync();
+            
+            // Get all quotes grouped by user
+            var quoteGroups = await _db.Quotes
+                .GroupBy(q => q.UserId)
+                .Select(g => new
                 {
-                    UserId = g.Key.UserId,
-                    UserName = g.Key.Name,
-                    Count = g.Count(),
-                    TotalValue = g.Where(q => q.Status == "Sent").Sum(q => q.TotalAmount ?? 0),
+                    UserId = g.Key,
+                    TotalValue = g.Where(q => q.Status == "Sent" || q.Status == "Accepted").Sum(q => q.TotalAmount ?? 0),
+                    TotalCount = g.Count(),
                     AcceptedCount = g.Count(q => q.Status == "Accepted"),
-                    RejectedCount = g.Count(q => q.Status == "Rejected"),
-                    RFQCount = 0, // Will be populated below
-                });
-
-            var usersWithRFQAssignments = await _db.EntityPermissions
-                .Where(p => p.EntityName == "RFQ")
-                .GroupBy(p => p.UserId)
-                .Select(g => new { UserId = g.Key, RFQCount = g.Count() })
+                    RejectedCount = g.Count(q => q.Status == "Rejected")
+                })
                 .ToListAsync();
 
-            var userStatsList = await usersWithQuotes.ToListAsync();
+            var rfqAssignmentGroups = await _db.EntityPermissions
+                .Where(p => p.EntityName == "RFQ")
+                .GroupBy(p => p.UserId)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToListAsync();
 
-            // Add users who have RFQ assignments but no quotes
-            foreach (var assignedUser in usersWithRFQAssignments)
-            {
-                var existingUser = userStatsList.FirstOrDefault(u => u.UserId == assignedUser.UserId);
-                if (existingUser != null)
+            var userStatsList = allUsers.Select(u => {
+                var q = quoteGroups.FirstOrDefault(qg => qg.UserId == u.Id);
+                var r = rfqAssignmentGroups.FirstOrDefault(rg => rg.UserId == u.Id);
+                return new UserStatItem
                 {
-                    existingUser.RFQCount = assignedUser.RFQCount;
-                }
-                else
-                {
-                    var user = await _db.Users.FindAsync(assignedUser.UserId);
-                    if (user != null)
-                    {
-                        userStatsList.Add(new UserStatItem
-                        {
-                            UserId = user.Id,
-                            UserName = user.Name,
-                            Count = 0,
-                            TotalValue = 0,
-                            AcceptedCount = 0,
-                            RejectedCount = 0,
-                            RFQCount = assignedUser.RFQCount,
-                        });
-                    }
-                }
-            }
+                    UserId = u.Id,
+                    UserName = u.Name,
+                    Count = q?.TotalCount ?? 0,
+                    TotalValue = q?.TotalValue ?? 0,
+                    AcceptedCount = q?.AcceptedCount ?? 0,
+                    RejectedCount = q?.RejectedCount ?? 0,
+                    RFQCount = r?.Count ?? 0
+                };
+            }).ToList();
 
             response.UserQuoteStats = userStatsList
                 .OrderByDescending(u => u.TotalValue)
