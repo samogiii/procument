@@ -34,17 +34,20 @@
           Purchase Orders
           <v-chip v-if="purchaseOrders.length" size="x-small" color="primary" variant="tonal" class="ml-2">{{ purchaseOrders.length }}</v-chip>
         </v-tab>
-        <v-tab v-if="isAdmin" value="warehouse">
+        <!-- ExWork tabs: visible to anyone allowed on this page (Admin, SuperAdmin, Expert, Payment).
+             The backend already filters /unassigned-items per user via EntityPermission("Procurement"),
+             so non-admins just see an empty list if they have no assignments. -->
+        <v-tab value="warehouse">
           <v-icon start size="18">mdi-warehouse</v-icon>
           Warehouse
           <v-chip v-if="warehouseItemCount" size="x-small" color="success" variant="tonal" class="ml-2">{{ warehouseItemCount }}</v-chip>
         </v-tab>
-        <v-tab v-if="isAdmin" value="vendor">
+        <v-tab value="vendor">
           <v-icon start size="18">mdi-truck-outline</v-icon>
           Vendor
           <v-chip v-if="vendorItemCount" size="x-small" color="info" variant="tonal" class="ml-2">{{ vendorItemCount }}</v-chip>
         </v-tab>
-        <v-tab v-if="isAdmin" value="customer">
+        <v-tab value="customer">
           <v-icon start size="18">mdi-account-group</v-icon>
           Customer
           <v-chip v-if="customerItemCount" size="x-small" color="error" variant="tonal" class="ml-2">{{ customerItemCount }}</v-chip>

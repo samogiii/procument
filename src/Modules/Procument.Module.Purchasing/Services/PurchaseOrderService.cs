@@ -14,7 +14,12 @@ public interface IPurchaseOrderService
     Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
     Task<POResponse?> GetByIdAsync(long id);
     Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin);
-    Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync();
+    /// <summary>
+    /// Get all unassigned POItems (POId is null, not returned). Admins see every live item;
+    /// non-admins only see items whose SourceProcurementItem is assigned to them via
+    /// EntityPermission(EntityName="Procurement").
+    /// </summary>
+    Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin);
     Task<POResponse> CreateAsync(CreatePORequest request);
     Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null);
     Task<bool> UpdateItemAsync(UpdatePOItemRequest request);
@@ -42,10 +47,34 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     /// <summary>Get all unassigned POItems (POId is null) — enriched with ExType, supplier, customer.</summary>
-    public async Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync()
+    public async Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin)
     {
-        var items = await _db.Set<POItem>()
-            .Where(i => i.POId == null && i.ReturnedAt == null)
+        IQueryable<POItem> q = _db.Set<POItem>()
+            .Where(i => i.POId == null && i.ReturnedAt == null);
+
+        // Non-admins only see items that trace back to a ProcurementItem they're assigned to.
+        // The Procurement→PO loop preserves SourceProcurementItemId on every finalized POItem,
+        // so this is the canonical link between a user's Procurement assignment and the
+        // resulting unassigned PO line.
+        if (!isAdmin)
+        {
+            var permittedIdStrings = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+            var permittedProcItemIds = permittedIdStrings
+                .Select(s => long.TryParse(s, out var l) ? l : -1L)
+                .Where(l => l > 0)
+                .ToHashSet();
+
+            if (permittedProcItemIds.Count == 0)
+                return new List<UnassignedPOItemResponse>();
+
+            q = q.Where(i => i.SourceProcurementItemId.HasValue
+                             && permittedProcItemIds.Contains(i.SourceProcurementItemId.Value));
+        }
+
+        var items = await q
             .Include(i => i.PartNumber)
             .Include(i => i.SourceProcurementItem)
                 .ThenInclude(pi => pi!.CurrentSupplier)
@@ -107,7 +136,12 @@ public class PurchaseOrderService : IPurchaseOrderService
                 Alt = proc?.Alt,
                 ProcumentId = i.ProcumentId,
                 InvoiceItemId = i.InvoiceItemId,
-                ExType = rfq?.ExType,
+                // ExType priority:
+                //  1. Live RFQ (if ProcumentRecord chain survived)
+                //  2. ProcurementItem.RfqExType snapshot — always populated during CreateFromAcceptedInvoice,
+                //     which is the reliable fallback for items that went through the Procurement→PO path
+                //     (including loop-recycled items where the ProcumentRecord linkage can be missing).
+                ExType = rfq?.ExType ?? srcProcItem?.RfqExType,
                 CustomerName = rfq?.Customer?.Name,
                 InvoiceId = invoiceInfo.Id,
                 InvoiceNumber = invoiceInfo.Number,

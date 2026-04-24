@@ -17,6 +17,7 @@ const FeaturePermissions = {
     isAmir: ['AMJ', 'KZM', 'MGH', 'System Admin'], // Management/Supervisor group
     newRFQ: ['AHM','GHS'],
     ilsUsers: ['System Admin', 'SYD', 'MGH'],
+    isPDFSelection: ['System Admin', 'AMJ', 'MGH'],
 }
 
 function getTokenExpiry(token: string): number | null {
@@ -53,7 +54,7 @@ export const useAuthStore = defineStore('auth', {
         isSuperAdmin: (state) => state.user?.role === 'SuperAdmin',
         isPayment: (state) => state.user?.role === 'Payment' || state.user?.role === 'SuperAdmin',
         isExpert: (state) => state.user?.role === 'Expert',
-
+        // isPDFSelection:(state) => state.user?.
         // ─── Feature/User Permissions ───
         // Generic helper to check if current user has access to a specific feature key
         can: (state) => (feature: keyof typeof FeaturePermissions) => {
@@ -67,6 +68,8 @@ export const useAuthStore = defineStore('auth', {
         isAmir(): boolean { return this.can('isAmir') },
         newRFQ(): boolean { return this.can('newRFQ') },
         ilsUsers(): boolean { return this.can('ilsUsers') },
+        isPDFSelection(): boolean { return this.can('isPDFSelection') },
+
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'

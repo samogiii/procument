@@ -49,11 +49,14 @@ public class PurchaseOrdersController : ControllerBase
         return (userId, isAdmin);
     }
 
-    /// <summary>Get all unassigned POItems (not yet assigned to a PO).</summary>
+    /// <summary>Get all unassigned POItems (not yet assigned to a PO).
+    /// Admins see everything; non-admins see only POItems whose SourceProcurementItem
+    /// they have an EntityPermission("Procurement") on.</summary>
     [HttpGet("unassigned-items")]
     public async Task<ActionResult<List<UnassignedPOItemResponse>>> GetUnassignedItems()
     {
-        var result = await _poService.GetUnassignedItemsAsync();
+        var (userId, isAdmin) = GetCurrentUser();
+        var result = await _poService.GetUnassignedItemsAsync(userId, isAdmin);
         return Ok(result);
     }
 
@@ -73,7 +76,62 @@ public class PurchaseOrdersController : ControllerBase
     [Auditable("PurchaseOrder", "Create", CaptureBody = true)]
     public async Task<ActionResult<POResponse>> Create([FromBody] CreatePORequest request)
     {
+        var (userId, isAdmin) = GetCurrentUser();
+
+        // Non-admins may only create POs from items that trace back to a ProcurementItem
+        // they were assigned to. Admins bypass this check.
+        if (!isAdmin && request.POItemIds?.Count > 0)
+        {
+            var requestedIds = request.POItemIds.Distinct().ToList();
+            var sourceProcItemIds = await _db.Set<POItem>()
+                .Where(i => requestedIds.Contains(i.Id))
+                .Select(i => new { i.Id, i.SourceProcurementItemId })
+                .ToListAsync();
+
+            if (sourceProcItemIds.Count != requestedIds.Count)
+                return BadRequest(new { message = "One or more POItemIds were not found." });
+
+            if (sourceProcItemIds.Any(x => !x.SourceProcurementItemId.HasValue))
+                return Forbid();
+
+            var permittedIdStrings = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+            var permittedProcItemIds = permittedIdStrings
+                .Select(s => long.TryParse(s, out var l) ? l : -1L)
+                .Where(l => l > 0)
+                .ToHashSet();
+
+            if (sourceProcItemIds.Any(x => !permittedProcItemIds.Contains(x.SourceProcurementItemId!.Value)))
+                return Forbid();
+        }
+
         var result = await _poService.CreateAsync(request);
+
+        // If a non-admin created the PO (they had Procurement-level access), grant them
+        // an EntityPermission on the new PO so it shows up in their /purchase-orders list.
+        if (!isAdmin && userId > 0)
+        {
+            try
+            {
+                var already = await _db.Set<EntityPermission>()
+                    .AnyAsync(p => p.UserId == userId && p.EntityName == "PO" && p.EntityId == result.Id.ToString());
+                if (!already)
+                {
+                    _db.Set<EntityPermission>().Add(new EntityPermission
+                    {
+                        UserId = userId,
+                        EntityName = "PO",
+                        EntityId = result.Id.ToString(),
+                        Permission = "Edit",
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                    await _db.SaveChangesAsync();
+                }
+            }
+            catch { /* non-fatal — admin can assign later */ }
+        }
 
         // Mark related RFQs as unread for all assigned users
         try

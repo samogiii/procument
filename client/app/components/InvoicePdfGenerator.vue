@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — INV-{{ invoice.id }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
@@ -14,21 +14,47 @@
           <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="overrideCustomerName" label="Override Customer Name" variant="outlined" density="compact" hide-details placeholder="Leave blank to use original" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
+          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="3"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+        <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
           <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
           <v-col cols="12" :md="currency === 'China Yuan (CNY)' ? 2 : 4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
-          <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
         </v-row>
+
+        <!-- PDF Row Selection -->
+        <div class="mt-4 border rounded pa-3 bg-surface">
+          <div class="d-flex align-center justify-space-between mb-2">
+            <span class="text-caption font-weight-bold uppercase text-medium-emphasis">Select items to include in PDF</span>
+            <div class="d-flex gap-2">
+              <v-btn size="x-small" variant="tonal" @click="selectAllItems">Select All</v-btn>
+              <v-btn size="x-small" variant="tonal" @click="selectedItems.clear()">Clear</v-btn>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-x-6 gap-y-1">
+            <v-checkbox
+              v-for="it in invoice.items"
+              :key="it.id"
+              v-model="selectedItems"
+              :value="it.id"
+              :label="`${it.partNumberName} (${it.qty})`"
+              density="compact"
+              hide-details
+              color="primary"
+              class="flex-shrink-0"
+            />
+          </div>
+        </div>
+
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model="billToEmail" label="Bill To Email" variant="outlined" density="compact" hide-details /></v-col>
@@ -128,6 +154,8 @@ watch(selectedPreset, (val) => {
 watch(model, (open) => {
   if (open) {
     loadPresets()
+    selectAllItems()
+    overrideCustomerName.value = ''
     // Pre-fill address fields from invoice data
     contactPerson.value = props.invoice?.customerContactPerson || ''
     billTo.value = props.invoice?.customerBillTo || ''
@@ -186,6 +214,13 @@ const bankAddress = ref('')
 const bankAccount = ref('')
 const swiftCode = ref('')
 
+const overrideCustomerName = ref('')
+const selectedItems = ref<number[]>([])
+
+function selectAllItems() {
+  selectedItems.value = props.invoice?.items?.map((i: any) => i.id) || []
+}
+
 function hexToRgb(hex: string) {
   const h = hex.replace('#', '')
   const r = parseInt(h.substring(0, 2), 16)
@@ -219,7 +254,9 @@ const renderedHtml = computed(() => {
   const inv = props.invoice
   if (!inv.id) return ''
 
-  const items: any[] = inv.items || []
+  const allItems: any[] = inv.items || []
+  const items = allItems.filter(it => selectedItems.value.includes(it.id))
+
   const logo = logoDataUrl.value
   const logoImg = logo ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />` : ''
   const invDate = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—'
@@ -227,7 +264,7 @@ const renderedHtml = computed(() => {
   const isYuan = currency.value === 'China Yuan (CNY)'
   const sym = isYuan ? '¥' : '$'
   const rate = isYuan ? (exchangeRate.value || 1) : 1
-  const subtotal = (Number(inv.totalAmount) || 0) * rate
+  const subtotal = items.reduce((sum, it) => sum + (Number(it.totalPrice) || 0), 0) * rate
   const tax = (taxAmount.value || 0) * rate
   const shipping = (shippingAmount.value || 0) * rate
   const other = (otherAmount.value || 0) * rate
@@ -395,7 +432,8 @@ async function downloadPdf() {
     const config = useRuntimeConfig()
     const authStore = useAuthStore()
     const inv = props.invoice
-    const items: any[] = inv.items || []
+    const allItems: any[] = inv.items || []
+    const items = allItems.filter(it => selectedItems.value.includes(it.id))
 
     // Check if customerCurrencyType is Both - generate two PDFs
     const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
@@ -425,7 +463,8 @@ async function downloadPdf() {
         logoBase64: logoDataUrl.value || null,
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
-        invoiceNumber: `INV-${inv.id}`,
+        invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
+        invoiceTitle: "PROFORMA INVOICE PINV",
         invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
         dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
         status: inv.status || '—',
@@ -433,7 +472,7 @@ async function downloadPdf() {
         currency: curr.currency,
         currencySymbol: curr.symbol,
         exchangeRate: curr.rate,
-        customerName: inv.customerName || '—',
+        customerName: overrideCustomerName.value || inv.customerName || '—',
         customerContactPerson: contactPerson.value || null,
         customerBillTo: billTo.value || inv.customerBillTo || null,
         customerBillToEmail: billToEmail.value || null,
@@ -464,7 +503,7 @@ async function downloadPdf() {
             : null,
           leadTime: it.leadTime || null,
         })),
-        subtotal: ((Number(inv.totalAmount) || 0) + items.reduce((sum: number, it: any) => sum + (it.discount > 0 ? Number(it.discount) : 0), 0)) * curr.rate,
+        subtotal: (items.reduce((sum, it) => sum + (Number(it.totalPrice) || 0), 0) + items.reduce((sum: number, it: any) => sum + (it.discount > 0 ? Number(it.discount) : 0), 0)) * curr.rate,
         tax: (taxAmount.value || 0) * curr.rate,
         shipping: (shippingAmount.value || 0) * curr.rate,
         other: (otherAmount.value || 0) * curr.rate,
@@ -482,8 +521,8 @@ async function downloadPdf() {
       const url = window.URL.createObjectURL(response)
       const link = document.createElement('a')
       link.href = url
-      const customerName = inv.customerName || 'Customer'
-      const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_')
+      const customerNameForFile = overrideCustomerName.value || inv.customerName || 'Customer'
+      const sanitizedCustomerName = customerNameForFile.replace(/[^a-zA-Z0-9]/g, '_')
       const fileName = `PI-${inv.id}-${sanitizedCustomerName}${curr.nameSuffix}.pdf`
       link.setAttribute('download', fileName)
       document.body.appendChild(link)
