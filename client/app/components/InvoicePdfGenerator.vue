@@ -14,7 +14,7 @@
           <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
           <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="overrideCustomerName" label="Override Customer Name" variant="outlined" density="compact" hide-details placeholder="Leave blank to use original" /></v-col>
+          <v-col v-if="canSelect" cols="12" md="3"><v-text-field v-model="overrideCustomerName" label="Override Customer Name" variant="outlined" density="compact" hide-details placeholder="Leave blank to use original" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
@@ -25,19 +25,19 @@
         <v-row dense align="center" class="mt-1">
           <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
           <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
+          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
           <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
           <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
           <v-col cols="12" :md="currency === 'China Yuan (CNY)' ? 2 : 4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
         </v-row>
 
         <!-- PDF Row Selection -->
-        <div class="mt-4 border rounded pa-3 bg-surface">
+        <div v-if="canSelect" class="mt-4 border rounded pa-3 bg-surface">
           <div class="d-flex align-center justify-space-between mb-2">
             <span class="text-caption font-weight-bold uppercase text-medium-emphasis">Select items to include in PDF</span>
             <div class="d-flex gap-2">
               <v-btn size="x-small" variant="tonal" @click="selectAllItems">Select All</v-btn>
-              <v-btn size="x-small" variant="tonal" @click="selectedItems.clear()">Clear</v-btn>
+              <v-btn size="x-small" variant="tonal" @click="selectedItems = []">Clear</v-btn>
             </div>
           </div>
           <div class="d-flex flex-wrap gap-x-6 gap-y-1">
@@ -95,6 +95,9 @@ const emit = defineEmits<{ (e: 'pdf-uploaded'): void }>()
 const model = defineModel<boolean>({ default: false })
 
 const api = useApi()
+const authStore = useAuthStore()
+const canSelect = computed(() => authStore.isPDFSelection)
+console.log(canSelect.value)
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -397,7 +400,7 @@ const renderedHtml = computed(() => {
             ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; border-bottom:1px solid #eef0f3; font-weight:600;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
             <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shipping)}</td></tr>
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Processing Fee</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
             <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(subtotal - totalDiscount + tax + shipping + other)}</td></tr>
           </table>
         </div>
