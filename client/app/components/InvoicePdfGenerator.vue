@@ -237,7 +237,7 @@ const renderedHtml = computed(() => {
   const accent = theme.value.accent
   const rowEven = lighten(primary, 0.96)
 
-  const totalDiscount = items.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0) * rate
+  const totalDiscount = items.reduce((sum: number, it: any) => sum + (it.discount > 0 ? Number(it.discount) : 0), 0) * rate
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : rowEven
@@ -464,7 +464,7 @@ async function downloadPdf() {
             : null,
           leadTime: it.leadTime || null,
         })),
-        subtotal: (Number(inv.totalAmount) || 0) * curr.rate,
+        subtotal: ((Number(inv.totalAmount) || 0) + items.reduce((sum: number, it: any) => sum + (it.discount > 0 ? Number(it.discount) : 0), 0)) * curr.rate,
         tax: (taxAmount.value || 0) * curr.rate,
         shipping: (shippingAmount.value || 0) * curr.rate,
         other: (otherAmount.value || 0) * curr.rate,

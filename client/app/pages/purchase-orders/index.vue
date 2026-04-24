@@ -459,6 +459,7 @@ const poStatusColorMap: Record<string, string> = {
   'Ship To Customer': 'info',
   'Completed': 'teal',
   'Cancelled': 'grey',
+  'Returned': 'error',
 }
 function poStatusColor(status: string) {
   return poStatusColorMap[status] || 'grey'
@@ -477,6 +478,7 @@ const poStatusOptions = [
   { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'info' },
   { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
+  { value: 'Returned', label: 'Returned', icon: 'mdi-keyboard-return', color: 'error' },
 ]
 
 async function changePOStatus(po: any, newStatus: string) {

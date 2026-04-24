@@ -8,4 +8,5 @@ public interface IPermissionService
     Task RemovePermissionAsync(long userId, string entityName, string entityId, string permission);
     Task<bool> HasPermissionAsync(long userId, string entityName, string entityId, string permission);
     Task<List<EntityPermission>> GetPermissionsForEntityAsync(string entityName, string entityId);
+    Task<List<EntityPermission>> GetPermissionsByEntityNameAsync(string entityName);
 }

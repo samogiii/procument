@@ -33,7 +33,18 @@
         </v-list>
       </v-menu>
       <!-- v-if="isAdmin" For admin PDF button -->
-      <v-btn  prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+      <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" class="mr-1" @click="showPdf = true">PDF</v-btn>
+      <v-btn
+        v-if="isAdmin || assignedUsers.some(u => u.userId === authStore.user?.id)"
+        prepend-icon="mdi-keyboard-return"
+        size="small"
+        variant="tonal"
+        color="warning"
+        :disabled="isTerminalState"
+        @click="openReturnDialog"
+      >
+        Return
+      </v-btn>
     </div>
 
     <v-row class="mb-6">
@@ -500,7 +511,7 @@
               <th>Part</th>
               <th>Qty</th>
               <th>Unit Price</th>
-              <th>Total</th>
+              <th>Total Price</th>
               <th>Condition</th>
               <th style="width:60px;">Tracks</th>
             </tr>
@@ -611,6 +622,60 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Return Items to Procurement Dialog -->
+    <v-dialog v-model="showReturnDialog" max-width="550" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-keyboard-return" class="mr-2" color="warning" />
+          Return Items to Procurement
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Items selected below will be recycled back into the **Procurement layer** for re-sourcing.
+            This action soft-deletes the current PO line items.
+          </p>
+          
+          <v-textarea
+            v-model="returnForm.reason"
+            label="Reason for Return"
+            placeholder="e.g. Supplier stock-out, price change, etc."
+            variant="outlined"
+            rows="3"
+            auto-grow
+            class="mb-4"
+            required
+          />
+
+          <div class="text-caption font-weight-bold uppercase mb-2">Select Items to Return</div>
+          <v-list density="compact" class="bg-transparent border rounded">
+            <v-list-item v-for="item in po.items" :key="item.id">
+              <template #prepend>
+                <v-checkbox
+                  v-model="returnForm.itemIds"
+                  :value="item.id"
+                  density="compact"
+                  hide-details
+                />
+              </template>
+              <v-list-item-title class="text-body-2 font-weight-medium">{{ item.partNumberName }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">Qty: {{ item.qty }} @ ${{ formatPrice(item.unitPrice) }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showReturnDialog = false">Cancel</v-btn>
+          <v-btn
+            color="warning"
+            variant="flat"
+            :loading="returning"
+            :disabled="!returnForm.reason.trim() || !returnForm.itemIds.length"
+            @click="returnPo"
+          >Confirm Return</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <PoPdfGenerator v-model="showPdf" :po-id="String(route.params.id)" />
   </div>
 </template>
@@ -640,6 +705,67 @@ const poStatuses = [
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 const showPdf = ref(false)
+
+const isTerminalState = computed(() => 
+  ['Completed', 'Cancelled', 'Returned'].includes(po.value.status)
+)
+
+// ── Return Workflow ──
+type ReturnPOResponse = {
+  poId: number
+  fullReturn: boolean
+  poStatus: string
+  returnedPOItemIds: number[]
+  reopenedProcurementIds: number[]
+  skippedPOItemIds: number[]
+  warnings: string[]
+}
+const showReturnDialog = ref(false)
+const returning = ref(false)
+const returnForm = ref({
+  reason: '',
+  itemIds: [] as number[]
+})
+
+function openReturnDialog() {
+  returnForm.value = {
+    reason: '',
+    itemIds: (po.value.items || []).map((i: any) => i.id) // Default to all items
+  }
+  showReturnDialog.value = true
+}
+
+async function returnPo() {
+  if (!returnForm.value.reason.trim()) {
+    showSnack('Please provide a reason for return', 'warning')
+    return
+  }
+  returning.value = true
+  try {
+    const res = await api.post<ReturnPOResponse>(`/purchase-orders/${route.params.id}/return`, {
+      reason: returnForm.value.reason,
+      itemIds: returnForm.value.itemIds
+    })
+    
+    if (res.warnings?.length) {
+      console.warn('Return completed with warnings:', res.warnings)
+    }
+
+    showSnack(res.fullReturn ? 'PO returned to Procurement' : 'Items returned to Procurement', 'success')
+    showReturnDialog.value = false
+    
+    // Reload everything to reflect recycled state
+    await Promise.all([loadPo(), loadEnriched(), loadSupplierDocs()])
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to return items', 'error')
+  } finally {
+    returning.value = false
+  }
+}
+
+async function loadPo() {
+  try { po.value = await api.get(`/purchase-orders/${route.params.id}`) } catch {}
+}
 
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('po', entityId)

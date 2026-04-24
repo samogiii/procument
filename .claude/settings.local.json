@@ -37,7 +37,12 @@
       "Bash(find /c/Users/Sam/Desktop/Projects/procument/client/app/pages -type f -name *.vue)",
       "Bash(Select-Object -Last 30)",
       "Bash(powershell -Command \"\\(Get-Content '[id].vue' -Raw\\) -replace 'authStore\\\\.token', 'authStore.user?.token' | Set-Content '[id].vue' -NoNewline\")",
-      "WebFetch(domain:openclaw.ai)"
+      "WebFetch(domain:openclaw.ai)",
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements', 'ProcurementItems', 'ProcurementSupplierQuotes'\\); SELECT c.name FROM sys.columns c JOIN sys.tables t ON c.object_id = t.object_id WHERE t.name = 'POItems' AND c.name IN \\('SourceProcurementItemId','ReturnedAt','ReturnedFromPOId','ReturnReason'\\);\")",
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC;\")",
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT TOP 5 MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC;\")",
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements', 'ProcurementItems', 'ProcurementSupplierQuotes'\\);\")",
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements','ProcurementItems','ProcurementSupplierQuotes'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('POItems'\\) AND name IN \\('SourceProcurementItemId','ReturnedAt','ReturnedFromPOId','ReturnReason'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('ProcurementItems'\\) AND name IN \\('LoopCount','LastReturnReason','LastReturnedAt','FulfilledByPOItemId'\\);\")"
     ]
   }
 }

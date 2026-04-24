@@ -173,6 +173,61 @@ public class PurchaseOrdersController : ControllerBase
         return Ok();
     }
 
+    /// <summary>
+    /// Return this PO (or a subset of its items) back into the Procurement layer so a new
+    /// supplier can be sourced. Empty/missing ItemIds = full return (PO flips to "Returned").
+    /// Admin / SuperAdmin only.
+    /// </summary>
+    [HttpPost("{id:long}/return")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
+    [Auditable("PurchaseOrder", "Return", CaptureBody = true)]
+    public async Task<ActionResult<ReturnPOResponse>> ReturnPO(long id, [FromBody] ReturnPORequest request)
+    {
+        if (await _lockGuard.IsPurchaseOrderLocked(id))
+            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+
+        if (request == null || string.IsNullOrWhiteSpace(request.Reason))
+            return BadRequest(new { message = "A return reason is required." });
+
+        var (userId, _) = GetCurrentUser();
+        var result = await _poService.ReturnAsync(id, request, userId);
+        if (result == null)
+            return BadRequest(new { message = "PO cannot be returned (not found, already terminal, or no live items selected)." });
+
+        // Fire notification so assigned PO users see the PO has moved back to Procurement
+        try
+        {
+            var po = await _poService.GetByIdAsync(id);
+            if (po != null)
+            {
+                var assignedUserIds = await _db.Set<EntityPermission>()
+                    .Where(p => p.EntityName == "PO" && p.EntityId == id.ToString())
+                    .Select(p => p.UserId)
+                    .Distinct()
+                    .ToListAsync();
+
+                foreach (var uid in assignedUserIds)
+                {
+                    _db.Set<Notification>().Add(new Notification
+                    {
+                        UserId = uid,
+                        Type = "POReturned",
+                        EntityName = "PurchaseOrder",
+                        EntityId = id,
+                        EntityNumber = po.PONumber,
+                        Message = result.FullReturn
+                            ? $"PO {po.PONumber} was fully returned to Procurement."
+                            : $"{result.ReturnedPOItemIds.Count} item(s) on PO {po.PONumber} were returned to Procurement.",
+                    });
+                }
+                if (assignedUserIds.Count > 0) await _db.SaveChangesAsync();
+            }
+        }
+        catch { /* notifications are best-effort */ }
+
+        return Ok(result);
+    }
+
     /// <summary>Update a single PO item (supplier, qty, unitPrice).</summary>
     [HttpPut("items/{id:long}")]
     [Auditable("POItem", "Update", CaptureBody = true)]

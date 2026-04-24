@@ -140,7 +140,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{
-  entityName: 'RFQ' | 'Quote' | 'Invoice' | 'PO'
+  entityName: 'RFQ' | 'Quote' | 'Invoice' | 'PO' | 'Procurement'
   preselectedIds?: number[]
 }>()
 
@@ -167,6 +167,7 @@ const entityLabel = computed(() => {
   if (props.entityName === 'RFQ') return 'RFQ'
   if (props.entityName === 'Quote') return 'Quote'
   if (props.entityName === 'PO') return 'Purchase Order'
+  if (props.entityName === 'Procurement') return 'Procurement'
   return 'Proforma Invoice'
 })
 
@@ -174,6 +175,7 @@ const entityTitleKey = computed(() => {
   if (props.entityName === 'RFQ') return 'name'
   if (props.entityName === 'Quote') return 'quoteNumber'
   if (props.entityName === 'PO') return 'poNumber'
+  if (props.entityName === 'Procurement') return 'procurementNumber'
   return 'invoiceNumber' // Assuming Invoice has InvoiceNumber
 })
 
@@ -239,6 +241,12 @@ async function loadEntities() {
     } else if (props.entityName === 'PO') {
       const res = await api.get<any>('/purchase-orders?page=1&pageSize=500')
       entityItems.value = res?.items || []
+    } else if (props.entityName === 'Procurement') {
+      const res = await api.get<any>('/procurements?page=1&pageSize=500')
+      entityItems.value = (res?.items || []).map((p: any) => ({
+        ...p,
+        procurementNumber: `${p.procurementNumber} — ${p.invoiceNumber ?? ''} ${p.customerName ?? ''}`
+      }))
     } else {
       // Invoice
       const res = await api.get<any>('/invoices?page=1&pageSize=500')

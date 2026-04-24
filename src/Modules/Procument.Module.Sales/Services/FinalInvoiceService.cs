@@ -138,21 +138,33 @@ public class FinalInvoiceService : IFinalInvoiceService
         //var count = await _db.Set<FinalInvoice>().CountAsync();
         //var invoiceNumber = $"INV-{(count + 1).ToString().PadLeft(5, '0')}";
 
-        // Collect POItem track numbers mapped by InvoiceItemId
+        // Collect POItem track numbers mapped by InvoiceItemId.
+        // With the PO-return loop, a single InvoiceItem can map to multiple POItems over time
+        // (the returned one + any re-finalized replacement). Only the live (non-returned) POItem
+        // is the "active" fulfiller, so filter those out and group to avoid duplicate-key crashes.
         var invoiceItemIds = proforma.InvoiceItems.Select(ii => ii.Id).ToList();
         var poItems = await _db.Set<POItem>()
-            .Where(pi => pi.InvoiceItemId.HasValue && invoiceItemIds.Contains(pi.InvoiceItemId.Value))
+            .Where(pi => pi.InvoiceItemId.HasValue
+                         && invoiceItemIds.Contains(pi.InvoiceItemId.Value)
+                         && pi.ReturnedAt == null)
             .Include(pi => pi.TrackNumbers)
             .ToListAsync();
 
-        var trackMap = poItems.ToDictionary(
-            pi => pi.InvoiceItemId!.Value,
-            pi => new
-            {
-                TrackNumbers = string.Join(", ", (pi.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => t.TrackNumber)),
-                Carrier = (pi.TrackNumbers ?? new List<POItemTrackNumber>()).FirstOrDefault()?.Carrier ?? ""
-            }
-        );
+        var trackMap = poItems
+            .GroupBy(pi => pi.InvoiceItemId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    // Prefer the most recently created live POItem if somehow multiple exist.
+                    var pi = g.OrderByDescending(x => x.Id).First();
+                    return new
+                    {
+                        TrackNumbers = string.Join(", ", (pi.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => t.TrackNumber)),
+                        Carrier = (pi.TrackNumbers ?? new List<POItemTrackNumber>()).FirstOrDefault()?.Carrier ?? ""
+                    };
+                }
+            );
 
         var finalInvoice = new FinalInvoice
         {

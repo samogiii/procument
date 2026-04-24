@@ -40,6 +40,16 @@
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
         <v-btn
+          v-if="procurementId && (invoice.status !== 'Draft' && invoice.status !== 'Pending')"
+          :to="`/procurements/${procurementId}`"
+          variant="tonal"
+          color="primary"
+          size="small"
+          prepend-icon="mdi-clipboard-edit-outline"
+        >
+          View Procurement
+        </v-btn>
+        <v-btn
           v-if="canCreateFinal"
           prepend-icon="mdi-receipt-text-check"
           size="small"
@@ -175,6 +185,9 @@
             <span v-if="item._discount > 0" style="color:#e53935; font-weight:600;">
               -${{ formatPrice(item._discount) }}
             </span>
+            <span v-else-if="item._discount < 0" style="color:rgb(var(--v-theme-primary)); font-weight:600;">
+              +${{ formatPrice(Math.abs(item._discount)) }}
+            </span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
         </v-data-table>
@@ -230,6 +243,7 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const invoice = ref<any>({})
+const procurementId = ref<number | null>(null)
 const documentsRef = ref<any>(null)
 const showPermissions = ref(false)
 const showAudit = ref(false)
@@ -306,7 +320,7 @@ function onItemChange(item: any) {
   const unit = Number(item._unitPrice || 0)
   const qty = Number(item._qty || 0)
   const perUnit = ref - unit
-  item._discount = perUnit > 0 ? Number((perUnit * qty).toFixed(2)) : 0
+  item._discount = Number((perUnit * qty).toFixed(2))
   itemsDirty.value = true
 }
 
@@ -345,6 +359,12 @@ async function loadInvoice() {
     }
     detailsOriginal.value = { ...detailsForm.value }
     initItemPrices()
+
+    // Fetch related procurement if applicable
+    if (invoice.value.status !== 'Draft' && invoice.value.status !== 'Pending') {
+      const res = await api.get<any>(`/procurements?search=${invoice.value.invoiceNumber}&pageSize=1`)
+      procurementId.value = res?.items?.[0]?.id ?? null
+    }
   } catch {
     showSnack('Failed to load proforma invoice', 'error')
   }

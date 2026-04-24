@@ -83,4 +83,23 @@ public class PermissionsController : ControllerBase
         var permissions = await _permissionService.GetPermissionsForEntityAsync(entityName, entityId);
         return Ok(permissions);
     }
+
+    [HttpGet("{entityName}")]
+    public async Task<ActionResult<List<EntityPermission>>> GetPermissionsByEntity(string entityName)
+    {
+        var permissions = await _permissionService.GetPermissionsByEntityNameAsync(entityName);
+        return Ok(permissions);
+    }
+
+    [HttpDelete("{id:long}")]
+    [Auditable("Permission", "Delete")]
+    public async Task<IActionResult> DeletePermission(long id)
+    {
+        var perm = await _db.Set<EntityPermission>().FindAsync(id);
+        if (perm == null) return NotFound();
+
+        _db.Set<EntityPermission>().Remove(perm);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
 }

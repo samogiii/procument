@@ -302,6 +302,11 @@ For **every** user request, follow this loop:
 **Summary:** The Description cell on the RFQ items grid is now an `<input>` for admins (SuperAdmin + Admin via `authStore.isAdmin`) and a read-only span for everyone else. `editableItems` keeps a snapshot `_origDescription` when loading; `saveAll` now also PUTs `/partnumbers/{id}` when the admin has changed `description` (previously the partnumber PUT only fired if `item.remark` was set, which meant description-only edits were silently dropped). No backend change required — the existing `PUT /partnumbers/{id}` already accepts `description`.
 **Follow-ups:** none.
 
+### 2026-04-24 — Procurement: per-item visibility and permission filtering
+**Files:** `src/Modules/Procument.Module.Purchasing/Services/IProcurementService.cs`, `src/Modules/Procument.Module.Sales/Services/ProcurementService.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/ProcurementsController.cs`
+**Summary:** Implemented granular item-level permissions for Procurements. Non-admin users who are assigned only to specific items within a Procurement (and lack header-level permission) now see only those items in the detail view (`GetByIdAsync`). The list view (`GetAllAsync`) correctly adjusts the `ItemCount` for these users. Added `UserCanAccessItemAsync` to `IProcurementService` and enforced it in `ProcurementsController` across all item-level endpoints (`UpdateItem`, `UpsertSupplierQuote`, `SelectSupplierQuote`, `DeleteSupplierQuote`), ensuring users can only modify items they are assigned to.
+**Follow-ups:** none.
+
 ### 2026-04-23 — RFQ list: search by RFQ ID
 **Files:** `src/Modules/Procument.Module.RFQ/Services/RFQService.cs`
 **Summary:** The RFQs page search box previously matched only `RFQHeader.Name` and `Customer.Name`. When users typed an RFQ id number (e.g. `1234`) they got zero results even though the RFQ existed. `RFQService.GetAllAsync` now detects a numeric search term with `long.TryParse` and adds `r.Id == searchId` to the OR clause; non-numeric terms keep the old behavior. The `Name.Contains(s)` path is retained in the numeric branch too so that ids embedded inside a name (e.g. `RFQ-1234-X`) still match.

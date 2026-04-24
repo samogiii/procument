@@ -8,6 +8,7 @@ using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Shared.Entities;
 using Procument.Module.Purchasing.Entities;
+using Procument.Module.Purchasing.Services;
 using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Services;
@@ -17,12 +18,14 @@ public class InvoiceService : IInvoiceService
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
     private readonly IDocumentStorageService _documentStorage;
+    private readonly IProcurementService _procurementService;
 
-    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage)
+    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage, IProcurementService procurementService)
     {
         _db = db;
         _permissionService = permissionService;
         _documentStorage = documentStorage;
+        _procurementService = procurementService;
     }
 
     public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null)
@@ -153,8 +156,8 @@ public class InvoiceService : IInvoiceService
         _db.Set<Invoice>().Add(invoice);
         await _db.SaveChangesAsync();
 
-        // Set InvoiceNumber to INV-{Id} now that the Id is assigned
-        invoice.InvoiceNumber = $"INV-{invoice.Id}";
+        // Set InvoiceNumber to PINV-{Id} now that the Id is assigned
+        invoice.InvoiceNumber = $"PINV-{invoice.Id}";
         await _db.SaveChangesAsync();
 
         // Create the document folder for this Proforma Invoice
@@ -193,14 +196,12 @@ public class InvoiceService : IInvoiceService
                 item.UnitPrice = newUnitPrice;
                 item.TotalPrice = newQty * newUnitPrice;
 
-                var perUnitDiscount = originalUnitPrice - newUnitPrice;
-                item.Discount = perUnitDiscount > 0 ? perUnitDiscount * newQty : null;
+                item.Discount = (originalUnitPrice - newUnitPrice) * newQty;
             }
             else if (itemReq.FinalPrice.HasValue)
             {
                 // Legacy path: user edits the row's Final Total directly.
-                var discount = item.TotalPrice - itemReq.FinalPrice.Value;
-                item.Discount = discount > 0 ? discount : null;
+                item.Discount = item.TotalPrice - itemReq.FinalPrice.Value;
             }
             else
             {
@@ -209,8 +210,7 @@ public class InvoiceService : IInvoiceService
         }
 
         // Recalculate invoice total as sum of final prices
-        invoice.TotalAmount = invoice.InvoiceItems.Sum(ii =>
-            ii.Discount.HasValue ? ii.TotalPrice - ii.Discount.Value : ii.TotalPrice);
+        invoice.TotalAmount = invoice.InvoiceItems.Sum(ii => ii.TotalPrice);
 
         await _db.SaveChangesAsync();
         return true;
@@ -262,50 +262,25 @@ public class InvoiceService : IInvoiceService
             invoice.RejectionNote = null;
         }
 
-        // When Proforma Invoice is NOT Draft and NOT Pending, auto-create POItems (without PO)
+        await _db.SaveChangesAsync();
+
+        // When the Proforma Invoice leaves the Draft/Pending/Rejected states, spin up the
+        // Procurement editing layer (snapshots of RFQ/Quote/supplier data). Previously this
+        // block auto-created POItems directly — that path is now gone. Admins finalize the
+        // Procurement from the /procurements page, which is the only path that yields POItems.
         if (status != "Draft" && status != "Pending" && status != "Rejected")
         {
-            foreach (var ii in invoice.InvoiceItems)
+            try
             {
-                // Check if a POItem already exists for this InvoiceItem
-                var exists = await _db.Set<POItem>().AnyAsync(p => p.InvoiceItemId == ii.Id);
-                if (exists) continue;
-
-                var quoteItem = ii.QuoteItem;
-                var procumentRecordId = quoteItem?.ProcumentRecordId;
-
-                // Get supplier and cost price from procurement record if available
-                ProcumentRecord? proc = null;
-                long? supplierId = null;
-                if (procumentRecordId.HasValue)
-                {
-                    proc = await _db.Set<ProcumentRecord>().FindAsync(procumentRecordId.Value);
-                    supplierId = proc?.SupplierId;
-                }
-
-                // Use supplier's buy price from ProcumentRecord, fallback to invoice price
-                var costUnitPrice = (proc?.Price > 0)
-                    ? (decimal)proc.Price
-                    : ii.UnitPrice;
-
-                var poItem = new POItem
-                {
-                    POId = null, // No PO assigned yet
-                    InvoiceItemId = ii.Id,
-                    ProcumentId = procumentRecordId,
-                    PartNumberId = quoteItem?.PartNumberId,
-                    SupplierId = supplierId,
-                    Qty = ii.Qty,
-                    UnitPrice = costUnitPrice,
-                    TotalPrice = ii.Qty * costUnitPrice,
-                    Condition = quoteItem?.Condition,
-                };
-
-                _db.Set<POItem>().Add(poItem);
+                await _procurementService.CreateFromAcceptedInvoiceAsync(invoice.Id, userId);
+            }
+            catch
+            {
+                // Procurement creation is idempotent and non-fatal to the status change — swallow
+                // to preserve the existing UpdateStatusAsync contract. Surface elsewhere if needed.
             }
         }
 
-        await _db.SaveChangesAsync();
         return true;
     }
 

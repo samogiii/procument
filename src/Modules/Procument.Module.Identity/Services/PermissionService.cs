@@ -66,4 +66,12 @@ public class PermissionService : IPermissionService
             .Where(p => p.EntityName == entityName && p.EntityId == entityId)
             .ToListAsync();
     }
+
+    public async Task<List<EntityPermission>> GetPermissionsByEntityNameAsync(string entityName)
+    {
+        return await _context.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == entityName)
+            .ToListAsync();
+    }
 }

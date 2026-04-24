@@ -7,9 +7,19 @@ public class PurchaseOrder : BaseEntity
 {
     public string PONumber { get; set; } = string.Empty;
     public decimal? TotalAmount { get; set; }
+    /// <summary>
+    /// Draft | Waiting For Admin Approval | Waiting For Payment | Payment Done | Ship To Warehouse 1..3 |
+    /// Ship To Customer | Completed | Cancelled | Returned (items recycled back into Procurement).
+    /// </summary>
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? RejectionNote { get; set; }
+
+    // ─── Return / Recycle Workflow (loop back into Procurement) ───
+    /// <summary>Reason captured when the PO (or some items) were returned to Procurement.</summary>
+    public string? ReturnReason { get; set; }
+    public DateTime? ReturnedAt { get; set; }
+    public long? ReturnedByUserId { get; set; }
 
     // ─── Admin Approval Workflow ───
     /// <summary>Pending | Approved | Rejected. Controls visibility to Payment role.</summary>

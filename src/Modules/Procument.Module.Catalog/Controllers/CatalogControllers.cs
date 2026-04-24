@@ -48,6 +48,7 @@ public class CustomersController : ControllerBase
                 c.Base,
                 c.TermsAndConditions,
                 c.CurrencyType,
+                c.ExWork,
                 c.IsActive,
                 c.CreatedAt
             })

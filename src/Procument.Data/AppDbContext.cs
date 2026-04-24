@@ -53,6 +53,9 @@ public class AppDbContext : DbContext
   public DbSet<ILSQuoteItem> ILSQuoteItems => Set<ILSQuoteItem>();
   public DbSet<CapListItem> CapListItems => Set<CapListItem>();
   public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+  public DbSet<Procurement> Procurements => Set<Procurement>();
+  public DbSet<ProcurementItem> ProcurementItems => Set<ProcurementItem>();
+  public DbSet<ProcurementSupplierQuote> ProcurementSupplierQuotes => Set<ProcurementSupplierQuote>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -458,10 +461,12 @@ public class AppDbContext : DbContext
       entity.Property(e => e.AdminApproval).HasMaxLength(20).HasDefaultValue("Pending");
       entity.Property(e => e.AdminApprovalNote).HasMaxLength(1000);
       entity.Property(e => e.PaymentStatus).HasMaxLength(20).HasDefaultValue("NotStarted");
+      entity.Property(e => e.ReturnReason).HasMaxLength(1000);
 
       entity.HasIndex(e => e.PONumber).IsUnique();
       entity.HasIndex(e => e.AdminApproval);
       entity.HasIndex(e => e.PaymentStatus);
+      entity.HasIndex(e => e.ReturnedAt);
 
       entity.HasOne(e => e.Supplier)
                 .WithMany()
@@ -480,6 +485,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Condition).HasMaxLength(100);
       entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
       entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.ReturnReason).HasMaxLength(1000);
 
       entity.HasOne(e => e.PurchaseOrder)
                 .WithMany(po => po.POItems)
@@ -498,6 +504,112 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.POId);
+      entity.HasIndex(e => e.SourceProcurementItemId);
+      entity.HasIndex(e => e.ReturnedAt);
+
+      entity.HasOne(e => e.SourceProcurementItem)
+                .WithMany()
+                .HasForeignKey(e => e.SourceProcurementItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // ───────────────────────────────────────────
+    // Procurement (post-acceptance editing layer)
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<Procurement>(entity =>
+    {
+      entity.ToTable("Procurements");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.ProcurementNumber).HasMaxLength(100);
+      entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Open");
+      entity.Property(e => e.Notes).HasMaxLength(2000);
+
+      entity.HasOne<Invoice>()
+                .WithMany()
+                .HasForeignKey(e => e.InvoiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.InvoiceId).IsUnique();
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<ProcurementItem>(entity =>
+    {
+      entity.ToTable("ProcurementItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.RfqName).HasMaxLength(300);
+      entity.Property(e => e.PartNumberName).HasMaxLength(200);
+      entity.Property(e => e.PartNumberDescription).HasMaxLength(1000);
+      entity.Property(e => e.RfqCondition).HasMaxLength(100);
+      entity.Property(e => e.RfqUnit).HasMaxLength(50);
+      entity.Property(e => e.RfqPriority).HasMaxLength(50);
+      entity.Property(e => e.RfqAlt).HasMaxLength(200);
+
+      entity.Property(e => e.QuoteNumber).HasMaxLength(100);
+      entity.Property(e => e.QuoteUnitPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.QuoteCondition).HasMaxLength(100);
+      entity.Property(e => e.QuoteAlt).HasMaxLength(200);
+
+      entity.Property(e => e.SupplierName).HasMaxLength(300);
+      entity.Property(e => e.SupplierPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.SupplierLeadTime).HasMaxLength(100);
+      entity.Property(e => e.SupplierCondition).HasMaxLength(100);
+      entity.Property(e => e.SupplierCertName).HasMaxLength(200);
+
+      entity.Property(e => e.AcceptedUnitPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Alt).HasMaxLength(200);
+      entity.Property(e => e.ItemStatus).HasMaxLength(50).HasDefaultValue("Open");
+      entity.Property(e => e.LastReturnReason).HasMaxLength(1000);
+
+      entity.HasOne(e => e.Procurement)
+                .WithMany(p => p.Items)
+                .HasForeignKey(e => e.ProcurementId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.CurrentSupplier)
+                .WithMany()
+                .HasForeignKey(e => e.CurrentSupplierId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ProcurementId);
+      entity.HasIndex(e => e.SourceInvoiceItemId);
+      entity.HasIndex(e => e.ItemStatus);
+    });
+
+    modelBuilder.Entity<ProcurementSupplierQuote>(entity =>
+    {
+      entity.ToTable("ProcurementSupplierQuotes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SupplierName).HasMaxLength(300);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Unit).HasMaxLength(50);
+      entity.Property(e => e.Alt).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.ShippingPoint).HasMaxLength(200);
+
+      entity.HasOne(e => e.ProcurementItem)
+                .WithMany(pi => pi.SupplierQuotes)
+                .HasForeignKey(e => e.ProcurementItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Supplier)
+                .WithMany()
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ProcurementItemId);
+      entity.HasIndex(e => new { e.ProcurementItemId, e.IsSelected });
     });
 
     modelBuilder.Entity<POImportDetail>(entity =>

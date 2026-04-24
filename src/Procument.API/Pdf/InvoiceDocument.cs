@@ -111,7 +111,7 @@ public static class InvoiceDocument
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, accent, sym));
 
                     // Totals + Bank Details side by side
-                    var totalDiscount = (req.Items ?? []).Where(i => i.Discount.HasValue).Sum(i => i.Discount!.Value);
+                    var totalDiscount = (req.Items ?? []).Where(i => i.Discount.HasValue && i.Discount.Value > 0).Sum(i => i.Discount!.Value);
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
                         // Bank details (left side)
@@ -149,7 +149,7 @@ public static class InvoiceDocument
 
                         // Totals (right side)
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
-                            req.Subtotal ?? 0, req.Tax ?? 0,
+                            (req.Subtotal ?? 0) + totalDiscount, req.Tax ?? 0,
                             req.Shipping ?? 0, req.Other ?? 0,
                             primary, sym, totalDiscount));
                     });
@@ -220,7 +220,7 @@ public static class InvoiceDocument
                     Cell(r.ConstantItem(55), it.CertName ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(55), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
                     Cell(r.ConstantItem(58), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
-                    Cell(r.ConstantItem(55), it.Discount.HasValue ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue ? "#e53935" : Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(55), it.Discount.HasValue && it.Discount.Value > 0 ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue && it.Discount.Value > 0 ? "#e53935" : Colors.Grey.Darken1);
                     Cell(r.ConstantItem(58), it.LeadTime ?? "—", Colors.Grey.Darken1);
                 });
             }

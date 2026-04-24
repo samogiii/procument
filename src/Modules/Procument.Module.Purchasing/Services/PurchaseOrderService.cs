@@ -19,25 +19,36 @@ public interface IPurchaseOrderService
     Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null);
     Task<bool> UpdateItemAsync(UpdatePOItemRequest request);
     Task<bool> DeleteAsync(long id);
+
+    /// <summary>
+    /// Return a PO (or a subset of its items) back into the Procurement layer. If ItemIds is
+    /// null/empty, returns the ENTIRE PO (full return → PO.Status = Returned). Partial returns
+    /// leave the remaining items on the PO untouched.
+    /// </summary>
+    Task<ReturnPOResponse?> ReturnAsync(long poId, ReturnPORequest request, long userId);
 }
 
 public class PurchaseOrderService : IPurchaseOrderService
 {
     private readonly DbContext _db;
     private readonly IDocumentStorageService _documentStorage;
+    private readonly IProcurementService _procurementService;
 
-    public PurchaseOrderService(DbContext db, IDocumentStorageService documentStorage)
+    public PurchaseOrderService(DbContext db, IDocumentStorageService documentStorage, IProcurementService procurementService)
     {
         _db = db;
         _documentStorage = documentStorage;
+        _procurementService = procurementService;
     }
 
     /// <summary>Get all unassigned POItems (POId is null) — enriched with ExType, supplier, customer.</summary>
     public async Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync()
     {
         var items = await _db.Set<POItem>()
-            .Where(i => i.POId == null)
+            .Where(i => i.POId == null && i.ReturnedAt == null)
             .Include(i => i.PartNumber)
+            .Include(i => i.SourceProcurementItem)
+                .ThenInclude(pi => pi!.CurrentSupplier)
             .Include(i => i.ProcumentRecord)
                 .ThenInclude(pr => pr!.Supplier)
             .Include(i => i.ProcumentRecord)
@@ -66,10 +77,17 @@ public class PurchaseOrderService : IPurchaseOrderService
             var proc = i.ProcumentRecord;
             var rfqItem = proc?.RFQItem;
             var rfq = rfqItem?.RFQ;
-            // Resolve supplier: use POItem.SupplierId first, fallback to ProcumentRecord.Supplier
+            var srcProcItem = i.SourceProcurementItem;
+
+            // Resolve supplier name priority:
+            // 1. POItem.SupplierId (explicit override)
+            // 2. SourceProcurementItem.CurrentSupplier (the selection from the new Procurement layer)
+            // 3. ProcumentRecord.Supplier (the original RFQ selection)
             string? supplierName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var ovSup))
                 supplierName = ovSup.Name;
+            
+            supplierName ??= srcProcItem?.CurrentSupplier?.Name;
             supplierName ??= proc?.Supplier?.Name;
 
             var invoiceInfo = i.InvoiceItemId.HasValue && invoiceItemMap.ContainsKey(i.InvoiceItemId.Value)
@@ -82,7 +100,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 UnitPrice = i.UnitPrice,
                 TotalPrice = i.TotalPrice,
                 Condition = i.Condition,
-                SupplierId = i.SupplierId ?? proc?.SupplierId,
+                SupplierId = i.SupplierId ?? srcProcItem?.CurrentSupplierId ?? proc?.SupplierId,
                 SupplierName = supplierName ?? "Unknown Supplier",
                 PartNumberId = i.PartNumberId,
                 PartNumberName = i.PartNumber?.Name ?? "",
@@ -132,7 +150,18 @@ public class PurchaseOrderService : IPurchaseOrderService
             .ToListAsync();
 
         var invoiceMap = await ResolveInvoiceNumbers(pos.Where(p => p.InvoiceId.HasValue).Select(p => p.InvoiceId!.Value).Distinct().ToList());
-        var items = pos.Select(po => MapToResponse(po, po.InvoiceId.HasValue && invoiceMap.ContainsKey(po.InvoiceId.Value) ? invoiceMap[po.InvoiceId.Value] : null)).ToList();
+
+        // Batch-load any overridden suppliers across all items on the page
+        var overriddenSupplierIds = pos.SelectMany(po => po.POItems)
+            .Where(i => i.SupplierId.HasValue)
+            .Select(i => i.SupplierId!.Value)
+            .Distinct()
+            .ToList();
+        var overriddenSuppliers = overriddenSupplierIds.Count > 0
+            ? await _db.Set<Supplier>().Where(s => overriddenSupplierIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name)
+            : new Dictionary<long, string>();
+
+        var items = pos.Select(po => MapToResponse(po, po.InvoiceId.HasValue && invoiceMap.ContainsKey(po.InvoiceId.Value) ? invoiceMap[po.InvoiceId.Value] : null, overriddenSuppliers)).ToList();
 
         return new PagedResult<POResponse> { Items = items, TotalCount = total, Page = page.Page, PageSize = page.PageSize };
     }
@@ -159,6 +188,16 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         if (po == null) return null;
 
+        // Resolve any overridden supplier names for individual items
+        var overriddenSupplierIds = po.POItems
+            .Where(i => i.SupplierId.HasValue)
+            .Select(i => i.SupplierId!.Value)
+            .Distinct()
+            .ToList();
+        var overriddenSuppliers = overriddenSupplierIds.Count > 0
+            ? await _db.Set<Supplier>().Where(s => overriddenSupplierIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name)
+            : new Dictionary<long, string>();
+
         string? invoiceNumber = null;
         if (po.InvoiceId.HasValue)
         {
@@ -166,7 +205,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             invoiceNumber = map.GetValueOrDefault(po.InvoiceId.Value);
         }
 
-        return MapToResponse(po, invoiceNumber);
+        return MapToResponse(po, invoiceNumber, overriddenSuppliers);
     }
 
     /// <summary>Create PO and assign existing unassigned POItems to it.</summary>
@@ -290,7 +329,82 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         po.Status = newStatus;
         await _db.SaveChangesAsync();
+
+        // Completed → close the loop on source ProcurementItems
+        if (newStatus == "Completed")
+        {
+            try { await _procurementService.MarkFulfilledByPOAsync(po.Id); }
+            catch { /* never break the status transition on a downstream stamp */ }
+        }
+
         return true;
+    }
+
+    /// <summary>
+    /// Return a PO (or a subset of its items) back into Procurement. Full return (empty ItemIds)
+    /// sets PO.Status = "Returned"; partial returns leave the PO open with its surviving items.
+    /// </summary>
+    public async Task<ReturnPOResponse?> ReturnAsync(long poId, ReturnPORequest request, long userId)
+    {
+        var po = await _db.Set<PurchaseOrder>()
+            .Include(p => p.POItems)
+            .FirstOrDefaultAsync(p => p.Id == poId);
+        if (po == null) return null;
+
+        // Guard terminal states
+        if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return null;
+
+        // Live items on this PO (exclude anything already returned)
+        var liveItems = po.POItems.Where(i => i.ReturnedAt == null).ToList();
+        if (liveItems.Count == 0) return null;
+
+        // Determine target set: null/empty → full return
+        var targetIds = (request.ItemIds == null || request.ItemIds.Count == 0)
+            ? liveItems.Select(i => i.Id).ToList()
+            : liveItems.Where(i => request.ItemIds.Contains(i.Id)).Select(i => i.Id).ToList();
+
+        if (targetIds.Count == 0) return null;
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? "(no reason provided)" : request.Reason.Trim();
+        bool fullReturn = targetIds.Count == liveItems.Count;
+
+        var (reopened, skipped, warnings) = await _procurementService.RecyclePOItemsAsync(targetIds, po.Id, reason, userId);
+
+        // Recompute PO total from whatever remains live
+        var remaining = await _db.Set<POItem>()
+            .Where(i => i.POId == po.Id && i.ReturnedAt == null)
+            .ToListAsync();
+        po.TotalAmount = remaining.Sum(i => i.TotalPrice);
+
+        // Flip PO status on full return (partial returns keep the PO in its current workflow state)
+        var now = DateTime.UtcNow;
+        if (fullReturn)
+        {
+            po.Status = "Returned";
+            po.ReturnReason = reason;
+            po.ReturnedAt = now;
+            po.ReturnedByUserId = userId > 0 ? userId : null;
+        }
+        else if (po.ReturnedAt == null)
+        {
+            // Stamp first-return audit on the PO for partial returns too (non-destructive)
+            po.ReturnReason = reason;
+            po.ReturnedAt = now;
+            po.ReturnedByUserId = userId > 0 ? userId : null;
+        }
+
+        await _db.SaveChangesAsync();
+
+        return new ReturnPOResponse
+        {
+            POId = po.Id,
+            FullReturn = fullReturn,
+            POStatus = po.Status,
+            ReturnedPOItemIds = targetIds.Except(skipped).ToList(),
+            ReopenedProcurementIds = reopened,
+            SkippedPOItemIds = skipped,
+            Warnings = warnings,
+        };
     }
 
     /// <summary>Update a POItem's supplier, qty, and unitPrice.</summary>
@@ -400,7 +514,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         return result;
     }
 
-    private static POResponse MapToResponse(PurchaseOrder po, string? invoiceNumber = null) => new()
+    private static POResponse MapToResponse(PurchaseOrder po, string? invoiceNumber = null, Dictionary<long, string>? overriddenSuppliers = null) => new()
     {
         Id = po.Id,
         PONumber = po.PONumber,
@@ -420,29 +534,38 @@ public class PurchaseOrderService : IPurchaseOrderService
         PaymentApproval = po.PaymentApproval,
         PaymentApprovalNote = po.PaymentApprovalNote,
         PaymentApprovalAt = po.PaymentApprovalAt,
-        Items = po.POItems.Select(i => new POItemResponse
-        {
-            Id = i.Id,
-            POId = i.POId,
-            ProcumentId = i.ProcumentId,
-            PartNumberId = i.PartNumberId,
-            PartNumberName = i.PartNumber?.Name ?? "",
-            Description = i.PartNumber?.Description,
-            Qty = i.Qty,
-            UnitPrice = i.UnitPrice,
-            TotalPrice = i.TotalPrice,
-            Condition = i.Condition,
-            SupplierId = i.SupplierId,
-            SupplierName = i.ProcumentRecord?.Supplier?.Name ?? po.Supplier?.Name ?? "",
-            TrackNumbers = (i.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => new TrackNumberResponse
+        Items = po.POItems.Select(i => {
+            string? sName = null;
+            if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))
+                sName = name;
+            
+            sName ??= i.ProcumentRecord?.Supplier?.Name;
+            sName ??= po.Supplier?.Name;
+
+            return new POItemResponse
             {
-                Id = t.Id,
-                POItemId = t.POItemId,
-                TrackNumber = t.TrackNumber,
-                Carrier = t.Carrier,
-                Notes = t.Notes,
-                CreatedAt = t.CreatedAt,
-            }).ToList(),
+                Id = i.Id,
+                POId = i.POId,
+                ProcumentId = i.ProcumentId,
+                PartNumberId = i.PartNumberId,
+                PartNumberName = i.PartNumber?.Name ?? "",
+                Description = i.PartNumber?.Description,
+                Qty = i.Qty,
+                UnitPrice = i.UnitPrice,
+                TotalPrice = i.TotalPrice,
+                Condition = i.Condition,
+                SupplierId = i.SupplierId,
+                SupplierName = sName ?? "Unknown Supplier",
+                TrackNumbers = (i.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => new TrackNumberResponse
+                {
+                    Id = t.Id,
+                    POItemId = t.POItemId,
+                    TrackNumber = t.TrackNumber,
+                    Carrier = t.Carrier,
+                    Notes = t.Notes,
+                    CreatedAt = t.CreatedAt,
+                }).ToList(),
+            };
         }).ToList()
     };
 }
