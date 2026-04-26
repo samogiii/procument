@@ -211,6 +211,7 @@ const allNavItems = [
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Procurements', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
+  { title: 'Task Manager', icon: 'mdi-view-kanban-outline', to: '/tasks', adminOnly: false, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },  { title: 'Payment', icon: 'mdi-cash-multiple', to: '/payment', paymentOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true, ilsOnly: true },
