@@ -93,6 +93,16 @@
           <span v-else class="text-medium-emphasis">—</span>
         </StatCard>
       </v-col>
+      <v-col cols="12" md="3" v-if="quote.customerTermsAndConditions || isAdmin">
+        <StatCard label="Customer Terms" color="accent" icon="mdi-file-document-outline" class="info-card pa-4 h-100">
+          <div class="d-flex align-center gap-3">
+            
+            <div class="flex-grow-1">
+              <p class="text-body-2 font-weight-medium mb-0" style="white-space: pre-wrap;">{{ quote.customerTermsAndConditions || '—' }}</p>
+            </div>
+          </div>
+        </StatCard>
+      </v-col>
     </v-row>
 
     <!-- Rejection Note (current quote) -->
@@ -186,8 +196,8 @@
             <tbody>
               <template v-for="(item, idx) in sortedRfqItems" :key="item.id">
                 <!-- Master Row -->
-                <tr class="master-row" :class="{ 'master-row-inactive': !itemHasSelection(item.id) }">
-                  <td class="cell-number">
+                 <tr class="master-row" :class="{ 'master-row-inactive': !itemHasSelection(item.id) }">
+                  <!--<td class="cell-number">
                     <div class="d-flex align-center gap-1">
                       <span>{{ idx + 1 }}</span>
                       <div v-if="canReorder && itemHasSelection(item.id)" class="d-flex flex-column">
@@ -213,7 +223,8 @@
                         </v-btn>
                       </div>
                     </div>
-                  </td>
+                  </td> -->
+                  <td><span>{{ idx + 1 }}</span></td>
                   <td class="cell-pn" :class="{ 'cell-pn-inactive': !itemHasSelection(item.id) }">{{ item.partNumberName }}</td>
                   <td class="text-medium-emphasis" style="padding-left: 12px; font-size: 13px;">{{ item.description || '—' }}</td>
                   <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
@@ -233,7 +244,7 @@
                         <thead>
                           <tr>
                             <th style="width: 28px;"></th>
-                            <th style="width: 44px;">Order</th>
+                            <th style="width: 36px;"></th>
                             <th style="opacity:1; min-width: 90px; position: sticky; left: 0;  background: var(--toolbar-bg); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                             <th style="width: 120px;">Alt P/N</th>
                             <th style="width: 80px;">Condition</th>
@@ -262,8 +273,16 @@
                             class="proc-row"
                             :class="[
                               selectedProcIds.has(rec.id) ? 'selected-proc-row' : 'unselected-proc-row',
-                              rec.isShop ? 'shop-sub-row' : ''
+                              rec.isShop ? 'shop-sub-row' : '',
+                              dragOverRecId === rec.id ? 'drag-over-row' : '',
+                              dragState?.recId === rec.id ? 'dragging-row' : ''
                             ]"
+                            :draggable="!rec.isShop"
+                            @dragstart="!rec.isShop && onDragStart(item.id, rec.id, $event)"
+                            @dragover="!rec.isShop && onDragOver(rec.id, $event)"
+                            @dragleave="onDragLeave($event)"
+                            @drop="!rec.isShop && onDrop(item.id, rec.id, $event)"
+                            @dragend="onDragEnd"
                           >
                             <td class="text-center">
                               <v-icon
@@ -279,27 +298,13 @@
                                 size="16"
                               />
                             </td>
-                            <td class="text-center" style="white-space: nowrap;">
-                              <v-btn
-                                icon
-                                size="x-small"
-                                variant="text"
-                                density="compact"
-                                :disabled="rec.isShop || isFirstProc(item.id, rec.id)"
-                                @click="moveProcRecord(item.id, rec.id, -1)"
-                              >
-                                <v-icon size="14">mdi-chevron-up</v-icon>
-                              </v-btn>
-                              <v-btn
-                                icon
-                                size="x-small"
-                                variant="text"
-                                density="compact"
-                                :disabled="rec.isShop || isLastProc(item.id, rec.id)"
-                                @click="moveProcRecord(item.id, rec.id, 1)"
-                              >
-                                <v-icon size="14">mdi-chevron-down</v-icon>
-                              </v-btn>
+                            <td class="text-center drag-handle-cell">
+                              <v-icon
+                                v-if="!rec.isShop"
+                                icon="mdi-drag-vertical"
+                                size="18"
+                                class="drag-handle-icon"
+                              />
                             </td>
                             <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                               <span v-if="rec.isShop" style="color:#ff9800; margin-right:4px; font-size:11px;">↳ 🔧</span>{{ rec.supplierName }}
@@ -388,6 +393,35 @@
           <v-spacer />
           <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
           <v-btn color="error" variant="flat" @click="confirmReject">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Under $1000 Warning Dialog -->
+    <v-dialog v-model="showUnder1000Warning" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2" />
+          Low Price Warning
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <div class="text-body-1 mb-3">The following items have a Total Price under <strong>$1,000</strong>:</div>
+          <v-list density="compact" class="mb-3">
+            <v-list-item
+              v-for="item in under1000Items"
+              :key="item.id ?? item.rfqItemId"
+              :title="item.partNumberName || 'Unknown part'"
+              :subtitle="'Total: $' + formatPrice(item.totalPrice)"
+              prepend-icon="mdi-alert"
+              color="warning"
+            />
+          </v-list>
+          <div class="text-body-2 text-medium-emphasis">Are you sure you want to Accept this quote?</div>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="cancelUnder1000">No, Cancel</v-btn>
+          <v-btn color="warning" variant="flat" @click="confirmUnder1000Accept">Yes, Accept Anyway</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -654,6 +688,80 @@ async function moveProcRecord(rfqItemId: number, recId: number, direction: -1 | 
 const showRejectDialog = ref(false)
 const rejectionNote = ref('')
 
+const dragState = ref<{ rfqItemId: number; recId: number } | null>(null)
+const dragOverRecId = ref<number | null>(null)
+
+function onDragStart(rfqItemId: number, recId: number, event: DragEvent) {
+  dragState.value = { rfqItemId, recId }
+  event.dataTransfer!.effectAllowed = 'move'
+  event.dataTransfer!.setData('text/plain', String(recId))
+}
+
+function onDragOver(recId: number, event: DragEvent) {
+  if (!dragState.value || dragState.value.recId === recId) return
+  event.preventDefault()
+  event.dataTransfer!.dropEffect = 'move'
+  dragOverRecId.value = recId
+}
+
+function onDragLeave(event: DragEvent) {
+  const related = event.relatedTarget as HTMLElement | null
+  if (!related || !(related.closest('tr'))) dragOverRecId.value = null
+}
+
+function onDrop(rfqItemId: number, targetRecId: number, event: DragEvent) {
+  event.preventDefault()
+  dragOverRecId.value = null
+  if (!dragState.value || dragState.value.recId === targetRecId) { dragState.value = null; return }
+  reorderProcByDrop(rfqItemId, dragState.value.recId, targetRecId)
+  dragState.value = null
+}
+
+function onDragEnd() {
+  dragState.value = null
+  dragOverRecId.value = null
+}
+
+async function reorderProcByDrop(rfqItemId: number, sourceRecId: number, targetRecId: number) {
+  const parents = getParentProcs(rfqItemId)
+  const srcIdx = parents.findIndex((r: any) => r.id === sourceRecId)
+  const tgtIdx = parents.findIndex((r: any) => r.id === targetRecId)
+  if (srcIdx < 0 || tgtIdx < 0) return
+
+  const reordered = [...parents]
+  const [moved] = reordered.splice(srcIdx, 1)
+  reordered.splice(tgtIdx, 0, moved)
+  reordered.forEach((r: any, i: number) => { r.sortOrder = i })
+
+  const others = allProcRecords.value.filter((r: any) => r.rfqItemId !== rfqItemId)
+  const shopByParent = new Map<number, any[]>()
+  for (const r of allProcRecords.value) {
+    if (r.rfqItemId === rfqItemId && r.isShop && r.parentProcumentId != null) {
+      if (!shopByParent.has(r.parentProcumentId)) shopByParent.set(r.parentProcumentId, [])
+      shopByParent.get(r.parentProcumentId)!.push(r)
+    }
+  }
+  const reinserted: any[] = []
+  for (const p of reordered) {
+    reinserted.push(p)
+    reinserted.push(...(shopByParent.get(p.id) || []))
+  }
+  allProcRecords.value = [...others, ...reinserted]
+
+  try {
+    await api.patch(`/rfqs/${quote.value.rfqId}/supplier-quotes/order`, {
+      items: reordered.map((r: any) => ({ id: r.id, sortOrder: r.sortOrder })),
+    })
+  } catch {
+    showSnack('Failed to save supplier order', 'error')
+    await loadQuote()
+  }
+}
+
+const showUnder1000Warning = ref(false)
+const under1000Items = ref<any[]>([])
+const pendingAcceptStatus = ref('')
+
 function onStatusSelect(newStatus: string) {
   if (newStatus === quote.value.status) return
   if (newStatus === 'Rejected') {
@@ -661,7 +769,27 @@ function onStatusSelect(newStatus: string) {
     showRejectDialog.value = true
     return
   }
+  if (newStatus === 'Accepted') {
+    const cheapItems = (quote.value.items || []).filter((item: any) =>
+      item.totalPrice != null && Number(item.totalPrice) < 1000
+    )
+    if (cheapItems.length > 0) {
+      under1000Items.value = cheapItems
+      pendingAcceptStatus.value = newStatus
+      showUnder1000Warning.value = true
+      return
+    }
+  }
   changeStatus(newStatus)
+}
+
+async function confirmUnder1000Accept() {
+  showUnder1000Warning.value = false
+  await changeStatus(pendingAcceptStatus.value)
+}
+
+function cancelUnder1000() {
+  showUnder1000Warning.value = false
 }
 
 async function confirmReject() {
@@ -867,5 +995,25 @@ function showSnack(text: string, color: string) {
 }
 .shop-sub-row td[style*="position: sticky"] {
   background: rgba(255, 152, 0, 0.06) !important;
+}
+
+/* Drag and drop */
+.drag-handle-cell {
+  width: 36px;
+}
+.drag-handle-icon {
+  opacity: 0.35;
+  cursor: grab;
+  transition: opacity 0.15s;
+}
+.proc-row:hover .drag-handle-icon {
+  opacity: 0.8;
+}
+.dragging-row {
+  opacity: 0.4;
+}
+.drag-over-row {
+  border-top: 2px solid #3b82f6 !important;
+  background: rgba(59, 130, 246, 0.06) !important;
 }
 </style>

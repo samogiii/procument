@@ -124,7 +124,16 @@
           <template #item.id="{ item }">
             <div class="d-flex align-center gap-1">
               <v-icon v-if="item.isUnread" icon="mdi-circle" size="10" color="blue" />
-              {{ item.id }}
+              <v-btn
+                v-if="isAdmin"
+                variant="text"
+                size="small"
+                class="pa-0 min-width-0 text-primary font-weight-bold"
+                @click.stop="openAssignModal(item)"
+              >
+                {{ item.id }}
+              </v-btn>
+              <span v-else>{{ item.id }}</span>
             </div>
           </template>
           <template #item.receivedDate="{ item }">
@@ -249,6 +258,19 @@
                 </v-list-item>
               </template>
             </v-combobox>
+
+            <!-- Customer Terms (Add RFQ) -->
+            <v-alert
+              v-if="customerTerms"
+              type="info"
+              variant="tonal"
+              density="compact"
+              icon="mdi-text-box-check-outline"
+              class="mb-3 text-caption"
+            >
+              <div class="font-weight-bold mb-1">Customer Terms & Conditions:</div>
+              <div style="white-space: pre-wrap;">{{ customerTerms }}</div>
+            </v-alert>
             <!-- Received Date -->
             <v-text-field
               v-model="form.date"
@@ -280,9 +302,10 @@
               item-title="label"
               item-value="value"
               label="Ex Type"
+              
               prepend-inner-icon="mdi-swap-horizontal"
               clearable
-              class="mb-3"
+              class="d-none"
             />
 
             <!-- Notes -->
@@ -587,6 +610,19 @@
                 :loading="bulkCustomerLoading"
                 @update:search="searchBulkCustomers"
               />
+
+              <!-- Customer Terms (Bulk Import) -->
+              <v-alert
+                v-if="bulkCustomerTerms"
+                type="info"
+                variant="tonal"
+                density="compact"
+                icon="mdi-text-box-check-outline"
+                class="mt-2 text-caption"
+              >
+                <div class="font-weight-bold mb-1">Customer Terms & Conditions:</div>
+                <div style="white-space: pre-wrap;">{{ bulkCustomerTerms }}</div>
+              </v-alert>
             </v-col>
             <v-col cols="12" md="7">
               <v-alert type="info" density="compact" variant="tonal" class="text-caption">
@@ -698,6 +734,76 @@
             @click="submitBulkRFQs"
           >
             Import {{ bulkGroups.filter(g => !g.isDuplicate).length }} RFQ(s)
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Quick Assignment Modal (Admin only, triggered by ID click) -->
+    <v-dialog v-model="showQuickAssign" max-width="800" scrollable>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-shield-account-outline" color="primary" class="mr-2" />
+          Quick Assignment: RFQ #{{ assigningRfqData?.id }}
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showQuickAssign = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <div v-if="loadingAssignItems" class="text-center py-6">
+            <v-progress-circular indeterminate color="primary" />
+            <p class="text-caption mt-2">Loading details...</p>
+          </div>
+          <div v-else>
+            <!-- RFQ Items Table -->
+            <div class="text-subtitle-2 mb-2">RFQ Items:</div>
+            <v-table density="compact" class="mb-6 border rounded overflow-hidden">
+              <thead>
+                <tr class="bg-grey-lighten-4">
+                  <th>Part Number</th>
+                  <th>Description</th>
+                  <th class="text-center">Qty</th>
+                  <th>Condition</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in assigningRfqData?.items" :key="item.id">
+                  <td class="font-weight-medium">{{ item.partNumberName }}</td>
+                  <td class="font-weight-medium">{{ item.description }}</td>
+                  <td class="text-center">{{ item.qty }}</td>
+                  <td>{{ item.condition || '—' }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+
+            <!-- User Assignment Checkboxes -->
+            <div class="text-subtitle-2 mb-2">Assign Users (Edit Permission):</div>
+            <v-row dense>
+              <v-col v-for="u in quickAssignUsers" :key="u.id" cols="12" sm="4" md="3">
+                <v-checkbox
+                  v-model="selectedQuickUsers"
+                  :label="u.name || u.username"
+                  :value="u.id"
+                  color="primary"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+            </v-row>
+          </div>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showQuickAssign = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="savingQuickAssign"
+            :disabled="loadingAssignItems"
+            @click="saveQuickAssign"
+          >
+            Save Assignments
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -922,6 +1028,77 @@ function isAltMatch(part: any, search: string) {
   return (part.alternatives || []).some((a: any) => a.name?.toLowerCase().includes(q))
 }
 
+// ── Quick Assignment Modal state ──
+const showQuickAssign = ref(false)
+const assigningRfqData = ref<any>(null)
+const loadingAssignItems = ref(false)
+const quickAssignUsers = ref<any[]>([])
+const selectedQuickUsers = ref<number[]>([])
+const savingQuickAssign = ref(false)
+
+async function openAssignModal(rfq: any) {
+  assigningRfqData.value = rfq
+  selectedQuickUsers.value = []
+  showQuickAssign.value = true
+  loadingAssignItems.value = true
+
+  try {
+    // 1. Fetch current assignments to pre-check (only if they have 'Edit' permission)
+    const perms = await api.get<any[]>(`/permissions/RFQ/${rfq.id}`)
+    selectedQuickUsers.value = perms.filter(p => p.permission === 'Edit').map(p => p.userId)
+
+    // 2. Fetch full RFQ details to get items
+    const fullRfq = await api.get<any>(`/rfqs/${rfq.id}`)
+    assigningRfqData.value = { ...rfq, items: fullRfq.items || [] }
+
+    // 3. Ensure we have the target user list (only once)
+    if (!quickAssignUsers.value.length) {
+      const all = await api.get<any[]>('/users')
+      const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+      quickAssignUsers.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
+    }
+  } catch (e) {
+    console.error('Failed to load quick assign data', e)
+  } finally {
+    loadingAssignItems.value = false
+  }
+}
+
+async function saveQuickAssign() {
+  if (!assigningRfqData.value) return
+  savingQuickAssign.value = true
+
+  try {
+    const rfqId = assigningRfqData.value.id
+    // Simple approach: revoke all current 'Edit' perms then assign selected ones
+    // Or just assign ones that aren't there. The permission API usually handles upserts.
+    const promises = quickAssignUsers.value.map(user => {
+      const isSelected = selectedQuickUsers.value.includes(user.id)
+      if (isSelected) {
+        return api.post('/permissions/assign', {
+          userId: user.id,
+          entityName: 'RFQ',
+          entityId: String(rfqId),
+          permission: 'Edit'
+        })
+      } else {
+        // If not selected, we don't necessarily revoke unless requested. 
+        // But the user's flow usually implies "these are the assigned editors".
+        // To keep it safe and surgical, we'll only assign.
+        return Promise.resolve()
+      }
+    })
+
+    await Promise.all(promises)
+    showQuickAssign.value = false
+    loadItems() // Refresh list to show new chips
+  } catch (e) {
+    console.error('Failed to save quick assign', e)
+  } finally {
+    savingQuickAssign.value = false
+  }
+}
+
 // ── Create Modal state ──
 const showCreate = ref(false)
 const formRef = ref<any>(null)
@@ -969,6 +1146,7 @@ const rules = {
 const customerSuggestions = ref<any[]>([])
 const customerLoading = ref(false)
 const customerSearchText = ref('')
+const customerTerms = ref<string | null>(null)
 let customerDebounce: any = null
 
 // Display-only mapping: Admins see "Name (Code)"; non-admins (User role) see ONLY the code.
@@ -1000,20 +1178,23 @@ function searchCustomers(val: string) {
   }, 300)
 }
 
-// Auto-set ExType when customer changes
+// Auto-set ExType and Terms when customer changes
 watch(() => form.value.customerName, async (newVal: any) => {
+  customerTerms.value = null
   if (!newVal) return
-  const name = typeof newVal === 'object' ? newVal.name : newVal
-  if (!name) return
+  
+  // If it's a string, only fetch if it's one of the already-loaded suggestions (meaning it's a known customer)
+  const isSelected = typeof newVal === 'object' && newVal.name
+  const name = isSelected ? newVal.name : newVal
+  if (!name || (!isSelected && !customerSuggestions.value.some(s => s.name === name))) return
 
   try {
     const cust = await api.get<any>(`/customers/by-name?name=${encodeURIComponent(name)}`)
-    if (cust && cust.exWork != null) {
-      form.value.exType = cust.exWork
+    if (cust) {
+      if (cust.exWork != null) form.value.exType = cust.exWork
+      customerTerms.value = cust.termsAndConditions || null
     }
-  } catch (err) {
-    // Silent fail if customer not found or endpoint fails
-  }
+  } catch (err) { }
 })
 
 // ── Part Number Autocomplete ──
@@ -1236,6 +1417,8 @@ const bulkSubmitError = ref('')
 const bulkDefaults = ref({ customerName: null as any })
 const bulkCustomerSuggestions = ref<any[]>([])
 const bulkCustomerLoading = ref(false)
+const bulkCustomerTerms = ref<string | null>(null)
+const bulkCustomerExWork = ref<number | null>(null)
 let bulkCustomerDebounce: any = null
 
 // Same display rule for the bulk-import customer combobox.
@@ -1264,12 +1447,32 @@ function searchBulkCustomers(val: string) {
   }, 300)
 }
 
+// Auto-set Terms and ExWork when bulk customer changes
+watch(() => bulkDefaults.value.customerName, async (newVal: any) => {
+  bulkCustomerTerms.value = null
+  bulkCustomerExWork.value = null
+  if (!newVal) return
+
+  const isSelected = typeof newVal === 'object' && newVal.name
+  const name = isSelected ? newVal.name : newVal
+  if (!name || (!isSelected && !bulkCustomerSuggestions.value.some(s => s.name === name))) return
+
+  try {
+    const cust = await api.get<any>(`/customers/by-name?name=${encodeURIComponent(name)}`)
+    if (cust) {
+      bulkCustomerTerms.value = cust.termsAndConditions || null
+      bulkCustomerExWork.value = cust.exWork ?? null
+    }
+  } catch (err) { }
+})
+
 function openBulkImport() {
   bulkPasteText.value = ''
   bulkGroups.value = []
   bulkParseMsg.value = ''
   bulkSubmitError.value = ''
   bulkDefaults.value = { customerName: null }
+  bulkCustomerTerms.value = null
   showBulkImport.value = true
 }
 
@@ -1377,7 +1580,7 @@ async function submitBulkRFQs() {
         receivedDate: receivedDateISO,
         userId: authStore.user?.id || 0,
         notes: null,
-        exType: null,
+        exType: bulkCustomerExWork.value,
         partNumbers,
       })
 

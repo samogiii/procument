@@ -131,8 +131,9 @@ async function loadPermissions() {
 async function loadUsers() {
   if (!canManage.value) return
   try {
-    // Optimization: Only load minimal user list if needed
-    users.value = await api.get<any[]>('/users') 
+    const allUsers = await api.get<any[]>('/users')
+    const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    users.value = allUsers.filter(u => allowed.includes(u.name))
   } catch {} 
 }
 

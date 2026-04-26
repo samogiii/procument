@@ -176,10 +176,11 @@
                           v-for="record in getItemRecords(item.id)"
                           :key="record.id"
                           class="quote-row"
-                          :class="{ 
-                            'selected-row': selections[record.id], 
+                          :class="{
+                            'selected-row': selections[record.id],
                             'shop-record-row': record.isShop,
-                            'disabled-row': isLineDisabled(record)
+                            'disabled-row': isLineDisabled(record),
+                            'under-1000-row': highlightedUnder1000Ids.has(record.id)
                           }"
                         >
                           <td class="text-center" style="position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
@@ -362,6 +363,35 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Under $1000 Warning Dialog -->
+    <v-dialog v-model="showUnder1000Warning" max-width="480">
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2" />
+          Low Price Warning
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <div class="text-body-1 mb-3">The following selected rows have a Total Price under <strong>$1,000</strong>:</div>
+          <v-list density="compact" class="mb-3" bg-color="transparent">
+            <v-list-item
+              v-for="r in under1000Records"
+              :key="r.id"
+              :title="r.supplierName || 'Unknown supplier'"
+              :subtitle="'Total: $' + formatPrice(calcTotalPrice(r))"
+              prepend-icon="mdi-alert"
+              color="warning"
+            />
+          </v-list>
+          <div class="text-body-2 text-medium-emphasis">Are you sure you want to Quote it?</div>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="rejectUnder1000Save">No — Highlight Rows</v-btn>
+          <v-btn color="warning" variant="tonal" @click="confirmUnder1000Save">Yes, Quote Anyway</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Condition Warning Dialog -->
     <v-dialog v-model="showConditionWarning" max-width="450">
       <v-card class="glass-card">
@@ -425,6 +455,11 @@ const snackbarColor = ref('success')
 const showConditionWarning = ref(false)
 const warningMessage = ref('')
 const pendingSelectionRecord = ref<any>(null)
+
+// Under-$1000 warning
+const showUnder1000Warning = ref(false)
+const under1000Records = ref<any[]>([])
+const highlightedUnder1000Ids = ref(new Set<number>())
 
 // Computed
 const selectedRecords = computed(() =>
@@ -720,6 +755,27 @@ async function saveQuote() {
     showSnack('Please select at least one supplier price', 'warning')
     return
   }
+  const cheapRows = selected.filter(r => calcTotalPrice(r) < 1000)
+  if (cheapRows.length > 0) {
+    under1000Records.value = cheapRows
+    showUnder1000Warning.value = true
+    return
+  }
+  await doSaveQuote()
+}
+
+async function confirmUnder1000Save() {
+  showUnder1000Warning.value = false
+  await doSaveQuote()
+}
+
+function rejectUnder1000Save() {
+  showUnder1000Warning.value = false
+  highlightedUnder1000Ids.value = new Set(under1000Records.value.map((r: any) => r.id))
+}
+
+async function doSaveQuote() {
+  const selected = selectedRecords.value
   saving.value = true
   try {
     const quotesToUpdate = selected.map(r => {
@@ -1046,6 +1102,18 @@ function showSnack(text: string, color: string) {
   opacity: 0.6;
   background: rgba(var(--v-theme-on-surface), 0.05);
 }
+
+.under-1000-row {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border-left: 3px solid #f59e0b !important;
+}
+.under-1000-row:hover {
+  background: rgba(251, 191, 36, 0.20) !important;
+}
+.under-1000-row td[style*="position: sticky"] {
+  background: rgba(251, 191, 36, 0.15) !important;
+}
+
 .opacity-30 {
   opacity: 0.3;
 }

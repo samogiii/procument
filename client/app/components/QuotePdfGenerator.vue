@@ -177,7 +177,7 @@ const shippingAmount = ref(0)
 const otherAmount = ref(0)
 const currency = ref('Dollar (USD)')
 const exchangeRate = ref(7.0)
-const comments = ref('No Comments')
+const comments = ref('MOV is 300 USD')
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files

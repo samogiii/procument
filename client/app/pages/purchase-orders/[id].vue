@@ -48,16 +48,43 @@
     </div>
 
     <v-row class="mb-6">
-      <v-col cols="12" md="4">
-        <StatCard icon="mdi-truck-delivery" color="primary" label="Supplier" :value="po.supplierName" />
+      <!-- Assigned Users (Admin only, moved to top) -->
+      <v-col v-if="isAdmin" cols="12" md="3">
+        <v-card class="glass-card pa-4 h-100 d-flex flex-column">
+          <div class="d-flex align-center gap-3 mb-3">
+            <v-avatar color="primary" variant="tonal" size="40">
+              <v-icon icon="mdi-shield-account-outline" size="20" />
+            </v-avatar>
+            <div class="flex-grow-1 min-width-0">
+              <p class="text-caption text-medium-emphasis mb-0">Assigned Users</p>
+              <div class="d-flex align-center">
+                <span class="text-body-2 font-weight-medium">{{ assignedUsers.length }}</span>
+                <v-spacer />
+                <v-btn icon="mdi-account-plus" size="x-small" variant="tonal" color="primary" @click="showAddAssignDialog = true" />
+              </div>
+            </div>
+          </div>
+          <div v-if="assignedUsers.length" class="overflow-y-auto pr-1" style="max-height: 80px;">
+            <div v-for="p in assignedUsers" :key="p.id" class="d-flex align-center gap-2 mb-1 pa-1 rounded" style="background: rgba(var(--v-theme-on-surface), 0.04);">
+              <span class="text-caption flex-grow-1 text-truncate" :title="p.user?.username || p.user?.email">{{ p.user?.username || p.user?.email }}</span>
+              <v-chip size="x-small" :color="p.permission === 'Edit' ? 'success' : 'info'" variant="tonal" class="px-1" style="height: 16px; font-size: 10px;">{{ p.permission }}</v-chip>
+              <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" :loading="revokingId === p.id" @click="revokeAssignment(p)" />
+            </div>
+          </div>
+          <div v-else class="text-caption text-medium-emphasis text-center py-2">No users assigned</div>
+        </v-card>
       </v-col>
-      <v-col cols="12" md="4">
-        <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
+
+      <v-col cols="12" :md="isAdmin ? 3 : 4">
+        <StatCard icon="mdi-truck-delivery" color="primary" label="Supplier" :value="po.supplierName" class="h-100" />
+      </v-col>
+      <v-col cols="12" :md="isAdmin ? 3 : 4">
+        <StatCard icon="mdi-currency-usd" color="success" label="Total Amount" class="h-100">
           ${{ formatPrice(po.totalAmount) }}
         </StatCard>
       </v-col>
-      <v-col cols="12" md="4">
-        <StatCard icon="mdi-file-document-outline" color="info" label="Proforma Invoice" :value="po.invoiceNumber || '—'" />
+      <v-col cols="12" :md="isAdmin ? 3 : 4">
+        <StatCard icon="mdi-file-document-outline" color="info" label="Proforma Invoice" :value="po.invoiceNumber || '—'" class="h-100" />
       </v-col>
     </v-row>
 
@@ -111,7 +138,7 @@
 
           <v-row dense>
             <!-- Customer POP -->
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-primary), 0.03);">
                 <div class="d-flex align-center mb-3">
                   <v-icon icon="mdi-account-cash" size="18" class="mr-2" color="primary" />
@@ -119,12 +146,12 @@
                   <v-spacer />
                   <v-btn size="x-small" variant="text" icon="mdi-plus" color="primary" @click="triggerPiUpload('customer_pop')" />
                 </div>
-                <div v-if="piDocs.filter(f => f.name.toLowerCase().includes('customer pop')).length" class="d-flex flex-column gap-2">
-                  <div v-for="f in piDocs.filter(f => f.name.toLowerCase().includes('customer pop'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                <div v-if="piDocs.filter(f => f.category === 'customer_pop').length" class="d-flex flex-column gap-2">
+                  <div v-for="f in piDocs.filter(f => f.category === 'customer_pop')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
                     <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
                   </div>
                 </div>
                 <div v-else class="text-center py-2">
@@ -132,8 +159,30 @@
                 </div>
               </div>
             </v-col>
+            <!-- Customer PO -->
+            <v-col cols="12" md="3">
+              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-secondary), 0.03);">
+                <div class="d-flex align-center mb-3">
+                  <v-icon icon="mdi-file-document" size="18" class="mr-2" color="secondary" />
+                  <span class="text-caption font-weight-bold uppercase">Customer PO</span>
+                  <v-spacer />
+                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="secondary" @click="triggerPiUpload('customer_po')" />
+                </div>
+                <div v-if="piDocs.filter(f => f.category === 'customer_po').length" class="d-flex flex-column gap-2">
+                  <div v-for="f in piDocs.filter(f => f.category === 'customer_po')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
+                  </div>
+                </div>
+                <div v-else class="text-center py-2">
+                  <v-btn size="x-small" variant="tonal" color="secondary" block prepend-icon="mdi-upload" @click="triggerPiUpload('customer_po')">Upload</v-btn>
+                </div>
+              </div>
+            </v-col>
             <!-- Our PI -->
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-info), 0.03);">
                 <div class="d-flex align-center mb-3">
                   <v-icon icon="mdi-file-document-outline" size="18" class="mr-2" color="info" />
@@ -141,12 +190,12 @@
                   <v-spacer />
                   <v-btn size="x-small" variant="text" icon="mdi-plus" color="info" @click="triggerPiUpload('our_pi')" />
                 </div>
-                <div v-if="piDocs.filter(f => f.name.toLowerCase().includes('our pi')).length" class="d-flex flex-column gap-1">
-                  <div v-for="f in piDocs.filter(f => f.name.toLowerCase().includes('our pi'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                <div v-if="piDocs.filter(f => f.category === 'our_pi').length" class="d-flex flex-column gap-1">
+                  <div v-for="f in piDocs.filter(f => f.category === 'our_pi')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
                     <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
                   </div>
                 </div>
                 <div v-else class="text-center py-2">
@@ -154,8 +203,8 @@
                 </div>
               </div>
             </v-col>
-            <!-- Our POP -->
-            <v-col cols="12" md="4">
+            <!-- Our POP to Supplier -->
+            <v-col cols="12" md="3">
               <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-success), 0.03);">
                 <div class="d-flex align-center mb-3">
                   <v-icon icon="mdi-cash-register" size="18" class="mr-2" color="success" />
@@ -163,12 +212,12 @@
                   <v-spacer />
                   <v-btn size="x-small" variant="text" icon="mdi-plus" color="success" @click="triggerUpload('our_pop')" />
                 </div>
-                <div v-if="supplierDocs.filter(f => f.name.toLowerCase().includes('our pop') || f.name.toLowerCase().includes('our_pop')).length" class="d-flex flex-column gap-1">
-                  <div v-for="f in supplierDocs.filter(f => f.name.toLowerCase().includes('our pop') || f.name.toLowerCase().includes('our_pop'))" :key="f.displayName" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
+                <div v-if="supplierDocs.filter(f => f.category === 'our_pop').length" class="d-flex flex-column gap-1">
+                  <div v-for="f in supplierDocs.filter(f => f.category === 'our_pop')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
                     <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 250px;" :title="f.displayName">{{ f.displayName }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId)" />
+                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
+                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
                   </div>
                 </div>
                 <div v-else class="text-center py-2">
@@ -181,97 +230,6 @@
         </div>
       </v-card-text>
     </v-card>
-
-    <!-- ── Assigned Users (admin only) ── -->
-    <v-card v-if="isAdmin" class="glass-card mb-6">
-      <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-shield-account-outline" class="mr-2" size="20" color="primary" />
-        Assigned Users
-        <v-chip v-if="assignedUsers.length" size="x-small" class="ml-2" variant="tonal" color="primary">{{ assignedUsers.length }}</v-chip>
-        <v-spacer />
-        <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-account-plus" @click="showAddAssignDialog = true">Assign User</v-btn>
-      </v-card-title>
-      <v-card-text>
-        <div v-if="!assignedUsers.length" class="text-body-2 text-medium-emphasis text-center py-3">
-          No users assigned to this PO yet.
-        </div>
-        <v-list v-else density="compact" class="bg-transparent">
-          <v-list-item
-            v-for="p in assignedUsers"
-            :key="p.id"
-            class="rounded mb-1"
-            style="background: rgba(var(--v-theme-on-surface), 0.04);"
-          >
-            <template #prepend>
-              <v-icon icon="mdi-account-circle-outline" color="primary" />
-            </template>
-            <v-list-item-title class="font-weight-medium">
-              {{ p.user?.username || p.user?.email || `User #${p.userId}` }}
-            </v-list-item-title>
-            <v-list-item-subtitle class="d-flex align-center gap-2 mt-1">
-              <v-chip size="x-small" :color="p.permission === 'Edit' ? 'success' : 'info'" variant="tonal">
-                {{ p.permission }}
-              </v-chip>
-              <span class="text-caption text-medium-emphasis">
-                Assigned: {{ new Date(p.createdAt).toLocaleDateString() }}
-              </span>
-            </v-list-item-subtitle>
-            <template #append>
-              <v-btn
-                icon="mdi-delete-outline"
-                size="small"
-                variant="text"
-                color="error"
-                :loading="revokingId === p.id"
-                @click="revokeAssignment(p)"
-              />
-            </template>
-          </v-list-item>
-        </v-list>
-      </v-card-text>
-    </v-card>
-
-    <!-- Assign User Dialog -->
-    <v-dialog v-model="showAddAssignDialog" max-width="480">
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-account-plus" class="mr-2" color="primary" />
-          Assign User to PO
-        </v-card-title>
-        <v-card-text>
-          <v-autocomplete
-            v-model="newAssignUserId"
-            :items="availableUsersForAssign"
-            item-title="label"
-            item-value="id"
-            label="User"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-account"
-          />
-          <v-select
-            v-model="newAssignPermission"
-            :items="[{ title: 'View', value: 'View' }, { title: 'Edit', value: 'Edit' }]"
-            label="Permission"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-shield-key-outline"
-            class="mt-2"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showAddAssignDialog = false">Cancel</v-btn>
-          <v-btn
-            color="primary"
-            variant="flat"
-            :loading="assigning"
-            :disabled="!newAssignUserId"
-            @click="assignUser"
-          >Assign</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <!-- ── Payment Approval (admin/payment only, visible if rejected or after admin approval) ── -->
     <v-card class="glass-card mb-6" v-if="isAdmin && (po.adminApproval === 'Approved' || po.paymentApproval === 'Rejected')">
@@ -333,6 +291,12 @@
               </template>
               <v-list-item-title>Supplier Bank Info</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="triggerUpload('dp')">
+              <template #prepend>
+                <v-icon icon="mdi-file-export-outline" size="18" color="warning" />
+              </template>
+              <v-list-item-title>DP</v-list-item-title>
+            </v-list-item>
           </v-list>
         </v-menu>
         <input ref="supplierDocInputRef" type="file" class="d-none" @change="onSupplierDocSelected" />
@@ -354,7 +318,7 @@
                 {{ formatBytes(f.size) }} · {{ new Date(f.modifiedAt).toLocaleString() }}
               </span>
             </div>
-            <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierDoc(f.name)">Download</v-btn>
+            <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierDoc(f.name, undefined, f.category)">Download</v-btn>
             <v-btn
               v-if="isAdmin"
               size="small"
@@ -362,7 +326,7 @@
               color="error"
               icon="mdi-delete"
               :loading="deletingDoc === f.name"
-              @click="deleteSupplierDoc(f.name)"
+              @click="deleteSupplierDoc(f.name, undefined, f.category)"
             />
           </div>
         </div>
@@ -618,6 +582,48 @@
       </v-card>
     </v-dialog>
 
+    <!-- Assign User Dialog -->
+    <v-dialog v-model="showAddAssignDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-account-plus" class="mr-2" color="primary" />
+          Assign User to PO
+        </v-card-title>
+        <v-card-text>
+          <v-autocomplete
+            v-model="newAssignUserId"
+            :items="availableUsersForAssign"
+            item-title="label"
+            item-value="id"
+            label="User"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-account"
+          />
+          <v-select
+            v-model="newAssignPermission"
+            :items="[{ title: 'View', value: 'View' }, { title: 'Edit', value: 'Edit' }]"
+            label="Permission"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-shield-key-outline"
+            class="mt-2"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showAddAssignDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="assigning"
+            :disabled="!newAssignUserId"
+            @click="assignUser"
+          >Assign</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
@@ -801,7 +807,10 @@ async function loadAssignedUsers() {
 
 async function loadAllUsers() {
   try {
-    allUsers.value = await api.get('/users')
+    const all = await api.get<any[]>('/users')
+    const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    // Matching against username which is likely what 'GHS' etc are
+    allUsers.value = all.filter(u => allowed.includes(u.username) || allowed.includes(u.name))
   } catch {
     allUsers.value = []
   }
@@ -1090,7 +1099,7 @@ async function loadEnriched() {
 }
 
 // ── Supplier Documents ──
-type SupplierFile = { name: string; size: number; modifiedAt: string; invoiceNumber?: string; originalInvoiceId?: number }
+type SupplierFile = { name: string; category: string; size: number; modifiedAt: string; invoiceNumber?: string; originalInvoiceId?: number; displayName?: string }
 const supplierDocs = ref<SupplierFile[]>([])
 const piDocs = ref<SupplierFile[]>([])
 const uploadingSupplierDoc = ref(false)
@@ -1143,34 +1152,30 @@ async function loadSupplierDocs() {
         const data = await api.get<any>(`/documents/proforma-invoice/${id}`)
         const invNum = data?.invoiceNumber || String(id)
         
-        // PI Level Docs (Customer POP, Our PI, Customer PO)
+        // PI Level Docs (Customer POP, Customer PO, Our PI)
         const piFiles = (data?.piFiles || []).map((f: any) => ({
           ...f,
           invoiceNumber: invNum,
           originalInvoiceId: id
-        })).filter((f: SupplierFile) =>
-          f.name.toLowerCase().includes('customer pop') ||
-          f.name.toLowerCase().includes('customer po') ||
-          f.name.toLowerCase().includes('our pi')
+        })).filter((f: any) =>
+          f.category === 'customer_pop' ||
+          f.category === 'customer_po' ||
+          f.category === 'our_pi'
         )
         allPiDocs.push(...piFiles)
 
-        // Supplier Level Docs (Our POP, Supplier Invoice, etc) for THIS PO's supplier
+        // Supplier Level Docs (Our POP, Supplier Invoice, Supplier Bank Info) for THIS PO's supplier
         const section = (data?.suppliers || []).find((s: any) => s.supplierId === po.value.supplierId)
         if (section?.files) {
           const sFiles = section.files.map((f: any) => ({
             ...f,
             invoiceNumber: invNum,
             originalInvoiceId: id
-          })).filter((f: SupplierFile) =>
-            f.name.startsWith('Supplier Invoice') ||
-            f.name.startsWith('supplier_invoice') ||
-            f.name.startsWith('Supplier Bank Info') ||
-            f.name.startsWith('supplier_bank_info') ||
-            f.name.startsWith('Our POP') ||
-            f.name.startsWith('our_pop') ||
-            f.name.startsWith('DP') ||
-            f.name.startsWith('dp ')
+          })).filter((f: any) =>
+            f.category === 'supplier_invoice' ||
+            f.category === 'supplier_bank_info' ||
+            f.category === 'our_pop' ||
+            f.category === 'dp'
           )
           allSupplierDocs.push(...sFiles)
         }
@@ -1300,21 +1305,18 @@ async function onPiDocSelected(e: Event) {
   }
 }
 
-async function downloadSupplierDoc(name: string, overrideInvoiceId?: number) {
+async function downloadSupplierDoc(name: string, overrideInvoiceId?: number, category?: string) {
   const invId = overrideInvoiceId || po.value?.invoiceId
   if (!invId || !po.value?.supplierId) return
   try {
-    // Try supplier folder first
-    let url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
-    
-    // If it's a PI-level doc, use the PI-level endpoint
-    if (piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))) {
-      url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
-    }
+    const isPiDoc = piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))
+    const url = isPiDoc
+      ? `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
+      : `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
 
     const blob = await $fetch<Blob>(url, {
       method: 'GET',
-      query: { name },
+      query: { name, ...(category ? { category } : {}) },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
       responseType: 'blob',
     })
@@ -1326,20 +1328,20 @@ async function downloadSupplierDoc(name: string, overrideInvoiceId?: number) {
   } catch { showSnack('Download failed', 'error') }
 }
 
-async function deleteSupplierDoc(name: string, overrideInvoiceId?: number) {
+async function deleteSupplierDoc(name: string, overrideInvoiceId?: number, category?: string) {
   const invId = overrideInvoiceId || po.value?.invoiceId
   if (!invId) return
   if (!confirm(`Delete "${name}"?`)) return
   deletingDoc.value = name
   try {
-    let url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
-    if (piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))) {
-      url = `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
-    }
+    const isPiDoc = piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))
+    const url = isPiDoc
+      ? `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
+      : `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
 
     await $fetch(url, {
       method: 'DELETE',
-      query: { name },
+      query: { name, ...(category ? { category } : {}) },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
     })
     showSnack('Deleted', 'success')

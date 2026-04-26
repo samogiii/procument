@@ -94,6 +94,20 @@
               </v-tooltip>
             </div>
             <div class="text-caption text-medium-emphasis text-truncate">{{ item.currentSupplierName || 'No supplier selected' }}</div>
+            <!-- Assigned Users Summary -->
+            <div v-if="isAdmin && itemPermissions[item.id]?.length" class="d-flex flex-wrap gap-1 mt-1">
+              <v-chip
+                v-for="p in itemPermissions[item.id]"
+                :key="p.id"
+                size="x-small"
+                variant="tonal"
+                color="primary"
+                class="px-1"
+                style="height: 16px; font-size: 9px;"
+              >
+                {{ p.userName }}
+              </v-chip>
+            </div>
           </div>
 
           <div class="d-flex align-center gap-4 text-center" style="width: 350px;">
@@ -497,7 +511,9 @@ async function loadDetail() {
     if (isAdmin.value) {
       data.items.forEach((item: any) => loadItemPermissions(item.id))
       if (!users.value.length) {
-        users.value = await api.get<any[]>('/users')
+        const all = await api.get<any[]>('/users')
+        const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+        users.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
       }
     }
   } catch (e) {

@@ -132,7 +132,7 @@
             v-for="s in quoteStatuses"
             :key="s.value"
             :active="item.status === s.value"
-            @click.stop="onStatusClick(item, s.value)"
+            @click="onStatusClick(item, s.value)"
           >
             <template #prepend>
               <v-icon :icon="s.icon" :color="s.color" size="18" />
@@ -213,6 +213,35 @@
     </v-card>
   </v-dialog>
 
+  <!-- Under $1000 Warning Dialog -->
+  <v-dialog v-model="showUnder1000Warning" max-width="480" persistent>
+    <v-card class="glass-card">
+      <v-card-title class="d-flex align-center pa-4">
+        <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2" />
+        Low Price Warning
+      </v-card-title>
+      <v-card-text class="pa-4">
+        <div class="text-body-1 mb-3">The following items have a Total Price under <strong>$1,000</strong>:</div>
+        <v-list density="compact" class="mb-3" bg-color="transparent">
+          <v-list-item
+            v-for="qi in under1000Items"
+            :key="qi.id ?? qi.rfqItemId"
+            :title="qi.partNumberName || 'Unknown part'"
+            :subtitle="'Total: $' + formatPrice(qi.totalPrice)"
+            prepend-icon="mdi-alert"
+            color="warning"
+          />
+        </v-list>
+        <div class="text-body-2 text-medium-emphasis">Are you sure you want to Accept this quote?</div>
+      </v-card-text>
+      <v-card-actions class="pa-4">
+        <v-spacer />
+        <v-btn variant="text" @click="cancelUnder1000">No, Cancel</v-btn>
+        <v-btn color="warning" variant="flat" :loading="statusSaving" @click="confirmUnder1000Accept">Yes, Accept Anyway</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
   <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
     {{ snackbarText }}
   </v-snackbar>
@@ -241,6 +270,10 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 
+const showUnder1000Warning = ref(false)
+const under1000Items = ref<any[]>([])
+const under1000PendingItem = ref<any>(null)
+
 function onStatusClick(item: any, status: string) {
   if (status === item.status) return
   if (status === 'Rejected') {
@@ -249,7 +282,40 @@ function onStatusClick(item: any, status: string) {
     showRejectDialog.value = true
     return
   }
+  if (status === 'Accepted') {
+    checkUnder1000AndAccept(item)
+    return
+  }
   doChangeStatus(item, status)
+}
+
+async function checkUnder1000AndAccept(item: any) {
+  try {
+    const quote = await api.get<any>(`/quotes/${item.id}`)
+    const cheapItems = (quote.items || []).filter((qi: any) =>
+      qi.totalPrice != null && Number(qi.totalPrice) < 1000
+    )
+    if (cheapItems.length > 0) {
+      under1000Items.value = cheapItems
+      under1000PendingItem.value = item
+      showUnder1000Warning.value = true
+      return
+    }
+  } catch {}
+  doChangeStatus(item, 'Accepted')
+}
+
+async function confirmUnder1000Accept() {
+  showUnder1000Warning.value = false
+  if (under1000PendingItem.value) {
+    await doChangeStatus(under1000PendingItem.value, 'Accepted')
+    under1000PendingItem.value = null
+  }
+}
+
+function cancelUnder1000() {
+  showUnder1000Warning.value = false
+  under1000PendingItem.value = null
 }
 
 async function doChangeStatus(item: any, status: string, note?: string) {

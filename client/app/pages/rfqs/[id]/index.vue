@@ -170,20 +170,7 @@
 
     <!-- Priority & Notes Row -->
     <v-row class="mb-5" dense>
-      <!-- <v-col cols="12" md="3">
-        <v-card class="info-card pa-4">
-          <div class="d-flex align-center gap-3">
-            <v-avatar :color="rfq.priority === 'AOG' ? 'error' : rfq.priority === 'Urgent' ? 'warning' : 'secondary'" variant="tonal" size="40">
-              <v-icon icon="mdi-flag-outline" size="20" />
-            </v-avatar>
-            <div>
-              <p class="text-caption text-medium-emphasis mb-0">Priority</p>
-              <p class="text-body-2 font-weight-medium mb-0">{{ rfq.priority || 'Normal' }}</p>
-            </div>
-          </div>
-        </v-card>
-      </v-col> -->
-      <v-col cols="12" md="9" v-if="rfq.notes || isAdmin">
+      <v-col cols="12" md="6" v-if="rfq.notes || isAdmin">
         <v-card class="info-card pa-4">
           <div class="d-flex align-center gap-3">
             <v-avatar color="info" variant="tonal" size="40">
@@ -200,6 +187,19 @@
               </div>
               <p class="text-body-2 font-weight-medium mb-0" v-if="!isEditingNotes" style="white-space: pre-wrap;">{{ rfq.notes || '—' }}</p>
               <v-textarea v-else v-model="editingNotesValue" rows="3" density="compact" hide-details variant="outlined" class="mt-2" placeholder="Enter RFQ notes here..."></v-textarea>
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="6" v-if="rfq.customerTermsAndConditions || isAdmin">
+        <v-card class="info-card pa-4 h-100">
+          <div class="d-flex align-center gap-3">
+            <v-avatar color="warning" variant="tonal" size="40">
+              <v-icon icon="mdi-file-document-outline" size="20" />
+            </v-avatar>
+            <div class="flex-grow-1">
+              <p class="text-caption text-medium-emphasis mb-0">Customer Terms</p>
+              <p class="text-body-2 font-weight-medium mb-0" style="white-space: pre-wrap;">{{ rfq.customerTermsAndConditions || '—' }}</p>
             </div>
           </div>
         </v-card>
