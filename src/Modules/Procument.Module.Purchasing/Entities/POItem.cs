@@ -26,6 +26,15 @@ public class POItem : BaseEntity
     public long? ReturnedFromPOId { get; set; }
     public string? ReturnReason { get; set; }
 
+    // ─── TPP "Total P/N" view fields ───
+    /// <summary>Per-line workflow status used by the Total P/N grid.
+    /// Values: "Not Started", "Received in Warehouse", "Delivered to Customer", "Cancelled", etc.</summary>
+    public string? Status { get; set; }
+    /// <summary>Free-text note shown in the Total P/N grid (xlsx column "NOTE 02").</summary>
+    public string? Note { get; set; }
+    /// <summary>Sequential line number within the parent PO. Assigned on PO creation, null while unassigned.</summary>
+    public int? PORef { get; set; }
+
     // Navigation
     public PurchaseOrder? PurchaseOrder { get; set; }
     public ProcumentRecord? ProcumentRecord { get; set; }

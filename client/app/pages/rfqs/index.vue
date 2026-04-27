@@ -757,9 +757,9 @@
           <div v-else>
             <!-- RFQ Items Table -->
             <div class="text-subtitle-2 mb-2">RFQ Items:</div>
-            <v-table density="compact" class="mb-6 border rounded overflow-hidden">
+            <v-table density="compact" class="mb-6 border rounded overflow-hidden quick-assign-table">
               <thead>
-                <tr class="bg-grey-lighten-4">
+                <tr class="quick-assign-header">
                   <th>Part Number</th>
                   <th>Description</th>
                   <th class="text-center">Qty</th>
@@ -1771,5 +1771,16 @@ async function submitRfq() {
 }
 :deep(.lead-time-expired-row:hover) {
   background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+.quick-assign-header {
+  background: rgb(var(--v-theme-surface)) !important;
+  color: rgb(var(--v-theme-on-surface)) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .quick-assign-header {
+    background: rgba(var(--v-theme-surface), 0.95) !important;
+  }
 }
 </style>

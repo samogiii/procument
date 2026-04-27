@@ -10,9 +10,6 @@ using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
 
-/// <summary>
-/// Document storage endpoints for Proforma Invoices and per-Supplier subfolders.
-/// </summary>
 [ApiController]
 [Route("api/documents")]
 [Authorize(Roles = "Admin,SuperAdmin,Expert,Payment")]
@@ -20,6 +17,24 @@ public class DocumentsController : ControllerBase
 {
     private readonly DbContext _db;
     private readonly IDocumentStorageService _storage;
+
+    // Maps category key → folder name for PI-level documents
+    private static readonly Dictionary<string, string> PiCategoryFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["customer_pop"] = "Customer POP",
+        ["customer_po"] = "Customer PO",
+        ["our_pi"] = "Our PI",
+        ["quote"] = "Quote",
+    };
+
+    // Maps category key → folder name for supplier-level documents
+    private static readonly Dictionary<string, string> SupplierCategoryFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["supplier_invoice"] = "Supplier Invoice",
+        ["supplier_bank_info"] = "Supplier Bank Info",
+        ["our_pop"] = "Our POP to Supplier",
+        ["dp"] = "DP",
+    };
 
     public DocumentsController(DbContext db, IDocumentStorageService storage)
     {
@@ -29,7 +44,6 @@ public class DocumentsController : ControllerBase
 
     // ───────────── List ─────────────
 
-    /// <summary>List documents for a Proforma Invoice: PI-level files + each supplier (suppliers come from POs linked to the PI).</summary>
     [HttpGet("proforma-invoice/{invoiceId:long}")]
     public async Task<IActionResult> List(long invoiceId)
     {
@@ -38,14 +52,16 @@ public class DocumentsController : ControllerBase
 
         var suppliers = await GetSuppliersForInvoiceAsync(invoiceId);
 
-        var piFiles = _storage.ListProformaInvoiceFiles(invoice.InvoiceNumber).ToList();
+        var piCategoryPairs = PiCategoryFolders.Select(kv => (kv.Key, kv.Value));
+        var piFiles = _storage.ListFilesInInvoiceCategories(invoice.InvoiceNumber, piCategoryPairs).ToList();
 
+        var supplierCategoryPairs = SupplierCategoryFolders.Select(kv => (kv.Key, kv.Value));
         var supplierSections = suppliers
             .Select(s => new
             {
                 supplierId = s.Id,
                 supplierName = s.Name,
-                files = _storage.ListSupplierFiles(invoice.InvoiceNumber, s.Name).ToList()
+                files = _storage.ListFilesInSupplierCategories(invoice.InvoiceNumber, s.Name, supplierCategoryPairs).ToList()
             })
             .ToList();
 
@@ -60,7 +76,152 @@ public class DocumentsController : ControllerBase
 
     // ───────────── Upload ─────────────
 
-    /// <summary>Upload a PI-level document.</summary>
+    // ───────────── Customer POP with Amount ─────────────
+
+    /// <summary>Upload a Customer POP with a payment amount. Auto-marks the invoice Paid when total paid reaches invoice total.</summary>
+    [HttpPost("proforma-invoice/{invoiceId:long}/customer-pop")]
+    [RequestSizeLimit(100_000_000)]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<IActionResult> UploadCustomerPop(
+        long invoiceId,
+        [FromForm] IFormFile file,
+        [FromForm] decimal amount,
+        [FromForm] string? notes = null)
+    {
+        if (file == null || file.Length == 0) return BadRequest("No file uploaded.");
+        if (amount <= 0) return BadRequest("Amount must be greater than zero.");
+
+        var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
+        if (invoice == null) return NotFound();
+
+        using var stream = file.OpenReadStream();
+        var savedName = _storage.SaveFileInInvoiceCategory(invoice.InvoiceNumber, "Customer POP", file.FileName, stream);
+
+        var payment = new CustomerPayment
+        {
+            InvoiceId = invoiceId,
+            FileName = savedName,
+            Amount = amount,
+            Notes = notes,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.Set<CustomerPayment>().Add(payment);
+        await _db.SaveChangesAsync();
+
+        var totalPaid = await _db.Set<CustomerPayment>()
+            .Where(p => p.InvoiceId == invoiceId)
+            .SumAsync(p => p.Amount);
+
+        bool justPaid = false;
+        if (totalPaid >= invoice.TotalAmount && invoice.Status != "Paid")
+        {
+            invoice.Status = "Paid";
+            invoice.PaidDate = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            justPaid = true;
+        }
+
+        return Ok(new
+        {
+            fileName = savedName,
+            amount,
+            totalPaid,
+            invoiceTotal = invoice.TotalAmount,
+            isPaid = totalPaid >= invoice.TotalAmount,
+            justPaid,
+        });
+    }
+
+    /// <summary>
+    /// All Customer Payment records across every proforma invoice, grouped by customer.
+    /// Used by the Payment / SuperAdmin "Customer Payments" overview page.
+    /// </summary>
+    [HttpGet("customer-payments/all")]
+    [Authorize(Roles = "SuperAdmin,Payment")]
+    public async Task<IActionResult> GetAllCustomerPayments()
+    {
+        // Pull every payment + its invoice + customer in one trip
+        var rows = await (
+            from cp in _db.Set<CustomerPayment>()
+            join inv in _db.Set<Invoice>() on cp.InvoiceId equals inv.Id
+            join c in _db.Set<Customer>() on inv.CustomerId equals c.Id into cj
+            from c in cj.DefaultIfEmpty()
+            orderby cp.CreatedAt descending
+            select new
+            {
+                cp.Id,
+                cp.FileName,
+                cp.Amount,
+                cp.Notes,
+                cp.CreatedAt,
+                InvoiceId = inv.Id,
+                InvoiceNumber = inv.InvoiceNumber,
+                InvoiceTotal = inv.TotalAmount,
+                InvoiceStatus = inv.Status,
+                CustomerId = c != null ? c.Id : (long?)null,
+                CustomerName = c != null ? c.Name : null,
+            }
+        ).ToListAsync();
+
+        // Group by customer for the UI (one card per customer with all their payments inside)
+        var groups = rows
+            .GroupBy(r => new { r.CustomerId, r.CustomerName })
+            .Select(g => new
+            {
+                customerId = g.Key.CustomerId,
+                customerName = g.Key.CustomerName ?? "Unknown",
+                totalPaid = g.Sum(x => x.Amount),
+                paymentCount = g.Count(),
+                invoiceCount = g.Select(x => x.InvoiceId).Distinct().Count(),
+                payments = g.Select(x => new
+                {
+                    x.Id,
+                    x.FileName,
+                    x.Amount,
+                    x.Notes,
+                    x.CreatedAt,
+                    x.InvoiceId,
+                    x.InvoiceNumber,
+                    x.InvoiceTotal,
+                    x.InvoiceStatus,
+                }).ToList(),
+            })
+            .OrderByDescending(g => g.totalPaid)
+            .ToList();
+
+        return Ok(new
+        {
+            customers = groups,
+            totalCustomers = groups.Count,
+            totalPayments = rows.Count,
+            grandTotal = rows.Sum(r => r.Amount),
+        });
+    }
+
+    /// <summary>Get customer payment records for a Proforma Invoice.</summary>
+    [HttpGet("proforma-invoice/{invoiceId:long}/customer-payments")]
+    public async Task<IActionResult> GetCustomerPayments(long invoiceId)
+    {
+        var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
+        if (invoice == null) return NotFound();
+
+        var payments = await _db.Set<CustomerPayment>()
+            .Where(p => p.InvoiceId == invoiceId)
+            .OrderBy(p => p.CreatedAt)
+            .Select(p => new { p.Id, p.FileName, p.Amount, p.Notes, p.CreatedAt })
+            .ToListAsync();
+
+        var totalPaid = payments.Sum(p => p.Amount);
+
+        return Ok(new
+        {
+            payments,
+            totalPaid,
+            invoiceTotal = invoice.TotalAmount,
+            isPaid = totalPaid >= invoice.TotalAmount,
+        });
+    }
+
     [HttpPost("proforma-invoice/{invoiceId:long}/upload")]
     [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> UploadPI(long invoiceId, [FromForm] IFormFile file, [FromForm] string? category = null)
@@ -69,31 +230,25 @@ public class DocumentsController : ControllerBase
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
 
-        // PI-level categories (Customer POP, Our PI, Customer PO) are admin-only.
         var isAdminUser = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         if (!isAdminUser) return Forbid();
 
-        var existingFiles = _storage.ListProformaInvoiceFiles(invoice.InvoiceNumber).ToList();
-        var fileName = GenerateNumberedFileName(existingFiles, category, file.FileName);
-        
-        using var stream = file.OpenReadStream();
-        _storage.SaveProformaInvoiceFile(invoice.InvoiceNumber, fileName, stream);
+        if (string.IsNullOrWhiteSpace(category) || !PiCategoryFolders.TryGetValue(category, out var categoryFolder))
+            return BadRequest("Invalid or missing category. Valid values: " + string.Join(", ", PiCategoryFolders.Keys));
 
-        return Ok(new { fileName });
+        using var stream = file.OpenReadStream();
+        var savedName = _storage.SaveFileInInvoiceCategory(invoice.InvoiceNumber, categoryFolder, file.FileName, stream);
+
+        return Ok(new { fileName = savedName });
     }
 
-    /// <summary>
-    /// Upload a supplier-level document (our_pop / supplier_invoice / generic).
-    /// Fans out to every PI whose POs share this supplier.
-    /// </summary>
     [HttpPost("proforma-invoice/{invoiceId:long}/supplier/{supplierId:long}/upload")]
     [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> UploadSupplier(
-        long invoiceId, 
-        long supplierId, 
-        [FromForm] IFormFile file, 
-        [FromForm] string? category = null,
-        [FromForm] bool isFinal = false)
+        long invoiceId,
+        long supplierId,
+        [FromForm] IFormFile file,
+        [FromForm] string? category = null)
     {
         if (file == null || file.Length == 0) return BadRequest("No file uploaded.");
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
@@ -101,31 +256,21 @@ public class DocumentsController : ControllerBase
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound("Supplier not found.");
 
-        // Non-admins may only upload supplier_invoice, supplier_bank_info, and the auto-generated dp PDF.
-        // Our POP / Our PI / Customer POP / Quote / etc. are admin-only.
+        if (string.IsNullOrWhiteSpace(category) || !SupplierCategoryFolders.TryGetValue(category, out var categoryFolder))
+            return BadRequest("Invalid or missing category. Valid values: " + string.Join(", ", SupplierCategoryFolders.Keys));
+
         var isAdminUser = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         if (!isAdminUser)
         {
             var allowedForUser = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "supplier_invoice", "supplier_bank_info", "dp"
+                "supplier_invoice", "supplier_bank_info"
             };
-            if (!string.IsNullOrWhiteSpace(category) && !allowedForUser.Contains(category))
-            {
+            if (!allowedForUser.Contains(category))
                 return Forbid();
-            }
         }
 
-        var existingFiles = _storage.ListSupplierFiles(invoice.InvoiceNumber, supplier.Name).ToList();
-
-        if (category == "our_pop" && existingFiles.Any(f => f.Name.Contains("Our POP") && f.Name.Contains("_final")))
-        {
-            return BadRequest("A Final POP has already been uploaded for this supplier.");
-        }
-
-        var fileName = GenerateNumberedFileName(existingFiles, category, file.FileName, isFinal);
-
-        // Read the file fully into memory so we can write it to multiple targets
+        // Buffer file so we can fan-out to multiple PIs
         byte[] bytes;
         using (var ms = new MemoryStream())
         {
@@ -133,110 +278,103 @@ public class DocumentsController : ControllerBase
             bytes = ms.ToArray();
         }
 
-        // Find every PI that shares a PO with this supplier and the primary PI (fan-out)
         var piNumbers = await GetInvoiceNumbersSharedWithSupplierAsync(invoiceId, supplierId);
-        piNumbers.Add(invoice.InvoiceNumber); // always include the primary target
+        piNumbers.Add(invoice.InvoiceNumber);
 
+        string savedName = string.Empty;
         var written = new List<string>();
         foreach (var piNumber in piNumbers.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             using var ms = new MemoryStream(bytes, writable: false);
-            _storage.SaveSupplierFile(piNumber, supplier.Name, fileName, ms);
+            var fn = _storage.SaveFileInSupplierCategory(piNumber, supplier.Name, categoryFolder, file.FileName, ms);
+            if (string.Equals(piNumber, invoice.InvoiceNumber, StringComparison.OrdinalIgnoreCase))
+                savedName = fn;
             written.Add(piNumber);
         }
 
-        return Ok(new { fileName, fannedOutToInvoices = written });
-    }
-
-    private string GenerateNumberedFileName(IEnumerable<DocumentFileInfo> existingFiles, string? category, string originalFileName, bool isFinal = false)
-    {
-        var ext = Path.GetExtension(originalFileName);
-        
-        if (string.IsNullOrWhiteSpace(category))
-        {
-            return Path.GetFileNameWithoutExtension(originalFileName) + "_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss") + ext;
-        }
-
-        string baseDisplayName = category switch
-        {
-            "our_pop" => "Our POP",
-            "supplier_invoice" => "Supplier Invoice",
-            "customer_pop" => "Customer POP",
-            "customer_po" => "Customer PO",
-            "our_pi" => "Our PI",
-            "quote" => "Quote",
-            "supplier_bank_info" => "Supplier Bank Info",
-            "dp" => "DP",
-            _ => category.Replace("_", " ")
-        };
-
-        var prefix = $"{baseDisplayName} number";
-        
-        // Count how many files match this specific pattern: "DisplayName number X"
-        var count = existingFiles.Count(f => f.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        var nextNumber = count + 1;
-        
-        string fileName = $"{prefix} {nextNumber}";
-        if (isFinal) fileName += "_final";
-        return fileName + ext;
+        return Ok(new { fileName = savedName, fannedOutToInvoices = written });
     }
 
     // ───────────── Download ─────────────
 
-    /// <summary>Download a PI-level document.</summary>
     [HttpGet("proforma-invoice/{invoiceId:long}/file")]
-    public async Task<IActionResult> DownloadPI(long invoiceId, [FromQuery] string name)
+    public async Task<IActionResult> DownloadPI(long invoiceId, [FromQuery] string name, [FromQuery] string? category = null)
     {
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
 
-        var result = _storage.OpenProformaInvoiceFile(invoice.InvoiceNumber, name);
-        if (result == null) return NotFound();
-        var contentType = GetContentType(result.Value.AbsolutePath);
-        return File(result.Value.Stream, contentType, Path.GetFileName(result.Value.AbsolutePath));
+        if (!string.IsNullOrWhiteSpace(category) && PiCategoryFolders.TryGetValue(category, out var categoryFolder))
+        {
+            var result = _storage.OpenFileInInvoiceCategory(invoice.InvoiceNumber, categoryFolder, name);
+            if (result == null) return NotFound();
+            return File(result.Value.Stream, GetContentType(result.Value.AbsolutePath), name);
+        }
+        else
+        {
+            // Legacy fallback: flat folder
+            var result = _storage.OpenProformaInvoiceFile(invoice.InvoiceNumber, name);
+            if (result == null) return NotFound();
+            return File(result.Value.Stream, GetContentType(result.Value.AbsolutePath), Path.GetFileName(result.Value.AbsolutePath));
+        }
     }
 
-    /// <summary>Download a supplier-level document.</summary>
     [HttpGet("proforma-invoice/{invoiceId:long}/supplier/{supplierId:long}/file")]
-    public async Task<IActionResult> DownloadSupplier(long invoiceId, long supplierId, [FromQuery] string name)
+    public async Task<IActionResult> DownloadSupplier(long invoiceId, long supplierId, [FromQuery] string name, [FromQuery] string? category = null)
     {
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound();
 
-        var result = _storage.OpenSupplierFile(invoice.InvoiceNumber, supplier.Name, name);
-        if (result == null) return NotFound();
-        var contentType = GetContentType(result.Value.AbsolutePath);
-        return File(result.Value.Stream, contentType, Path.GetFileName(result.Value.AbsolutePath));
+        if (!string.IsNullOrWhiteSpace(category) && SupplierCategoryFolders.TryGetValue(category, out var categoryFolder))
+        {
+            var result = _storage.OpenFileInSupplierCategory(invoice.InvoiceNumber, supplier.Name, categoryFolder, name);
+            if (result == null) return NotFound();
+            return File(result.Value.Stream, GetContentType(result.Value.AbsolutePath), name);
+        }
+        else
+        {
+            // Legacy fallback: flat folder
+            var result = _storage.OpenSupplierFile(invoice.InvoiceNumber, supplier.Name, name);
+            if (result == null) return NotFound();
+            return File(result.Value.Stream, GetContentType(result.Value.AbsolutePath), Path.GetFileName(result.Value.AbsolutePath));
+        }
     }
 
-    /// <summary>Delete a PI-level document.</summary>
+    // ───────────── Delete ─────────────
+
     [HttpDelete("proforma-invoice/{invoiceId:long}/file")]
-    public async Task<IActionResult> DeletePI(long invoiceId, [FromQuery] string name)
+    public async Task<IActionResult> DeletePI(long invoiceId, [FromQuery] string name, [FromQuery] string? category = null)
     {
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
-        var ok = _storage.DeleteProformaInvoiceFile(invoice.InvoiceNumber, name);
+
+        bool ok;
+        if (!string.IsNullOrWhiteSpace(category) && PiCategoryFolders.TryGetValue(category, out var categoryFolder))
+            ok = _storage.DeleteFileInInvoiceCategory(invoice.InvoiceNumber, categoryFolder, name);
+        else
+            ok = _storage.DeleteProformaInvoiceFile(invoice.InvoiceNumber, name);
+
         return ok ? Ok() : NotFound();
     }
-    
 
     [HttpDelete("proforma-invoice/{invoiceId:long}/supplier/{supplierId:long}/file")]
-    public async Task<IActionResult> DeleteSupplier(long invoiceId, long supplierId, [FromQuery] string name)
+    public async Task<IActionResult> DeleteSupplier(long invoiceId, long supplierId, [FromQuery] string name, [FromQuery] string? category = null)
     {
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound();
 
-        // Fan-out delete to all shared PIs
         var piNumbers = await GetInvoiceNumbersSharedWithSupplierAsync(invoiceId, supplierId);
         piNumbers.Add(invoice.InvoiceNumber);
 
         foreach (var piNumber in piNumbers.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            _storage.DeleteSupplierFile(piNumber, supplier.Name, name);
+            if (!string.IsNullOrWhiteSpace(category) && SupplierCategoryFolders.TryGetValue(category, out var categoryFolder))
+                _storage.DeleteFileInSupplierCategory(piNumber, supplier.Name, categoryFolder, name);
+            else
+                _storage.DeleteSupplierFile(piNumber, supplier.Name, name);
         }
 
         return Ok();
@@ -244,50 +382,13 @@ public class DocumentsController : ControllerBase
 
     // ───────────── Helpers ─────────────
 
-    /// <summary>Get Invoices that share at least one PO with the given Invoice.</summary>
-    private async Task<HashSet<string>> GetInvoiceNumbersLinkedToSamePOAsync(long invoiceId)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Find all POs that reference this PI (directly or via items)
-        var poIds = await _db.Set<PurchaseOrder>()
-            .Where(p => p.InvoiceId == invoiceId 
-                        || p.POItems.Any(i => i.InvoiceItemId.HasValue 
-                                              && _db.Set<InvoiceItem>().Any(ii => ii.Id == i.InvoiceItemId && ii.InvoiceId == invoiceId)))
-            .Select(p => p.Id)
-            .ToListAsync();
-
-        if (poIds.Count == 0) return result;
-
-        // Collect ALL PIs referenced by those same POs
-        var directInvoiceIds = await _db.Set<PurchaseOrder>()
-            .Where(p => poIds.Contains(p.Id) && p.InvoiceId.HasValue)
-            .Select(p => p.InvoiceId!.Value)
-            .ToListAsync();
-
-        var indirectInvoiceIds = await _db.Set<POItem>()
-            .Where(i => i.POId.HasValue && poIds.Contains(i.POId.Value) && i.InvoiceItemId.HasValue)
-            .Select(i => _db.Set<InvoiceItem>().Where(ii => ii.Id == i.InvoiceItemId).Select(ii => ii.InvoiceId).FirstOrDefault())
-            .ToListAsync();
-
-        var allInvoiceIds = directInvoiceIds.Concat(indirectInvoiceIds).Distinct().ToList();
-        var numbers = await _db.Set<Invoice>().Where(i => allInvoiceIds.Contains(i.Id)).Select(i => i.InvoiceNumber).ToListAsync();
-        foreach (var n in numbers) if (!string.IsNullOrWhiteSpace(n)) result.Add(n);
-        
-        return result;
-    }
-
-
-    /// <summary>Get the distinct suppliers linked to a PI (via POs whose POItems reference the PI's InvoiceItems, plus POs with po.InvoiceId = piId).</summary>
     private async Task<List<Supplier>> GetSuppliersForInvoiceAsync(long invoiceId)
     {
-        // Supplier IDs from POs that reference this invoice directly
         var directSupplierIds = await _db.Set<PurchaseOrder>()
             .Where(p => p.InvoiceId == invoiceId)
             .Select(p => p.SupplierId)
             .ToListAsync();
 
-        // Supplier IDs from POs whose POItems reference this invoice's items
         var indirectSupplierIds = await _db.Set<POItem>()
             .Where(i => i.InvoiceItemId.HasValue
                         && i.POId != null
@@ -299,15 +400,10 @@ public class DocumentsController : ControllerBase
         return await _db.Set<Supplier>().Where(s => ids.Contains(s.Id)).ToListAsync();
     }
 
-    /// <summary>
-    /// For fan-out: given a PI and a supplier, find the set of Invoice Numbers that share a PO with this supplier.
-    /// Works by walking: PI → POs (supplier = supplierId) → all InvoiceItems of those POs → their Invoices.
-    /// </summary>
     private async Task<HashSet<string>> GetInvoiceNumbersSharedWithSupplierAsync(long invoiceId, long supplierId)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // POs for this supplier that are connected to this PI (directly or via an item)
         var poIds = await _db.Set<PurchaseOrder>()
             .Where(p => p.SupplierId == supplierId
                         && (p.InvoiceId == invoiceId
@@ -318,7 +414,6 @@ public class DocumentsController : ControllerBase
 
         if (poIds.Count == 0) return result;
 
-        // Collect ALL PIs referenced by those POs (direct + via items)
         var directInvoiceIds = await _db.Set<PurchaseOrder>()
             .Where(p => poIds.Contains(p.Id) && p.InvoiceId.HasValue)
             .Select(p => p.InvoiceId!.Value)
@@ -335,27 +430,11 @@ public class DocumentsController : ControllerBase
         return result;
     }
 
-    private static string BuildFileName(string? category, string originalName)
-    {
-        var ext = Path.GetExtension(originalName);
-        var baseName = string.IsNullOrWhiteSpace(category)
-            ? Path.GetFileNameWithoutExtension(originalName)
-            : category.Trim();
-        // Append a timestamp when no category is provided, to avoid name collisions
-        if (string.IsNullOrWhiteSpace(category))
-        {
-            baseName += "_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-        }
-        return baseName + ext;
-    }
-
     private static string GetContentType(string path)
     {
         var provider = new FileExtensionContentTypeProvider();
         if (!provider.TryGetContentType(path, out var contentType))
-        {
             contentType = "application/octet-stream";
-        }
         return contentType;
     }
 }

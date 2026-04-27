@@ -184,6 +184,52 @@
 
           <v-divider class="my-3" />
 
+          <!-- Customer Paid POPs (incoming — what the customer paid us) -->
+          <div class="mb-4">
+            <div class="text-subtitle-2 mb-2 d-flex align-center">
+              <v-icon icon="mdi-cash-plus" size="18" class="mr-1" color="success" />
+              Customer Paid POPs
+              <v-chip v-if="customerPayments.length" size="x-small" color="success" variant="tonal" class="ml-2">
+                {{ customerPayments.length }}
+              </v-chip>
+              <v-spacer />
+              <span v-if="customerPayments.length" class="text-caption text-medium-emphasis">
+                Paid: <strong class="text-success">${{ formatPrice(customerTotalPaid) }}</strong>
+                <span v-if="customerInvoiceTotal != null"> / ${{ formatPrice(customerInvoiceTotal) }}</span>
+                <v-chip v-if="customerIsPaid" size="x-small" color="success" variant="flat" class="ml-2">PAID</v-chip>
+              </span>
+            </div>
+            <div v-if="customerPayments.length" class="d-flex flex-column gap-2">
+              <div
+                v-for="p in customerPayments"
+                :key="p.id"
+                class="d-flex align-center gap-2 pa-2 rounded file-row"
+              >
+                <v-icon icon="mdi-file-document-check-outline" color="success" size="20" />
+                <div class="d-flex flex-column" style="min-width: 0; flex: 1;">
+                  <span class="text-body-2 font-weight-medium text-truncate">{{ p.fileName }}</span>
+                  <span class="text-caption text-medium-emphasis">
+                    Amount: <strong class="text-success">${{ formatPrice(p.amount) }}</strong>
+                    · {{ new Date(p.createdAt).toLocaleString() }}
+                    <span v-if="p.notes"> · {{ p.notes }}</span>
+                  </span>
+                </div>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  color="success"
+                  icon="mdi-download"
+                  @click="downloadCustomerPop(p.fileName)"
+                />
+              </div>
+            </div>
+            <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">
+              No customer payments uploaded yet.
+            </v-alert>
+          </div>
+
+          <v-divider class="my-3" />
+
           <!-- POP Upload -->
           <div class="mb-4">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
@@ -314,6 +360,12 @@ const bankInfoFiles = ref<FileInfo[]>([])
 const dpFiles = ref<FileInfo[]>([])
 const importDetail = ref<any>(null)
 const popFiles = ref<FileInfo[]>([])
+// Customer paid POPs (uploaded against the proforma invoice — payment user can download them here)
+type CustomerPayment = { id: number; fileName: string; amount: number; notes?: string | null; createdAt: string }
+const customerPayments = ref<CustomerPayment[]>([])
+const customerTotalPaid = ref(0)
+const customerInvoiceTotal = ref<number | null>(null)
+const customerIsPaid = ref(false)
 const isFinalPop = ref(false)
 const isFinalPopUploaded = computed(() => popFiles.value.some(f => f.name.includes('_final')))
 const uploadingPop = ref(false)
@@ -357,6 +409,20 @@ async function openPo(po: POItem) {
   importDetail.value = null
   popFiles.value = []
   isFinalPop.value = false
+  customerPayments.value = []
+  customerTotalPaid.value = 0
+  customerInvoiceTotal.value = null
+  customerIsPaid.value = false
+  if (po.invoiceId) {
+    // Customer paid POPs are tied to the proforma invoice, not the supplier
+    try {
+      const cp = await api.get<any>(`/documents/proforma-invoice/${po.invoiceId}/customer-payments`)
+      customerPayments.value = cp.payments ?? []
+      customerTotalPaid.value = cp.totalPaid ?? 0
+      customerInvoiceTotal.value = cp.invoiceTotal ?? null
+      customerIsPaid.value = cp.isPaid === true
+    } catch { /* silent — section just shows empty alert */ }
+  }
   if (po.invoiceId && po.supplierId) {
     try {
       const data = await api.get<any>(`/documents/proforma-invoice/${po.invoiceId}`)
@@ -388,6 +454,30 @@ async function openPo(po: POItem) {
       importDetail.value = await api.get(`/purchase-orders/${po.id}/import-detail`)
     } catch {}
   }
+}
+
+// Customer paid POP download — files live under the invoice's "Customer POP" category folder.
+async function downloadCustomerPop(name: string) {
+  if (!selectedPo.value?.invoiceId) return
+  try {
+    const blob = await $fetch<Blob>(
+      `${config.public.apiBase}/documents/proforma-invoice/${selectedPo.value.invoiceId}/file`,
+      {
+        method: 'GET',
+        query: { name, category: 'customer_pop' },
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      }
+    )
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', name)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch { showSnack('Download failed', 'error') }
 }
 
 async function downloadSupplierFile(name: string) {

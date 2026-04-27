@@ -106,4 +106,27 @@ public class UsersController : ControllerBase
         var success = await _authService.ToggleUserActiveAsync(id);
         return success ? Ok(new { message = "User status toggled." }) : NotFound();
     }
+
+    /// <summary>Admin: update user information and role.</summary>
+    [HttpPut("{id:long}")]
+    public async Task<ActionResult> UpdateUser(long id, [FromBody] UpdateUserRequest request)
+    {
+        try
+        {
+            var success = await _authService.UpdateUserAsync(id, request);
+            return success ? Ok(new { message = "User updated." }) : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Admin: change user password.</summary>
+    [HttpPatch("{id:long}/password")]
+    public async Task<ActionResult> ChangePassword(long id, [FromBody] AdminChangePasswordRequest request)
+    {
+        var success = await _authService.ChangePasswordAsync(id, request.NewPassword);
+        return success ? Ok(new { message = "Password changed." }) : NotFound();
+    }
 }

@@ -157,7 +157,7 @@ public class InvoiceService : IInvoiceService
         await _db.SaveChangesAsync();
 
         // Set InvoiceNumber to PINV-{Id} now that the Id is assigned
-        invoice.InvoiceNumber = $"PINV-{invoice.Id}";
+        invoice.InvoiceNumber = $"PI-{invoice.Id}";
         await _db.SaveChangesAsync();
 
         // Create the document folder for this Proforma Invoice

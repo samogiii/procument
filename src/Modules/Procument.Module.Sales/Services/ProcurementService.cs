@@ -260,6 +260,39 @@ public class ProcurementService : IProcurementService
             .Take(page.PageSize)
             .ToListAsync();
 
+        // Batch-load permissions for the page (both header and item level)
+        var rowIds = rows.Select(r => r.Id).ToList();
+        var rowIdStrs = rowIds.Select(id => id.ToString()).ToList();
+        var allItemIds = rows.SelectMany(r => r.Items).Select(i => i.Id.ToString()).ToList();
+        
+        var pagePerms = await _db.Set<EntityPermission>()
+            .Where(p => p.EntityName == "Procurement" && (rowIdStrs.Contains(p.EntityId) || allItemIds.Contains(p.EntityId)))
+            .Join(_db.Set<User>(), p => p.UserId, u => u.Id, (p, u) => new { p, u })
+            .ToListAsync();
+        
+        var permsByProcId = new Dictionary<long, List<ProcurementAssignedUser>>();
+        foreach (var r in rows)
+        {
+            var headerIdStr = r.Id.ToString();
+            var itemIds = r.Items.Select(i => i.Id.ToString()).ToHashSet();
+            
+            var matched = pagePerms
+                .Where(x => x.p.EntityId == headerIdStr || itemIds.Contains(x.p.EntityId))
+                .Select(x => new ProcurementAssignedUser
+                {
+                    Id = x.p.Id,
+                    UserId = x.p.UserId,
+                    UserName = x.u.Name ?? x.u.Email ?? $"User #{x.u.Id}",
+                    UserEmail = x.u.Email,
+                    EntityName = x.p.EntityName,
+                    EntityId = x.p.EntityId,
+                    Permission = x.p.Permission,
+                    CreatedAt = x.p.CreatedAt,
+                }).ToList();
+            
+            permsByProcId[r.Id] = matched;
+        }
+
         // Batch-load Invoice info for the page
         var invoiceIds = rows.Select(r => r.InvoiceId).Distinct().ToList();
         var invoiceMap = invoiceIds.Count > 0
@@ -281,6 +314,8 @@ public class ProcurementService : IProcurementService
                     h.CustomerId = inv.CustomerId;
                     h.CustomerName = inv.CustomerName;
                 }
+
+                h.AssignedUsers = permsByProcId.GetValueOrDefault(r.Id) ?? new();
 
                 // If non-admin doesn't have header-level permission, ItemCount should reflect only assigned items
                 if (!isAdmin && explicitHeaderIds != null && permittedItemIds != null)

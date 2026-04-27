@@ -1070,7 +1070,7 @@
 
     <!-- Shared datalist for supplier name autocomplete -->
     <datalist id="supplier-suggestions">
-      <option v-for="s in supplierSuggestions" :key="s.id" :value="s.name" />
+      <option v-for="s in supplierSuggestions.filter(x => x.dependency !== 'Disabled')" :key="s.id" :value="s.name" />
     </datalist>
 
     <!-- ═══════════ Add Item Dialog ═══════════ -->
@@ -2146,7 +2146,7 @@ function searchSupplier(val: string) {
   }
   supplierSearchDebounce = setTimeout(async () => {
     try {
-      supplierSuggestions.value = await api.get<{ id: number; name: string; dependency: string }[]>(`/suppliers/search?q=${encodeURIComponent(val)}`)
+      supplierSuggestions.value = await api.get<{ id: number; name: string; dependency: string; status: string }[]>(`/suppliers/search?q=${encodeURIComponent(val)}`)
     } catch {
       supplierSuggestions.value = []
     }
@@ -2156,6 +2156,36 @@ function searchSupplier(val: string) {
 // ──── Save All (items + quotes) ────
 
 async function saveAll() {
+  // Validate suppliers before saving
+  for (const q of supplierQuotes.value) {
+    if (!q.supplierName?.trim()) continue
+    
+    // Check local status if it's an existing quote
+    if (q.supplierStatus && q.supplierStatus !== 'Approved') {
+       if (q.supplierStatus === 'Disabled') {
+         showSnack(`Supplier '${q.supplierName}' is disabled and cannot be saved.`, 'error')
+         return
+       }
+       if (!isAdmin.value && q.supplierStatus === 'Pending') {
+         showSnack(`Supplier '${q.supplierName}' is pending approval. Experts cannot use it yet.`, 'warning')
+         return
+       }
+    }
+
+    // Check suggestions if it's a new or changed name
+    const match = supplierSuggestions.value.find(s => s.name.toLowerCase() === q.supplierName.trim().toLowerCase())
+    if (match && match.status !== 'Approved') {
+       if (match.status === 'Disabled') {
+         showSnack(`Supplier '${q.supplierName}' is disabled and cannot be used.`, 'error')
+         return
+       }
+       if (!isAdmin.value && match.status === 'Pending') {
+         showSnack(`Supplier '${q.supplierName}' is pending approval.`, 'warning')
+         return
+       }
+    }
+  }
+
   saving.value = true
   try {
     // 1. Save all editable item fields + fleet/remark on part numbers

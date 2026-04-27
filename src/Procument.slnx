@@ -5,6 +5,7 @@
     <Project Path="Modules/Procument.Module.Purchasing/Procument.Module.Purchasing.csproj" />
     <Project Path="Modules/Procument.Module.RFQ/Procument.Module.RFQ.csproj" />
     <Project Path="Modules/Procument.Module.Sales/Procument.Module.Sales.csproj" />
+    <Project Path="Modules/Procument.Module.Tasks/Procument.Module.Tasks.csproj" />
   </Folder>
   <Project Path="Procument.API/Procument.API.csproj" />
   <Project Path="Procument.Data/Procument.Data.csproj" />

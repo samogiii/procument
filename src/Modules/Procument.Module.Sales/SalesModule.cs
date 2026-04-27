@@ -13,6 +13,7 @@ public static class SalesModule
         services.AddScoped<IFinalInvoiceService, FinalInvoiceService>();
         // ProcurementService lives in Sales (can see both Sales + Purchasing types); interface is in Purchasing.
         services.AddScoped<IProcurementService, ProcurementService>();
+        services.AddScoped<ITotalPNService, TotalPNService>();
         return services;
     }
 }

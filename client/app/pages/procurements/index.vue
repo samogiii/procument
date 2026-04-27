@@ -62,19 +62,20 @@
         <!-- Assigned Users -->
         <template #item.assignedUsers="{ item }">
           <div v-if="isAdmin" class="d-flex flex-wrap gap-1 align-center">
-            <template v-if="item._assignedUsers?.length">
+            <template v-if="item.assignedUsers?.length">
               <v-chip
-                v-for="u in item._assignedUsers.slice(0, 3)"
-                :key="u.userId"
+                v-for="u in item.assignedUsers.slice(0, 3)"
+                :key="u.id"
                 size="x-small"
                 variant="tonal"
                 color="primary"
                 class="px-1"
+                :title="`${u.userName} (${u.permission})`"
               >
                 {{ u.userName }}
               </v-chip>
-              <v-chip v-if="item._assignedUsers.length > 3" size="x-small" variant="text">
-                +{{ item._assignedUsers.length - 3 }}
+              <v-chip v-if="item.assignedUsers.length > 3" size="x-small" variant="text">
+                +{{ item.assignedUsers.length - 3 }}
               </v-chip>
             </template>
             <span v-else class="text-caption text-medium-emphasis">—</span>

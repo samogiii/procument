@@ -565,6 +565,10 @@ async function loadData() {
 }
 
 function isLineDisabled(record: any) {
+  // Block non-Approved suppliers regardless of role
+  const status = record.supplierStatus || 'Approved'
+  if (status !== 'Approved') return true
+
   const dep = record.supplierDependency || 'Normal'
   if (dep === 'NoQuote' && !isAdmin.value) return true
   if (dep === 'EndUser' && rfq.value.customerBase == 5) return true
@@ -573,6 +577,9 @@ function isLineDisabled(record: any) {
 }
 
 function getDisabledReason(record: any) {
+  const status = record.supplierStatus || 'Approved'
+  if (status !== 'Approved') return `Supplier is currently ${status} and cannot be used.`
+
   const dep = record.supplierDependency || 'Normal'
   if (dep === 'NoQuote' && !isAdmin.value) return 'Only Admin can use NoQuote suppliers'
   if (dep === 'EndUser' && rfq.value.customerBase == 5) return 'EndUser supplier not allowed for Customer Base 5'

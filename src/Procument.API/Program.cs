@@ -10,6 +10,7 @@ using Procument.Module.Identity.Services;
 using Procument.Module.RFQ;
 using Procument.Module.Purchasing;
 using Procument.Module.Sales;
+using Procument.Module.Tasks;
 using Procument.Shared.Services;
 using Scalar.AspNetCore;
 
@@ -45,6 +46,7 @@ builder.Services.AddIdentityModule();
 builder.Services.AddRFQModule();
 builder.Services.AddPurchasingModule();
 builder.Services.AddSalesModule();
+builder.Services.AddTasksModule();
 
 // ─── Register DbContext base class for module services ───
 builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());

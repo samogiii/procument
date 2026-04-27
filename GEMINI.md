@@ -302,6 +302,25 @@ For **every** user request, follow this loop:
 **Summary:** The Description cell on the RFQ items grid is now an `<input>` for admins (SuperAdmin + Admin via `authStore.isAdmin`) and a read-only span for everyone else. `editableItems` keeps a snapshot `_origDescription` when loading; `saveAll` now also PUTs `/partnumbers/{id}` when the admin has changed `description` (previously the partnumber PUT only fired if `item.remark` was set, which meant description-only edits were silently dropped). No backend change required — the existing `PUT /partnumbers/{id}` already accepts `description`.
 **Follow-ups:** none.
 
+### 2026-04-27 — User Management Enhancements (SuperAdmin/Admin roles)
+**Files:**
+- Backend: `src/Modules/Procument.Module.Identity/DTOs/AuthDTOs.cs`, `src/Modules/Procument.Module.Identity/Services/AuthService.cs`, `src/Modules/Procument.Module.Identity/Controllers/AuthController.cs`
+- Frontend: `client/app/pages/users.vue`, `client/app/layouts/default.vue`
+**Summary:** Expanded user management capabilities. Backend now includes `UpdateUserRequest` and `AdminChangePasswordRequest` DTOs, with corresponding service methods and controller endpoints (`PUT /api/users/{id}` and `PATCH /api/users/{id}/password`). Frontend: Restricted the "Users" sidebar link to `SuperAdmin` only. The `users.vue` page now includes "Edit User" and "Change Password" dialogs. Admins can update user names, emails, roles, and reset passwords for any user. `SuperAdmin` retains the exclusive ability to create new users and toggle account activity status.
+**Follow-ups:** none.
+
+### 2026-04-27 — Prevent selecting Pending/Disabled suppliers in Quotes (Frontend-only)
+**Files:** `client/app/pages/procurements/[id].vue`, `client/app/pages/rfqs/[id]/index.vue`, `client/app/pages/rfqs/[id]/create-quote/index.vue`
+**Summary:** Implemented frontend restrictions to prevent the use of "Pending" or "Disabled" suppliers in quoting workflows. (1) In the Procurement detail page, the supplier autocomplete datalist now filters for `status === 'Approved'`. (2) In the RFQ detail page (procurement grid), the `saveAll` function validates all supplier names against their status; "Disabled" suppliers are blocked for everyone, and "Pending" suppliers are blocked for non-admins (Experts). (3) In the Create Quote page, the `isLineDisabled` logic was updated to block any procurement record whose supplier status is not "Approved". Backend changes were reverted as requested, keeping the validation logic entirely on the client side.
+**Follow-ups:** none.
+
+### 2026-04-26 — Task Manager with Kanban Board
+**Files:**
+- Backend: `src/Modules/Procument.Module.Tasks/` (new module), `src/Procument.Data/AppDbContext.cs`, `src/Procument.API/Program.cs`, `src/Procument.API/Procument.API.csproj`, `src/Procument.slnx`
+- Frontend: `client/app/pages/tasks.vue` (new), `client/app/layouts/default.vue`
+**Summary:** Implemented a new Task Manager module. Backend includes `TaskItem` entity, `TaskStatus` enum, `TaskService`, and `TasksController` with role-based access (admins create/delete, users move assigned tasks). Frontend features a 3-column Kanban board (Not Started, InProgress, Done) using Vuetify components and standard CSS. Added navigation link to sidebar.
+**Follow-ups:** Run EF migrations to create the `Tasks` table.
+
 ### 2026-04-24 — Procurement: per-item visibility and permission filtering
 **Files:** `src/Modules/Procument.Module.Purchasing/Services/IProcurementService.cs`, `src/Modules/Procument.Module.Sales/Services/ProcurementService.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/ProcurementsController.cs`
 **Summary:** Implemented granular item-level permissions for Procurements. Non-admin users who are assigned only to specific items within a Procurement (and lack header-level permission) now see only those items in the detail view (`GetByIdAsync`). The list view (`GetAllAsync`) correctly adjusts the `ItemCount` for these users. Added `UserCanAccessItemAsync` to `IProcurementService` and enforced it in `ProcurementsController` across all item-level endpoints (`UpdateItem`, `UpsertSupplierQuote`, `SelectSupplierQuote`, `DeleteSupplierQuote`), ensuring users can only modify items they are assigned to.

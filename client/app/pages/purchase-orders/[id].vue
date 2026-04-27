@@ -66,7 +66,7 @@
           </div>
           <div v-if="assignedUsers.length" class="overflow-y-auto pr-1" style="max-height: 80px;">
             <div v-for="p in assignedUsers" :key="p.id" class="d-flex align-center gap-2 mb-1 pa-1 rounded" style="background: rgba(var(--v-theme-on-surface), 0.04);">
-              <span class="text-caption flex-grow-1 text-truncate" :title="p.user?.username || p.user?.email">{{ p.user?.username || p.user?.email }}</span>
+              <span class="text-caption flex-grow-1 text-truncate" :title="p.user?.username || p.user?.email">{{ p.user?.name || p.user?.email }}</span>
               <v-chip size="x-small" :color="p.permission === 'Edit' ? 'success' : 'info'" variant="tonal" class="px-1" style="height: 16px; font-size: 10px;">{{ p.permission }}</v-chip>
               <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" :loading="revokingId === p.id" @click="revokeAssignment(p)" />
             </div>
@@ -794,7 +794,7 @@ const availableUsersForAssign = computed(() => {
   const assignedIds = new Set(assignedUsers.value.map(p => p.userId))
   return allUsers.value
     .filter(u => !assignedIds.has(u.id))
-    .map(u => ({ id: u.id, label: u.username || u.email || `User #${u.id}` }))
+    .map(u => ({ id: u.id, label: u.name || u.email || `User #${u.id}` }))
 })
 
 async function loadAssignedUsers() {

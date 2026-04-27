@@ -13,6 +13,10 @@ public class SaveInventoryItemRequest
     public decimal? Price { get; set; }
     public string? SerialNumber { get; set; }
 }
+public class BulkSearch
+{
+    public List<string>? Names { get; set; }
+}
 
 public class InventoryItemResponse
 {

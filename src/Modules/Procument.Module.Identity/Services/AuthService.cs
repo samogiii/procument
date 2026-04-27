@@ -18,6 +18,8 @@ public interface IAuthService
     Task<List<UserResponse>> GetAllUsersAsync();
     Task<UserResponse?> GetUserByIdAsync(long id);
     Task<bool> ToggleUserActiveAsync(long id);
+    Task<bool> UpdateUserAsync(long id, UpdateUserRequest request);
+    Task<bool> ChangePasswordAsync(long id, string newPassword);
 }
 
 public class AuthService : IAuthService
@@ -136,6 +138,38 @@ public class AuthService : IAuthService
 
         user.IsActive = !user.IsActive;
         user.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> UpdateUserAsync(long id, UpdateUserRequest request)
+    {
+        var user = await _db.Set<User>().FindAsync(id);
+        if (user == null) return false;
+
+        // Ensure email uniqueness if changed
+        if (user.Email != request.Email)
+        {
+            await EnsureEmailUnique(request.Email);
+        }
+
+        user.Name = request.Name;
+        user.Email = request.Email;
+        user.Role = request.Role;
+        user.ModifyAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> ChangePasswordAsync(long id, string newPassword)
+    {
+        var user = await _db.Set<User>().FindAsync(id);
+        if (user == null) return false;
+
+        user.Password = HashPassword(newPassword);
+        user.ModifyAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
         return true;
     }

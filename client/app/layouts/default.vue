@@ -36,13 +36,18 @@
           class="mb-1"
           active-color="primary"
           @click="mobile ? drawer = false : undefined"
-        />
+        >
+          <template v-if="item.badge" #append>
+            <v-badge :content="item.badge" color="error" inline />
+          </template>
+        </v-list-item>
 
         <!-- Admin Section -->
         <template v-if="authStore.isAdmin">
           <v-divider class="my-2" />
           <v-list-subheader v-if="mobile || !rail">ADMIN</v-list-subheader>
           <v-list-item
+            v-if="authStore.isSuperAdmin"
             to="/users"
             prepend-icon="mdi-account-group"
             title="Users"
@@ -211,20 +216,30 @@ const allNavItems = [
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Procurements', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
-  { title: 'Task Manager', icon: 'mdi-view-kanban-outline', to: '/tasks', adminOnly: false, ilsOnly: false },
-  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },  { title: 'Payment', icon: 'mdi-cash-multiple', to: '/payment', paymentOnly: true },
+  { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },
+  { title: 'Total P/N', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
+  { title: 'Payment', icon: 'mdi-cash-multiple', to: '/payment', paymentOnly: true },
+  { title: 'Customer Payments', icon: 'mdi-cash-plus', to: '/payment/customer-payments', paymentOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', adminOnly: true, ilsOnly: true },
   { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', adminOnly: true, ilsOnly: false },
   { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true, ilsOnly: false },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true, ilsOnly: false },
+
   { title: 'Customers', icon: 'mdi-domain', to: '/catalog/customers', customerMenu:true },
   { title: 'Supplier Requests', icon: 'mdi-account-clock-outline', to: '/catalog/supplier-requests', adminOnly: true, ilsOnly: false },
+  { title: 'Task Manager', icon: 'mdi-view-list', to: '/tasks', adminOnly: false, ilsOnly: false },
+
 ] as any[]
 
 const navItems = computed(() => {
   return allNavItems.filter(item => {
-    // Payment-only items: visible to Payment role and Admin
+    // If user is strictly in the Payment role, they only see paymentOnly items
+    if (authStore.user?.role === 'Payment') {
+      return item.paymentOnly === true
+    }
+
+    // Payment-only items: visible to Payment role (checked above) and Admin/SuperAdmin
     if (item.paymentOnly) return authStore.isPayment
     // ILS-only pages: only for ILS users OR Admin
     if (item.ilsOnly && !authStore.ilsUsers && !authStore.isAdmin) return false
@@ -232,6 +247,11 @@ const navItems = computed(() => {
     if (item.adminOnly && !item.ilsOnly && !authStore.isAdmin) return false
     if (item.customerMenu && !authStore.customerMenu) return false
     return true
+  }).map(item => {
+    if (item.title === 'Task Manager') {
+      return { ...item, badge: tasksPendingCount.value > 0 ? tasksPendingCount.value : undefined }
+    }
+    return item
   })
 })
 
@@ -253,6 +273,7 @@ const router = useRouter()
 
 const notifications = ref<any[]>([])
 const unreadCount = ref(0)
+const tasksPendingCount = ref(0)
 const rejections = ref<any[]>([])
 const showRejectionModal = ref(false)
 
@@ -261,12 +282,14 @@ let tokenCheckTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadNotifications() {
   try {
-    const [list, count] = await Promise.all([
+    const [list, count, taskCount] = await Promise.all([
       api.get<any[]>('/notifications'),
       api.get<number>('/notifications/unread-count'),
+      api.get<number>('/tasks/pending-count'),
     ])
     notifications.value = list
     unreadCount.value = count
+    tasksPendingCount.value = taskCount
   } catch (e) { console.warn('[Notifications] Load failed', e) }
 }
 

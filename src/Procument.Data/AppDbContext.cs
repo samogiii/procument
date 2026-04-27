@@ -4,6 +4,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Purchasing.Entities;
+using Procument.Module.Tasks.Entities;
 using Procument.Shared.Entities;
 
 namespace Procument.Data;
@@ -38,6 +39,7 @@ public class AppDbContext : DbContext
   public DbSet<QuoteItem> QuoteItems => Set<QuoteItem>();
   public DbSet<Invoice> Invoices => Set<Invoice>();
   public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
+  public DbSet<CustomerPayment> CustomerPayments => Set<CustomerPayment>();
   public DbSet<FinalInvoice> FinalInvoices => Set<FinalInvoice>();
   public DbSet<FinalInvoiceItem> FinalInvoiceItems => Set<FinalInvoiceItem>();
 
@@ -56,6 +58,7 @@ public class AppDbContext : DbContext
   public DbSet<Procurement> Procurements => Set<Procurement>();
   public DbSet<ProcurementItem> ProcurementItems => Set<ProcurementItem>();
   public DbSet<ProcurementSupplierQuote> ProcurementSupplierQuotes => Set<ProcurementSupplierQuote>();
+  public DbSet<TaskItem> TaskItems => Set<TaskItem>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -314,6 +317,20 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.QuoteId);
       // Speeds up alternate-part-number searches across quote items
       entity.HasIndex(e => e.Alt);
+    });
+
+    modelBuilder.Entity<CustomerPayment>(entity =>
+    {
+      entity.ToTable("CustomerPayments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(500);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.HasOne(e => e.Invoice)
+            .WithMany()
+            .HasForeignKey(e => e.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+      entity.HasIndex(e => e.InvoiceId);
     });
 
     modelBuilder.Entity<Invoice>(entity =>
@@ -810,6 +827,28 @@ public class AppDbContext : DbContext
       entity.HasKey(e => e.Id);
       entity.HasIndex(e => e.UserId);
       entity.HasIndex(e => new { e.UserId, e.IsDismissed });
+    });
+
+    // ───────────────────────────────────────────
+    // Tasks Module
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<TaskItem>(entity =>
+    {
+      entity.ToTable("Tasks");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Title).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.Description).HasMaxLength(2000);
+      entity.Property(e => e.AssignedTo).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.CreatedByCode).HasMaxLength(100).IsRequired();
+
+      entity.HasOne(e => e.AssignedToUser)
+                .WithMany()
+                .HasForeignKey(e => e.AssignedToUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.AssignedTo);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.CreatedAt);
     });
   }
 }

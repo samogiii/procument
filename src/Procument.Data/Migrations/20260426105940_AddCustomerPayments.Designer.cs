@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260426105940_AddCustomerPayments")]
+    partial class AddCustomerPayments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -774,14 +777,8 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("InvoiceItemId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("Note")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<long?>("POId")
                         .HasColumnType("bigint");
-
-                    b.Property<int?>("PORef")
-                        .HasColumnType("int");
 
                     b.Property<long?>("PartNumberId")
                         .HasColumnType("bigint");
@@ -804,9 +801,6 @@ namespace Procument.Data.Migrations
 
                     b.Property<long?>("SourceProcurementItemId")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<long?>("SupplierId")
                         .HasColumnType("bigint");
@@ -1881,61 +1875,6 @@ namespace Procument.Data.Migrations
                     b.ToTable("QuoteItems", (string)null);
                 });
 
-            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskItem", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("AssignedTo")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<long?>("AssignedToUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedByCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime?>("ModifyAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssignedTo");
-
-                    b.HasIndex("AssignedToUserId");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("Status");
-
-                    b.ToTable("Tasks", (string)null);
-                });
-
             modelBuilder.Entity("Procument.Shared.Entities.AuditLog", b =>
                 {
                     b.Property<long>("Id")
@@ -2573,16 +2512,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("Quote");
 
                     b.Navigation("RFQItem");
-                });
-
-            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskItem", b =>
-                {
-                    b.HasOne("Procument.Module.Identity.Entities.User", "AssignedToUser")
-                        .WithMany()
-                        .HasForeignKey("AssignedToUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("AssignedToUser");
                 });
 
             modelBuilder.Entity("Procument.Module.Catalog.Entities.PartNumber", b =>

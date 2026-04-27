@@ -21,6 +21,18 @@ public class AdminCreateUserRequest
     public string Role { get; set; } = "Expert";
 }
 
+public class UpdateUserRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+}
+
+public class AdminChangePasswordRequest
+{
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class AuthResponse
 {
     public long Id { get; set; }

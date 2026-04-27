@@ -69,6 +69,35 @@
             <div class="text-caption text-medium-emphasis font-weight-bold uppercase">Finalized At</div>
             <div class="text-body-1 font-weight-bold text-success">{{ new Date(procurement.finalizedAt).toLocaleString() }}</div>
           </v-col>
+          <!-- Header-level Assigned Users -->
+          <v-col v-if="isAdmin" cols="12">
+            <div class="text-caption text-medium-emphasis font-weight-bold uppercase mb-1">Header-level Assigned Users</div>
+            <div class="d-flex flex-wrap gap-2">
+              <template v-if="headerPermissions.length">
+                <v-chip
+                  v-for="u in headerPermissions"
+                  :key="u.id"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  prepend-icon="mdi-account"
+                  closable
+                  @click:close="deletePermission(procurement.id, u.id, true)"
+                >
+                  {{ u.userName }} ({{ u.permission }})
+                </v-chip>
+              </template>
+              <v-btn 
+                size="x-small" 
+                variant="tonal" 
+                color="primary" 
+                prepend-icon="mdi-plus"
+                @click="openHeaderAssign"
+              >
+                Assign
+              </v-btn>
+            </div>
+          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
@@ -404,7 +433,7 @@
     <!-- Single Item Assign Dialog -->
     <v-dialog v-model="showItemAssign" max-width="400">
       <v-card>
-        <v-card-title>Assign User to Item</v-card-title>
+        <v-card-title>Assign User to {{ assignTargetItemId === null ? 'Procurement' : 'Item' }}</v-card-title>
         <v-card-text>
           <v-autocomplete
             v-model="assignTargetUserId"
@@ -431,7 +460,7 @@
     <!-- Shared supplier autocomplete suggestions -->
     <datalist id="procurement-supplier-suggestions">
       <option
-        v-for="s in supplierSuggestions"
+        v-for="s in supplierSuggestions.filter(x => x.status === 'Approved')"
         :key="s.id"
         :value="s.name"
       >{{ s.status }}</option>
@@ -460,10 +489,11 @@ const finalizeNotes = ref('')
 const cancelling = ref(false)
 const showCancelConfirm = ref(false)
 
+const headerPermissions = ref<any[]>([])
 const itemPermissions = ref<Record<number, any[]>>({})
 const users = ref<any[]>([])
 const showItemAssign = ref(false)
-const assignTargetItemId = ref<number | null>(null)
+const assignTargetItemId = ref<number | null>(null) // null means header
 const assignTargetUserId = ref<number | null>(null)
 
 // Supplier autocomplete (shared across all quote rows via a single <datalist>)
@@ -507,13 +537,21 @@ async function loadDetail() {
     const data = await api.get<any>(`/procurements/${route.params.id}`)
     procurement.value = data
     
-    // Load item-specific permissions for admins
     if (isAdmin.value) {
-      data.items.forEach((item: any) => loadItemPermissions(item.id))
+      // Map permissions from the flat list in response
+      const allPerms = data.assignedUsers || []
+      headerPermissions.value = allPerms.filter((p: any) => p.entityId === String(data.id))
+      
+      const itemMap: Record<number, any[]> = {}
+      data.items.forEach((it: any) => {
+        itemMap[it.id] = allPerms.filter((p: any) => p.entityId === String(it.id))
+      })
+      itemPermissions.value = itemMap
+
       if (!users.value.length) {
-        const all = await api.get<any[]>('/users')
+        const allUsers = await api.get<any[]>('/users')
         const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
-        users.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
+        users.value = allUsers.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
       }
     }
   } catch (e) {
@@ -523,9 +561,19 @@ async function loadDetail() {
   }
 }
 
+async function loadHeaderPermissions() {
+  try {
+    const perms = await api.get<any[]>(`/permissions/Procurement/${procurement.value.id}`)
+    headerPermissions.value = perms
+  } catch {
+    headerPermissions.value = []
+  }
+}
+
 async function loadItemPermissions(itemId: number) {
   try {
-    itemPermissions.value[itemId] = await api.get<any[]>(`/permissions/Procurement/${itemId}`)
+    const perms = await api.get<any[]>(`/permissions/Procurement/${itemId}`)
+    itemPermissions.value[itemId] = perms
   } catch {
     itemPermissions.value[itemId] = []
   }
@@ -575,8 +623,6 @@ function addSupplierQuote(item: any) {
 async function saveSupplierQuote(item: any, sq: any) {
   if (isFinalizedOrCancelled.value || !sq.supplierName.trim()) return
   try {
-    // If the typed name matches a known supplier suggestion exactly,
-    // send the supplierId too so the backend links instead of auto-creating.
     const typed = (sq.supplierName || '').trim().toLowerCase()
     const match = supplierSuggestions.value.find(s => s.name.toLowerCase() === typed)
     const resolvedSupplierId = sq.supplierId || (match ? match.id : null)
@@ -617,8 +663,6 @@ function searchSupplier(val: string) {
 
 function onSupplierNameInput(sq: any, val: string) {
   sq.supplierName = val
-  // Typing a fresh name means we no longer want to reuse the previous supplierId
-  // until/unless we match again; otherwise a rename would silently re-link.
   const typed = (val || '').trim().toLowerCase()
   const match = supplierSuggestions.value.find(s => s.name.toLowerCase() === typed)
   sq.supplierId = match ? match.id : null
@@ -629,9 +673,7 @@ async function selectSupplierQuote(item: any, sq: any) {
   if (isFinalizedOrCancelled.value || !sq.id) return
   try {
     await api.post(`/procurements/${procurement.value.id}/items/${item.id}/supplier-quotes/${sq.id}/select`, {})
-    // Selected status is exclusive per item
     item.supplierQuotes.forEach((q: any) => q.isSelected = (q.id === sq.id))
-    // Selection updates item summary fields on backend; refetch to stay synced
     await loadDetail()
     showSnack('Supplier selected')
   } catch {
@@ -655,6 +697,12 @@ async function deleteSupplierQuote(item: any, sq: any) {
 }
 
 // ── Permissions ──
+function openHeaderAssign() {
+  assignTargetItemId.value = null
+  assignTargetUserId.value = null
+  showItemAssign.value = true
+}
+
 function openItemAssign(itemId: number) {
   assignTargetItemId.value = itemId
   assignTargetUserId.value = null
@@ -662,15 +710,21 @@ function openItemAssign(itemId: number) {
 }
 
 async function doItemAssign() {
-  if (!assignTargetItemId.value || !assignTargetUserId.value) return
+  if (!assignTargetUserId.value) return
+  const isHeader = assignTargetItemId.value === null
+  const targetId = isHeader ? procurement.value.id : assignTargetItemId.value
+
   try {
     await api.post('/permissions/assign', {
       userId: assignTargetUserId.value,
       entityName: 'Procurement',
-      entityId: String(assignTargetItemId.value),
+      entityId: String(targetId),
       permission: 'Edit'
     })
-    await loadItemPermissions(assignTargetItemId.value)
+    
+    if (isHeader) await loadHeaderPermissions()
+    else await loadItemPermissions(targetId as number)
+
     showItemAssign.value = false
     showSnack('User assigned')
   } catch {
@@ -678,10 +732,11 @@ async function doItemAssign() {
   }
 }
 
-async function deletePermission(itemId: number, permId: number) {
+async function deletePermission(targetId: number, permId: number, isHeader = false) {
   try {
     await api.del(`/permissions/${permId}`)
-    await loadItemPermissions(itemId)
+    if (isHeader) await loadHeaderPermissions()
+    else await loadItemPermissions(targetId)
     showSnack('Permission removed')
   } catch {
     showSnack('Removal failed', 'error')

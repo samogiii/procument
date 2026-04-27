@@ -10,6 +10,7 @@ public interface IInventoryService
     Task<InventoryItemResponse> SaveAsync(SaveInventoryItemRequest request);
     Task<bool> DeleteAsync(long id);
     Task<BulkImportResult> BulkImportAsync(BulkImportInventoryRequest request);
+    Task<List<InventoryItemResponse>> BulkSearchInventory(BulkSearch search);
 }
 
 public class InventoryService : IInventoryService
@@ -31,7 +32,29 @@ public class InventoryService : IInventoryService
 
         return items.Select(MapToResponse).ToList();
     }
+    public async Task<List<InventoryItemResponse>> BulkSearchInventory(BulkSearch search)
+    {
+        // 1. Start building the query
+        var query = _db.Set<InventoryItem>()
+            .Include(i => i.PartNumber)
+            .Include(i => i.Company)
+            .AsQueryable();
 
+        // 2. Apply the IN clause filter safely
+        if (search?.Names != null && search.Names.Any())
+        {
+            query = query.Where(i => search.Names.Contains(i.PartNumber.Name));
+        }
+
+        // 3. Execute the query and fetch the results from the database
+        var items = await query
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync();
+
+        // 4. Map the database entities to your response DTOs
+        return items.Select(MapToResponse).ToList();
+
+    }
     public async Task<InventoryItemResponse> SaveAsync(SaveInventoryItemRequest request)
     {
         // ── Resolve or create PartNumber ──
@@ -293,6 +316,7 @@ public class InventoryService : IInventoryService
 
         return result;
     }
+    
 
     private static InventoryItemResponse MapToResponse(InventoryItem item) => new()
     {

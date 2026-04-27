@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260426121339_TaskManagerTable")]
+    partial class TaskManagerTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -774,14 +777,8 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("InvoiceItemId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("Note")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<long?>("POId")
                         .HasColumnType("bigint");
-
-                    b.Property<int?>("PORef")
-                        .HasColumnType("int");
 
                     b.Property<long?>("PartNumberId")
                         .HasColumnType("bigint");
@@ -804,9 +801,6 @@ namespace Procument.Data.Migrations
 
                     b.Property<long?>("SourceProcurementItemId")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<long?>("SupplierId")
                         .HasColumnType("bigint");

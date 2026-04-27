@@ -116,6 +116,7 @@ public class RFQResponse
     public string? CustomerCode { get; set; }
     public int? CustomerBase { get; set; }
     public string? CustomerCurrencyType { get; set; }
+    public string? CustomerTermsAndConditions { get; set; }
     public long CustomerId { get; set; }
     public string? UserName { get; set; }
     public long? UserId { get; set; }

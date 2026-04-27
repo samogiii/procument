@@ -1,5 +1,5 @@
-<template>
-  <div>
+<template >
+  <div >
     <PageHeader title="Purchase Orders" />
 
     <!-- Loading -->
@@ -75,7 +75,7 @@
             </div>
 
             <div class="excel-container" v-else>
-              <table class="po-table">
+              <table class="po-table" v-if="pageLoading">
                 <thead>
                   <tr>
                     <th style="width: 60px;">#</th>
@@ -135,7 +135,7 @@
                           variant="tonal"
                           :title="`${p.permission} · Assigned ${new Date(p.createdAt).toLocaleDateString()}`"
                         >
-                          {{ p.user?.name || p.user?.email || `User #${p.userId}` }}
+                          {{ p.user.name }}
                         </v-chip>
                       </div>
                       <span v-else class="text-medium-emphasis" style="font-size: 12px;">—</span>
@@ -443,7 +443,8 @@ const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const showAssignDialog = ref(false)
-
+const pageLoading = ref(false)
+const pageLoading1 = ref(false)
 const loading = ref(true)
 const allItems = ref<any[]>([])
 const editableItems = ref<any[]>([])
@@ -578,8 +579,9 @@ function toggleGroupAll(group: any[]) {
 
 // ── Load data ──
 onMounted(() => {
-  loadItems()
   loadPurchaseOrders()
+  loadItems()
+  
 })
 
 async function loadItems() {
@@ -608,7 +610,8 @@ async function loadItems() {
 }
 
 async function loadPurchaseOrders() {
-  try {
+  // try {
+  
     const accumulated: any[] = []
     let page = 1
     while (true) {
@@ -621,6 +624,20 @@ async function loadPurchaseOrders() {
     }
     const pos = accumulated
     purchaseOrders.value = pos
+    if (isAdmin.value) {
+      await Promise.all(pos.map( async(po: any) => {
+        // try {
+          po._assignedUsers = await api.get<any[]>(`/permissions/PO/${po.id}`)
+          
+          // console.log(po._a)
+        // } catch {
+          // po._assignedUsers = []
+        // }
+      })).finally( x => {
+        pageLoading.value = true
+      })
+
+    }
     // Check lock status for each PO in parallel
     await Promise.all(pos.map(async (po: any) => {
       try {
@@ -630,19 +647,12 @@ async function loadPurchaseOrders() {
         po._locked = false
       }
     }))
+     
     // Load assigned users per PO (admin only)
-    if (isAdmin.value) {
-      await Promise.all(pos.map(async (po: any) => {
-        try {
-          po._assignedUsers = await api.get<any[]>(`/permissions/PO/${po.id}`)
-        } catch {
-          po._assignedUsers = []
-        }
-      }))
-    }
-  } catch {
-    // silent
-  }
+   
+  // } catch {
+  //   // silent
+  // }
 }
 
 // ── Create PO from selected items in a supplier group ──

@@ -267,9 +267,19 @@ public class PurchaseOrderService : IPurchaseOrderService
             .ToListAsync();
 
         decimal totalAmount = 0;
-        foreach (var item in poItems)
+        // Preserve the order the caller selected the items in so PORef is stable & predictable.
+        var orderedItems = request.POItemIds
+            .Select(id => poItems.FirstOrDefault(p => p.Id == id))
+            .Where(p => p != null)
+            .ToList()!;
+        int lineNo = 1;
+        foreach (var item in orderedItems)
         {
-            item.POId = po.Id;
+            item!.POId = po.Id;
+            item.PORef = lineNo++;
+            // Default workflow status for newly-created PO lines so the Total P/N grid renders something.
+            if (string.IsNullOrWhiteSpace(item.Status))
+                item.Status = "Not Started";
             totalAmount += item.TotalPrice;
         }
 

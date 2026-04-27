@@ -42,7 +42,10 @@
       "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC;\")",
       "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT TOP 5 MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC;\")",
       "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements', 'ProcurementItems', 'ProcurementSupplierQuotes'\\);\")",
-      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements','ProcurementItems','ProcurementSupplierQuotes'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('POItems'\\) AND name IN \\('SourceProcurementItemId','ReturnedAt','ReturnedFromPOId','ReturnReason'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('ProcurementItems'\\) AND name IN \\('LoopCount','LastReturnReason','LastReturnedAt','FulfilledByPOItemId'\\);\")"
+      "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements','ProcurementItems','ProcurementSupplierQuotes'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('POItems'\\) AND name IN \\('SourceProcurementItemId','ReturnedAt','ReturnedFromPOId','ReturnReason'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('ProcurementItems'\\) AND name IN \\('LoopCount','LastReturnReason','LastReturnedAt','FulfilledByPOItemId'\\);\")",
+      "Bash(xargs grep *)",
+      "Bash(npm run *)",
+      "Bash(python -c ' *)"
     ]
   }
 }

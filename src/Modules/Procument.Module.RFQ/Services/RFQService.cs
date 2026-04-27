@@ -530,6 +530,7 @@ public class RFQService : IRFQService
         CustomerCode = rfq.Customer.CustomerCode,
         CustomerBase = rfq.Customer.Base,
         CustomerCurrencyType = rfq.Customer.CurrencyType,
+        CustomerTermsAndConditions = rfq.Customer.TermsAndConditions,
         CustomerId = rfq.CustomerId,
         UserName = rfq.User?.Name,
         UserId = rfq.UserId,
