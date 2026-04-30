@@ -316,16 +316,17 @@
                       <th>Total</th>
                       <th>Lead Time</th>
                       <th>Note</th>
-                      <th v-if="!isFinalizedOrCancelled" style="width: 80px;"></th>
+                      <!-- Action column: delete (non-admin) OR approve/status (admin) -->
+                      <th style="width: 110px;"></th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="sq in item.supplierQuotes" :key="sq.id || `new-${sq.tempId}`" :class="{ 'bg-success-light': sq.isSelected }">
                       <td class="text-center">
-                        <!-- Checkbox (was radio) — multiple selections split this part into one PO line per supplier on finalize -->
+                        <!-- Checkbox — multiple selections split this part into one PO line per supplier -->
                         <v-checkbox
                           :model-value="sq.isSelected"
-                          :readonly="isFinalizedOrCancelled"
+                          :readonly="isFinalizedOrCancelled || sq.hasActivePOItem"
                           color="success"
                           density="compact"
                           hide-details
@@ -338,15 +339,15 @@
                           v-model="sq.supplierName"
                           class="quote-input"
                           placeholder="Name..."
-                          :readonly="isFinalizedOrCancelled"
+                          :readonly="isFinalizedOrCancelled || sq.hasActivePOItem"
                           list="procurement-supplier-suggestions"
                           @input="onSupplierNameInput(sq, ($event.target as HTMLInputElement).value)"
                           @blur="saveSupplierQuote(item, sq)"
                         />
                       </td>
-                      <td><input type="text" v-model="sq.alt" class="quote-input" :readonly="isFinalizedOrCancelled" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="text" v-model="sq.alt" class="quote-input" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <td>
-                        <select v-model="sq.condition" class="quote-input" :disabled="isFinalizedOrCancelled" @change="saveSupplierQuote(item, sq)">
+                        <select v-model="sq.condition" class="quote-input" :disabled="isFinalizedOrCancelled || sq.hasActivePOItem" @change="saveSupplierQuote(item, sq)">
                           <option value="NE">NE</option>
                           <option value="OH">OH</option>
                           <option value="SV">SV</option>
@@ -354,18 +355,41 @@
                           <option value="RP">RP</option>
                         </select>
                       </td>
-                      <td><input type="number" v-model.number="sq.qty" class="quote-input text-center" :readonly="isFinalizedOrCancelled" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td><input type="number" v-model.number="sq.price" class="quote-input text-right" step="0.01" :readonly="isFinalizedOrCancelled" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="number" v-model.number="sq.qty" class="quote-input text-center" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="number" v-model.number="sq.price" class="quote-input text-right" step="0.01" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <td class="text-right text-caption font-weight-bold px-2">${{ formatPrice(sq.qty * sq.price) }}</td>
-                      <td><input type="text" v-model="sq.leadTime" class="quote-input" placeholder="e.g. 3-5 days" :readonly="isFinalizedOrCancelled" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td><input type="text" v-model="sq.note" class="quote-input" :readonly="isFinalizedOrCancelled" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td v-if="!isFinalizedOrCancelled" class="text-center">
-                        <v-btn 
-                          v-if="!sq.isSelected"
-                          icon="mdi-delete" 
-                          variant="text" 
-                          size="x-small" 
-                          color="error" 
+                      <td><input type="text" v-model="sq.leadTime" class="quote-input" placeholder="e.g. 3-5 days" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="text" v-model="sq.note" class="quote-input" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+
+                      <!-- Action cell -->
+                      <td class="text-center px-1">
+                        <!-- Admin: selected row → Approve button or "Done" chip -->
+                        <template v-if="isAdmin && sq.isSelected && procurement.status !== 'Cancelled'">
+                          <v-chip
+                            v-if="sq.hasActivePOItem"
+                            size="x-small"
+                            color="success"
+                            prepend-icon="mdi-check-circle"
+                            variant="tonal"
+                          >Approved</v-chip>
+                          <v-btn
+                            v-else
+                            size="x-small"
+                            color="success"
+                            variant="flat"
+                            prepend-icon="mdi-check-bold"
+                            :loading="approvingQuoteId === sq.id"
+                            :disabled="approvingQuoteId !== null && approvingQuoteId !== sq.id"
+                            @click="approveSupplierQuote(item, sq)"
+                          >Approve</v-btn>
+                        </template>
+                        <!-- Non-selected row: delete button (non-admin or unselected) -->
+                        <v-btn
+                          v-else-if="!sq.isSelected && !isFinalizedOrCancelled"
+                          icon="mdi-delete"
+                          variant="text"
+                          size="x-small"
+                          color="error"
                           @click="deleteSupplierQuote(item, sq)"
                         />
                       </td>
@@ -810,6 +834,33 @@ async function finalize() {
   } finally {
     finalizing.value = false
     showFinalizeConfirm.value = false
+  }
+}
+
+// Per-supplier-quote approval — admin approves one selected supplier row → creates its POItem
+const approvingQuoteId = ref<number | null>(null)
+
+async function approveSupplierQuote(item: any, sq: any) {
+  if (approvingQuoteId.value) return
+  approvingQuoteId.value = sq.id
+  try {
+    const res = await api.post<any>(
+      `/procurements/${procurement.value.id}/items/${item.id}/supplier-quotes/${sq.id}/approve`,
+      {}
+    )
+    if (res.procurementFullyFinalized) {
+      showSnack('All supplier rows approved — procurement finalized! Redirecting...', 'success')
+      setTimeout(() => router.push('/purchase-orders'), 1500)
+    } else if ((res.createdPOItemIds?.length ?? 0) === 0) {
+      showSnack('This supplier row is already approved.', 'info')
+    } else {
+      showSnack('Supplier row approved — PO item created.', 'success')
+    }
+    await loadDetail() // Refresh HasActivePOItem on quotes
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Approval failed', 'error')
+  } finally {
+    approvingQuoteId.value = null
   }
 }
 

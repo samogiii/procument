@@ -24,6 +24,19 @@ public interface IProcurementService
     Task<bool> SelectSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId);
 
     Task<FinalizeProcurementResponse?> FinalizeAsync(long procurementId, long userId, FinalizeProcurementRequest? request = null);
+
+    /// <summary>
+    /// Finalize a single ProcurementItem (one supplier row) independently of the rest.
+    /// Creates POItem(s) for that item only. Auto-finalizes the procurement when all items are done.
+    /// </summary>
+    Task<FinalizeProcurementItemResponse?> FinalizeItemAsync(long procurementId, long itemId, long userId);
+
+    /// <summary>
+    /// Admin approves a single selected supplier quote row — creates exactly ONE POItem from that quote.
+    /// Auto-finalizes the procurement when every selected quote has an active POItem.
+    /// </summary>
+    Task<FinalizeProcurementItemResponse?> FinalizeSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId, long userId);
+
     Task<bool> CancelAsync(long procurementId, long userId);
 
     /// <summary>

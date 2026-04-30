@@ -422,6 +422,44 @@ public class ProcurementService : IProcurementService
         resp.Items = items.Select(MapItem).ToList();
         resp.ItemCount = resp.Items.Count; // Adjust count to match visible items
 
+        // Stamp HasActivePOItem at both item-level and per-quote level (single DB round-trip).
+        // Item-level: true when ALL selected quotes have active POItems.
+        // Quote-level: true when that specific supplier's POItem is active (not returned).
+        if (resp.Items.Count > 0)
+        {
+            var itemIdList = resp.Items.Select(i => i.Id).ToList();
+
+            // Fetch active POItems projected to (SourceProcurementItemId, SupplierId)
+            var activePairs = await _db.Set<POItem>()
+                .Where(p => p.SourceProcurementItemId.HasValue
+                         && itemIdList.Contains(p.SourceProcurementItemId!.Value)
+                         && p.ReturnedAt == null)
+                .Select(p => new { ItemId = p.SourceProcurementItemId!.Value, p.SupplierId })
+                .ToListAsync();
+
+            // Build: itemId → active count
+            var activeCountByItemId = activePairs
+                .GroupBy(p => p.ItemId)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            // Build: (itemId, supplierId) set for per-quote lookup
+            var activeQuoteKeys = activePairs
+                .Select(p => (p.ItemId, p.SupplierId))
+                .ToHashSet();
+
+            foreach (var ri in resp.Items)
+            {
+                activeCountByItemId.TryGetValue(ri.Id, out var activeCount);
+                var selectedQuoteCount = ri.SupplierQuotes.Count(q => q.IsSelected);
+                var expectedCount = selectedQuoteCount >= 2 ? selectedQuoteCount : 1;
+                ri.HasActivePOItem = activeCount >= expectedCount;
+
+                // Per-quote: mark which selected rows already have a live POItem (admin approved)
+                foreach (var sq in ri.SupplierQuotes)
+                    sq.HasActivePOItem = sq.IsSelected && activeQuoteKeys.Contains((ri.Id, sq.SupplierId));
+            }
+        }
+
         // Load assigned users (Procurement scope) — both header and per-item
         var itemIdStrs = proc.Items.Select(i => i.Id.ToString()).ToList();
         var headerIdStr = proc.Id.ToString();
@@ -704,6 +742,92 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     // Finalize → create POItems
     // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Shared helper: materializes one ProcurementItem into POItem(s).
+    /// Returns the IDs of the newly created POItems (empty if all supplier rows are already active).
+    ///
+    /// Multi-supplier split (2+ selected quotes):
+    ///   Each selected supplier quote is checked INDEPENDENTLY. If that specific supplier's
+    ///   POItem was returned, a new one is created for it — without touching the other
+    ///   supplier's still-active POItem.
+    ///
+    /// Single-supplier (0 or 1 selected quote):
+    ///   Standard guard — skip if any active POItem already exists for this item.
+    /// </summary>
+    private async Task<List<long>> MaterializeItemAsync(ProcurementItem pi)
+    {
+        var created = new List<long>();
+
+        if (pi.ItemStatus == "Cancelled") return created;
+
+        var selectedQuotes = pi.SupplierQuotes.Where(q => q.IsSelected).ToList();
+
+        if (selectedQuotes.Count >= 2)
+        {
+            // ── Multi-supplier split ──
+            // Guard is per-supplier: only skip a specific supplier if its POItem is still active.
+            // This allows re-finalization of a single returned supplier row without blocking
+            // the other suppliers that are still in their POs.
+            foreach (var sq in selectedQuotes)
+            {
+                var supplierId = sq.SupplierId ?? pi.CurrentSupplierId;
+
+                // Skip only if THIS supplier already has an active (non-returned) POItem for this item
+                var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
+                    p.SourceProcurementItemId == pi.Id &&
+                    p.SupplierId == supplierId &&
+                    p.ReturnedAt == null);
+                if (alreadyActive) continue;
+
+                int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
+                decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
+                var splitItem = new POItem
+                {
+                    POId = null,
+                    InvoiceItemId = pi.SourceInvoiceItemId,
+                    ProcumentId = pi.SourceProcumentRecordId,
+                    PartNumberId = pi.PartNumberId,
+                    SupplierId = supplierId,
+                    Qty = qty,
+                    UnitPrice = price,
+                    TotalPrice = qty * price,
+                    Condition = sq.Condition ?? pi.Condition,
+                    SourceProcurementItemId = pi.Id,
+                };
+                _db.Set<POItem>().Add(splitItem);
+                await _db.SaveChangesAsync();
+                created.Add(splitItem.Id);
+            }
+            return created;
+        }
+
+        // ── Single-supplier path (0 or 1 selected) ──
+        // Standard guard: skip if any active POItem already exists for this procurement item
+        var already = await _db.Set<POItem>().AnyAsync(p =>
+            p.SourceProcurementItemId == pi.Id && p.ReturnedAt == null);
+        if (already) return created;
+
+        var poItem = new POItem
+        {
+            POId = null, // unassigned — admin will group & create POs from /purchase-orders
+            InvoiceItemId = pi.SourceInvoiceItemId,
+            ProcumentId = pi.SourceProcumentRecordId,
+            PartNumberId = pi.PartNumberId,
+            SupplierId = pi.CurrentSupplierId,
+            Qty = pi.Qty,
+            UnitPrice = pi.UnitPrice,
+            TotalPrice = pi.Qty * pi.UnitPrice,
+            Condition = pi.Condition,
+            SourceProcurementItemId = pi.Id,
+        };
+        _db.Set<POItem>().Add(poItem);
+        await _db.SaveChangesAsync();
+        created.Add(poItem.Id);
+        return created;
+    }
+
+    /// <summary>Finalize the entire procurement — creates POItems for ALL non-finalized items at once.</summary>
     public async Task<FinalizeProcurementResponse?> FinalizeAsync(long procurementId, long userId, FinalizeProcurementRequest? request = null)
     {
         var proc = await _db.Set<Procurement>()
@@ -716,61 +840,8 @@ public class ProcurementService : IProcurementService
         var createdItemIds = new List<long>();
         foreach (var pi in proc.Items)
         {
-            if (pi.ItemStatus == "Cancelled") continue;
-
-            // Guard: don't double-create if an ACTIVE (non-returned) POItem already references this ProcurementItem
-            var already = await _db.Set<POItem>().AnyAsync(p => p.SourceProcurementItemId == pi.Id && p.ReturnedAt == null);
-            if (already) continue;
-
-            // Multi-supplier split: if 2+ quotes are selected, emit one POItem per selected quote
-            // (each carries its own Qty / UnitPrice / SupplierId / Condition). If 0 or 1 selected,
-            // fall back to the legacy single POItem from the ProcurementItem header.
-            var selectedQuotes = pi.SupplierQuotes.Where(q => q.IsSelected).ToList();
-
-            if (selectedQuotes.Count >= 2)
-            {
-                foreach (var sq in selectedQuotes)
-                {
-                    // sq.Qty is double on the supplier-quote side; round to int for the PO line
-                    int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
-                    decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
-                    var splitItem = new POItem
-                    {
-                        POId = null,
-                        InvoiceItemId = pi.SourceInvoiceItemId,
-                        ProcumentId = pi.SourceProcumentRecordId,
-                        PartNumberId = pi.PartNumberId,
-                        SupplierId = sq.SupplierId ?? pi.CurrentSupplierId,
-                        Qty = qty,
-                        UnitPrice = price,
-                        TotalPrice = qty * price,
-                        Condition = sq.Condition ?? pi.Condition,
-                        SourceProcurementItemId = pi.Id,
-                    };
-                    _db.Set<POItem>().Add(splitItem);
-                    await _db.SaveChangesAsync();
-                    createdItemIds.Add(splitItem.Id);
-                }
-                continue;
-            }
-
-            // Single-supplier path (0 or 1 selected): preserves the original behavior.
-            var poItem = new POItem
-            {
-                POId = null, // unassigned — admin will group & create POs from /purchase-orders
-                InvoiceItemId = pi.SourceInvoiceItemId,
-                ProcumentId = pi.SourceProcumentRecordId,
-                PartNumberId = pi.PartNumberId,
-                SupplierId = pi.CurrentSupplierId,
-                Qty = pi.Qty,
-                UnitPrice = pi.UnitPrice,
-                TotalPrice = pi.Qty * pi.UnitPrice,
-                Condition = pi.Condition,
-                SourceProcurementItemId = pi.Id,
-            };
-            _db.Set<POItem>().Add(poItem);
-            await _db.SaveChangesAsync();
-            createdItemIds.Add(poItem.Id);
+            var ids = await MaterializeItemAsync(pi);
+            createdItemIds.AddRange(ids);
         }
 
         proc.Status = "Finalized";
@@ -785,6 +856,178 @@ public class ProcurementService : IProcurementService
             ProcurementId = proc.Id,
             CreatedPOIds = new List<long>(), // POs not created here — admin triages unassigned items on /purchase-orders
             CreatedPOItemIds = createdItemIds,
+        };
+    }
+
+    /// <summary>
+    /// Finalize a SINGLE ProcurementItem (one supplier row) independently.
+    /// Creates POItem(s) for just that item. If all items in the procurement are now
+    /// materialized, the procurement status is automatically set to Finalized.
+    /// </summary>
+    public async Task<FinalizeProcurementItemResponse?> FinalizeItemAsync(long procurementId, long itemId, long userId)
+    {
+        var proc = await _db.Set<Procurement>()
+            .Include(p => p.Items)
+                .ThenInclude(i => i.SupplierQuotes)
+            .FirstOrDefaultAsync(p => p.Id == procurementId);
+        if (proc == null) return null;
+        if (proc.Status is "Cancelled") return null;
+
+        var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
+        if (pi == null) return null;
+
+        var createdIds = await MaterializeItemAsync(pi);
+
+        // Check if all non-cancelled items are now fully materialized → auto-finalize the procurement.
+        // For multi-supplier splits, every selected supplier must have an active POItem.
+        bool allDone = true;
+        foreach (var item in proc.Items)
+        {
+            if (item.ItemStatus == "Cancelled") continue;
+
+            var selectedQuotes = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
+
+            if (selectedQuotes.Count >= 2)
+            {
+                // Multi-split: each selected supplier must have an active POItem
+                foreach (var sq in selectedQuotes)
+                {
+                    var supplierId = sq.SupplierId ?? item.CurrentSupplierId;
+                    var hasActive = await _db.Set<POItem>().AnyAsync(p =>
+                        p.SourceProcurementItemId == item.Id &&
+                        p.SupplierId == supplierId &&
+                        p.ReturnedAt == null);
+                    if (!hasActive) { allDone = false; break; }
+                }
+            }
+            else
+            {
+                // Single-supplier: just need any active POItem
+                var hasPOItem = await _db.Set<POItem>().AnyAsync(p =>
+                    p.SourceProcurementItemId == item.Id && p.ReturnedAt == null);
+                if (!hasPOItem) { allDone = false; }
+            }
+
+            if (!allDone) break;
+        }
+
+        bool fullyFinalized = false;
+        if (allDone && proc.Status != "Finalized")
+        {
+            proc.Status = "Finalized";
+            proc.FinalizedAt = DateTime.UtcNow;
+            proc.FinalizedByUserId = userId > 0 ? userId : null;
+            await _db.SaveChangesAsync();
+            fullyFinalized = true;
+        }
+
+        return new FinalizeProcurementItemResponse
+        {
+            ProcurementId = proc.Id,
+            ProcurementItemId = itemId,
+            CreatedPOItemIds = createdIds,
+            ProcurementFullyFinalized = fullyFinalized,
+        };
+    }
+
+    /// <summary>
+    /// Admin approves a single selected supplier quote row — creates exactly ONE POItem from that quote.
+    /// If all supplier quotes across all items now have active POItems, the procurement is auto-finalized.
+    /// Returns null when the procurement/item/quote is not found or procurement is cancelled.
+    /// </summary>
+    public async Task<FinalizeProcurementItemResponse?> FinalizeSupplierQuoteAsync(
+        long procurementId, long itemId, long supplierQuoteId, long userId)
+    {
+        var proc = await _db.Set<Procurement>()
+            .Include(p => p.Items)
+                .ThenInclude(i => i.SupplierQuotes)
+            .FirstOrDefaultAsync(p => p.Id == procurementId);
+        if (proc == null) return null;
+        if (proc.Status is "Cancelled") return null;
+
+        var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
+        if (pi == null) return null;
+
+        var sq = pi.SupplierQuotes.FirstOrDefault(q => q.Id == supplierQuoteId);
+        if (sq == null || !sq.IsSelected) return null; // must be selected first
+
+        var supplierId = sq.SupplierId ?? pi.CurrentSupplierId;
+
+        // Guard: don't create a duplicate if this supplier's POItem is already active
+        var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
+            p.SourceProcurementItemId == pi.Id &&
+            p.SupplierId == supplierId &&
+            p.ReturnedAt == null);
+
+        var createdIds = new List<long>();
+        if (!alreadyActive)
+        {
+            int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
+            decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
+            var poItem = new POItem
+            {
+                POId = null,
+                InvoiceItemId = pi.SourceInvoiceItemId,
+                ProcumentId = pi.SourceProcumentRecordId,
+                PartNumberId = pi.PartNumberId,
+                SupplierId = supplierId,
+                Qty = qty,
+                UnitPrice = price,
+                TotalPrice = qty * price,
+                Condition = sq.Condition ?? pi.Condition,
+                SourceProcurementItemId = pi.Id,
+            };
+            _db.Set<POItem>().Add(poItem);
+            await _db.SaveChangesAsync();
+            createdIds.Add(poItem.Id);
+        }
+
+        // Auto-finalize the procurement when every selected quote across all items has an active POItem
+        bool fullyFinalized = false;
+        bool allDone = true;
+        foreach (var item in proc.Items)
+        {
+            if (item.ItemStatus == "Cancelled") continue;
+            var selectedQuotes = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
+            var quoteList = selectedQuotes.Count > 0 ? selectedQuotes : new List<ProcurementSupplierQuote>();
+
+            if (quoteList.Count == 0)
+            {
+                // No quotes selected — check for any active POItem (legacy / single-supplier)
+                var has = await _db.Set<POItem>().AnyAsync(p =>
+                    p.SourceProcurementItemId == item.Id && p.ReturnedAt == null);
+                if (!has) { allDone = false; break; }
+            }
+            else
+            {
+                foreach (var q in quoteList)
+                {
+                    var sid = q.SupplierId ?? item.CurrentSupplierId;
+                    var has = await _db.Set<POItem>().AnyAsync(p =>
+                        p.SourceProcurementItemId == item.Id &&
+                        p.SupplierId == sid &&
+                        p.ReturnedAt == null);
+                    if (!has) { allDone = false; break; }
+                }
+            }
+            if (!allDone) break;
+        }
+
+        if (allDone && proc.Status != "Finalized")
+        {
+            proc.Status = "Finalized";
+            proc.FinalizedAt = DateTime.UtcNow;
+            proc.FinalizedByUserId = userId > 0 ? userId : null;
+            await _db.SaveChangesAsync();
+            fullyFinalized = true;
+        }
+
+        return new FinalizeProcurementItemResponse
+        {
+            ProcurementId = proc.Id,
+            ProcurementItemId = itemId,
+            CreatedPOItemIds = createdIds,
+            ProcurementFullyFinalized = fullyFinalized,
         };
     }
 
@@ -937,7 +1180,7 @@ public class ProcurementService : IProcurementService
             }
 
             // Loop cap — hard block at 5
-            if (src.LoopCount >= 5)
+            if (src.LoopCount >= 50)
             {
                 skipped.Add(poItem.Id);
                 warnings.Add($"ProcurementItem {src.Id} (PartNumber #{src.PartNumberId}) reached the 5-loop cap — cancel or skip.");

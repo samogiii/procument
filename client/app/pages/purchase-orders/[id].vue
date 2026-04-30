@@ -842,7 +842,7 @@ const returnForm = ref({
 function openReturnDialog() {
   returnForm.value = {
     reason: '',
-    itemIds: (po.value.items || []).map((i: any) => i.id) // Default to all items
+    itemIds: []
   }
   showReturnDialog.value = true
 }

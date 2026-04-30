@@ -95,7 +95,7 @@ public class ProcurementsController : ControllerBase
         return ok ? NoContent() : BadRequest(new { message = "Unable to delete supplier quote." });
     }
 
-    /// <summary>Finalize — materializes POItems from the edited snapshot and locks the Procurement.</summary>
+    /// <summary>Finalize ALL items — materializes POItems from the edited snapshot and locks the Procurement.</summary>
     [HttpPost("{id:long}/finalize")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     [Auditable("Procurement", "Finalize", CaptureBody = true)]
@@ -104,6 +104,41 @@ public class ProcurementsController : ControllerBase
         var (userId, _) = GetCurrentUser();
         var result = await _service.FinalizeAsync(id, userId, request);
         return result == null ? BadRequest(new { message = "Procurement not found or already finalized/cancelled." }) : Ok(result);
+    }
+
+    /// <summary>
+    /// Finalize a SINGLE item (one supplier row) independently.
+    /// Creates POItem(s) only for that item. The procurement status is auto-set to Finalized
+    /// once all items have been individually finalized.
+    /// </summary>
+    [HttpPost("{id:long}/items/{itemId:long}/finalize")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Auditable("Procurement", "FinalizeItem")]
+    public async Task<ActionResult<FinalizeProcurementItemResponse>> FinalizeItem(long id, long itemId)
+    {
+        var (userId, _) = GetCurrentUser();
+        var result = await _service.FinalizeItemAsync(id, itemId, userId);
+        if (result == null)
+            return BadRequest(new { message = "Item not found, or procurement is cancelled." });
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Admin approves a single selected supplier quote row.
+    /// Creates one POItem from that quote's Qty/Price/Supplier data.
+    /// The quote must already be marked IsSelected by the user.
+    /// Auto-finalizes the procurement when every selected quote across all items is approved.
+    /// </summary>
+    [HttpPost("{id:long}/items/{itemId:long}/supplier-quotes/{sqId:long}/approve")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Auditable("Procurement", "ApproveSupplierQuote")]
+    public async Task<ActionResult<FinalizeProcurementItemResponse>> ApproveSupplierQuote(long id, long itemId, long sqId)
+    {
+        var (userId, _) = GetCurrentUser();
+        var result = await _service.FinalizeSupplierQuoteAsync(id, itemId, sqId, userId);
+        if (result == null)
+            return BadRequest(new { message = "Quote not found, not selected, or procurement is cancelled." });
+        return Ok(result);
     }
 
     /// <summary>Cancel a procurement — admin abort before finalization.</summary>

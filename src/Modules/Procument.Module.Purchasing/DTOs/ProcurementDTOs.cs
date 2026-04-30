@@ -153,6 +153,9 @@ public class ProcurementItemResponse
     public DateTime? LastReturnedAt { get; set; }
     public long? FulfilledByPOItemId { get; set; }
 
+    /// <summary>True when this item has at least one active (non-returned) POItem — i.e. it has been individually finalized.</summary>
+    public bool HasActivePOItem { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
@@ -181,6 +184,8 @@ public class ProcurementSupplierQuoteResponse
     public int SortOrder { get; set; }
     public DateTime CreatedAt { get; set; }
     public long? AddedByUserId { get; set; }
+    /// <summary>True when this selected supplier quote has an active (non-returned) POItem — i.e. admin has already approved this row.</summary>
+    public bool HasActivePOItem { get; set; }
 }
 
 public class ProcurementAssignedUser
@@ -201,4 +206,15 @@ public class FinalizeProcurementResponse
     public long ProcurementId { get; set; }
     public List<long> CreatedPOIds { get; set; } = new();
     public List<long> CreatedPOItemIds { get; set; } = new();
+}
+
+/// <summary>Result of finalizing a single ProcurementItem (one supplier row).</summary>
+public class FinalizeProcurementItemResponse
+{
+    public long ProcurementId { get; set; }
+    public long ProcurementItemId { get; set; }
+    /// <summary>POItem IDs created by this finalization (1 if single-supplier, 2+ if multi-supplier split).</summary>
+    public List<long> CreatedPOItemIds { get; set; } = new();
+    /// <summary>True when ALL items in the procurement are now materialized — procurement status set to Finalized.</summary>
+    public bool ProcurementFullyFinalized { get; set; }
 }
