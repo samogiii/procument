@@ -115,7 +115,9 @@ public static class PdfHelpers
         });
     }
 
-    /// <summary>Shared totals block (right-aligned, ~220pt wide).</summary>
+    /// <summary>Shared totals block (right-aligned, ~220pt wide).
+    /// <paramref name="processingFee"/> is rendered as a "Processing Fee" line above Tax;
+    /// it's optional so non-PO documents can keep their existing layout untouched.</summary>
     public static void DrawTotals(
         IContainer container,
         decimal subtotal,
@@ -124,9 +126,10 @@ public static class PdfHelpers
         decimal other,
         string primary,
         string sym,
-        decimal discount = 0)
+        decimal discount = 0,
+        decimal processingFee = 0)
     {
-        var grandTotal = subtotal - discount + tax + shipping + other;
+        var grandTotal = subtotal - discount + tax + shipping + other + processingFee;
         container.Width(220).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Column(col =>
         {
             void Row(string label, decimal amount, string? bg = null, bool isGrand = false, string? overrideColor = null, string? prefix = null)
@@ -152,9 +155,17 @@ public static class PdfHelpers
 
             Row("Subtotal", subtotal, Colors.Grey.Lighten5);
             if (discount > 0) Row("Discount", discount, overrideColor: "#e53935", prefix: $"-{sym}");
-            Row("Tax", tax);
-            Row("Shipping", shipping, Colors.Grey.Lighten5);
-            Row("Other", other);
+            
+            Row("Tax", tax, Colors.Grey.Lighten5);
+            Row("Shipping", shipping);
+            if (processingFee > 0) { Row("Processing Fee", processingFee); grandTotal -= other; }
+            else
+            {
+                Row("Other", other, Colors.Grey.Lighten5);
+                grandTotal -= processingFee;
+            }
+                
+            
             Row("Total", grandTotal, isGrand: true);
         });
     }

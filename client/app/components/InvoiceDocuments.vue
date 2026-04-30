@@ -222,6 +222,8 @@ const piCategories = [
 ]
 
 const supplierCategories = [
+  // PO is listed first so the auto-saved PO PDF for each supplier is always visible at the top.
+  { key: 'po', label: 'PO', icon: 'mdi-file-document-multiple-outline', color: 'primary' },
   { key: 'supplier_invoice', label: 'Supplier Invoice', icon: 'mdi-invoice-text', color: 'primary' },
   { key: 'supplier_bank_info', label: 'Supplier Bank Info', icon: 'mdi-bank-outline', color: 'info' },
   { key: 'our_pop', label: 'Our POP to Supplier', icon: 'mdi-cash-check', color: 'success' },

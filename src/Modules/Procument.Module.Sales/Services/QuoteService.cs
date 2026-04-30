@@ -460,12 +460,12 @@ public class QuoteService : IQuoteService
             FinalPrice = q.FinalPrice,
             SentAt = q.SentAt,
             Items = q.QuoteItems
-                .OrderBy(qi => qi.SortOrder)
-                .ThenBy(qi => qi.RFQItemId)
+                //.OrderBy(qi => qi.SortOrder)
+                .OrderBy(qi => qi.RFQItemId)
                 .Select(qi => new QuoteItemResponse
             {
                 Id = qi.Id,
-                SortOrder = qi.SortOrder,
+                //SortOrder = qi.SortOrder,
                 PartNumberName = qi.PartNumber?.Name ?? "",
                 Description = qi.PartNumber?.Description,
                 PartNumberId = qi.PartNumberId,

@@ -250,28 +250,30 @@ const renderedHtml = computed(() => {
   const rawItems = q.items || []
   console.log('Raw items with procSortOrder:', rawItems.map((i: any) => ({
     id: i.id,
-    sortOrder: i.sortOrder,
+    // sortOrder: i.sortOrder,
     procSortOrder: i.procumentRecordSortOrder,
     supplierName: i.supplierName,
     rfqReference: i.rfqReference
   })))
   const items: any[] = [...rawItems].sort((a: any, b: any) => {
-    // Primary: Group by RFQ item (rfqReference or rfqItemId)
+    // Primary: Group by RFQ item (rfqReference or rfqItemId).
+    // Use numeric-aware compare so "2" < "10" instead of the lexicographic "10" < "2".
     const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
     const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
-    if (aRef !== bRef) return aRef.localeCompare(bRef)
+    if (aRef !== bRef) return aRef.localeCompare(bRef, undefined, { numeric: true, sensitivity: 'base' })
     // Secondary: Sort by ProcumentRecordSortOrder (supplier order within RFQ item)
     const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
     const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
     if (aProcSo !== bProcSo) return aProcSo - bProcSo
     // Tertiary: Fallback to quote item sortOrder
-    const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
-    const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
-    return aSo - bSo
+    // const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
+    // const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
+    // return aSo - bSo
+    return 0
   })
   console.log('Sorted items:', items.map((i: any) => ({
     id: i.id,
-    sortOrder: i.sortOrder,
+    // sortOrder: i.sortOrder,
     procSortOrder: i.procumentRecordSortOrder,
     supplierName: i.supplierName,
     rfqReference: i.rfqReference
@@ -281,8 +283,15 @@ const renderedHtml = computed(() => {
   const quoteDate = q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'
   const validUntil = q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—'
   const isYuan = currency.value === 'China Yuan (CNY)'
-  const sym = isYuan ? '¥' : '$'
-  const rate = isYuan ? (exchangeRate.value || 1) : 1
+  const isEuro = currency.value === 'Euro (EUR)'
+  const isGbp  = currency.value === 'GBP'
+  
+  let sym = '$'
+  if (isYuan) sym = '¥'
+  else if (isEuro) sym = '€'
+  else if (isGbp) sym = '£'
+
+  const rate = (isYuan || isEuro || isGbp) ? (exchangeRate.value || 1) : 1
 
   const subtotal = (Number(q.totalAmount) || 0) * rate
   const tax = (taxAmount.value || 0) * rate
@@ -470,18 +479,20 @@ async function downloadPdf() {
     const authStore = useAuthStore()
     const q = props.quote
     const items: any[] = [...(q.items || [])].sort((a: any, b: any) => {
-      // Primary: Group by RFQ item (rfqReference or rfqItemId)
+      // Primary: Group by RFQ item (rfqReference or rfqItemId).
+      // Use numeric-aware compare so "2" < "10" instead of the lexicographic "10" < "2".
       const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
       const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
-      if (aRef !== bRef) return aRef.localeCompare(bRef)
+      if (aRef !== bRef) return aRef.localeCompare(bRef, undefined, { numeric: true, sensitivity: 'base' })
       // Secondary: Sort by ProcumentRecordSortOrder (supplier order within RFQ item)
       const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
       const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
       if (aProcSo !== bProcSo) return aProcSo - bProcSo
       // Tertiary: Fallback to quote item sortOrder
-      const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
-      const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
-      return aSo - bSo
+      // const aSo = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER
+      // const bSo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER
+      // return aSo - bSo
+      return 0
     })
 
     // Check if customerCurrencyType is Both - generate two PDFs

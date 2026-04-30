@@ -46,6 +46,15 @@ public class TasksController : ControllerBase
         return Ok(task);
     }
 
+    [HttpPut("{id:long}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult<TaskResponse>> Update(long id, [FromBody] UpdateTaskRequest request)
+    {
+        var task = await _taskService.UpdateAsync(id, request);
+        if (task == null) return NotFound();
+        return Ok(task);
+    }
+
     [HttpPatch("{id:long}/status")]
     public async Task<ActionResult> UpdateStatus(long id, [FromBody] UpdateTaskStatusRequest request)
     {

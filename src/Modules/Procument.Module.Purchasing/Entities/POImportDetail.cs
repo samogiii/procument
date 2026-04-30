@@ -14,6 +14,9 @@ public class POImportDetail : BaseEntity
     public string? ShippingMethod { get; set; }  // Air, Sea, Ground, Express
     public string? Incoterms { get; set; }       // FOB, CIF, EXW, DDP, etc.
     public string? Notes { get; set; }
+    public decimal? Wirefee { get; set; }
+    public string? SwiftCode { get; set; }
+    public string? ABA { get; set; }
 
     // Foreign key
     public long PurchaseOrderId { get; set; }

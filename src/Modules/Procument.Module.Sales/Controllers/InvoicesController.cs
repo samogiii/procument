@@ -15,7 +15,7 @@ namespace Procument.Module.Sales.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin,SuperAdmin")]
 public class InvoicesController : ControllerBase
 {
     private readonly IInvoiceService _invoiceService;

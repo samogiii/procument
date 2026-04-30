@@ -10,6 +10,7 @@ public interface ITaskService
 {
     Task<TaskResponse> CreateAsync(CreateTaskRequest request, string creatorCode);
     Task<List<TaskResponse>> GetAllAsync(string? userCode, bool isAdmin);
+    Task<TaskResponse?> UpdateAsync(long id, UpdateTaskRequest request);
     Task<bool> UpdateStatusAsync(long id, TaskStatus status, string userCode, bool isAdmin);
     Task<bool> DeleteAsync(long id);
     Task<int> GetPendingCountAsync(string? userCode, bool isAdmin);
@@ -60,6 +61,29 @@ public class TaskService : ITaskService
 
         var tasks = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
         return tasks.Select(MapToResponse).ToList();
+    }
+
+    public async Task<TaskResponse?> UpdateAsync(long id, UpdateTaskRequest request)
+    {
+        var task = await _db.Set<TaskItem>()
+            .Include(t => t.AssignedToUser)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        
+        if (task == null) return null;
+
+        task.Title = request.Title;
+        task.Description = request.Description;
+        
+        if (task.AssignedTo != request.AssignedTo)
+        {
+            task.AssignedTo = request.AssignedTo;
+            var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Name == request.AssignedTo);
+            task.AssignedToUserId = user?.Id;
+            task.AssignedToUser = user;
+        }
+
+        await _db.SaveChangesAsync();
+        return MapToResponse(task);
     }
 
     public async Task<bool> UpdateStatusAsync(long id, TaskStatus status, string userCode, bool isAdmin)

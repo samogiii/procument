@@ -149,6 +149,7 @@ public class InvoiceService : IInvoiceService
             Status = "Draft",
             DueDate = request.DueDate,
             CustomerPONumber = request.CustomerPONumber,
+            Subject = request.Subject,
             CreatedAt = DateTime.UtcNow,
             InvoiceItems = invoiceItems
         };
@@ -223,6 +224,7 @@ public class InvoiceService : IInvoiceService
 
         if (request.DueDate.HasValue) invoice.DueDate = request.DueDate.Value;
         if (request.CustomerPONumber != null) invoice.CustomerPONumber = request.CustomerPONumber;
+        if (request.Subject != null) invoice.Subject = request.Subject;
 
         await _db.SaveChangesAsync();
         return true;
@@ -318,6 +320,7 @@ public class InvoiceService : IInvoiceService
             PaidDate = i.PaidDate,
             CreatedAt = i.CreatedAt,
             CustomerPONumber = i.CustomerPONumber,
+            Subject = i.Subject,
             QuoteId = i.QuoteId,
             CustomerId = i.CustomerId,
             CustomerName = i.Customer?.Name ?? "",

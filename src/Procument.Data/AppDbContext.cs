@@ -668,6 +668,20 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.POItemId);
     });
 
+    modelBuilder.Entity<PaymentRequest>(entity =>
+    {
+      entity.ToTable("PaymentRequests");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Status).HasMaxLength(50);
+
+      entity.HasOne(e => e.PO)
+                .WithMany()
+                .HasForeignKey(e => e.POId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.POId);
+    });
+
     modelBuilder.Entity<ILSItem>(entity =>
     {
       entity.ToTable("ILSItems");

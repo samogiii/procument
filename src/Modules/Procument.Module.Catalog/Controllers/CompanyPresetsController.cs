@@ -76,7 +76,10 @@ public class CompanyPresetsController : ControllerBase
                 p.Email,
                 p.TermsAndConditions,
                 p.LogoBase64,
+                p.ShipToAddress,
+                p.ShipToPhone,
                 p.LogoMimeType,
+                p.FedexAccount,
                 p.SortOrder,
                 p.IsActive,
                 p.CreatedAt,
@@ -113,6 +116,9 @@ public class CompanyPresetsController : ControllerBase
             LogoBase64 = dto.LogoBase64,
             LogoMimeType = dto.LogoMimeType,
             SortOrder = dto.SortOrder,
+            ShipToAddress = dto.ShipToAddress,
+            ShipToPhone = dto.ShipToPhone,
+            FedexAccount = dto.FedexAccount,
             PrimaryColor = dto.PrimaryColor ?? "#1a2744",
             AccentColor = dto.AccentColor ?? "#2563eb",
             CustomPdfHtml = dto.CustomPdfHtml,
@@ -135,12 +141,15 @@ public class CompanyPresetsController : ControllerBase
         preset.Location = dto.Location;
         preset.Phone = dto.Phone;
         preset.Website = dto.Website;
+        preset.ShipToAddress = dto.ShipToAddress;
+        preset.ShipToPhone = dto.ShipToPhone;
         preset.Email = dto.Email;
         preset.TermsAndConditions = dto.TermsAndConditions;
         preset.SortOrder = dto.SortOrder;
         preset.PrimaryColor = dto.PrimaryColor ?? preset.PrimaryColor;
         preset.AccentColor = dto.AccentColor ?? preset.AccentColor;
         preset.CustomPdfHtml = dto.CustomPdfHtml;
+        preset.FedexAccount = dto.FedexAccount;
         preset.ModifyAt = DateTime.UtcNow;
 
         // Only update logo if provided
@@ -181,4 +190,7 @@ public class CompanyPresetDto
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
     public string? CustomPdfHtml { get; set; }
+    public string? ShipToAddress { get; set; }
+    public string? FedexAccount { get; set; }
+    public string? ShipToPhone { get; set; }
 }

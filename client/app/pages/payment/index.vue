@@ -114,7 +114,7 @@
               <v-icon icon="mdi-file-check" color="success" size="20" />
               <span class="text-body-2">{{ supplierInvoiceFile.name }}</span>
               <v-spacer />
-              <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierFile(supplierInvoiceFile.name)">Download</v-btn>
+              <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierFile(supplierInvoiceFile.name, 'supplier_invoice')">Download</v-btn>
             </div>
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">
               No supplier invoice uploaded yet. Ask the procurement team to upload it.
@@ -135,7 +135,7 @@
                   <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
                 </div>
                 <v-spacer />
-                <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name)" />
+                <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name, 'supplier_bank_info')" />
               </div>
             </div>
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">
@@ -149,7 +149,7 @@
           <div class="mb-4">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon icon="mdi-file-certificate-outline" size="18" class="mr-1" color="primary" />
-              DasturPardakht (DP)
+              Payment Request (PR)
             </div>
             <div v-if="dpFiles.length" class="d-flex flex-column gap-2">
               <div v-for="f in dpFiles" :key="f.name" class="d-flex align-center gap-2 pa-2 rounded file-row">
@@ -159,11 +159,11 @@
                   <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
                 </div>
                 <v-spacer />
-                <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name)" />
+                <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name, 'dp')" />
               </div>
             </div>
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">
-              No DP generated yet. It will be created automatically when the Import Details are saved on the PO page.
+              No Payment Request generated yet. It can be created on the Purchase Order detail page.
             </v-alert>
           </div>
 
@@ -243,7 +243,7 @@
                 <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
               </div>
               <v-spacer />
-              <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name)" />
+              <v-btn size="small" variant="tonal" color="info" icon="mdi-download" @click="downloadSupplierFile(f.name, 'our_pop')" />
             </div>
 
             <div v-if="!isFinalPopUploaded" class="mt-4">
@@ -348,7 +348,7 @@ const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
 
-type FileInfo = { name: string; size: number; modifiedAt: string }
+type FileInfo = { name: string; size: number; modifiedAt: string; category: string }
 type POItem = any
 
 const loading = ref(false)
@@ -429,20 +429,11 @@ async function openPo(po: POItem) {
       const supplierSection = (data.suppliers || []).find((s: any) => s.supplierId === po.supplierId)
       if (supplierSection) {
         const files: FileInfo[] = supplierSection.files || []
-        supplierInvoiceFile.value = files.find((f: FileInfo) =>
-          f.name.startsWith('Supplier Invoice') ||
-          f.name.startsWith('supplier_invoice.') ||
-          f.name.startsWith('supplier_invoice_')
-        ) || null
-        bankInfoFiles.value = files.filter((f: FileInfo) =>
-          f.name.startsWith('Supplier Bank Info') || f.name.startsWith('supplier_bank_info')
-        )
-        dpFiles.value = files.filter((f: FileInfo) =>
-          f.name.startsWith('DP') || f.name.startsWith('dp ')
-        )
-        popFiles.value = files.filter((f: FileInfo) =>
-          f.name.startsWith('Our POP number')
-        ).sort((a, b) => {
+        
+        supplierInvoiceFile.value = files.find((f: FileInfo) => f.category === 'supplier_invoice') || null
+        bankInfoFiles.value = files.filter((f: FileInfo) => f.category === 'supplier_bank_info')
+        dpFiles.value = files.filter((f: FileInfo) => f.category === 'dp')
+        popFiles.value = files.filter((f: FileInfo) => f.category === 'our_pop').sort((a, b) => {
           const nA = parseInt(a.name.match(/\d+/)?. [0] || '0')
           const nB = parseInt(b.name.match(/\d+/)?. [0] || '0')
           return nA - nB
@@ -480,14 +471,14 @@ async function downloadCustomerPop(name: string) {
   } catch { showSnack('Download failed', 'error') }
 }
 
-async function downloadSupplierFile(name: string) {
+async function downloadSupplierFile(name: string, category: string) {
   if (!selectedPo.value) return
   try {
     const blob = await $fetch<Blob>(
       `${config.public.apiBase}/documents/proforma-invoice/${selectedPo.value.invoiceId}/supplier/${selectedPo.value.supplierId}/file`,
       {
         method: 'GET',
-        query: { name },
+        query: { name, category },
         responseType: 'blob',
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
       }

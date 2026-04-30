@@ -41,6 +41,14 @@ public class PurchaseOrder : BaseEntity
     public DateTime? PaymentApprovalAt { get; set; }
     public long? PaymentApprovalBy { get; set; }
 
+    // ─── Cost adjustments (rendered in the PO PDF totals block) ───
+    /// <summary>Flat processing-fee amount shown on the PO PDF totals.</summary>
+    public decimal? ProcessingFee { get; set; }
+    /// <summary>PO-level shipping amount (independent of per-item ProcumentRecord.ShippingCost).</summary>
+    public decimal? Shipping { get; set; }
+    /// <summary>Flat tax amount shown on the PO PDF totals.</summary>
+    public decimal? Tax { get; set; }
+
     // Foreign keys
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }

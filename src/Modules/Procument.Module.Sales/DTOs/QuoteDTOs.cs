@@ -89,7 +89,7 @@ public class QuoteItemResponse
     public string? SupplierName { get; set; }
     public double? ShippingCost { get; set; }
     public decimal? FixPrice { get; set; }
-    public int SortOrder { get; set; }
+    //public int SortOrder { get; set; }
     public int ProcumentRecordSortOrder { get; set; }
 }
 

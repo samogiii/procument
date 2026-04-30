@@ -48,7 +48,19 @@ public class POResponse
     public string PaymentApproval { get; set; } = "Pending";
     public string? PaymentApprovalNote { get; set; }
     public DateTime? PaymentApprovalAt { get; set; }
+    // ─── PDF totals adjustments (editable on PO page; pre-populated in PDF generator) ───
+    public decimal? ProcessingFee { get; set; }
+    public decimal? Shipping { get; set; }
+    public decimal? Tax { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
+}
+
+/// <summary>Update PO-level cost adjustments (Processing Fee, Shipping, Tax) shown on the PDF.</summary>
+public class UpdatePOTotalsRequest
+{
+    public decimal? ProcessingFee { get; set; }
+    public decimal? Shipping { get; set; }
+    public decimal? Tax { get; set; }
 }
 
 public class UpdateAdminApprovalRequest
@@ -98,6 +110,9 @@ public class POImportDetailResponse
     public string? ShippingMethod { get; set; }
     public string? Incoterms { get; set; }
     public string? Notes { get; set; }
+    public string? SwiftCode { get; set; }
+    public string? ABA { get; set; }
+    public decimal? Wirefee { get; set; }
 }
 
 public class SavePOImportDetailRequest
@@ -112,6 +127,9 @@ public class SavePOImportDetailRequest
     public string? ShippingMethod { get; set; }
     public string? Incoterms { get; set; }
     public string? Notes { get; set; }
+    public string? SwiftCode { get; set; }
+    public string? ABA { get; set; }
+    public decimal? Wirefee { get; set; }
 }
 
 // ──── Track Number DTOs ────

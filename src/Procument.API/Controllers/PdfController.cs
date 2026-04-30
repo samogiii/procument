@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.API.Pdf;
+using Procument.Module.Purchasing.Entities;
+using Procument.Module.Sales.Entities;
+using Procument.Shared.Services;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -12,6 +16,15 @@ namespace Procument.API.Controllers;
 [Authorize]
 public class PdfController : ControllerBase
 {
+    private readonly DbContext _db;
+    private readonly IDocumentStorageService _storage;
+
+    public PdfController(DbContext db, IDocumentStorageService storage)
+    {
+        _db = db;
+        _storage = storage;
+    }
+
     // ─── Proforma Invoice ───────────────────────────────
     [HttpPost("invoice")]
     public IActionResult GenerateInvoice([FromBody] InvoicePdfRequest req)
@@ -23,11 +36,69 @@ public class PdfController : ControllerBase
 
     // ─── Purchase Order ──────────────────────────────────
     [HttpPost("po")]
-    public IActionResult GeneratePo([FromBody] PurchaseOrderPdfRequest req)
+    public async Task<IActionResult> GeneratePo([FromBody] PurchaseOrderPdfRequest req)
     {
         QuestPDF.Settings.License = LicenseType.Community;
         var pdf = PurchaseOrderDocument.Generate(req);
-        return File(pdf, "application/pdf", $"{req.PoNumber ?? "PO"}.pdf");
+        var fileName = $"{req.PoNumber ?? "PO"}.pdf";
+
+        // Auto-save the generated PO PDF into the proforma invoice's supplier folder under
+        // a "PO" subfolder. Failure here must NOT fail the user's download — wrap in try/catch.
+        try
+        {
+            // Resolve PO id from "PO-{Id}" naming convention
+            long poId = 0;
+            var dashIdx = req.PoNumber?.LastIndexOf('-') ?? -1;
+            if (dashIdx > 0 && req.PoNumber != null)
+                long.TryParse(req.PoNumber[(dashIdx + 1)..], out poId);
+
+            if (poId > 0)
+            {
+                var po = await _db.Set<PurchaseOrder>()
+                    .Include(p => p.Supplier)
+                    .Include(p => p.POItems)
+                    .FirstOrDefaultAsync(p => p.Id == poId);
+
+                if (po?.Supplier != null)
+                {
+                    // Resolve invoice number: prefer the PO's direct InvoiceId, otherwise
+                    // fall back to the invoice that owns this PO's first line item.
+                    string? invoiceNumber = null;
+                    if (po.InvoiceId.HasValue)
+                    {
+                        invoiceNumber = await _db.Set<Invoice>()
+                            .Where(i => i.Id == po.InvoiceId.Value)
+                            .Select(i => i.InvoiceNumber)
+                            .FirstOrDefaultAsync();
+                    }
+                    if (string.IsNullOrWhiteSpace(invoiceNumber))
+                    {
+                        var firstInvoiceItemId = po.POItems
+                            .Where(i => i.InvoiceItemId.HasValue)
+                            .Select(i => i.InvoiceItemId!.Value)
+                            .FirstOrDefault();
+                        if (firstInvoiceItemId > 0)
+                        {
+                            invoiceNumber = await (
+                                from ii in _db.Set<InvoiceItem>()
+                                where ii.Id == firstInvoiceItemId
+                                join inv in _db.Set<Invoice>() on ii.InvoiceId equals inv.Id
+                                select inv.InvoiceNumber
+                            ).FirstOrDefaultAsync();
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(invoiceNumber))
+                    {
+                        using var ms = new MemoryStream(pdf);
+                        _storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, "PO", fileName, ms);
+                    }
+                }
+            }
+        }
+        catch { /* storage is best-effort — never block the download */ }
+
+        return File(pdf, "application/pdf", fileName);
     }
 
     // ─── Final Invoice ───────────────────────────────────
@@ -67,6 +138,15 @@ public class PdfController : ControllerBase
         QuestPDF.Settings.License = LicenseType.Community;
         var pdf = DpDocument.Generate(req);
         return File(pdf, "application/pdf", $"DP-{req.PoNumber ?? "Document"}.pdf");
+    }
+
+    // ─── Payment Request (PR) ──────────────────────────
+    [HttpPost("payment-request")]
+    public IActionResult GeneratePaymentRequest([FromBody] PaymentRequestPdfRequest req)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = PaymentRequestDocument.Generate(req);
+        return File(pdf, "application/pdf", $"PR-{req.PrNumber ?? "Document"}.pdf");
     }
 
     // ─── Quote (existing) ────────────────────────────────

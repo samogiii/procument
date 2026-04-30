@@ -79,44 +79,71 @@ public static class PurchaseOrderDocument
                     // Items table
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, sym));
 
-                    // Totals + Shipping Info side by side
+                    // Totals + (FedEx Account + Shipping Info) side by side.
+                    // Mirrors the layout used by InvoiceDocument / FinalInvoiceDocument where the
+                    // Bank Information block sits left of the totals — for the PO we surface the
+                    // FedEx Account in that same prominent position because PO suppliers ship via
+                    // the buyer's courier account rather than wire-transfer to a bank.
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
-                        // Shipping Info (left)
                         sRow.RelativeItem().Column(left =>
                         {
-                            var hasShipping = !string.IsNullOrWhiteSpace(req.ShippingMethod)
-                                           || !string.IsNullOrWhiteSpace(req.Incoterms)
-                                           || !string.IsNullOrWhiteSpace(req.FedExAccount);
-                            if (!hasShipping) return;
-
-                            left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Shipping Information", accent));
-                            left.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(b =>
-                                {
-                                    void ShipRow(string label, string? val)
+                            // ── FedEx Account Information (dedicated bordered block) ──
+                            if (!string.IsNullOrWhiteSpace(req.FedExAccount))
+                            {
+                                left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "FedEx Account Information", accent));
+                                left.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                    .Padding(10).Column(b =>
                                     {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        b.Item().Text(t =>
+                                        void Row(string label, string? val)
                                         {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    ShipRow("Shipping Method", req.ShippingMethod);
-                                    ShipRow("Incoterms", req.Incoterms);
-                                    ShipRow("FedEx Account", req.FedExAccount);
-                                    ShipRow("Service Priority", req.ServicePriority);
-                                });
+                                            if (string.IsNullOrWhiteSpace(val)) return;
+                                            b.Item().Text(t =>
+                                            {
+                                                t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                                t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                            });
+                                        }
+                                        Row("Account Number", req.FedExAccount);
+                                        // Service priority is courier-account-scoped; keep it in this block
+                                        // so the supplier sees the full courier-billing context together.
+                                        Row("Service Priority", req.ServicePriority);
+                                    });
+                            }
+
+                            // ── Shipping Information (method + incoterms only — FedEx moved above) ──
+                            var hasShipping = !string.IsNullOrWhiteSpace(req.ShippingMethod)
+                                           || !string.IsNullOrWhiteSpace(req.Incoterms);
+                            if (hasShipping)
+                            {
+                                left.Item().PaddingTop(10).Element(c => PdfHelpers.DrawSectionLabel(c, "Shipping Information", accent));
+                                left.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                    .Padding(10).Column(b =>
+                                    {
+                                        void ShipRow(string label, string? val)
+                                        {
+                                            if (string.IsNullOrWhiteSpace(val)) return;
+                                            b.Item().Text(t =>
+                                            {
+                                                t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                                t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                            });
+                                        }
+                                        ShipRow("Shipping Method", req.ShippingMethod);
+                                        ShipRow("Incoterms", req.Incoterms);
+                                    });
+                            }
                         });
 
                         sRow.ConstantItem(12);
 
-                        // Totals (right)
+                        // Totals (right) — TotalShipping comes from the PO's flat Shipping field,
+                        // ProcessingFee renders an extra row above Tax when set.
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             req.Subtotal ?? 0, req.Tax ?? 0,
-                            req.TotalShipping ?? 0, req.Other ?? 0,
-                            primary, sym));
+                            req.TotalShipping ?? 0, req.ProcessingFee ?? 0,
+                            primary, sym,
+                            processingFee: req.ProcessingFee ?? 0));
                     });
 
                     // Comments

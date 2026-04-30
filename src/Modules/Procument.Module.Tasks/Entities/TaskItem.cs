@@ -7,7 +7,8 @@ public enum TaskStatus
 {
     NotStarted = 0,
     InProgress = 1,
-    Done = 2
+    Review = 2,
+    Done = 3
 }
 
 public class TaskItem : AuditableEntity

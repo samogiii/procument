@@ -7,6 +7,7 @@ public class CreateInvoiceRequest
     public long QuoteId { get; set; }
     public DateTime? DueDate { get; set; }
     public string? CustomerPONumber { get; set; }
+    public string? Subject { get; set; }
     public List<CreateInvoiceItemRequest> Items { get; set; } = new();
 }
 
@@ -28,6 +29,7 @@ public class UpdateInvoiceRequest
 {
     public DateTime? DueDate { get; set; }
     public string? CustomerPONumber { get; set; }
+    public string? Subject { get; set; }
 }
 
 public class UpdateInvoiceItemDiscountRequest
@@ -55,6 +57,7 @@ public class InvoiceResponse
     public DateTime? PaidDate { get; set; }
     public DateTime CreatedAt { get; set; }
     public string? CustomerPONumber { get; set; }
+    public string? Subject { get; set; }
 
     public long QuoteId { get; set; }
     public long CustomerId { get; set; }

@@ -40,6 +40,7 @@
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn v-if="isAdmin && quote.status === 'Accepted' || quote.status === 'Sent'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn v-if="isAdmin" prepend-icon="mdi-file-excel" size="small" color="success" @click="exportToExcel">Excel Export</v-btn>
       </div>
     </div>
 
@@ -47,7 +48,7 @@
     <v-row class="mb-6">
       <v-col cols="12" md="3">
         <StatCard icon="mdi-account-outline" color="primary" label="Customer">
-          <template v-if="isAdmin">{{ quote.customerName }}<span v-if="quote.customerCode" class="text-medium-emphasis ml-1">({{ quote.customerCode }})</span></template>
+          <template v-if="isAdmin"><span v-if="quote.customerCode" class="text-medium-emphasis ml-1">{{ quote.customerCode }}</span></template>
           <template v-else>{{ quote.customerCode || '—' }}</template>
         </StatCard>
       </v-col>
@@ -434,6 +435,8 @@
 </template>
 
 <script setup lang="ts">
+import * as XLSX from 'xlsx'
+
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
@@ -441,7 +444,17 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
+const apiPresets = ref<any[]>([])
 const allRfqItems = ref<any[]>([])
+
+async function loadPresets() {
+  try {
+    apiPresets.value = await api.get('/companypresets')
+  } catch {
+    apiPresets.value = []
+  }
+}
+
 const allProcRecords = ref<any[]>([])
 const selectedProcIds = ref(new Set<number>())
 const loading = ref(true)
@@ -502,6 +515,7 @@ const statuses = [
 
 onMounted(async () => {
   await loadQuote()
+  await loadPresets()
   await checkLock()
 })
 
@@ -813,6 +827,93 @@ function editQuote() {
     router.push(`/rfqs/${quote.value.rfqId}/create-quote?editQuoteId=${route.params.id}`)
   } else {
     showSnack('No RFQ linked to this quote', 'warning')
+  }
+}
+
+async function exportToExcel() {
+  try {
+    const q = quote.value
+    if (!q || !q.items) return
+
+    // 1. Find Company Preset based on customerBase (matches sortOrder)
+    const preset = apiPresets.value.find(p => p.sortOrder === q.customerBase) || apiPresets.value[0]
+    const companyName = preset?.name || 'JETRUX'
+
+    // 2. Sort items as they appear in the UI
+    const sortedItems = [...(q.items || [])].sort((a: any, b: any) => {
+      const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
+      const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
+      if (aRef !== bRef) return aRef.localeCompare(bRef, undefined, { numeric: true, sensitivity: 'base' })
+      
+      const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+      const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+      if (aProcSo !== bProcSo) return aProcSo - bProcSo
+      return 0
+    })
+
+    // 3. Build rows
+    const data: any[][] = [
+      [companyName], // Top Row: Company Preset Name
+      ['QUOTATION'],
+      [], // Spacer
+      ['Quote Number:', q.quoteNumber || '—', '', 'Date:', q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'],
+      ['Customer:', q.customerName || '—', '', 'RFQ:', q.rfqName || '—'],
+      [], // Spacer
+      ['#', 'Ref', 'Part Number', 'Description', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
+    ]
+
+    sortedItems.forEach((it: any, idx: number) => {
+      data.push([
+        idx + 1,
+        it.rfqReference || '—',
+        it.alt || it.partNumberName || '—',
+        it.description || '—',
+        it.qty,
+        it.condition || '—',
+        it.leadTime || '—',
+        Number(it.unitPrice || 0),
+        Number(it.totalPrice || 0)
+      ])
+    })
+
+    data.push([]) // Spacer
+    data.push(['', '', '', '', '', '', '', 'Subtotal:', Number(q.totalAmount || 0)])
+    data.push(['', '', '', '', '', '', '', 'Grand Total:', Number(q.totalAmount || 0)])
+
+    // 4. Add Comments and Terms & Conditions
+    if (q.comments) {
+      data.push([], ['Comments:'], [q.comments])
+    }
+    if (q.customerTermsAndConditions) {
+      data.push([], ['Terms & Conditions:'], [q.customerTermsAndConditions])
+    }
+
+    // 5. Create Workbook
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 5 },  // #
+      { wch: 10 }, // Ref
+      { wch: 25 }, // Part Number
+      { wch: 40 }, // Description
+      { wch: 8 },  // Qty
+      { wch: 8 },  // Cond
+      { wch: 15 }, // Lead Time
+      { wch: 12 }, // Unit Price
+      { wch: 12 }  // Total Price
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Quotation')
+
+    // 6. Download
+    const fileName = `Quote_${q.quoteNumber || 'export'}.xlsx`
+    XLSX.writeFile(wb, fileName)
+    showSnack('Excel exported successfully', 'success')
+  } catch (err) {
+    console.error('Excel export failed:', err)
+    showSnack('Excel export failed', 'error')
   }
 }
 

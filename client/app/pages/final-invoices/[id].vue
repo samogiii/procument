@@ -24,7 +24,7 @@
 
     <v-row class="mb-6">
       <v-col cols="12" md="3">
-        <StatCard icon="mdi-account" color="primary" label="Customer" :value="inv.customerName" />
+        <StatCard icon="mdi-account" color="primary" label="Customer" :value="inv.customerCode" />
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">

@@ -17,6 +17,12 @@
           class="mb-4"
         />
         <v-data-table :headers="headers" :items="filteredItems" :loading="loading" :items-per-page="50" hover>
+          <!-- Approval status (Approved / Pending / Rejected) — surfaces auto-created suppliers
+               that are still waiting for admin review. -->
+          <template #item.status="{ item }">
+            <StatusChip v-if="item.status" :status="item.status" size="small" />
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
           <template #item.isActive="{ item }">
             <StatusChip :status="item.isActive ? 'Active' : 'Inactive'" />
           </template>
@@ -66,7 +72,7 @@ const {
   loadItems, openDialog, save: saveCrud, deleteItem,
 } = useCrud('/suppliers', {
   defaultForm: () => ({ name: '', username: '', dependency: '', description: '', email: '', phone: '', address: '' }),
-  searchFields: ['name', 'username', 'email', 'phone'],
+  searchFields: ['name', 'username', 'email', 'phone', 'status'],
 })
 
 const dependencyOptions = ['Normal','Certificated', 'NoQuote', 'EndUser']
@@ -83,8 +89,9 @@ const headers = [
   { title: 'Email', key: 'email' },
   { title: 'Phone', key: 'phone' },
   { title: 'Address', key: 'address' },
-
-  { title: 'Status', key: 'isActive', width: '100px' },
+  // Approval status comes from Supplier.Status (Approved / Pending / Rejected)
+  { title: 'Approval', key: 'status', width: '110px' },
+  { title: 'Active', key: 'isActive', width: '100px' },
   { title: '', key: 'actions', sortable: false, width: '100px' },
 ]
 

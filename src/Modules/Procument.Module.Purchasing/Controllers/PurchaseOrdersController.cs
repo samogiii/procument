@@ -333,10 +333,11 @@ public class PurchaseOrdersController : ControllerBase
         var orderedByUser = po.POItems.FirstOrDefault(i => i.ProcumentRecord?.User != null)?.ProcumentRecord?.User;
         var orderedBy = orderedByUser?.Name ?? "";
 
-        string deliverToName;
-        string deliverToAddress;
+        string deliverToName = "";
+        string deliverToAddress = "";
         string deliverToPhone = "";
         string deliverToEmail = "";
+        string fedexAccount = "";
         if (exType.HasValue && exType.Value != 0 && customer != null)
         {
             // Customer Exwork — deliver to customer address
@@ -344,12 +345,20 @@ public class PurchaseOrdersController : ControllerBase
             deliverToAddress = customer.ShipTo ?? customer.BillTo ?? "";
             deliverToPhone = customer.Phone ?? "";
             deliverToEmail = customer.Email ?? "";
+            fedexAccount = customer.ShippingAccount ?? "";
         }
         else
         {
-            // Warehouse — deliver to Hong Kong office
-            deliverToName = "Warehouse — Hong Kong";
-            deliverToAddress = "Unit 1203, 12/F, Tower 1, Lippo Centre, 89 Queensway, Admiralty, Hong Kong";
+            // Warehouse — deliver to Hong Kong office (Base 105)
+            var base105 = await _db.Set<CompanyPreset>().FirstOrDefaultAsync(p => p.SortOrder == 105 && p.IsActive);
+            if (base105 != null)
+            {
+                deliverToName = base105.Name;
+                deliverToAddress = base105.ShipToAddress ?? base105.Location ?? "";
+                fedexAccount = base105.FedexAccount ?? "";
+                deliverToPhone = base105.ShipToPhone ?? base105.Phone ?? "";
+                deliverToEmail = base105.Email ?? "";
+            }
         }
 
         var items = po.POItems.Select(i => new
@@ -392,6 +401,7 @@ public class PurchaseOrdersController : ControllerBase
                 address = deliverToAddress,
                 phone = deliverToPhone,
                 email = deliverToEmail,
+                fedexAccount = fedexAccount,
             },
             importDetail = po.ImportDetail != null ? new
             {
@@ -401,7 +411,42 @@ public class PurchaseOrdersController : ControllerBase
                 incoterms = po.ImportDetail.Incoterms ?? "",
                 comments = po.ImportDetail.Notes ?? "",
             } : null,
+            // ─── PO-level totals adjustments — used as defaults in the PDF generator ───
+            processingFee = po.ProcessingFee,
+            shipping = po.Shipping,
+            tax = po.Tax,
             items,
+        });
+    }
+
+    /// <summary>
+    /// Update PO-level totals adjustments (Processing Fee, Shipping, Tax).
+    /// These are flat decimal amounts shown in the PDF totals block — independent of
+    /// per-item ProcumentRecord.ShippingCost. The user types them on the PO page (or
+    /// in the PDF generator dialog), and they persist on the PurchaseOrder row.
+    /// </summary>
+    [HttpPatch("{id:long}/totals")]
+    [Auditable("PurchaseOrder", "UpdateTotals", CaptureBody = true)]
+    public async Task<IActionResult> UpdateTotals(long id, [FromBody] UpdatePOTotalsRequest request)
+    {
+        var (uid, isA) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(id, uid, isA)) return Forbid();
+        if (await _lockGuard.IsPurchaseOrderLocked(id))
+            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+
+        var po = await _db.Set<PurchaseOrder>().FindAsync(id);
+        if (po == null) return NotFound();
+
+        po.ProcessingFee = request.ProcessingFee;
+        po.Shipping = request.Shipping;
+        po.Tax = request.Tax;
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            processingFee = po.ProcessingFee,
+            shipping = po.Shipping,
+            tax = po.Tax,
         });
     }
 
@@ -435,6 +480,9 @@ public class PurchaseOrdersController : ControllerBase
             ShippingMethod = detail.ShippingMethod,
             Incoterms = detail.Incoterms,
             Notes = detail.Notes,
+            SwiftCode = detail.SwiftCode,
+            ABA = detail.ABA,
+            Wirefee = detail.Wirefee,
         });
     }
 
@@ -466,6 +514,9 @@ public class PurchaseOrdersController : ControllerBase
         detail.ShippingMethod = request.ShippingMethod;
         detail.Incoterms = request.Incoterms;
         detail.Notes = request.Notes;
+        detail.SwiftCode = request.SwiftCode;
+        detail.ABA = request.ABA;
+        detail.Wirefee = request.Wirefee;
 
         await _db.SaveChangesAsync();
 
@@ -483,6 +534,9 @@ public class PurchaseOrdersController : ControllerBase
             ShippingMethod = detail.ShippingMethod,
             Incoterms = detail.Incoterms,
             Notes = detail.Notes,
+            SwiftCode = detail.SwiftCode,
+            ABA = detail.ABA,
+            Wirefee = detail.Wirefee,
         });
     }
 

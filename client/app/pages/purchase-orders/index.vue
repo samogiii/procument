@@ -79,7 +79,8 @@
                 <thead>
                   <tr>
                     <th style="width: 60px;">#</th>
-                    <th>PO Number</th>
+                    <th>Supplier PO#</th>
+                    <th v-if="isAdmin" style="width: 120px;">PI</th>
                     <th>Supplier</th>
                     <th style="width: 120px;">Total Amount</th>
                     <th style="width: 180px;">Status</th>
@@ -93,6 +94,7 @@
                   <tr v-for="(po, idx) in purchaseOrders" :key="po.id" class="cursor-pointer" @click="$router.push(`/purchase-orders/${po.id}`)">
                     <td class="text-center text-medium-emphasis">{{ idx + 1 }}</td>
                     <td class="cell-pn">{{ po.poNumber }}</td>
+                    <td v-if="isAdmin" class="text-medium-emphasis">{{ po.invoiceNumber || '—' }}</td>
                     <td>{{ po.supplierName || '—' }}</td>
                     <td class="text-right cell-price">${{ formatPrice(po.totalAmount) }}</td>
                     <td @click.stop>
@@ -624,6 +626,20 @@ async function loadPurchaseOrders() {
     }
     const pos = accumulated
     purchaseOrders.value = pos
+
+    await Promise.all(pos.map(async (po: any) => {
+      try {
+        const res = await api.get<any>(`/final-invoices/is-locked?entityType=po&entityId=${po.id}`)
+        po._locked = res?.locked === true
+        
+      } catch {
+        po._locked = false
+      }
+    })).finally(x => {
+      if(!isAdmin.value){
+          pageLoading.value = true
+        }
+    })
     if (isAdmin.value) {
       await Promise.all(pos.map( async(po: any) => {
         // try {
@@ -639,14 +655,7 @@ async function loadPurchaseOrders() {
 
     }
     // Check lock status for each PO in parallel
-    await Promise.all(pos.map(async (po: any) => {
-      try {
-        const res = await api.get<any>(`/final-invoices/is-locked?entityType=po&entityId=${po.id}`)
-        po._locked = res?.locked === true
-      } catch {
-        po._locked = false
-      }
-    }))
+    
      
     // Load assigned users per PO (admin only)
    

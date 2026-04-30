@@ -299,7 +299,7 @@ public class ProcurementService : IProcurementService
             ? await _db.Set<Invoice>()
                 .AsNoTracking()
                 .Where(i => invoiceIds.Contains(i.Id))
-                .Select(i => new { i.Id, i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.Name })
+                .Select(i => new { i.Id, i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.CustomerCode })
                 .ToDictionaryAsync(x => x.Id)
             : new();
 
@@ -392,7 +392,7 @@ public class ProcurementService : IProcurementService
         var inv = await _db.Set<Invoice>()
             .AsNoTracking()
             .Where(i => i.Id == proc.InvoiceId)
-            .Select(i => new { i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.Name })
+            .Select(i => new { i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.CustomerCode })
             .FirstOrDefaultAsync();
         if (inv != null)
         {
@@ -637,6 +637,19 @@ public class ProcurementService : IProcurementService
         return true;
     }
 
+    /// <summary>
+    /// Toggle the IsSelected flag on a single supplier quote. Multiple quotes can now be
+    /// selected for the same ProcurementItem — Finalize will split that item into one
+    /// POItem per selected quote, using each quote's own Qty / Price / Supplier / Condition.
+    ///
+    /// Side effects on the parent ProcurementItem (display fields only):
+    ///   - 0 selected → CurrentSupplierId = null, SupplierName = "" (no item-level price sync)
+    ///   - 1 selected → CurrentSupplierId/SupplierName/UnitPrice/LeadTime synced from that quote
+    ///   - 2+ selected → CurrentSupplierId/SupplierName show the *first* selected quote
+    ///                   (purely informational header — actual finalize uses per-quote values).
+    ///                   item.UnitPrice and LeadTime are NOT mutated in multi-select mode
+    ///                   because there is no single value that represents the split.
+    /// </summary>
     public async Task<bool> SelectSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId)
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
@@ -646,21 +659,43 @@ public class ProcurementService : IProcurementService
             .Include(i => i.SupplierQuotes)
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
         if (item == null) return false;
-        var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(x => x.Id == supplierQuoteId);
-        if (supplier == null) return false;
-        ProcurementSupplierQuote? target = item.SupplierQuotes.FirstOrDefault(q => q.Id == supplierQuoteId);
+        var target = item.SupplierQuotes.FirstOrDefault(q => q.Id == supplierQuoteId);
         if (target == null) return false;
 
-        foreach (var q in item.SupplierQuotes)
-        {
-            q.IsSelected = q.Id == supplierQuoteId;
-        }
-        item.CurrentSupplierId = target.SupplierId;
-        item.SupplierName = supplier.Name;
-        item.UnitPrice = target.Price > 0 ? target.Price : item.UnitPrice;
-        item.LeadTime = target.LeadTime ?? item.LeadTime;
-        item.UpdatedAt = DateTime.UtcNow;
+        // Toggle just this one quote
+        target.IsSelected = !target.IsSelected;
 
+        // Recompute display fields based on the new selection set
+        var selected = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            item.CurrentSupplierId = null;
+            item.SupplierName = string.Empty;
+        }
+        else if (selected.Count == 1)
+        {
+            var only = selected[0];
+            var sup = only.SupplierId.HasValue
+                ? await _db.Set<Supplier>().FirstOrDefaultAsync(x => x.Id == only.SupplierId.Value)
+                : null;
+            item.CurrentSupplierId = only.SupplierId;
+            item.SupplierName = sup?.Name ?? only.SupplierName ?? string.Empty;
+            if (only.Price > 0) item.UnitPrice = only.Price;
+            if (!string.IsNullOrWhiteSpace(only.LeadTime)) item.LeadTime = only.LeadTime;
+        }
+        else
+        {
+            // Multi-select: pick the first selected quote as the visual "primary"
+            var primary = selected[0];
+            var sup = primary.SupplierId.HasValue
+                ? await _db.Set<Supplier>().FirstOrDefaultAsync(x => x.Id == primary.SupplierId.Value)
+                : null;
+            item.CurrentSupplierId = primary.SupplierId;
+            item.SupplierName = sup?.Name ?? primary.SupplierName ?? string.Empty;
+            // Do NOT mutate item.UnitPrice / item.LeadTime — they have no single meaningful value when split.
+        }
+
+        item.UpdatedAt = DateTime.UtcNow;
         if (proc.Status == "Open") proc.Status = "Sourcing";
         await _db.SaveChangesAsync();
         return true;
@@ -673,6 +708,7 @@ public class ProcurementService : IProcurementService
     {
         var proc = await _db.Set<Procurement>()
             .Include(p => p.Items)
+                .ThenInclude(i => i.SupplierQuotes)
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Finalized" or "Cancelled") return null;
@@ -686,6 +722,39 @@ public class ProcurementService : IProcurementService
             var already = await _db.Set<POItem>().AnyAsync(p => p.SourceProcurementItemId == pi.Id && p.ReturnedAt == null);
             if (already) continue;
 
+            // Multi-supplier split: if 2+ quotes are selected, emit one POItem per selected quote
+            // (each carries its own Qty / UnitPrice / SupplierId / Condition). If 0 or 1 selected,
+            // fall back to the legacy single POItem from the ProcurementItem header.
+            var selectedQuotes = pi.SupplierQuotes.Where(q => q.IsSelected).ToList();
+
+            if (selectedQuotes.Count >= 2)
+            {
+                foreach (var sq in selectedQuotes)
+                {
+                    // sq.Qty is double on the supplier-quote side; round to int for the PO line
+                    int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
+                    decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
+                    var splitItem = new POItem
+                    {
+                        POId = null,
+                        InvoiceItemId = pi.SourceInvoiceItemId,
+                        ProcumentId = pi.SourceProcumentRecordId,
+                        PartNumberId = pi.PartNumberId,
+                        SupplierId = sq.SupplierId ?? pi.CurrentSupplierId,
+                        Qty = qty,
+                        UnitPrice = price,
+                        TotalPrice = qty * price,
+                        Condition = sq.Condition ?? pi.Condition,
+                        SourceProcurementItemId = pi.Id,
+                    };
+                    _db.Set<POItem>().Add(splitItem);
+                    await _db.SaveChangesAsync();
+                    createdItemIds.Add(splitItem.Id);
+                }
+                continue;
+            }
+
+            // Single-supplier path (0 or 1 selected): preserves the original behavior.
             var poItem = new POItem
             {
                 POId = null, // unassigned — admin will group & create POs from /purchase-orders

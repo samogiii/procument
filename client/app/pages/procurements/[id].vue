@@ -139,38 +139,32 @@
             </div>
           </div>
 
+          <!--
+            Read-only summary derived from the selected supplier quote(s).
+            Qty/UnitPrice are no longer edited at the item level — each split carries its own qty/price
+            on its supplier quote row. Totals here reflect what FinalizeAsync will actually produce.
+              · 0 selected  → fall back to item.qty / item.unitPrice (legacy single-supplier path)
+              · 1 selected  → that quote's qty × price
+              · 2+ selected → sum across all selected quotes (the split)
+          -->
           <div class="d-flex align-center gap-4 text-center" style="width: 350px;">
             <div style="width: 80px;">
               <div class="text-caption text-medium-emphasis uppercase font-weight-bold" style="font-size: 9px;">Qty</div>
-              <input 
-                v-if="!isFinalizedOrCancelled"
-                type="number" 
-                v-model.number="item.qty" 
-                class="inline-input text-center" 
-                @change="updateItem(item, { qty: item.qty })"
-                @click.stop
-              />
-              <div v-else class="text-body-2 font-weight-bold">{{ item.qty }}</div>
-            </div>
-            <div style="width: 100px;">
-              <div class="text-caption text-medium-emphasis uppercase font-weight-bold" style="font-size: 9px;">Unit Price</div>
-              <div class="d-flex align-center justify-center">
-                <span class="text-caption mr-1">$</span>
-                <input 
-                  v-if="!isFinalizedOrCancelled"
-                  type="number" 
-                  v-model.number="item.unitPrice" 
-                  class="inline-input text-center" 
-                  step="0.01"
-                  @change="updateItem(item, { unitPrice: item.unitPrice })"
-                  @click.stop
-                />
-                <div v-else class="text-body-2 font-weight-bold">{{ formatPrice(item.unitPrice) }}</div>
+              <div class="text-body-2 font-weight-bold">{{ summaryQty(item) }}</div>
+              <div v-if="selectedQuoteCount(item) >= 2" class="text-caption text-warning" style="font-size: 9px;">
+                {{ selectedQuoteCount(item) }} splits
               </div>
             </div>
-            <div style="width: 110px;">
+            <div style="width: 130px;">
+              <div class="text-caption text-medium-emphasis uppercase font-weight-bold" style="font-size: 9px;">Unit Price</div>
+              <div v-if="selectedQuoteCount(item) >= 2" class="text-body-2 font-weight-bold text-medium-emphasis">
+                multiple
+              </div>
+              <div v-else class="text-body-2 font-weight-bold">${{ formatPrice(summaryUnitPrice(item)) }}</div>
+            </div>
+            <div style="width: 130px;">
               <div class="text-caption text-medium-emphasis uppercase font-weight-bold" style="font-size: 9px;">Total</div>
-              <div class="text-body-2 font-weight-bold text-success">${{ formatPrice(item.qty * item.unitPrice) }}</div>
+              <div class="text-body-2 font-weight-bold text-success">${{ formatPrice(summaryTotal(item)) }}</div>
             </div>
           </div>
 
@@ -273,13 +267,35 @@
               </template>
 
               <!-- (C) Supplier Quotes Grid -->
-              <div class="d-flex align-center justify-space-between mb-2">
-                <div class="text-caption font-weight-bold text-medium-emphasis uppercase">Supplier Quotes</div>
-                <v-btn 
+              <div class="d-flex align-center justify-space-between mb-2 flex-wrap gap-2">
+                <div class="d-flex align-center gap-2 flex-wrap">
+                  <div class="text-caption font-weight-bold text-medium-emphasis uppercase">Supplier Quotes</div>
+                  <!-- Multi-select hint: when 2+ quotes are checked, finalize will split this part into one PO line per supplier. -->
+                  <v-chip
+                    v-if="selectedQuoteCount(item) >= 2"
+                    size="x-small"
+                    color="warning"
+                    variant="tonal"
+                    prepend-icon="mdi-call-split"
+                    class="font-weight-bold"
+                  >
+                    Split: {{ selectedQuoteCount(item) }} suppliers · {{ selectedQuoteQty(item) }} of {{ item.qty }} qty
+                  </v-chip>
+                  <v-chip
+                    v-else-if="selectedQuoteCount(item) === 1"
+                    size="x-small"
+                    color="success"
+                    variant="tonal"
+                    prepend-icon="mdi-check-circle"
+                  >
+                    1 supplier selected
+                  </v-chip>
+                </div>
+                <v-btn
                   v-if="!isFinalizedOrCancelled"
-                  size="x-small" 
-                  color="primary" 
-                  variant="flat" 
+                  size="x-small"
+                  color="primary"
+                  variant="flat"
                   prepend-icon="mdi-plus"
                   @click="addSupplierQuote(item)"
                 >
@@ -306,13 +322,14 @@
                   <tbody>
                     <tr v-for="sq in item.supplierQuotes" :key="sq.id || `new-${sq.tempId}`" :class="{ 'bg-success-light': sq.isSelected }">
                       <td class="text-center">
-                        <v-radio 
-                          :model-value="sq.isSelected" 
+                        <!-- Checkbox (was radio) — multiple selections split this part into one PO line per supplier on finalize -->
+                        <v-checkbox
+                          :model-value="sq.isSelected"
                           :readonly="isFinalizedOrCancelled"
                           color="success"
                           density="compact"
                           hide-details
-                          @click="selectSupplierQuote(item, sq)"
+                          @click.prevent="selectSupplierQuote(item, sq)"
                         />
                       </td>
                       <td>
@@ -586,9 +603,43 @@ function toggleExpand(id: number) {
 
 function itemSourceUsers(item: any) {
   if (!procurement.value?.sourceAssignedUsers) return []
-  return procurement.value.sourceAssignedUsers.filter((u: any) => 
+  return procurement.value.sourceAssignedUsers.filter((u: any) =>
     (u.entityName === 'RFQ' && u.entityId === String(item.sourceRfqId)) ||
     (u.entityName === 'Quote' && u.entityId === String(item.sourceQuoteId))
+  )
+}
+
+// ── Multi-select supplier quote helpers ──
+// Drives the "Split: N suppliers · X of Y qty" hint chip above the supplier quote table.
+function selectedQuoteCount(item: any): number {
+  return (item.supplierQuotes || []).filter((q: any) => q.isSelected).length
+}
+function selectedQuoteQty(item: any): number {
+  return (item.supplierQuotes || []).reduce((sum: number, q: any) => sum + (q.isSelected ? Number(q.qty) || 0 : 0), 0)
+}
+
+// ── Read-only summary for the collapsed item header ──
+// Mirrors what FinalizeAsync will materialize on the PO side.
+function summaryQty(item: any): number {
+  const n = selectedQuoteCount(item)
+  if (n === 0) return Number(item.qty) || 0
+  return selectedQuoteQty(item)
+}
+function summaryUnitPrice(item: any): number {
+  const n = selectedQuoteCount(item)
+  if (n === 0) return Number(item.unitPrice) || 0
+  if (n === 1) {
+    const sel = (item.supplierQuotes || []).find((q: any) => q.isSelected)
+    return Number(sel?.price) || 0
+  }
+  return 0   // unused — UI shows "multiple" instead when n >= 2
+}
+function summaryTotal(item: any): number {
+  const n = selectedQuoteCount(item)
+  if (n === 0) return (Number(item.qty) || 0) * (Number(item.unitPrice) || 0)
+  return (item.supplierQuotes || []).reduce(
+    (sum: number, q: any) => sum + (q.isSelected ? (Number(q.qty) || 0) * (Number(q.price) || 0) : 0),
+    0
   )
 }
 
@@ -671,12 +722,16 @@ function onSupplierNameInput(sq: any, val: string) {
 
 async function selectSupplierQuote(item: any, sq: any) {
   if (isFinalizedOrCancelled.value || !sq.id) return
+  // Multi-select: backend toggles this single quote. Optimistically flip locally so
+  // the chip + checkbox react instantly; loadDetail() resyncs derived item.UnitPrice etc.
+  const wasSelected = sq.isSelected
+  sq.isSelected = !wasSelected
   try {
     await api.post(`/procurements/${procurement.value.id}/items/${item.id}/supplier-quotes/${sq.id}/select`, {})
-    item.supplierQuotes.forEach((q: any) => q.isSelected = (q.id === sq.id))
     await loadDetail()
-    showSnack('Supplier selected')
+    showSnack(wasSelected ? 'Supplier deselected' : 'Supplier selected')
   } catch {
+    sq.isSelected = wasSelected   // revert
     showSnack('Selection failed', 'error')
   }
 }

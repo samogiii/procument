@@ -14,6 +14,13 @@ public class UpdateTaskStatusRequest
     public TaskStatus Status { get; set; }
 }
 
+public class UpdateTaskRequest
+{
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string AssignedTo { get; set; } = string.Empty;
+}
+
 public class TaskResponse
 {
     public long Id { get; set; }

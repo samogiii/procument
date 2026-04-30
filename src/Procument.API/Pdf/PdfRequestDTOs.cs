@@ -132,7 +132,9 @@ public class PurchaseOrderPdfRequest
     public decimal? Subtotal { get; set; }
     public decimal? Tax { get; set; }
     public decimal? TotalShipping { get; set; }
-    public decimal? Other { get; set; }
+    //public decimal? Other { get; set; }
+    /// <summary>Flat processing-fee line on the totals block (PO-only).</summary>
+    public decimal? ProcessingFee { get; set; }
 
     // Text
     public string? Comments { get; set; }
@@ -310,6 +312,63 @@ public class RfqPdfItem
     public string? Condition { get; set; }
     public string? Remark { get; set; }
     public List<string>? Alternatives { get; set; }
+}
+
+// ──────────────────────────────────────────────────────
+// PAYMENT REQUEST (PR) - formerly DP
+// ──────────────────────────────────────────────────────
+public class PaymentRequestPdfRequest
+{
+    // Company
+    public string? CompanyName { get; set; }
+    public string? CompanyLocation { get; set; }
+    public string? CompanyPhone { get; set; }
+    public string? CompanyWebsite { get; set; }
+    public string? CompanyEmail { get; set; }
+    public string? LogoBase64 { get; set; }
+
+    // Theme
+    public string? PrimaryColor { get; set; }
+    public string? AccentColor { get; set; }
+
+    // Meta
+    public string? PrNumber { get; set; } // e.g. PR01501
+    public string? DocumentDate { get; set; }
+    public string? PoNumber { get; set; }
+    public string? SupplierName { get; set; }
+    public string? Currency { get; set; }
+    public string? CurrencySymbol { get; set; }
+    public string? Status { get; set; }
+
+    // Bank Details (Supplier's)
+    public string? CompanyPayingFrom { get; set; }
+    public string? CompanyPayingTo { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? BankName { get; set; }
+    public string? SwiftCode { get; set; }
+    public string? ABA { get; set; }
+    public string? CompanyAddress { get; set; }
+    public string? BankAddress { get; set; }
+
+    // Items
+    public List<PaymentRequestPdfItem>? Items { get; set; }
+
+    // Totals
+    public decimal ItemsTotal { get; set; }
+    public decimal WireFee { get; set; }
+    public decimal GrandTotal { get; set; }
+
+    // Text
+    public string? FooterText { get; set; }
+}
+
+public class PaymentRequestPdfItem
+{
+    public string? PartNumber { get; set; }
+    public string? Description { get; set; }
+    public int Qty { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal TotalPrice { get; set; }
 }
 
 // ──────────────────────────────────────────────────────

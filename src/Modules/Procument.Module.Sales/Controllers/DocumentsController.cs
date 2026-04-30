@@ -34,6 +34,8 @@ public class DocumentsController : ControllerBase
         ["supplier_bank_info"] = "Supplier Bank Info",
         ["our_pop"] = "Our POP to Supplier",
         ["dp"] = "DP",
+        // PO PDFs auto-saved by PdfController.GeneratePo land here.
+        ["po"] = "PO",
     };
 
     public DocumentsController(DbContext db, IDocumentStorageService storage)
@@ -159,7 +161,7 @@ public class DocumentsController : ControllerBase
                 InvoiceTotal = inv.TotalAmount,
                 InvoiceStatus = inv.Status,
                 CustomerId = c != null ? c.Id : (long?)null,
-                CustomerName = c != null ? c.Name : null,
+                CustomerName = c != null ? c.CustomerCode : null,
             }
         ).ToListAsync();
 
@@ -248,7 +250,8 @@ public class DocumentsController : ControllerBase
         long invoiceId,
         long supplierId,
         [FromForm] IFormFile file,
-        [FromForm] string? category = null)
+        [FromForm] string? category = null,
+        [FromForm] bool isFinal = false)
     {
         if (file == null || file.Length == 0) return BadRequest("No file uploaded.");
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
@@ -270,6 +273,18 @@ public class DocumentsController : ControllerBase
                 return Forbid();
         }
 
+        // Handle "final" POP suffix
+        string fileName = file.FileName;
+        if (isFinal && string.Equals(category, "our_pop", StringComparison.OrdinalIgnoreCase))
+        {
+            var ext = Path.GetExtension(fileName);
+            var nameOnly = Path.GetFileNameWithoutExtension(fileName);
+            if (!nameOnly.EndsWith("_final", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName = nameOnly + "_final" + ext;
+            }
+        }
+
         // Buffer file so we can fan-out to multiple PIs
         byte[] bytes;
         using (var ms = new MemoryStream())
@@ -286,7 +301,7 @@ public class DocumentsController : ControllerBase
         foreach (var piNumber in piNumbers.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             using var ms = new MemoryStream(bytes, writable: false);
-            var fn = _storage.SaveFileInSupplierCategory(piNumber, supplier.Name, categoryFolder, file.FileName, ms);
+            var fn = _storage.SaveFileInSupplierCategory(piNumber, supplier.Name, categoryFolder, fileName, ms);
             if (string.Equals(piNumber, invoice.InvoiceNumber, StringComparison.OrdinalIgnoreCase))
                 savedName = fn;
             written.Add(piNumber);

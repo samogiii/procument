@@ -578,6 +578,9 @@ public class PurchaseOrderService : IPurchaseOrderService
         PaymentApproval = po.PaymentApproval,
         PaymentApprovalNote = po.PaymentApprovalNote,
         PaymentApprovalAt = po.PaymentApprovalAt,
+        ProcessingFee = po.ProcessingFee,
+        Shipping = po.Shipping,
+        Tax = po.Tax,
         Items = po.POItems.Select(i => {
             string? sName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))

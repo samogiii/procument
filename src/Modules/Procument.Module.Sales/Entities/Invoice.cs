@@ -13,6 +13,7 @@ public class Invoice : BaseEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? RejectionNote { get; set; }
     public string? CustomerPONumber { get; set; }
+    public string? Subject { get; set; }
 
     // Foreign keys
     public long QuoteId { get; set; }

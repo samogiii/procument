@@ -73,6 +73,9 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("FedexAccount")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -105,6 +108,12 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
                         .HasDefaultValue("#1a2744");
+
+                    b.Property<string>("ShipToAddress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ShipToPhone")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
@@ -708,6 +717,9 @@ namespace Procument.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("ABA")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("BankAccountNumber")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -750,6 +762,12 @@ namespace Procument.Data.Migrations
                     b.Property<string>("ShippingMethod")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SwiftCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("Wirefee")
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -864,6 +882,40 @@ namespace Procument.Data.Migrations
                     b.HasIndex("POItemId");
 
                     b.ToTable("POItemTrackNumbers", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.PaymentRequest", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("ModifyAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("POId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PRId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("POId");
+
+                    b.ToTable("PaymentRequests", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
@@ -1359,6 +1411,9 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("PaymentSubmittedBy")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("ProcessingFee")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("RejectionNote")
                         .HasColumnType("nvarchar(max)");
 
@@ -1372,6 +1427,9 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("ReturnedByUserId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("Shipping")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -1379,6 +1437,9 @@ namespace Procument.Data.Migrations
 
                     b.Property<long>("SupplierId")
                         .HasColumnType("bigint");
+
+                    b.Property<decimal?>("Tax")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal?>("TotalAmount")
                         .HasColumnType("decimal(18,2)");
@@ -1697,6 +1758,9 @@ namespace Procument.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18,2)");
@@ -2291,6 +2355,16 @@ namespace Procument.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("POItem");
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.PaymentRequest", b =>
+                {
+                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PO")
+                        .WithMany()
+                        .HasForeignKey("POId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("PO");
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>

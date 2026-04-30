@@ -40,6 +40,9 @@
             <v-divider class="mb-2" />
 
             <div class="detail-row"><v-icon icon="mdi-map-marker" size="14" class="mr-1" />{{ preset.location || '—' }}</div>
+            <div class="detail-row" title="Ship-To Address"><v-icon icon="mdi-truck-delivery-outline" size="14" class="mr-1" />{{ preset.shipToAddress || '—' }}</div>
+            <div class="detail-row" title="Ship-To Phone"><v-icon icon="mdi-phone-outline" size="14" class="mr-1" />{{ preset.shipToPhone || '—' }}</div>
+            <div class="detail-row" title="FedEx Account"><v-icon icon="mdi-fedex" size="14" class="mr-1" />{{ preset.fedexAccount || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-phone" size="14" class="mr-1" />{{ preset.phone || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-web" size="14" class="mr-1" />{{ preset.website || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-email" size="14" class="mr-1" />{{ preset.email || '—' }}</div>
@@ -92,6 +95,36 @@
                 variant="outlined"
                 density="compact"
                 hide-details
+              />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field
+                v-model="form.shipToAddress"
+                label="Ship To Address"
+                variant="outlined"
+                density="compact"
+                hide-details
+                prepend-inner-icon="mdi-truck-delivery-outline"
+              />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="form.shipToPhone"
+                label="Ship To Phone"
+                variant="outlined"
+                density="compact"
+                hide-details
+                prepend-inner-icon="mdi-phone-outline"
+              />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="form.fedexAccount"
+                label="FedEx Account"
+                variant="outlined"
+                density="compact"
+                hide-details
+                prepend-inner-icon="mdi-fedex"
               />
             </v-col>
             <v-col cols="12" md="6">
@@ -347,6 +380,9 @@ const snackbarColor = ref('success')
 const defaultForm = () => ({
   name: '',
   location: '',
+  shipToAddress: '',
+  shipToPhone: '',
+  fedexAccount: '',
   phone: '',
   website: '',
   email: '',
@@ -388,6 +424,9 @@ function openEdit(preset: any) {
   form.value = {
     name: preset.name,
     location: preset.location || '',
+    shipToAddress: preset.shipToAddress || '',
+    shipToPhone: preset.shipToPhone || '',
+    fedexAccount: preset.fedexAccount || '',
     phone: preset.phone || '',
     website: preset.website || '',
     email: preset.email || '',
@@ -482,6 +521,9 @@ const templateVars = [
   { key: '{{LOGO}}',              desc: 'Company logo <img> tag' },
   { key: '{{COMPANY_NAME}}',      desc: 'Company name' },
   { key: '{{COMPANY_LOCATION}}',  desc: 'Company address' },
+  { key: '{{COMPANY_SHIP_TO}}',  desc: 'Company ship-to address' },
+  { key: '{{COMPANY_SHIP_TO_PHONE}}', desc: 'Company ship-to phone' },
+  { key: '{{FEDEX_ACCOUNT}}',     desc: 'Company FedEx account' },
   { key: '{{COMPANY_PHONE}}',     desc: 'Company phone' },
   { key: '{{COMPANY_EMAIL}}',     desc: 'Company email' },
   { key: '{{COMPANY_WEBSITE}}',   desc: 'Company website' },
@@ -509,6 +551,9 @@ const mockData = computed((): Record<string, string> => {
     '{{LOGO}}':              '<div style="width:80px;height:40px;background:#e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#94a3b8;">LOGO</div>',
     '{{COMPANY_NAME}}':      p?.name || 'Acme Aviation Ltd',
     '{{COMPANY_LOCATION}}':  p?.location || '123 Business Park, London',
+    '{{COMPANY_SHIP_TO}}':    p?.shipToAddress || 'Warehouse A, Dock 4, London',
+    '{{COMPANY_SHIP_TO_PHONE}}': p?.shipToPhone || '+44 800 123 4567',
+    '{{FEDEX_ACCOUNT}}':     p?.fedexAccount || '1234-5678-9',
     '{{COMPANY_PHONE}}':     p?.phone || '+44 7700 900000',
     '{{COMPANY_EMAIL}}':     p?.email || 'sales@acme.com',
     '{{COMPANY_WEBSITE}}':   p?.website || 'www.acme.com',
@@ -668,6 +713,9 @@ async function saveCustomHtml() {
     await api.put(`/companypresets/${preset.id}`, {
       name: preset.name,
       location: preset.location,
+      shipToAddress: preset.shipToAddress,
+      shipToPhone: preset.shipToPhone,
+      fedexAccount: preset.fedexAccount,
       phone: preset.phone,
       website: preset.website,
       email: preset.email,

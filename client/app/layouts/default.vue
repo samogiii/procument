@@ -217,7 +217,7 @@ const allNavItems = [
   { title: 'Proforma Invoices', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Procurements', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },
-  { title: 'Total P/N', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
+  { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
   { title: 'Payment', icon: 'mdi-cash-multiple', to: '/payment', paymentOnly: true },
   { title: 'Customer Payments', icon: 'mdi-cash-plus', to: '/payment/customer-payments', paymentOnly: true },
   { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
@@ -232,8 +232,21 @@ const allNavItems = [
 
 ] as any[]
 
+// Mirrors the route allowlist enforced in middleware/auth.global.ts.
+// Experts get a tight whitelist; Expert SYD additionally sees ILS.
+const EXPERT_NAV_PATHS = new Set<string>([
+  '/rfqs', '/procument', '/quotes', '/procurements', '/purchase-orders', '/tasks'
+])
+const EXPERT_SYD_NAV_PATHS = new Set<string>([...EXPERT_NAV_PATHS, '/ils'])
+
 const navItems = computed(() => {
   return allNavItems.filter(item => {
+    // ── Experts: hard whitelist by route, regardless of adminOnly/ilsOnly flags ──
+    if (authStore.user?.role === 'Expert') {
+      const allowed = authStore.user?.name === 'SYD' ? EXPERT_SYD_NAV_PATHS : EXPERT_NAV_PATHS
+      return allowed.has(item.to)
+    }
+
     // If user is strictly in the Payment role, they only see paymentOnly items
     if (authStore.user?.role === 'Payment') {
       return item.paymentOnly === true

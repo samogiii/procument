@@ -481,7 +481,7 @@ function applyFilters(items: any[]) {
 const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
   { title: 'RFQ Name', key: 'rfqName' },
-  { title: 'Customer', key: 'customerName' },
+  { title: 'Customer', key: 'customerCode' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },

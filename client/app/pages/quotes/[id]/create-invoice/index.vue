@@ -24,6 +24,23 @@
         </div>
         <div class="d-flex flex-wrap align-center gap-2">
           <v-text-field
+            v-model="subject"
+            label="Subject"
+            placeholder="e.g. Engine Parts"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 200px;"
+          />
+          <v-text-field
+            v-model="poNumber"
+            label="Customer PO #"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 150px; max-width: 180px;"
+          />
+          <v-text-field
             v-model="dueDate"
             label="Due Date"
             type="date"
@@ -139,6 +156,8 @@ const saving = ref(false)
 const quote = ref<any>(null)
 const quoteItems = ref<any[]>([])
 const dueDate = ref('')
+const subject = ref('')
+const poNumber = ref('')
 
 // selections: { [quoteItemId]: { selected: boolean, qty: number, expectedDeliveryDate: string } }
 const selections = ref<Record<number, { selected: boolean; qty: number; expectedDeliveryDate: string }>>({})
@@ -230,6 +249,8 @@ async function createInvoice() {
     const payload = {
       quoteId: Number(route.params.id),
       dueDate: dueDate.value || null,
+      subject: subject.value || null,
+      customerPONumber: poNumber.value || null,
       items: selectedEntries
     }
 

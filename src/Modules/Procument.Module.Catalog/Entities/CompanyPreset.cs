@@ -11,6 +11,9 @@ public class CompanyPreset : BaseEntity
     public string? Email { get; set; }
     public string? TermsAndConditions { get; set; }
     public string? LogoBase64 { get; set; }
+    public string? ShipToAddress { get; set; }
+    public string? ShipToPhone { get; set; }
+    public string? FedexAccount { get; set; }
     public string? LogoMimeType { get; set; }
     public int SortOrder { get; set; } = 0;
     public bool IsActive { get; set; } = true;

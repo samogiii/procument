@@ -34,6 +34,7 @@
       </v-menu>
       <!-- v-if="isAdmin" For admin PDF button -->
       <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" class="mr-1" @click="showPdf = true">PDF</v-btn>
+      <v-btn prepend-icon="mdi-file-export-outline" size="small" color="warning" class="mr-1" @click="showPrDialog = true">PR</v-btn>
       <v-btn
         v-if="isAdmin || assignedUsers.some(u => u.userId === authStore.user?.id)"
         prepend-icon="mdi-keyboard-return"
@@ -291,11 +292,11 @@
               </template>
               <v-list-item-title>Supplier Bank Info</v-list-item-title>
             </v-list-item>
-            <v-list-item @click="triggerUpload('dp')">
+            <v-list-item @click="showPrDialog = true">
               <template #prepend>
                 <v-icon icon="mdi-file-export-outline" size="18" color="warning" />
               </template>
-              <v-list-item-title>DP</v-list-item-title>
+              <v-list-item-title>Payment Request (PR)</v-list-item-title>
             </v-list-item>
           </v-list>
         </v-menu>
@@ -346,13 +347,13 @@
               <th rowspan="2" class="border-end">Part</th>
               <th rowspan="2" class="border-end">Description</th>
               <th rowspan="2" class="text-center border-end">Qty</th>
-              <th rowspan="2" class="border-end">Customer [Code]</th>
+              <th rowspan="2" class="border-end">Customer Code</th>
               <th rowspan="2" class="border-end">RFQ</th>
 
 
               <th rowspan="2" class="border-end">Quote</th>
-              <th rowspan="2" class="border-end">Invoice</th>
-              <th colspan="2" class="text-center border-end grouped-header">Invoice Price</th>
+              <th rowspan="2" class="border-end">PI</th>
+              <th colspan="2" class="text-center border-end grouped-header">PI Price</th>
               <th colspan="2" class="text-center grouped-header">PO Price</th>
             </tr>
             <tr>
@@ -369,8 +370,8 @@
               <td class="text-center">{{ it.qty }}</td>
               <td>
                 <div class="d-flex flex-column">
-                  <span>{{ it.customerName || '—' }}</span>
-                  <span v-if="it.customerCode" class="text-caption text-medium-emphasis">[{{ it.customerCode }}]</span>
+                  <span>{{ it.customerCode }}</span>
+                  <!-- <span v-if="it.customerCode" class="text-caption text-medium-emphasis"></span> -->
                 </div>
               </td>
               <td>
@@ -407,55 +408,158 @@
       </v-card-text>
     </v-card>
 
-    <!-- ── Import Details ── -->
+    <!-- ── Import Details (Split into Bank and Shipping) ── -->
+    <v-row>
+      <v-col cols="12" md="6">
+        <v-card class="glass-card mb-6 h-100">
+          <v-card-title class="d-flex align-center">
+            <v-icon icon="mdi-bank" class="mr-2" size="20" color="success" />
+            Bank Information
+            <v-spacer />
+            <v-btn
+              v-if="!editingImport"
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-pencil"
+              @click="editingImport = true"
+            >Edit</v-btn>
+            <template v-else>
+              <v-btn variant="text" size="small" class="mr-1" @click="cancelImportEdit">Cancel</v-btn>
+              <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-content-save" :loading="savingImport" @click="saveImport">Save</v-btn>
+            </template>
+          </v-card-title>
+          <v-card-text>
+            <v-row dense>
+              <v-col cols="12">
+                <v-text-field v-model="importForm.bankName" label="Bank Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field v-model="importForm.bankAccountNumber" label="Account Number" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field v-model="importForm.bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <!-- <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.bankCity" label="Bank City" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.bankCountry" label="Bank Country" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col> -->
+              <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.swiftCode" label="Swift Code" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.aba" label="ABA (Routing Number)" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field v-model.number="importForm.wirefee" label="Wire Fee" type="number" prefix="$" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+      </v-col>
+      
+      <v-col cols="12" md="6">
+        <v-card class="glass-card mb-6 h-100">
+          <v-card-title class="d-flex align-center">
+            <v-icon icon="mdi-truck-outline" class="mr-2" size="20" color="primary" />
+            Shipping Details
+            <v-spacer />
+            <v-btn
+              v-if="!editingImport"
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-pencil"
+              @click="editingImport = true"
+            >Edit</v-btn>
+            <template v-else>
+              <v-btn variant="text" size="small" class="mr-1" @click="cancelImportEdit">Cancel</v-btn>
+              <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-content-save" :loading="savingImport" @click="saveImport">Save</v-btn>
+            </template>
+          </v-card-title>
+          <v-card-text>
+            <v-row dense>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.fedExAccount" label="FedEx Account" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="importForm.courierName" label="Courier Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-select v-model="importForm.shippingMethod" :items="['Air', 'Sea', 'Ground', 'Express']" label="Shipping Method" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable class="mb-2" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-select v-model="importForm.incoterms" :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']" label="Incoterms" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable class="mb-2" />
+              </v-col>
+              <v-col cols="12">
+                <v-textarea v-model="importForm.notes" label="Notes" variant="outlined" density="compact" hide-details rows="4" auto-grow :readonly="!editingImport" />
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- ── PDF Totals (Processing Fee / Shipping / Tax) ──
+         These three values feed straight into the PO PDF totals block. They live on the
+         PurchaseOrder row itself (separate from per-item shipping costs). The PDF generator
+         pre-fills from here, so editing here updates the next PDF you produce. -->
     <v-card class="glass-card mb-6">
       <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-bank" class="mr-2" size="20" />
-        Import Details
+        <v-icon icon="mdi-calculator-variant-outline" class="mr-2" size="20" />
+        PDF Totals
         <v-spacer />
         <v-btn
-          v-if="!editingImport"
+          v-if="!editingTotals"
           variant="tonal"
           size="small"
           prepend-icon="mdi-pencil"
-          @click="editingImport = true"
+          @click="editingTotals = true"
         >Edit</v-btn>
         <template v-else>
-          <v-btn variant="text" size="small" class="mr-1" @click="cancelImportEdit">Cancel</v-btn>
-          <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-content-save" :loading="savingImport" @click="saveImport">Save</v-btn>
+          <v-btn variant="text" size="small" class="mr-1" @click="cancelTotalsEdit">Cancel</v-btn>
+          <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-content-save" :loading="savingTotals" @click="saveTotals">Save</v-btn>
         </template>
       </v-card-title>
       <v-card-text>
         <v-row dense>
           <v-col cols="12" md="4">
-            <v-text-field v-model="importForm.bankName" label="Bank Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
+            <v-text-field
+              v-model.number="totalsForm.processingFee"
+              label="Processing Fee"
+              type="number"
+              prefix="$"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :readonly="!editingTotals"
+            />
           </v-col>
           <v-col cols="12" md="4">
-            <v-text-field v-model="importForm.bankAccountNumber" label="Account Number" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
+            <v-text-field
+              v-model.number="totalsForm.shipping"
+              label="Shipping"
+              type="number"
+              prefix="$"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :readonly="!editingTotals"
+              hint="PO-level shipping amount — separate from per-item shipping costs"
+              persistent-hint
+            />
           </v-col>
           <v-col cols="12" md="4">
-            <v-text-field v-model="importForm.bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="importForm.bankCity" label="Bank City" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="importForm.bankCountry" label="Bank Country" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="importForm.fedExAccount" label="FedEx Account" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="importForm.courierName" label="Courier Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select v-model="importForm.shippingMethod" :items="['Air', 'Sea', 'Ground', 'Express']" label="Shipping Method" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select v-model="importForm.incoterms" :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']" label="Incoterms" variant="outlined" density="compact" hide-details :readonly="!editingImport" clearable />
-          </v-col>
-          <v-col cols="12">
-            <v-textarea v-model="importForm.notes" label="Notes" variant="outlined" density="compact" hide-details rows="2" auto-grow :readonly="!editingImport" />
+            <v-text-field
+              v-model.number="totalsForm.tax"
+              label="Tax"
+              type="number"
+              prefix="$"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :readonly="!editingTotals"
+            />
           </v-col>
         </v-row>
       </v-card-text>
@@ -683,6 +787,7 @@
     </v-dialog>
 
     <PoPdfGenerator v-model="showPdf" :po-id="String(route.params.id)" />
+    <PaymentRequestPdfGenerator v-model="showPrDialog" :po-id="String(route.params.id)" :po="po" :import-detail="importForm" :enriched="enriched" />
   </div>
 </template>
 
@@ -711,6 +816,7 @@ const poStatuses = [
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 const showPdf = ref(false)
+const showPrDialog = ref(false)
 
 const isTerminalState = computed(() => 
   ['Completed', 'Cancelled', 'Returned'].includes(po.value.status)
@@ -770,7 +876,11 @@ async function returnPo() {
 }
 
 async function loadPo() {
-  try { po.value = await api.get(`/purchase-orders/${route.params.id}`) } catch {}
+  try {
+    po.value = await api.get(`/purchase-orders/${route.params.id}`)
+    // Hydrate the PDF totals form from the PO response (processingFee / shipping / tax)
+    loadTotalsFromPo()
+  } catch {}
 }
 
 const entityId = computed(() => String(route.params.id))
@@ -872,6 +982,7 @@ const importForm = ref<any>({
   bankCity: '', bankCountry: '',
   fedExAccount: '', courierName: '',
   shippingMethod: '', incoterms: '', notes: '',
+  swiftCode: '', aba: '', wirefee: 0,
 })
 const importOriginal = ref<any>({})
 
@@ -898,12 +1009,66 @@ async function saveImport() {
     importOriginal.value = { ...saved }
     editingImport.value = false
     showSnack('Import details saved', 'success')
-    // Auto-generate DasturPardakht (DP) PDF (best-effort; don't fail the save flow on PDF errors)
-    try { await generateAndUploadDpPdf() } catch (e) { console.error('DP PDF generation failed', e) }
   } catch {
     showSnack('Failed to save import details', 'error')
   } finally {
     savingImport.value = false
+  }
+}
+
+// ── PDF Totals (Processing Fee / Shipping / Tax) ──
+// These three values live on the PurchaseOrder row and feed the PDF totals block.
+// They're independent of per-item shippingCost — Shipping here is a flat PO-level number.
+const editingTotals = ref(false)
+const savingTotals = ref(false)
+const totalsForm = ref<{ processingFee: number | null; shipping: number | null; tax: number | null }>({
+  processingFee: null,
+  shipping: null,
+  tax: null,
+})
+const totalsOriginal = ref<typeof totalsForm.value>({ processingFee: null, shipping: null, tax: null })
+
+function loadTotalsFromPo() {
+  if (!po.value) return
+  totalsForm.value = {
+    processingFee: po.value.processingFee ?? null,
+    shipping: po.value.shipping ?? null,
+    tax: po.value.tax ?? null,
+  }
+  totalsOriginal.value = { ...totalsForm.value }
+}
+
+function cancelTotalsEdit() {
+  totalsForm.value = { ...totalsOriginal.value }
+  editingTotals.value = false
+}
+
+async function saveTotals() {
+  savingTotals.value = true
+  try {
+    const saved = await api.patch<any>(`/purchase-orders/${route.params.id}/totals`, {
+      processingFee: totalsForm.value.processingFee ?? null,
+      shipping: totalsForm.value.shipping ?? null,
+      tax: totalsForm.value.tax ?? null,
+    })
+    totalsForm.value = {
+      processingFee: saved?.processingFee ?? null,
+      shipping: saved?.shipping ?? null,
+      tax: saved?.tax ?? null,
+    }
+    totalsOriginal.value = { ...totalsForm.value }
+    // Mirror onto the in-memory PO so any open PDF generator picks up fresh values next render
+    if (po.value) {
+      po.value.processingFee = totalsForm.value.processingFee
+      po.value.shipping = totalsForm.value.shipping
+      po.value.tax = totalsForm.value.tax
+    }
+    editingTotals.value = false
+    showSnack('PDF totals saved', 'success')
+  } catch {
+    showSnack('Failed to save PDF totals', 'error')
+  } finally {
+    savingTotals.value = false
   }
 }
 
@@ -1175,7 +1340,9 @@ async function loadSupplierDocs() {
             f.category === 'supplier_invoice' ||
             f.category === 'supplier_bank_info' ||
             f.category === 'our_pop' ||
-            f.category === 'dp'
+            f.category === 'dp' ||
+            // Auto-saved PO PDFs (written by PdfController.GeneratePo to <Invoice>/<Supplier>/PO/)
+            f.category === 'po'
           )
           allSupplierDocs.push(...sFiles)
         }
@@ -1352,8 +1519,10 @@ async function deleteSupplierDoc(name: string, overrideInvoiceId?: number, categ
 
 // ── Load Data ──
 onMounted(async () => {
-  try { 
-    po.value = await api.get(`/purchase-orders/${route.params.id}`) 
+  try {
+    po.value = await api.get(`/purchase-orders/${route.params.id}`)
+    // Hydrate the PDF totals form (processingFee / shipping / tax)
+    loadTotalsFromPo()
     // Important: wait for enriched trail to identify ALL linked invoices
     await loadEnriched()
     // Then load everything else

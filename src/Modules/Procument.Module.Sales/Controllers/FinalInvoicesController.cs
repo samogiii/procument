@@ -20,7 +20,7 @@ namespace Procument.Module.Sales.Controllers;
 
 [Route("api/final-invoices")]
 
-[Authorize]
+[Authorize(Roles = "Admin,SuperAdmin")]
 
 public class FinalInvoicesController : ControllerBase
 

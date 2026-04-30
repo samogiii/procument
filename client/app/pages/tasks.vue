@@ -20,7 +20,7 @@
 
     <!-- Kanban Board -->
     <v-row v-if="!loading" class="kanban-board" dense>
-      <v-col v-for="column in columns" :key="column.status" cols="12" md="4">
+      <v-col v-for="column in columns" :key="column.status" cols="12" sm="6" md="3">
         <v-card class="kanban-column" rounded="xl" min-height="70vh">
           <v-card-title class="d-flex align-center pa-4">
             <v-chip
@@ -46,14 +46,22 @@
             >
               <div class="d-flex justify-space-between align-start mb-2">
                 <h3 class="text-subtitle-1 font-weight-bold">{{ task.title }}</h3>
-                <v-btn
-                  v-if="isAdmin"
-                  icon="mdi-delete-outline"
-                  variant="text"
-                  color="error"
-                  size="x-small"
-                  @click="deleteTask(task)"
-                ></v-btn>
+                <div v-if="isAdmin" class="d-flex">
+                  <v-btn
+                    icon="mdi-pencil-outline"
+                    variant="text"
+                    color="primary"
+                    size="x-small"
+                    @click="openEditDialog(task)"
+                  ></v-btn>
+                  <v-btn
+                    icon="mdi-delete-outline"
+                    variant="text"
+                    color="error"
+                    size="x-small"
+                    @click="deleteTask(task)"
+                  ></v-btn>
+                </div>
               </div>
               
               <p class="text-body-2 text-medium-emphasis mb-4" style="white-space: pre-wrap;">{{ task.description }}</p>
@@ -79,7 +87,7 @@
                       ></v-btn>
                     </template>
                   </v-tooltip>
-                  <v-tooltip text="Move forward" v-if="task.status < 2">
+                  <v-tooltip text="Move forward" v-if="task.status < 3">
                     <template v-slot:activator="{ props }">
                       <v-btn
                         v-bind="props"
@@ -160,6 +168,55 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Edit Dialog -->
+    <v-dialog v-model="editDialog" max-width="500">
+      <v-card rounded="xl" class="pa-4">
+        <v-card-title class="text-h5 font-weight-bold">Edit Task</v-card-title>
+        <v-card-text>
+          <v-form ref="editForm" v-model="editFormValid">
+            <v-text-field
+              v-model="editingTask.title"
+              label="Task Title"
+              required
+              variant="outlined"
+              :rules="[v => !!v || 'Title is required']"
+              class="mb-2"
+            ></v-text-field>
+            
+            <v-textarea
+              v-model="editingTask.description"
+              label="Description"
+              variant="outlined"
+              rows="4"
+              class="mb-2"
+            ></v-textarea>
+
+            <v-select
+              v-model="editingTask.assignedTo"
+              :items="allowedUsers"
+              label="Assigned To"
+              variant="outlined"
+              required
+              :rules="[v => !!v || 'User is required']"
+            ></v-select>
+          </v-form>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="editDialog = false" class="text-none px-6" rounded="lg">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="elevated"
+            :loading="updating"
+            :disabled="!editFormValid"
+            @click="updateTask"
+            class="text-none px-6"
+            rounded="lg"
+          >Save Changes</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -171,9 +228,12 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const loading = ref(true)
 const creating = ref(false)
+const updating = ref(false)
 const tasks = ref<any[]>([])
 const createDialog = ref(false)
+const editDialog = ref(false)
 const formValid = ref(false)
+const editFormValid = ref(false)
 
 const allowedUsers = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
 
@@ -183,10 +243,18 @@ const newTask = ref({
   assignedTo: ''
 })
 
+const editingTask = ref<any>({
+  id: null,
+  title: '',
+  description: '',
+  assignedTo: ''
+})
+
 const columns = [
   { status: 0, title: 'Not Started', color: 'grey-darken-1' },
   { status: 1, title: 'In Progress', color: 'info' },
-  { status: 2, title: 'Done', color: 'success' }
+  { status: 2, title: 'Review', color: 'warning' },
+  { status: 3, title: 'Done', color: 'success' }
 ]
 
 async function loadTasks() {
@@ -210,6 +278,16 @@ function openCreateDialog() {
   createDialog.value = true
 }
 
+function openEditDialog(task: any) {
+  editingTask.value = { 
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    assignedTo: task.assignedTo
+  }
+  editDialog.value = true
+}
+
 async function createTask() {
   creating.value = true
   try {
@@ -220,6 +298,22 @@ async function createTask() {
     console.error('Failed to create task', error)
   } finally {
     creating.value = false
+  }
+}
+
+async function updateTask() {
+  updating.value = true
+  try {
+    const task = await api.put(`/tasks/${editingTask.value.id}`, editingTask.value)
+    const index = tasks.value.findIndex(t => t.id === task.id)
+    if (index !== -1) {
+      tasks.value[index] = task
+    }
+    editDialog.value = false
+  } catch (error) {
+    console.error('Failed to update task', error)
+  } finally {
+    updating.value = false
   }
 }
 

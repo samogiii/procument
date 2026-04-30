@@ -302,6 +302,11 @@ For **every** user request, follow this loop:
 **Summary:** The Description cell on the RFQ items grid is now an `<input>` for admins (SuperAdmin + Admin via `authStore.isAdmin`) and a read-only span for everyone else. `editableItems` keeps a snapshot `_origDescription` when loading; `saveAll` now also PUTs `/partnumbers/{id}` when the admin has changed `description` (previously the partnumber PUT only fired if `item.remark` was set, which meant description-only edits were silently dropped). No backend change required — the existing `PUT /partnumbers/{id}` already accepts `description`.
 **Follow-ups:** none.
 
+### 2026-04-28 — Add ShipToAddress to Company Presets
+**Files:** `client/app/pages/company-presets.vue`, `client/app/components/PoPdfGenerator.vue`
+**Summary:** Added the `ShipToAddress` field to the Company Presets management page. (1) Updated the UI to display the ship-to address on preset cards. (2) Added a new "Ship To Address" text field to the Create/Edit dialog and integrated it into the component state. (3) Updated the Custom HTML Template Editor to include `{{COMPANY_SHIP_TO}}` as a variable with corresponding mock data for live previews. (4) Modified `PoPdfGenerator.vue` to automatically populate the "SHIP TO" address field from the selected company preset, providing better defaults when generating Purchase Orders.
+**Follow-ups:** none.
+
 ### 2026-04-27 — User Management Enhancements (SuperAdmin/Admin roles)
 **Files:**
 - Backend: `src/Modules/Procument.Module.Identity/DTOs/AuthDTOs.cs`, `src/Modules/Procument.Module.Identity/Services/AuthService.cs`, `src/Modules/Procument.Module.Identity/Controllers/AuthController.cs`

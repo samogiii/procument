@@ -63,7 +63,7 @@
 
     <v-row class="mb-6">
       <v-col cols="12" md="3">
-        <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="invoice.customerName" />
+        <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="invoice.customerCode" />
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-currency-usd" color="success" label="Total Amount">
@@ -72,6 +72,9 @@
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-receipt-text-outline" color="purple" label="Customer PO" :value="invoice.customerPONumber || '—'" />
+      </v-col>
+      <v-col cols="12" md="3">
+        <StatCard icon="mdi-text-box-outline" color="blue" label="Subject" :value="invoice.subject || '—'" />
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-calendar-clock" color="warning" label="Due Date"
@@ -119,10 +122,13 @@
       </v-card-title>
       <v-card-text>
         <v-row dense>
-          <v-col cols="12" md="6">
+          <v-col cols="12" md="4">
+            <v-text-field v-model="detailsForm.subject" label="Subject" variant="outlined" density="compact" hide-details :readonly="!editingDetails" clearable />
+          </v-col>
+          <v-col cols="12" md="4">
             <v-text-field v-model="detailsForm.customerPONumber" label="Customer PO Number" variant="outlined" density="compact" hide-details :readonly="!editingDetails" clearable />
           </v-col>
-          <v-col cols="12" md="6">
+          <v-col cols="12" md="4">
             <v-text-field v-model="detailsForm.dueDate" label="Due Date" variant="outlined" density="compact" hide-details type="date" :readonly="!editingDetails" />
           </v-col>
         </v-row>
@@ -259,7 +265,7 @@ const creatingFinal = ref(false)
 // Edit Details
 const editingDetails = ref(false)
 const savingDetails = ref(false)
-const detailsForm = ref<any>({ customerPONumber: '', dueDate: '' })
+const detailsForm = ref<any>({ customerPONumber: '', dueDate: '', subject: '' })
 const detailsOriginal = ref<any>({})
 
 const entityId = computed(() => String(route.params.id))
@@ -356,6 +362,7 @@ async function loadInvoice() {
     detailsForm.value = {
       customerPONumber: invoice.value.customerPONumber || '',
       dueDate: invoice.value.dueDate ? invoice.value.dueDate.substring(0, 10) : '',
+      subject: invoice.value.subject || '',
     }
     detailsOriginal.value = { ...detailsForm.value }
     initItemPrices()

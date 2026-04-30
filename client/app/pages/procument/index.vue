@@ -222,7 +222,7 @@
             </span>
           </template>
           <template #item.customerName="{ item }">
-            <template v-if="isAdmin">{{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span></template>
+            <template v-if="isAdmin">{{ item.customerCode }}</template>
             <template v-else>{{ item.customerCode || '—' }}</template>
           </template>
           <template #item.createdAt="{ item }">

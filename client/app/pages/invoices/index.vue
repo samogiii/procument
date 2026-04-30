@@ -127,7 +127,8 @@ function applyFilters(items: any[]) {
 
 const headers = [
   { title: 'Proforma Invoice #', key: 'invoiceNumber' },
-  { title: 'Customer', key: 'customerName' },
+  { title: 'Customer', key: 'customerCode' },
+  { title: 'Subject', key: 'subject' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
   { title: '', key: 'actions', sortable: false, width: '60px' },

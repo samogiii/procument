@@ -222,7 +222,7 @@ public class TotalPNService : ITotalPNService
                 PORef = i.PORef,
                 QuotationExpert = qExpert,
                 ProcurementExpert = procExpert,
-                Customer = customer?.Name,
+                Customer = customer?.CustomerCode,
                 Supplier = supplierName,
                 PartNumber = i.PartNumber?.Name ?? srcProcItem?.PartNumberName,
                 Description = i.PartNumber?.Description ?? srcProcItem?.PartNumberDescription,

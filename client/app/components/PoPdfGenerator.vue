@@ -18,11 +18,38 @@
           <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
         </v-row>
         <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" /></v-col>
-          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="4"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+          <v-col cols="12" md="4"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+
+        <!-- PDF Totals (Processing Fee / Shipping / Tax / Other) — pre-filled from the PO row,
+             editable here for per-print tweaks. "Save to PO" persists them back. -->
+        <div class="d-flex align-center mt-3 mb-2 gap-2">
+          <span class="text-caption font-weight-bold text-medium-emphasis">PDF TOTALS</span>
+          <v-spacer />
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            color="primary"
+            prepend-icon="mdi-content-save"
+            :loading="savingTotals"
+            @click="saveTotalsToPo"
+          >Save to PO</v-btn>
+        </div>
+        <v-row dense align="center">
+          <v-col cols="12" md="3">
+            <v-text-field v-model.number="processingFeeAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-cog-outline" />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-truck-outline" />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-percent-outline" />
+          </v-col>
+          <!-- <v-col cols="12" md="3">
+            <v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" />
+          </v-col> -->
         </v-row>
 
         <v-divider class="my-3" />
@@ -56,6 +83,67 @@
           <v-col cols="12" md="3"><v-textarea v-model="deliverToAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="deliverToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
           <v-col cols="12" md="3"><v-text-field v-model="deliverToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+        </v-row>
+
+        <v-divider class="my-3" />
+
+        <!-- Shipping & Account (FedEx, courier, incoterms) — editable per-print override.
+             Initialised from the PO's saved Import Details, but the user can tweak before generating.
+             The "Save to PO" button persists the change back to /import-detail so the PO record matches. -->
+        <div class="d-flex align-center mb-2 gap-2">
+          <span class="text-caption font-weight-bold text-medium-emphasis">SHIPPING &amp; ACCOUNT</span>
+          <v-spacer />
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            color="primary"
+            prepend-icon="mdi-content-save"
+            :loading="savingShipping"
+            @click="saveShippingToPo"
+          >Save to PO</v-btn>
+        </div>
+        <v-row dense align="center">
+          <v-col cols="12" md="3">
+            <v-text-field
+              v-model="fedExAccount"
+              label="FedEx Account"
+              variant="outlined"
+              density="compact"
+              hide-details
+              prepend-inner-icon="mdi-truck-fast"
+            />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-text-field
+              v-model="servicePriority"
+              label="Service Priority"
+              variant="outlined"
+              density="compact"
+              hide-details
+            />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-select
+              v-model="shippingMethod"
+              :items="['Air', 'Sea', 'Ground', 'Express']"
+              label="Shipping Method"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+            />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-select
+              v-model="incoterms"
+              :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']"
+              label="Incoterms"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+            />
+          </v-col>
         </v-row>
 
         <v-divider class="my-3" />
@@ -141,6 +229,14 @@ watch(selectedPreset, (val) => {
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
     companyTerms.value = preset.termsAndConditions || ''
+    // If delivering to ourselves, default to the preset's ship-to address if available
+    if (preset.shipToAddress && (!deliverToAddress.value || selectedPreset.value !== 'Custom')) {
+      deliverToAddress.value = preset.shipToAddress
+      if (!deliverToName.value || selectedPreset.value !== 'Custom') {
+        deliverToName.value = preset.name
+      }
+      if (preset.shipToPhone) deliverToPhone.value = preset.shipToPhone
+    }
   }
 })
 
@@ -156,6 +252,11 @@ const loadingData = ref(false)
 const pdfData = ref<any>({})
 const taxAmount = ref(0)
 const otherAmount = ref(0)
+// PO-level cost adjustments — pre-filled from PurchaseOrder.{ProcessingFee,Shipping,Tax}.
+// Shipping here is the flat PO-level value (NOT the sum of per-item shippingCost).
+const processingFeeAmount = ref(0)
+const shippingAmount = ref(0)
+const savingTotals = ref(false)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
 const companyTerms = ref('')
@@ -177,6 +278,15 @@ const deliverToName = ref('')
 const deliverToAddress = ref('')
 const deliverToPhone = ref('')
 const deliverToEmail = ref('')
+
+// Shipping & Account — editable per-print overrides for the FedEx / courier block on the PDF.
+// Initialised from the PO's saved Import Detail, used by both the live preview and the
+// /pdf/po payload, and can be persisted back to the PO via "Save to PO".
+const fedExAccount = ref('')
+const servicePriority = ref('')
+const shippingMethod = ref<string | null>(null)
+const incoterms = ref<string | null>(null)
+const savingShipping = ref(false)
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
@@ -216,6 +326,21 @@ watch(model, async (open) => {
         deliverToAddress.value = deliver.address || ''
         deliverToPhone.value = deliver.phone || ''
         deliverToEmail.value = deliver.email || ''
+
+        // Initialize Shipping & Account from the PO's saved Import Detail.
+        // For Customer-ExWork POs, the deliverTo block already carries a fedexAccount that comes
+        // from the customer; fall back to that when the PO has no Import Detail of its own.
+        const importDtl = data.importDetail || {}
+        fedExAccount.value = importDtl.fedExAccount || deliver.fedexAccount || ''
+        servicePriority.value = importDtl.servicePriority || ''
+        shippingMethod.value = importDtl.shippingMethod || null
+        incoterms.value = importDtl.incoterms || null
+
+        // Initialize PDF Totals from the PurchaseOrder row (processingFee / shipping / tax).
+        // Shipping here is the flat PO-level number — never derived from per-item shippingCost.
+        processingFeeAmount.value = Number(data.processingFee) || 0
+        shippingAmount.value = Number(data.shipping) || 0
+        taxAmount.value = Number(data.tax) || 0
       } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
       finally { loadingData.value = false }
     }
@@ -229,9 +354,8 @@ const renderedHtml = computed(() => {
   if (!d.poNumber) return ''
 
   const items: any[] = d.items || []
-  const vendor = d.vendor || {}
-  const deliver = d.deliverTo || {}
-  const importDtl = d.importDetail || {}
+  // FedEx / shipping/incoterms now come from the editable refs (fedExAccount, shippingMethod, etc.)
+  // so we don't need to deref data.importDetail here anymore.
   const logo = logoDataUrl.value
 
   const logoImg = logo
@@ -240,10 +364,12 @@ const renderedHtml = computed(() => {
 
   const poDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'
   const subtotal = Number(d.totalAmount) || 0
-  const totalShipping = items.reduce((s: number, it: any) => s + (Number(it.shippingCost) || 0), 0)
+  // Shipping is the flat PO-level value the user typed — never the sum of item shippingCost.
+  const totalShipping = shippingAmount.value || 0
   const tax = taxAmount.value || 0
   const other = otherAmount.value || 0
-  const grandTotal = subtotal + totalShipping + tax + other
+  const processingFee = processingFeeAmount.value || 0
+  const grandTotal = subtotal + totalShipping + tax + other + processingFee
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : '#f7f8fa'
@@ -337,22 +463,27 @@ const renderedHtml = computed(() => {
       <!-- ═══ Totals + Shipping Info ═══ -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin:0 40px 16px 40px;">
         <div style="font-size:11px; max-width:340px;">
-          ${importDtl.fedExAccount || importDtl.shippingMethod || importDtl.incoterms ? `
+          ${fedExAccount.value ? `
+            <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px; margin-bottom:8px;">
+              <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">FedEx Account Information</div>
+              <div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Account Number:</span> ${fedExAccount.value}</div>
+              ${servicePriority.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Service Priority:</span> ${servicePriority.value}</div>` : ''}
+            </div>
+          ` : ''}
+          ${shippingMethod.value || incoterms.value ? `
             <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
               <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">Shipping Information</div>
-              ${importDtl.shippingMethod ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Shipping Method:</span> ${importDtl.shippingMethod}</div>` : ''}
-              ${importDtl.incoterms ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Incoterms:</span> ${importDtl.incoterms}</div>` : ''}
-              ${importDtl.fedExAccount ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">FedEx Account:</span> ${importDtl.fedExAccount}</div>` : ''}
-              ${importDtl.servicePriority ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Service Priority:</span> ${importDtl.servicePriority}</div>` : ''}
+              ${shippingMethod.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Shipping Method:</span> ${shippingMethod.value}</div>` : ''}
+              ${incoterms.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Incoterms:</span> ${incoterms.value}</div>` : ''}
             </div>
           ` : ''}
         </div>
         <div style="min-width:260px;">
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
             <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(subtotal)}</td></tr>
-            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(totalShipping)}</td></tr>
-            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">$${fmt(other)}</td></tr>
+            ${processingFee > 0 ? `<tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Processing Fee</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(processingFee)}</td></tr>` : ''}
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
+            <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(totalShipping)}</td></tr>
             <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(grandTotal)}</td></tr>
           </table>
         </div>
@@ -381,6 +512,42 @@ const renderedHtml = computed(() => {
 })
 
 const pdfContent = ref<HTMLElement | null>(null)
+
+// Persist the FedEx Account / shipping overrides back to the PO's Import Detail.
+// Reads the current saved detail first (so we don't blow away bank info / notes),
+// merges the four shipping/account fields from the dialog, and PUTs the whole record back.
+async function saveShippingToPo() {
+  savingShipping.value = true
+  try {
+    let existing: any = null
+    try { existing = await api.get<any>(`/purchase-orders/${props.poId}/import-detail`) } catch {}
+    const payload = {
+      bankName:          existing?.bankName          ?? null,
+      bankAccountNumber: existing?.bankAccountNumber ?? null,
+      bankAddress:       existing?.bankAddress       ?? null,
+      bankCity:          existing?.bankCity          ?? null,
+      bankCountry:       existing?.bankCountry       ?? null,
+      fedExAccount:      fedExAccount.value          || null,
+      courierName:       servicePriority.value       || existing?.courierName || null,
+      shippingMethod:    shippingMethod.value        || null,
+      incoterms:         incoterms.value             || null,
+      notes:             existing?.notes             ?? null,
+    }
+    const saved = await api.put<any>(`/purchase-orders/${props.poId}/import-detail`, payload)
+    // Refresh local pdfData.importDetail so a re-open of the dialog shows the saved values
+    if (pdfData.value) {
+      pdfData.value.importDetail = {
+        ...(pdfData.value.importDetail || {}),
+        fedExAccount: saved?.fedExAccount ?? fedExAccount.value,
+        servicePriority: saved?.courierName ?? servicePriority.value,
+        shippingMethod: saved?.shippingMethod ?? shippingMethod.value,
+        incoterms: saved?.incoterms ?? incoterms.value,
+      }
+    }
+  } catch (e) { console.error('[PoPdf] Failed to save shipping to PO', e) }
+  finally { savingShipping.value = false }
+}
+
 async function downloadPdf() {
   generating.value = true
   try {
@@ -389,8 +556,10 @@ async function downloadPdf() {
     const d = pdfData.value
     const items: any[] = d.items || []
     const importDtl = d.importDetail || {}
-    const totalShipping = items.reduce((s: number, it: any) => s + (Number(it.shippingCost) || 0), 0)
+    const totalShipping = items.reduce((s: number, it: any) => s + (0), 0)
 
+
+    
     const payload = {
       companyName: companyName.value,
       companyLocation: companyLocation.value,
@@ -421,10 +590,10 @@ async function downloadPdf() {
       deliverToAddress: deliverToAddress.value || null,
       deliverToPhone: deliverToPhone.value || null,
       deliverToEmail: deliverToEmail.value || null,
-      shippingMethod: importDtl.shippingMethod || null,
-      incoterms: importDtl.incoterms || null,
-      fedExAccount: importDtl.fedExAccount || null,
-      servicePriority: importDtl.servicePriority || null,
+      shippingMethod: shippingMethod.value || null,
+      incoterms: incoterms.value || null,
+      fedExAccount: fedExAccount.value || null,
+      servicePriority: servicePriority.value || null,
       items: items.map((it: any) => ({
         partNumber: it.partNumber || null,
         description: it.description || null,
@@ -433,13 +602,14 @@ async function downloadPdf() {
         certification: it.certification || null,
         unitPrice: Number(it.unitPrice) || 0,
         totalPrice: Number(it.totalPrice) || 0,
-        shippingCost: Number(it.shippingCost) || 0,
+        shippingCost: 0,
         note: it.note || null,
       })),
       subtotal: Number(d.totalAmount) || 0,
       tax: taxAmount.value || 0,
-      totalShipping,
-      other: otherAmount.value || 0,
+      totalShipping:shippingAmount.value || 0,
+      // processingFeeAmount: processingFeeAmount.value || 0,
+      ProcessingFee: processingFeeAmount.value || 0,
       comments: comments.value || null,
       terms: companyTerms.value || null,
       footerText: footerText.value || null,

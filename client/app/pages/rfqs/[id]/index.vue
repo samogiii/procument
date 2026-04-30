@@ -35,7 +35,7 @@
             <div>
               <p class="text-caption text-medium-emphasis mb-0">Customer</p>
               <p class="text-body-2 font-weight-medium mb-0">
-                <template v-if="isAdmin">{{ rfq.customerName }}<span v-if="rfq.customerCode" class="text-medium-emphasis ml-1">({{ rfq.customerCode }})</span></template>
+                <template v-if="isAdmin">{{ rfq.customerCode }}</template>
                 <template v-else>{{ rfq.customerCode || '—' }}</template>
               </p>
             </div>
@@ -2166,10 +2166,10 @@ async function saveAll() {
          showSnack(`Supplier '${q.supplierName}' is disabled and cannot be saved.`, 'error')
          return
        }
-       if (!isAdmin.value && q.supplierStatus === 'Pending') {
-         showSnack(`Supplier '${q.supplierName}' is pending approval. Experts cannot use it yet.`, 'warning')
-         return
-       }
+      //  if (!isAdmin.value && q.supplierStatus === 'Pending') {
+      //    showSnack(`Supplier '${q.supplierName}' is pending approval. Experts cannot use it yet.`, 'warning')
+      //    return
+      //  }
     }
 
     // Check suggestions if it's a new or changed name

@@ -155,7 +155,7 @@ const filteredInvoices = computed(() => {
 
 const headers = [
   { title: 'Invoice #', key: 'invoiceNumber', sortable: true },
-  { title: 'Customer', key: 'customerName', sortable: true },
+  { title: 'Customer', key: 'customerCode', sortable: true },
   { title: 'Proforma Ref', key: 'proformaInvoiceNumber', sortable: true },
   { title: 'Total', key: 'totalAmount', sortable: true },
   { title: 'Status', key: 'status', sortable: true },

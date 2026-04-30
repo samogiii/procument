@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-3 mb-4">
       <div>
-        <h1 class="text-h5 font-weight-bold">Total P/N</h1>
+        <h1 class="text-h5 font-weight-bold">Total Project</h1>
         <div class="text-caption text-medium-emphasis">
           One row per PO line — joined across PO, Procurement, Invoice, Quote, Final Invoice and Customer Payments.
         </div>
@@ -227,7 +227,7 @@ async function load() {
     rows.value = res.items ?? res.Items ?? []
     totalCount.value = res.totalCount ?? res.TotalCount ?? rows.value.length
   } catch {
-    showSnack('Failed to load Total P/N', 'error')
+    showSnack('Failed to load Total Project', 'error')
   } finally {
     loading.value = false
   }
