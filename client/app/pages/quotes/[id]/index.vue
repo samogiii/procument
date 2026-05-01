@@ -64,9 +64,50 @@
         </StatCard>
       </v-col> -->
       <v-col cols="12" md="3">
-        <StatCard icon="mdi-calendar" color="warning" label="Valid Until"
-          :value="quote.validUntil ? new Date(quote.validUntil).toLocaleDateString() : undefined"
-        />
+        <v-card class="info-card pa-4 h-100">
+          <div class="d-flex align-center gap-3">
+            <v-avatar :color="exTypeOptions.find(e => e.value === quote.rfqExType)?.color || 'grey'" variant="tonal" size="40">
+              <v-icon :icon="exTypeOptions.find(e => e.value === quote.rfqExType)?.icon || 'mdi-tag-outline'" size="20" />
+            </v-avatar>
+            <div>
+              <p class="text-caption text-medium-emphasis mb-0">Exwork</p>
+              <v-menu v-if="isAdmin">
+                <template #activator="{ props: menuProps }">
+                  <v-chip
+                    :color="exTypeOptions.find(e => e.value === quote.rfqExType)?.color || 'grey'"
+                    v-bind="menuProps"
+                    class="cursor-pointer mt-1"
+                    append-icon="mdi-chevron-down"
+                    size="small"
+                  >
+                    {{ exTypeOptions.find(e => e.value === quote.rfqExType)?.label || 'Not Set' }}
+                  </v-chip>
+                </template>
+                <v-list density="compact" style="min-width: 180px">
+                  <v-list-subheader>Change ExType</v-list-subheader>
+                  <v-list-item
+                    v-for="opt in exTypeOptions"
+                    :key="opt.value"
+                    @click="updateExType(opt.value)"
+                  >
+                    <template #prepend>
+                      <v-icon :icon="opt.icon" :color="opt.color" size="18" />
+                    </template>
+                    <v-list-item-title>{{ opt.label }}</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+              <v-chip
+                v-else
+                :color="exTypeOptions.find(e => e.value === quote.rfqExType)?.color || 'grey'"
+                class="mt-1"
+                size="small"
+              >
+                {{ exTypeOptions.find(e => e.value === quote.rfqExType)?.label || 'Not Set' }}
+              </v-chip>
+            </div>
+          </div>
+        </v-card>
       </v-col>
       <v-col cols="12" md="3">
         <StatCard icon="mdi-send-clock" color="info" label="Sent At"
@@ -472,6 +513,22 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
+
+const exTypeOptions = [
+  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 1, label: 'Ex Vendor', icon: 'mdi-truck-outline', color: 'info' },
+  { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
+]
+
+async function updateExType(newExType: number) {
+  try {
+    await api.patch(`/quotes/${route.params.id}/rfq-ex-type`, newExType)
+    quote.value.rfqExType = newExType
+    showSnack('Exwork updated', 'success')
+  } catch {
+    showSnack('Failed to update Exwork', 'error')
+  }
+}
 
 const displayedItems = computed(() => {
   if (!showAllItems.value) return quote.value.items || []

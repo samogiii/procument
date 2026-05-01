@@ -20,6 +20,14 @@ public class CompanyPreset : BaseEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ModifyAt { get; set; }
 
+    // Bank Details
+    public string? BankName { get; set; }
+    public string? BankAddress { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? BeneficiaryName { get; set; }
+    public string? SwiftCode { get; set; }
+
+
     // PDF Theme
     public string PrimaryColor { get; set; } = "#1a2744";
     public string AccentColor { get; set; } = "#2563eb";

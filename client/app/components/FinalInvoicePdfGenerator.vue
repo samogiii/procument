@@ -114,6 +114,12 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
+    // Pull bank details from preset
+    beneficiaryName.value = preset.beneficiaryName || ''
+    bankName.value = preset.bankName || ''
+    bankAddress.value = preset.bankAddress || ''
+    bankAccount.value = preset.accountNumber || ''
+    swiftCode.value = preset.swiftCode || ''
     // Prefer customer's terms & conditions over preset's
     companyTerms.value = pdfData.value?.customerTermsAndConditions || preset.termsAndConditions || ''
   }

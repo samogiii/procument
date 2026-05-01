@@ -207,6 +207,16 @@ public class QuotesController : ControllerBase
         return ok ? Ok() : NotFound();
     }
 
+    /// <summary>Update RFQ ExType via Quote ID.</summary>
+    [HttpPatch("{id:long}/rfq-ex-type")]
+    [Auditable("Quote", "UpdateRFQExType", CaptureBody = true)]
+    public async Task<IActionResult> UpdateRFQExType(long id, [FromBody] int? exType)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var ok = await _quoteService.UpdateRFQExTypeAsync(id, exType, userId, isAdmin);
+        return ok ? Ok() : NotFound();
+    }
+
     /// <summary>Delete a quote.</summary>
     [HttpDelete("{id:long}")]
     [Auditable("Quote", "Delete")]

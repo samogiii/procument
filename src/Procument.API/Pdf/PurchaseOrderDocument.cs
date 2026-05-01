@@ -52,7 +52,7 @@ public static class PurchaseOrderDocument
                             });
                         Meta("Date", req.PoDate);
                         //Meta("Ordered By", req.OrderedBy);
-                        Meta("Status", req.Status);
+                        //Meta("Status", req.Status);
                         Meta("Currency", req.Currency);
                     });
 

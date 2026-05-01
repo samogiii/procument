@@ -21,6 +21,7 @@ public interface IQuoteService
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
     Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin);
+    Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin);
 }
 
 public class QuoteService : IQuoteService
@@ -459,6 +460,7 @@ public class QuoteService : IQuoteService
             RFQName = q.RFQ?.Name,
             FinalPrice = q.FinalPrice,
             SentAt = q.SentAt,
+            RFQExType = q.RFQ?.ExType,
             Items = q.QuoteItems
                 //.OrderBy(qi => qi.SortOrder)
                 .OrderBy(qi => qi.RFQItemId)
@@ -505,6 +507,26 @@ public class QuoteService : IQuoteService
         quote.Type = newType;
         quote.TypeAdditional = additional;
         quote.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin)
+    {
+        var quote = await _db.Set<Quote>()
+            .Include(q => q.RFQ)
+            .FirstOrDefaultAsync(q => q.Id == quoteId);
+        
+        if (quote == null || quote.RFQ == null) return false;
+
+        if (!isAdmin && quote.UserId != userId)
+        {
+            var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
+            if (!hasPermission) return false;
+        }
+
+        quote.RFQ.ExType = exType;
+        quote.RFQ.ModifyAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return true;
     }

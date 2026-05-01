@@ -80,6 +80,11 @@ public class CompanyPresetsController : ControllerBase
                 p.ShipToPhone,
                 p.LogoMimeType,
                 p.FedexAccount,
+                p.BankName,
+                p.BankAddress,
+                p.AccountNumber,
+                p.BeneficiaryName,
+                p.SwiftCode,
                 p.SortOrder,
                 p.IsActive,
                 p.CreatedAt,
@@ -119,6 +124,11 @@ public class CompanyPresetsController : ControllerBase
             ShipToAddress = dto.ShipToAddress,
             ShipToPhone = dto.ShipToPhone,
             FedexAccount = dto.FedexAccount,
+            BankName = dto.BankName,
+            BankAddress = dto.BankAddress,
+            AccountNumber = dto.AccountNumber,
+            BeneficiaryName = dto.BeneficiaryName,
+            SwiftCode = dto.SwiftCode,
             PrimaryColor = dto.PrimaryColor ?? "#1a2744",
             AccentColor = dto.AccentColor ?? "#2563eb",
             CustomPdfHtml = dto.CustomPdfHtml,
@@ -150,6 +160,11 @@ public class CompanyPresetsController : ControllerBase
         preset.AccentColor = dto.AccentColor ?? preset.AccentColor;
         preset.CustomPdfHtml = dto.CustomPdfHtml;
         preset.FedexAccount = dto.FedexAccount;
+        preset.BankName = dto.BankName;
+        preset.BankAddress = dto.BankAddress;
+        preset.AccountNumber = dto.AccountNumber;
+        preset.BeneficiaryName = dto.BeneficiaryName;
+        preset.SwiftCode = dto.SwiftCode;
         preset.ModifyAt = DateTime.UtcNow;
 
         // Only update logo if provided
@@ -193,4 +208,9 @@ public class CompanyPresetDto
     public string? ShipToAddress { get; set; }
     public string? FedexAccount { get; set; }
     public string? ShipToPhone { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAddress { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? BeneficiaryName { get; set; }
+    public string? SwiftCode { get; set; }
 }

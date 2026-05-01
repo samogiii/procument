@@ -149,6 +149,12 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
+    // Pull bank details from preset
+    beneficiaryName.value = preset.beneficiaryName || ''
+    bankName.value = preset.bankName || ''
+    bankAddress.value = preset.bankAddress || ''
+    bankAccount.value = preset.accountNumber || ''
+    swiftCode.value = preset.swiftCode || ''
     // Prefer customer's terms & conditions over preset's
     companyTerms.value = props.invoice?.customerTermsAndConditions || preset.termsAndConditions || ''
   }
@@ -513,6 +519,20 @@ async function downloadPdf() {
         comments: comments.value || null,
         terms: companyTerms.value || null,
         footerText: footerText.value || null,
+        customerBillTo: billTo.value || null,
+        customerBillToEmail: billToEmail.value || null,
+        customerBillToPhone: billToPhone.value || null,
+        customerShipTo: shipTo.value || null,
+        customerShipToContactPerson: shipToContactPerson.value || null,
+        customerShipToEmail: shipToEmail.value || null,
+        customerShipToPhone: shipToPhone.value || null,
+        customerShipToAccount: shipToAccount.value || null,
+        beneficiaryName: beneficiaryName.value || null,
+        beneficiaryAddress: beneficiaryAddress.value || null,
+        bankName: bankName.value || null,
+        bankAddress: bankAddress.value || null,
+        bankAccount: bankAccount.value || null,
+        swiftCode: swiftCode.value || null,
       }
 
       const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/invoice`, {

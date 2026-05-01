@@ -47,6 +47,14 @@
             <div class="detail-row"><v-icon icon="mdi-web" size="14" class="mr-1" />{{ preset.website || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-email" size="14" class="mr-1" />{{ preset.email || '—' }}</div>
 
+            <!-- Bank Details Summary -->
+            <div v-if="preset.bankName" class="mt-2 pa-2 bg-surface-variant rounded-sm border">
+              <div class="text-caption font-weight-bold text-primary mb-1">BANK DETAILS</div>
+              <div class="detail-row"><v-icon icon="mdi-bank" size="12" class="mr-1" />{{ preset.bankName }}</div>
+              <div class="detail-row"><v-icon icon="mdi-numeric" size="12" class="mr-1" />{{ preset.accountNumber }}</div>
+              <div class="detail-row"><v-icon icon="mdi-identifier" size="12" class="mr-1" />{{ preset.swiftCode }}</div>
+            </div>
+
             <div v-if="preset.termsAndConditions" class="mt-2">
               <div class="text-caption font-weight-bold text-medium-emphasis mb-1">TERMS & CONDITIONS</div>
               <pre class="terms-preview">{{ preset.termsAndConditions }}</pre>
@@ -168,6 +176,29 @@
                 min="0"
               />
             </v-col>
+
+            <!-- Bank Details -->
+            <v-col cols="12">
+              <div class="text-caption font-weight-bold text-medium-emphasis mb-2">BANK DETAILS</div>
+              <v-row dense>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.bankName" label="Bank Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-bank" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-account-cash" />
+                </v-col>
+                <v-col cols="12">
+                  <v-text-field v-model="form.bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-map-marker-radius" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.accountNumber" label="Account Number" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-numeric" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-identifier" />
+                </v-col>
+              </v-row>
+            </v-col>
+
             <v-col cols="12">
               <v-textarea
                 v-model="form.termsAndConditions"
@@ -390,6 +421,11 @@ const defaultForm = () => ({
   sortOrder: 0,
   logoBase64: null as string | null,
   logoMimeType: null as string | null,
+  bankName: '',
+  bankAddress: '',
+  accountNumber: '',
+  beneficiaryName: '',
+  swiftCode: '',
   primaryColor: '#1a2744',
   accentColor: '#2563eb',
   customPdfHtml: null as string | null,
@@ -427,6 +463,11 @@ function openEdit(preset: any) {
     shipToAddress: preset.shipToAddress || '',
     shipToPhone: preset.shipToPhone || '',
     fedexAccount: preset.fedexAccount || '',
+    bankName: preset.bankName || '',
+    bankAddress: preset.bankAddress || '',
+    accountNumber: preset.accountNumber || '',
+    beneficiaryName: preset.beneficiaryName || '',
+    swiftCode: preset.swiftCode || '',
     phone: preset.phone || '',
     website: preset.website || '',
     email: preset.email || '',
@@ -716,6 +757,11 @@ async function saveCustomHtml() {
       shipToAddress: preset.shipToAddress,
       shipToPhone: preset.shipToPhone,
       fedexAccount: preset.fedexAccount,
+      bankName: preset.bankName,
+      bankAddress: preset.bankAddress,
+      accountNumber: preset.accountNumber,
+      beneficiaryName: preset.beneficiaryName,
+      swiftCode: preset.swiftCode,
       phone: preset.phone,
       website: preset.website,
       email: preset.email,
@@ -814,3 +860,4 @@ function showSnack(text: string, color: string) {
   object-fit: contain;
 }
 </style>
+
