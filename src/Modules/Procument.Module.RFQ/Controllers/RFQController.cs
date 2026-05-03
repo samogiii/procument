@@ -71,6 +71,14 @@ public class RFQsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Get the name of the last RFQ for a specific customer.</summary>
+    [HttpGet("last-name")]
+    public async Task<ActionResult<string?>> GetLastName([FromQuery] string customerName)
+    {
+        var result = await _rfqService.GetLastRfqNameAsync(customerName);
+        return Ok(result);
+    }
+
     private (long userId, bool isAdmin) GetUserContext()
     {
         var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);

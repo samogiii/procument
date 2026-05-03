@@ -230,6 +230,10 @@
               :rules="[rules.required]"
               class="mb-3"
             />
+            <div v-if="lastRfqName" class="text-caption text-primary mb-3 mt-n2 ml-9">
+              <v-icon icon="mdi-history" size="14" class="mr-1" />
+              Last RFQ: <span class="font-weight-bold">{{ lastRfqName }}</span>
+            </div>
 
             <!-- Customer Name (autocomplete) — Admins see Name (Code); Users see Code only -->
             <v-combobox
@@ -1147,6 +1151,7 @@ const customerSuggestions = ref<any[]>([])
 const customerLoading = ref(false)
 const customerSearchText = ref('')
 const customerTerms = ref<string | null>(null)
+const lastRfqName = ref<string | null>(null)
 let customerDebounce: any = null
 
 // Display-only mapping: Admins see "Name (Code)"; non-admins (User role) see ONLY the code.
@@ -1181,6 +1186,7 @@ function searchCustomers(val: string) {
 // Auto-set ExType and Terms when customer changes
 watch(() => form.value.customerName, async (newVal: any) => {
   customerTerms.value = null
+  lastRfqName.value = null
   if (!newVal) return
   
   // If it's a string, only fetch if it's one of the already-loaded suggestions (meaning it's a known customer)
@@ -1189,10 +1195,17 @@ watch(() => form.value.customerName, async (newVal: any) => {
   if (!name || (!isSelected && !customerSuggestions.value.some(s => s.name === name))) return
 
   try {
-    const cust = await api.get<any>(`/customers/by-name?name=${encodeURIComponent(name)}`)
+    const [cust, lastRfq] = await Promise.all([
+      api.get<any>(`/customers/by-name?name=${encodeURIComponent(name)}`),
+      api.get<string | null>(`/rfqs/last-name?customerName=${encodeURIComponent(name)}`)
+    ])
+
     if (cust) {
       if (cust.exWork != null) form.value.exType = cust.exWork
       customerTerms.value = cust.termsAndConditions || null
+    }
+    if (lastRfq) {
+      lastRfqName.value = lastRfq
     }
   } catch (err) { }
 })

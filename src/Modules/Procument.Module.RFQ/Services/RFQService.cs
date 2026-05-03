@@ -25,6 +25,7 @@ public interface IRFQService
     Task<bool> UpdateNameAsync(long rfqId, string name);
     Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime);
     Task<string> DeleteRFQItem(long id);
+    Task<string?> GetLastRfqNameAsync(string customerName);
 }
 
 public class RFQService : IRFQService
@@ -36,6 +37,15 @@ public class RFQService : IRFQService
     {
         _db = db;
         _permissionService = permissionService;
+    }
+
+    public async Task<string?> GetLastRfqNameAsync(string customerName)
+    {
+        return await _db.Set<RFQHeader>()
+            .Where(r => r.Customer.Name == customerName)
+            .OrderByDescending(r => r.Id)
+            .Select(r => r.Name)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<RFQResponse> CreateAsync(CreateRFQRequest request)
