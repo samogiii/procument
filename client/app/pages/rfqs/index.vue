@@ -241,7 +241,7 @@
               :items="customerDisplayItems"
               item-title="display"
               item-value="name"
-              :label="isAdmin ? 'Customer Name *' : 'Customer Code *'"
+              :label="'Customer Code *'"
               prepend-inner-icon="mdi-domain"
               :rules="[rules.required]"
               :loading="customerLoading"
@@ -946,7 +946,7 @@ const customerOptions = computed(() => {
   return Array.from(map.entries())
     .map(([name, code]) => ({
       // Admins see "Name (Code)"; non-admins (User role) see only the Code.
-      title: isAdmin.value ? (code ? `${name} (${code})` : name) : (code || '—'),
+      title: code || '—',
       value: name,
     }))
     .sort((a, b) => a.title.localeCompare(b.title))
@@ -1160,7 +1160,7 @@ const customerDisplayItems = computed(() =>
   customerSuggestions.value.map((c: any) => ({
     ...c,
     display: isAdmin.value
-      ? (c.customerCode ? `${c.name} (${c.customerCode})` : c.name)
+      ? (c.customerCode)
       // Non-admin (User role): show ONLY the customer code. If a customer has no code,
       // show a placeholder rather than leak the name.
       : (c.customerCode || '— No code —'),
@@ -1439,7 +1439,7 @@ const bulkCustomerDisplayItems = computed(() =>
   bulkCustomerSuggestions.value.map((c: any) => ({
     ...c,
     display: isAdmin.value
-      ? (c.customerCode ? `${c.name} (${c.customerCode})` : c.name)
+      ? (c.customerCode)
       // Non-admin (User role): show ONLY the customer code. If a customer has no code,
       // show a placeholder rather than leak the name.
       : (c.customerCode || '— No code —'),

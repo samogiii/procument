@@ -205,7 +205,7 @@ const customerOptions = computed(() => {
       map.set(item.customerName, item.customerCode || '')
   })
   return Array.from(map.entries())
-    .map(([name, code]) => ({ title: code ? `${name} (${code})` : name, value: name }))
+    .map(([name, code]) => ({ title: code || '—', value: name }))
     .sort((a, b) => a.title.localeCompare(b.title))
 })
 

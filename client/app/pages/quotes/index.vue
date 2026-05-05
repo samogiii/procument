@@ -443,8 +443,7 @@ const customerOptions = computed(() => {
   })
   return Array.from(custMap.entries())
     .map(([name, code]) => ({
-      // Admins see "Name (Code)"; non-admins (User role) see only the Code.
-      title: isAdmin.value ? (code ? `${name} (${code})` : name) : (code || '—'),
+      title: code || '—',
       value: name,
     }))
     .sort((a, b) => a.title.localeCompare(b.title))

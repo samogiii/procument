@@ -64,6 +64,22 @@
             @click="mobile ? drawer = false : undefined"
           />
           <v-list-item
+            to="/sync-management"
+            prepend-icon="mdi-sync"
+            title="Satellite Sync (Server)"
+            rounded="lg"
+            active-color="primary"
+            @click="mobile ? drawer = false : undefined"
+          />
+          <v-list-item
+            to="/satellite-sync"
+            prepend-icon="mdi-web-sync"
+            title="Browser Sync"
+            rounded="lg"
+            active-color="primary"
+            @click="mobile ? drawer = false : undefined"
+          />
+          <v-list-item
             to="/admin/audit"
             prepend-icon="mdi-timeline-clock-outline"
             title="System Activity"
@@ -279,6 +295,32 @@ async function logout() {
   await navigateTo('/login')
 }
 
+// ──── Auto Sync (MGH & System Admin) ────
+const isAutoSyncUser = computed(() => {
+  const name = authStore.user?.name
+  return name === 'MGH' || name === 'System Admin'
+})
+
+let lastSyncTime = 0
+const SYNC_COOLDOWN = 30000 // 30 seconds cooldown to avoid spamming
+
+async function triggerAutoSync() {
+  if (!isAutoSyncUser.value) return
+  
+  // Basic cooldown check
+  const now = Date.now()
+  if (now - lastSyncTime < SYNC_COOLDOWN) return
+  
+  try {
+    console.log('[AutoSync] Triggering background sync...')
+    await api.post('/sync/trigger-all')
+    lastSyncTime = Date.now()
+    console.log('[AutoSync] Sync completed.')
+  } catch (e) {
+    console.warn('[AutoSync] Sync failed', e)
+  }
+}
+
 // ──── Notifications ────
 
 const api = useApi()
@@ -364,6 +406,7 @@ onMounted(() => {
   if (authStore.isAuthenticated) {
     loadNotifications()
     loadRejections()
+    triggerAutoSync() // Auto sync on load/refresh
     pollTimer = setInterval(loadNotifications, 30000)
   }
 
@@ -374,6 +417,13 @@ onMounted(() => {
       navigateTo('/login')
     }
   }, 30000)
+})
+
+// Watch for route changes to trigger auto sync
+watch(() => route.path, () => {
+  if (authStore.isAuthenticated) {
+    triggerAutoSync()
+  }
 })
 
 onUnmounted(() => {

@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
   // Shared
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
   public DbSet<Notification> Notifications => Set<Notification>();
+  public DbSet<SatelliteNode> SatelliteNodes => Set<SatelliteNode>();
+  public DbSet<SyncRegistry> SyncRegistries => Set<SyncRegistry>();
 
   // Catalog
   public DbSet<Customer> Customers => Set<Customer>();
@@ -863,6 +865,32 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.AssignedTo);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.CreatedAt);
+    });
+
+    // ───────────────────────────────────────────
+    // Sync Module
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<SatelliteNode>(entity =>
+    {
+      entity.ToTable("SatelliteNodes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(200);
+      entity.Property(e => e.EndpointUrl).HasMaxLength(500);
+      entity.HasIndex(e => e.BaseNumber);
+    });
+
+    modelBuilder.Entity<SyncRegistry>(entity =>
+    {
+      entity.ToTable("SyncRegistries");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.EntityName).HasMaxLength(100);
+      entity.HasIndex(e => new { e.EntityName, e.MainAppId });
+      entity.HasIndex(e => new { e.EntityName, e.SatelliteAppId, e.SatelliteNodeId });
+
+      entity.HasOne(e => e.SatelliteNode)
+                .WithMany()
+                .HasForeignKey(e => e.SatelliteNodeId)
+                .OnDelete(DeleteBehavior.Cascade);
     });
   }
 }

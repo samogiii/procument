@@ -55,6 +55,9 @@ builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>(
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IFinalInvoiceLockGuard, FinalInvoiceLockGuard>();
 builder.Services.AddSingleton<IDocumentStorageService, DocumentStorageService>();
+builder.Services.AddSingleton<ICryptoService, CryptoService>();
+builder.Services.AddScoped<ISyncService, SyncService>();
+builder.Services.AddHttpClient();
 
 // ─── JWT Authentication ───
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");

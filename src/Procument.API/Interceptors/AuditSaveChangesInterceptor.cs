@@ -5,6 +5,7 @@ using Procument.Shared.Entities;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Procument.Module.RFQ.Entities;
 
 namespace Procument.API.Interceptors;
 
@@ -22,6 +23,9 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         var context = eventData.Context;
         if (context == null) return await base.SavingChangesAsync(eventData, result, cancellationToken);
 
+        // Update parent RFQ timestamp if item changes
+        UpdateRfqTimestamps(context);
+
         // Snapshot changes *before* save
         var auditEntries = CreateAuditEntries(context);
 
@@ -32,6 +36,37 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         }
 
         return await base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+
+    private void UpdateRfqTimestamps(DbContext context)
+    {
+        var entries = context.ChangeTracker.Entries()
+            .Where(e => e.Entity is RFQItem && (e.State == EntityState.Added || e.State == EntityState.Modified || e.State == EntityState.Deleted))
+            .ToList();
+
+        foreach (var entry in entries)
+        {
+            var item = (RFQItem)entry.Entity;
+            long rfqId = item.RFQId;
+
+            if (rfqId == 0)
+            {
+                var rfqProp = entry.Property("RFQId");
+                if (rfqProp.CurrentValue != null) rfqId = (long)rfqProp.CurrentValue;
+            }
+
+            if (rfqId > 0)
+            {
+                var rfq = context.Set<RFQHeader>().Local.FirstOrDefault(r => r.Id == rfqId)
+                          ?? context.Set<RFQHeader>().FirstOrDefault(r => r.Id == rfqId);
+
+                if (rfq != null)
+                {
+                    rfq.ModifyAt = DateTime.UtcNow;
+                    context.Entry(rfq).State = EntityState.Modified;
+                }
+            }
+        }
     }
 
     public override async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
@@ -105,6 +140,15 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
                 Action = entry.State.ToString(),
                 Timestamp = DateTime.UtcNow
             };
+
+            // Automatic timestamping
+            if (entry.Entity is AuditableEntity auditable)
+            {
+                if (entry.State == EntityState.Modified)
+                {
+                    auditable.ModifyAt = DateTime.UtcNow;
+                }
+            }
 
             foreach (var prop in entry.Properties)
             {

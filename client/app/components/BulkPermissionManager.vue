@@ -57,7 +57,7 @@
           <v-autocomplete
             v-model="selectedCustomerId"
             :items="customers"
-            item-title="name"
+            item-title="customerCode"
             item-value="id"
             label="Choose Customer"
             variant="outlined"
