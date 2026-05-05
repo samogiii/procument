@@ -208,6 +208,32 @@ public class FinalizeProcurementResponse
     public List<long> CreatedPOItemIds { get; set; } = new();
 }
 
+/// <summary>Flat view of a single ProcurementItem with parent procurement context, for the all-items list page.</summary>
+public class ProcurementItemFlatResponse
+{
+    public long Id { get; set; }
+    public long ProcurementId { get; set; }
+    public string ProcurementStatus { get; set; } = "Open";
+    public string? CustomerName { get; set; }
+
+    public string? PartNumberName { get; set; }
+    public string? PartNumberDescription { get; set; }
+
+    public int Qty { get; set; }
+    public string? Condition { get; set; }
+    public string? Alt { get; set; }
+    public string? Note { get; set; }
+    public string ItemStatus { get; set; } = "Open";
+
+    public string? CurrentSupplierName { get; set; }
+    public decimal UnitPrice { get; set; }
+    public string? LeadTime { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>Users assigned to this specific item (EntityName=Procurement, EntityId=item.Id). Admin-only.</summary>
+    public List<ProcurementAssignedUser> AssignedUsers { get; set; } = new();
+}
+
 /// <summary>Result of finalizing a single ProcurementItem (one supplier row).</summary>
 public class FinalizeProcurementItemResponse
 {

@@ -13,6 +13,7 @@ public interface IProcurementService
     Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId);
 
     Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
+    Task<List<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin);
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<bool> UserCanAccessAsync(long procurementId, long userId, bool isAdmin);
     Task<bool> UserCanAccessItemAsync(long procurementId, long itemId, long userId, bool isAdmin);

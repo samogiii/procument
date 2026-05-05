@@ -198,6 +198,105 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     // Query methods
     // ────────────────────────────────────────────────────────────────
+    public async Task<List<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin)
+    {
+        IQueryable<ProcurementItem> query = _db.Set<ProcurementItem>()
+            .Include(i => i.CurrentSupplier)
+            .AsNoTracking();
+
+        if (!isAdmin)
+        {
+            var permittedEntityIds = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+
+            var permittedItemIds = permittedEntityIds
+                .Select(s => long.TryParse(s, out var l) ? l : -1L)
+                .Where(l => l > 0)
+                .ToHashSet();
+
+            if (permittedItemIds.Count == 0) return new List<ProcurementItemFlatResponse>();
+            query = query.Where(i => permittedItemIds.Contains(i.Id));
+        }
+
+        var items = await query.OrderByDescending(i => i.CreatedAt).ToListAsync();
+        if (items.Count == 0) return new List<ProcurementItemFlatResponse>();
+
+        // Batch-load parent procurement status and invoice (customer) info
+        var procIds = items.Select(i => i.ProcurementId).Distinct().ToList();
+        var procs = await _db.Set<Procurement>()
+            .AsNoTracking()
+            .Where(p => procIds.Contains(p.Id))
+            .Select(p => new { p.Id, p.Status, p.InvoiceId })
+            .ToListAsync();
+
+        var invoiceIds = procs.Select(p => p.InvoiceId).Distinct().ToList();
+        var invoiceMap = await _db.Set<Invoice>()
+            .AsNoTracking()
+            .Where(i => invoiceIds.Contains(i.Id))
+            .Select(i => new { i.Id, CustomerName = i.Customer.CustomerCode })
+            .ToDictionaryAsync(x => x.Id);
+
+        var procInfoMap = procs.ToDictionary(
+            p => p.Id,
+            p => new
+            {
+                p.Status,
+                CustomerName = invoiceMap.TryGetValue(p.InvoiceId, out var inv) ? inv.CustomerName : null,
+            });
+
+        // Batch-load per-item permissions (admin only — shown as chips)
+        var allPerms = new List<ProcurementAssignedUser>();
+        if (isAdmin)
+        {
+            var itemIdStrs = items.Select(i => i.Id.ToString()).ToList();
+            var permRows = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "Procurement" && itemIdStrs.Contains(p.EntityId))
+                .Join(_db.Set<User>(), p => p.UserId, u => u.Id, (p, u) => new { p, u })
+                .ToListAsync();
+
+            allPerms = permRows.Select(r => new ProcurementAssignedUser
+            {
+                Id = r.p.Id,
+                UserId = r.p.UserId,
+                UserName = r.u.Name ?? r.u.Email ?? $"User #{r.u.Id}",
+                UserEmail = r.u.Email,
+                EntityName = r.p.EntityName,
+                EntityId = r.p.EntityId,
+                Permission = r.p.Permission,
+                CreatedAt = r.p.CreatedAt,
+            }).ToList();
+        }
+
+        return items.Select(i =>
+        {
+            procInfoMap.TryGetValue(i.ProcurementId, out var procInfo);
+            var itemIdStr = i.Id.ToString();
+            return new ProcurementItemFlatResponse
+            {
+                Id = i.Id,
+                ProcurementId = i.ProcurementId,
+                ProcurementStatus = procInfo?.Status ?? "Open",
+                CustomerName = procInfo?.CustomerName,
+                PartNumberName = i.PartNumberName,
+                PartNumberDescription = i.PartNumberDescription,
+                Qty = i.Qty,
+                Condition = i.Condition,
+                Alt = i.Alt,
+                Note = i.Note,
+                ItemStatus = i.ItemStatus,
+                CurrentSupplierName = i.CurrentSupplier?.Name ?? i.SupplierName,
+                UnitPrice = i.UnitPrice,
+                LeadTime = i.LeadTime,
+                CreatedAt = i.CreatedAt,
+                AssignedUsers = isAdmin
+                    ? allPerms.Where(p => p.EntityId == itemIdStr).ToList()
+                    : new List<ProcurementAssignedUser>(),
+            };
+        }).ToList();
+    }
+
     public async Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin)
     {
         IQueryable<Procurement> baseQ = _db.Set<Procurement>()

@@ -38,6 +38,15 @@ public class ProcurementsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Flat list of all procurement items across every procurement. Admin sees all; others see only their assigned items.</summary>
+    [HttpGet("items")]
+    public async Task<ActionResult<List<ProcurementItemFlatResponse>>> GetAllItems()
+    {
+        var (userId, isAdmin) = GetCurrentUser();
+        var result = await _service.GetAllItemsFlatAsync(userId, isAdmin);
+        return Ok(result);
+    }
+
     /// <summary>Full procurement detail with items + supplier quotes + assigned users.</summary>
     [HttpGet("{id:long}")]
     public async Task<ActionResult<ProcurementResponse>> GetById(long id)
