@@ -115,9 +115,9 @@ public class DocumentsController : ControllerBase
             .SumAsync(p => p.Amount);
 
         bool justPaid = false;
-        if (totalPaid >= invoice.TotalAmount && invoice.Status != "Paid")
+        if (totalPaid >= invoice.TotalAmount && invoice.Status != "Finish")
         {
-            invoice.Status = "Paid";
+            invoice.Status = "Finish";
             invoice.PaidDate = DateTime.UtcNow;
             await _db.SaveChangesAsync();
             justPaid = true;
@@ -307,6 +307,30 @@ public class DocumentsController : ControllerBase
             written.Add(piNumber);
         }
 
+        // ── Total Projects timestamps ──
+        try
+        {
+            var pos = await GetPOsForInvoiceAndSupplierAsync(invoiceId, supplierId);
+            bool changed = false;
+            foreach (var po in pos)
+            {
+                if (string.Equals(category, "supplier_invoice", StringComparison.OrdinalIgnoreCase)
+                    && po.SupplierDocumentReceivedAt == null)
+                {
+                    po.SupplierDocumentReceivedAt = DateTime.UtcNow;
+                    changed = true;
+                }
+                if (string.Equals(category, "our_pop", StringComparison.OrdinalIgnoreCase)
+                    && isFinal && po.OurPOPSentAt == null)
+                {
+                    po.OurPOPSentAt = DateTime.UtcNow;
+                    changed = true;
+                }
+            }
+            if (changed) await _db.SaveChangesAsync();
+        }
+        catch { /* non-fatal */ }
+
         return Ok(new { fileName = savedName, fannedOutToInvoices = written });
     }
 
@@ -340,6 +364,22 @@ public class DocumentsController : ControllerBase
         if (invoice == null) return NotFound();
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound();
+
+        // ── Total Projects: stamp OurPOPDownloadedAt on first POP download ──
+        if (string.Equals(category, "our_pop", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var pos = await GetPOsForInvoiceAndSupplierAsync(invoiceId, supplierId);
+                bool changed = false;
+                foreach (var po in pos)
+                {
+                    if (po.OurPOPDownloadedAt == null) { po.OurPOPDownloadedAt = DateTime.UtcNow; changed = true; }
+                }
+                if (changed) await _db.SaveChangesAsync();
+            }
+            catch { /* non-fatal */ }
+        }
 
         if (!string.IsNullOrWhiteSpace(category) && SupplierCategoryFolders.TryGetValue(category, out var categoryFolder))
         {
@@ -396,6 +436,17 @@ public class DocumentsController : ControllerBase
     }
 
     // ───────────── Helpers ─────────────
+
+    private async Task<List<PurchaseOrder>> GetPOsForInvoiceAndSupplierAsync(long invoiceId, long supplierId)
+    {
+        return await _db.Set<PurchaseOrder>()
+            .Where(p => p.SupplierId == supplierId
+                        && (p.InvoiceId == invoiceId
+                            || p.POItems.Any(i => i.InvoiceItemId.HasValue
+                                                  && _db.Set<InvoiceItem>().Any(ii => ii.Id == i.InvoiceItemId
+                                                                                      && ii.InvoiceId == invoiceId))))
+            .ToListAsync();
+    }
 
     private async Task<List<Supplier>> GetSuppliersForInvoiceAsync(long invoiceId)
     {

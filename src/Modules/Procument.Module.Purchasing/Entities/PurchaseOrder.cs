@@ -49,6 +49,16 @@ public class PurchaseOrder : BaseEntity
     /// <summary>Flat tax amount shown on the PO PDF totals.</summary>
     public decimal? Tax { get; set; }
 
+    // ─── Total Projects tracking timestamps ───
+    /// <summary>Set when the PO PDF is first generated. Drives "PO Sent" status in Total Projects.</summary>
+    public DateTime? PDFSentAt { get; set; }
+    /// <summary>Set when a supplier_invoice document is uploaded for this PO. Drives "Document Added".</summary>
+    public DateTime? SupplierDocumentReceivedAt { get; set; }
+    /// <summary>Set when a final our_pop (isFinal=true) is uploaded for this PO. Drives "Payment Done".</summary>
+    public DateTime? OurPOPSentAt { get; set; }
+    /// <summary>Set when our_pop document is downloaded for this PO. Drives "Waiting For Supplier to Ship".</summary>
+    public DateTime? OurPOPDownloadedAt { get; set; }
+
     // Foreign keys
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }

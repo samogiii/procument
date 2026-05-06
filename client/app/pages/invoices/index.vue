@@ -8,7 +8,7 @@
     v-model="selectedInvoices"
     :custom-filter="applyFilters"
     page-key="invoices"
-    :status-items="['All', 'Draft', 'Pending', 'Accepted', 'Net30', 'CAD', 'Paid', 'Prepeyment', 'Rejected']"
+    :status-items="['All', 'Draft', 'Pending', 'Running', 'Waiting For PrePayment', 'Delivered', 'Finish']"
   >
     <template #filters>
       <v-text-field

@@ -8,10 +8,11 @@ public class Invoice : BaseEntity
     public string InvoiceNumber { get; set; } = string.Empty;
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
+    public string? PaymentStatus { get; set; }      // Net30 | CAD | Prepayment
+    public decimal? PrepaymentPercent { get; set; } // only set when PaymentStatus = "Prepayment"
     public DateTime? DueDate { get; set; }
     public DateTime? PaidDate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public string? RejectionNote { get; set; }
     public string? CustomerPONumber { get; set; }
     public string? Subject { get; set; }
 

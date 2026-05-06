@@ -5,7 +5,7 @@
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Proforma Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
-        <!-- Status Chip with Dropdown (admin only) -->
+        <!-- Invoice Status Chip with Dropdown (admin only) -->
         <v-menu v-if="isAdmin" :disabled="isLocked">
           <template #activator="{ props: menuProps }">
             <v-chip
@@ -18,7 +18,7 @@
               {{ invoice.status || '—' }}
             </v-chip>
           </template>
-          <v-list density="compact" style="min-width: 180px">
+          <v-list density="compact" style="min-width: 210px">
             <v-list-subheader>Change Status</v-list-subheader>
             <v-list-item
               v-for="s in invoiceStatuses"
@@ -36,11 +36,22 @@
         </v-menu>
         <v-chip v-else :color="statusColor(invoice.status)" size="default" :append-icon="isLocked ? 'mdi-lock' : undefined">{{ invoice.status || '—' }}</v-chip>
 
+        <!-- Payment Status badge (read-only) -->
+        <v-chip
+          v-if="invoice.paymentStatus"
+          size="default"
+          :color="paymentStatusColor(invoice.paymentStatus)"
+          variant="tonal"
+          prepend-icon="mdi-credit-card-outline"
+        >
+          {{ invoice.paymentStatus }}<span v-if="invoice.paymentStatus === 'Prepayment' && invoice.prepaymentPercent">&nbsp;{{ invoice.prepaymentPercent }}%</span>
+        </v-chip>
+
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
         <v-btn
-          v-if="procurementId && (invoice.status !== 'Draft' && invoice.status !== 'Pending')"
+          v-if="procurementId && !['Draft', 'Pending'].includes(invoice.status)"
           :to="`/procurements/${procurementId}`"
           variant="tonal"
           color="primary"
@@ -96,18 +107,6 @@
       </v-col>
     </v-row>
 
-    <!-- Rejection Note -->
-    <v-alert
-      v-if="invoice.status === 'Rejected' && invoice.rejectionNote"
-      type="error"
-      variant="tonal"
-      class="mb-6"
-      icon="mdi-close-circle-outline"
-    >
-      <div class="font-weight-bold mb-1">Rejection Reason</div>
-      {{ invoice.rejectionNote }}
-    </v-alert>
-
     <!-- Edit Details -->
     <v-card class="glass-card mb-6" v-if="!isLocked">
       <v-card-title class="d-flex align-center">
@@ -130,6 +129,31 @@
           </v-col>
           <v-col cols="12" md="4">
             <v-text-field v-model="detailsForm.dueDate" label="Due Date" variant="outlined" density="compact" hide-details type="date" :readonly="!editingDetails" />
+          </v-col>
+          <v-col cols="12" md="4">
+            <v-select
+              v-model="detailsForm.paymentStatus"
+              :items="['Net30', 'CAD', 'Prepayment']"
+              label="Payment Status"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :readonly="!editingDetails"
+              clearable
+            />
+          </v-col>
+          <v-col cols="12" md="4" v-if="detailsForm.paymentStatus === 'Prepayment'">
+            <v-text-field
+              v-model.number="detailsForm.prepaymentPercent"
+              label="Prepayment Percent (%)"
+              variant="outlined"
+              density="compact"
+              hide-details
+              type="number"
+              min="0"
+              max="100"
+              :readonly="!editingDetails"
+            />
           </v-col>
         </v-row>
       </v-card-text>
@@ -209,28 +233,6 @@
       <BusinessAuditViewer entity-name="Invoice" :entity-id="route.params.id as string" />
     </v-dialog>
 
-    <!-- Rejection Note Dialog -->
-    <v-dialog v-model="showRejectDialog" max-width="450" persistent>
-      <v-card>
-        <v-card-title class="text-h6">Reject Proforma Invoice</v-card-title>
-        <v-card-text>
-          <p class="text-body-2 text-medium-emphasis mb-3">Please provide a reason for rejecting this invoice:</p>
-          <v-textarea
-            v-model="rejectionNote"
-            label="Rejection Reason"
-            variant="outlined"
-            rows="3"
-            auto-grow
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
-          <v-btn color="error" variant="flat" @click="confirmReject">Reject</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
@@ -265,22 +267,27 @@ const creatingFinal = ref(false)
 // Edit Details
 const editingDetails = ref(false)
 const savingDetails = ref(false)
-const detailsForm = ref<any>({ customerPONumber: '', dueDate: '', subject: '' })
+const detailsForm = ref<any>({ customerPONumber: '', dueDate: '', subject: '', paymentStatus: '', prepaymentPercent: null })
 const detailsOriginal = ref<any>({})
 
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('invoice', entityId)
 
 const invoiceStatuses = [
-  { value: 'Draft', label: 'Draft', icon: 'mdi-file-edit-outline', color: 'grey' },
-  { value: 'Pending', label: 'Pending', icon: 'mdi-clock-outline', color: 'warning' },
-  { value: 'Accepted', label: 'Accepted', icon: 'mdi-check-decagram-outline', color: 'success' },
-  { value: 'Net30', label: 'Net30', icon: 'mdi-calendar-clock', color: 'indigo' },
-  { value: 'CAD', label: 'CAD', icon: 'mdi-currency-usd', color: 'cyan' },
-  { value: 'Paid', label: 'Paid', icon: 'mdi-check-circle', color: 'success' },
-  { value: 'Prepeyment', label: 'Prepeyment', icon: 'mdi-cash-marker', color: 'orange' },
-  { value: 'Rejected', label: 'Rejected', icon: 'mdi-close-circle', color: 'error' },
+  { value: 'Draft',                  label: 'Draft',                  icon: 'mdi-file-edit-outline',   color: 'grey'    },
+  { value: 'Pending',                label: 'Pending',                icon: 'mdi-clock-outline',       color: 'warning' },
+  { value: 'Running',                label: 'Running',                icon: 'mdi-play-circle-outline', color: 'blue'    },
+  { value: 'Waiting For PrePayment', label: 'Waiting For PrePayment', icon: 'mdi-cash-clock',          color: 'orange'  },
+  { value: 'Delivered',              label: 'Delivered',              icon: 'mdi-truck-check-outline', color: 'teal'    },
+  { value: 'Finish',                 label: 'Finish',                 icon: 'mdi-check-circle',        color: 'success' },
 ]
+
+function paymentStatusColor(ps: string): string {
+  if (ps === 'Net30') return 'indigo'
+  if (ps === 'CAD') return 'cyan'
+  if (ps === 'Prepayment') return 'orange'
+  return 'grey'
+}
 
 const itemHeaders = [
   { title: 'Part Number', key: 'partNumberName' },
@@ -363,12 +370,14 @@ async function loadInvoice() {
       customerPONumber: invoice.value.customerPONumber || '',
       dueDate: invoice.value.dueDate ? invoice.value.dueDate.substring(0, 10) : '',
       subject: invoice.value.subject || '',
+      paymentStatus: invoice.value.paymentStatus || '',
+      prepaymentPercent: invoice.value.prepaymentPercent ?? null,
     }
     detailsOriginal.value = { ...detailsForm.value }
     initItemPrices()
 
-    // Fetch related procurement if applicable
-    if (invoice.value.status !== 'Draft' && invoice.value.status !== 'Pending') {
+    // Fetch related procurement if applicable (created when status → Running)
+    if (!['Draft', 'Pending'].includes(invoice.value.status)) {
       const res = await api.get<any>(`/procurements?search=${invoice.value.invoiceNumber}&pageSize=1`)
       procurementId.value = res?.items?.[0]?.id ?? null
     }
@@ -389,7 +398,10 @@ function cancelEditDetails() {
 async function saveDetails() {
   savingDetails.value = true
   try {
-    await api.put(`/invoices/${route.params.id}`, detailsForm.value)
+    const payload = { ...detailsForm.value }
+    if (payload.paymentStatus !== 'Prepayment') payload.prepaymentPercent = null
+    
+    await api.put(`/invoices/${route.params.id}`, payload)
     detailsOriginal.value = { ...detailsForm.value }
     editingDetails.value = false
     showSnack('Details saved', 'success')
@@ -420,30 +432,18 @@ async function createFinalInvoice() {
   }
 }
 
-const showRejectDialog = ref(false)
-const rejectionNote = ref('')
-
 function onStatusSelect(newStatus: string) {
   if (newStatus === invoice.value.status) return
-  if (newStatus === 'Rejected') {
-    rejectionNote.value = ''
-    showRejectDialog.value = true
-    return
-  }
   updateStatus(newStatus)
 }
 
-async function confirmReject() {
-  showRejectDialog.value = false
-  await updateStatus('Rejected', rejectionNote.value || undefined)
-}
-
-async function updateStatus(newStatus: string, note?: string) {
+async function updateStatus(newStatus: string) {
   try {
-    await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus, rejectionNote: note || null })
+    await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus })
     invoice.value.status = newStatus
-    invoice.value.rejectionNote = note || null
     showSnack(`Status updated to ${newStatus}`, 'success')
+    // Re-fetch procurement link when status moves to Running
+    if (newStatus === 'Running') await loadInvoice()
   } catch {
     showSnack('Failed to update status', 'error')
   }

@@ -10,14 +10,12 @@ const STATUS_COLORS: Record<string, string> = {
     Accepted: 'success',
     Rejected: 'error',
 
-    // Proforma Invoice
-    // Draft: 'grey',
+    // Proforma Invoice workflow statuses
     Pending: 'warning',
-    // Accepted: 'success',
-    Net30: 'indigo',
-    CAD: 'cyan',
-    Paid: 'success',
-    Prepeyment: 'orange',
+    Running: 'blue',
+    'Waiting For PrePayment': 'orange',
+    Delivered: 'teal',
+    Finish: 'success',
 
     // Purchase Order
     Received: 'success',
@@ -32,6 +30,16 @@ const STATUS_COLORS: Record<string, string> = {
     Closed: 'blue-grey',
     Completed: 'success',
     Cancelled: 'error',
+
+    // Total Projects lifecycle
+    'Not Started': 'grey',
+    'Under Contract': 'blue',
+    'Waiting For Payment': 'warning',
+    'PO Sent': 'cyan',
+    'Document Added': 'purple',
+    'Payment Done': 'teal',
+    'Waiting For Supplier to Ship': 'orange',
+    'Ship to Warehouse/Customer': 'success',
 
     // General
     Active: 'success',

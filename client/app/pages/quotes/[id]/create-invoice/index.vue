@@ -50,10 +50,31 @@
             variant="outlined"
             style="min-width: 150px; max-width: 180px;"
           />
+          <v-select
+            v-model="paymentStatus"
+            :items="['Net30', 'CAD', 'Prepayment']"
+            label="Payment Terms"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 140px; max-width: 160px;"
+          />
+          <v-text-field
+            v-if="paymentStatus === 'Prepayment'"
+            v-model.number="prepaymentPercent"
+            label="Prepayment %"
+            type="number"
+            :min="1"
+            :max="100"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 120px; max-width: 130px;"
+          />
           <v-btn
             color="success"
             prepend-icon="mdi-check"
-            :disabled="selectedCount === 0"
+            :disabled="selectedCount === 0 || !paymentStatus"
             :loading="saving"
             @click="createInvoice"
           >
@@ -158,6 +179,8 @@ const quoteItems = ref<any[]>([])
 const dueDate = ref('')
 const subject = ref('')
 const poNumber = ref('')
+const paymentStatus = ref<string>('Net30')
+const prepaymentPercent = ref<number | null>(null)
 
 // selections: { [quoteItemId]: { selected: boolean, qty: number, expectedDeliveryDate: string } }
 const selections = ref<Record<number, { selected: boolean; qty: number; expectedDeliveryDate: string }>>({})
@@ -251,6 +274,8 @@ async function createInvoice() {
       dueDate: dueDate.value || null,
       subject: subject.value || null,
       customerPONumber: poNumber.value || null,
+      paymentStatus: paymentStatus.value || null,
+      prepaymentPercent: paymentStatus.value === 'Prepayment' ? prepaymentPercent.value : null,
       items: selectedEntries
     }
 

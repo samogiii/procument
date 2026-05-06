@@ -83,31 +83,27 @@ public class InvoicesController : ControllerBase
         var invoice = await _invoiceService.GetByIdAsync(id, userId, isAdmin);
         if (invoice == null) return NotFound();
 
-        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.RejectionNote);
+        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin);
         if (!success) return BadRequest("Status change not allowed.");
 
         // Create notifications
-        if (request.Status == "Rejected" || request.Status == "Paid")
+        if (request.Status == "Finish")
         {
-            // Notify the invoice owner (via quote)
+            // Notify the invoice owner that the invoice is finished/paid
             var ownerUserId = await _db.Set<Invoice>()
                 .Where(i => i.Id == id)
                 .Select(i => i.Quote.UserId)
                 .FirstOrDefaultAsync();
             if (ownerUserId > 0)
             {
-                var msg = request.Status == "Rejected"
-                    ? $"Proforma Invoice {invoice.InvoiceNumber} has been rejected."
-                    : $"Proforma Invoice {invoice.InvoiceNumber} has been marked as Paid.";
                 _db.Set<Notification>().Add(new Notification
                 {
                     UserId = ownerUserId,
-                    Type = request.Status == "Rejected" ? "Rejection" : "StatusChange",
+                    Type = "StatusChange",
                     EntityName = "Invoice",
                     EntityId = id,
                     EntityNumber = invoice.InvoiceNumber,
-                    Message = msg,
-                    RejectionNote = request.RejectionNote
+                    Message = $"Proforma Invoice {invoice.InvoiceNumber} has been marked as Finished."
                 });
                 await _db.SaveChangesAsync();
             }

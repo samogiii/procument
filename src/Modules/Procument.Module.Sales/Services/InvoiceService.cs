@@ -140,13 +140,21 @@ public class InvoiceService : IInvoiceService
             });
         }
 
+        var initialStatus = "Draft";
+        if (request.PaymentStatus == "Prepayment" && request.PrepaymentPercent.HasValue && request.PrepaymentPercent.Value > 0)
+        {
+            initialStatus = "Waiting For PrePayment";
+        }
+
         var invoice = new Invoice
         {
             InvoiceNumber = "",
             QuoteId = request.QuoteId,
             CustomerId = quote.CustomerId,
             TotalAmount = totalAmount,
-            Status = "Draft",
+            Status = initialStatus,
+            PaymentStatus = request.PaymentStatus,
+            PrepaymentPercent = request.PaymentStatus == "Prepayment" ? request.PrepaymentPercent : null,
             DueDate = request.DueDate,
             CustomerPONumber = request.CustomerPONumber,
             Subject = request.Subject,
@@ -225,12 +233,23 @@ public class InvoiceService : IInvoiceService
         if (request.DueDate.HasValue) invoice.DueDate = request.DueDate.Value;
         if (request.CustomerPONumber != null) invoice.CustomerPONumber = request.CustomerPONumber;
         if (request.Subject != null) invoice.Subject = request.Subject;
+        if (request.PaymentStatus != null)
+        {
+            invoice.PaymentStatus = request.PaymentStatus;
+            invoice.PrepaymentPercent = request.PaymentStatus == "Prepayment" ? request.PrepaymentPercent : null;
+
+            // Auto-advance to Waiting For PrePayment if still in Draft and we have a prepayment percentage
+            if (invoice.Status == "Draft" && invoice.PaymentStatus == "Prepayment" && invoice.PrepaymentPercent.HasValue && invoice.PrepaymentPercent.Value > 0)
+            {
+                invoice.Status = "Waiting For PrePayment";
+            }
+        }
 
         await _db.SaveChangesAsync();
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, string? rejectionNote = null)
+    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin)
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.Quote)
@@ -241,36 +260,29 @@ public class InvoiceService : IInvoiceService
         if (invoice == null) return false;
         if (!isAdmin && invoice.Quote.UserId != userId) return false;
 
-        // Validation of new statuses
-        var allowedStatuses = new[] { "Draft", "Pending", "Accepted", "Net30", "CAD", "Paid", "Prepeyment", "Rejected" };
+        // Allowed invoice workflow statuses
+        var allowedStatuses = new[]
+        {
+            "Draft", "Pending", "Running",
+            "Waiting For PrePayment", "Delivered", "Finish"
+        };
         if (!allowedStatuses.Contains(status)) return false;
 
-        // Only admin can change to certain statuses
-        var adminOnlyStatuses = new[] { "Accepted", "Net30", "CAD", "Paid", "Prepeyment", "Rejected" };
+        // Only admin can move past Pending
+        var adminOnlyStatuses = new[] { "Running", "Waiting For PrePayment", "Delivered", "Finish" };
         if (adminOnlyStatuses.Contains(status) && !isAdmin) return false;
 
         invoice.Status = status;
-        if (status == "Paid" && invoice.PaidDate == null)
-        {
-            invoice.PaidDate = DateTime.UtcNow;
-        }
 
-        if (status == "Rejected")
-        {
-            invoice.RejectionNote = rejectionNote;
-        }
-        else
-        {
-            invoice.RejectionNote = null;
-        }
+        // Stamp PaidDate when reaching the terminal Finish state
+        if (status == "Finish" && invoice.PaidDate == null)
+            invoice.PaidDate = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
 
-        // When the Proforma Invoice leaves the Draft/Pending/Rejected states, spin up the
-        // Procurement editing layer (snapshots of RFQ/Quote/supplier data). Previously this
-        // block auto-created POItems directly — that path is now gone. Admins finalize the
-        // Procurement from the /procurements page, which is the only path that yields POItems.
-        if (status != "Draft" && status != "Pending" && status != "Rejected")
+        // Spin up the Procurement layer when admin accepts the invoice (Running).
+        // Idempotent — safe to call even if a Procurement already exists for this invoice.
+        if (status == "Running")
         {
             try
             {
@@ -278,8 +290,7 @@ public class InvoiceService : IInvoiceService
             }
             catch
             {
-                // Procurement creation is idempotent and non-fatal to the status change — swallow
-                // to preserve the existing UpdateStatusAsync contract. Surface elsewhere if needed.
+                // Non-fatal — swallow to preserve the status-change contract.
             }
         }
 
@@ -316,6 +327,8 @@ public class InvoiceService : IInvoiceService
             InvoiceNumber = i.InvoiceNumber,
             TotalAmount = i.TotalAmount,
             Status = i.Status,
+            PaymentStatus = i.PaymentStatus,
+            PrepaymentPercent = i.PrepaymentPercent,
             DueDate = i.DueDate,
             PaidDate = i.PaidDate,
             CreatedAt = i.CreatedAt,
@@ -333,7 +346,6 @@ public class InvoiceService : IInvoiceService
             CustomerShippingAccount = i.Customer?.ShippingAccount,
             CustomerTermsAndConditions = i.Customer?.TermsAndConditions,
             CustomerCurrencyType = i.Customer?.CurrencyType,
-            RejectionNote = i.RejectionNote,
             RfqExType = i.InvoiceItems?
                 .Select(ii => ii.QuoteItem?.RFQItem?.RFQ?.ExType)
                 .FirstOrDefault(x => x.HasValue),

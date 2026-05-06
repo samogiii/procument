@@ -93,6 +93,13 @@ public class PdfController : ControllerBase
                         using var ms = new MemoryStream(pdf);
                         _storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, "PO", fileName, ms);
                     }
+
+                    // Stamp PDFSentAt the first time the PO PDF is generated
+                    if (po.PDFSentAt == null)
+                    {
+                        po.PDFSentAt = DateTime.UtcNow;
+                        await _db.SaveChangesAsync();
+                    }
                 }
             }
         }

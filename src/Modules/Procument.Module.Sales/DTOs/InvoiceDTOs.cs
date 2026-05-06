@@ -8,6 +8,8 @@ public class CreateInvoiceRequest
     public DateTime? DueDate { get; set; }
     public string? CustomerPONumber { get; set; }
     public string? Subject { get; set; }
+    public string? PaymentStatus { get; set; }      // Net30 | CAD | Prepayment
+    public decimal? PrepaymentPercent { get; set; } // 1-100, only when PaymentStatus = "Prepayment"
     public List<CreateInvoiceItemRequest> Items { get; set; } = new();
 }
 
@@ -22,7 +24,6 @@ public class CreateInvoiceItemRequest
 public class UpdateInvoiceStatusRequest
 {
     public string Status { get; set; } = string.Empty;
-    public string? RejectionNote { get; set; }
 }
 
 public class UpdateInvoiceRequest
@@ -30,6 +31,8 @@ public class UpdateInvoiceRequest
     public DateTime? DueDate { get; set; }
     public string? CustomerPONumber { get; set; }
     public string? Subject { get; set; }
+    public string? PaymentStatus { get; set; }
+    public decimal? PrepaymentPercent { get; set; }
 }
 
 public class UpdateInvoiceItemDiscountRequest
@@ -53,6 +56,8 @@ public class InvoiceResponse
     public string InvoiceNumber { get; set; } = string.Empty;
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string? PaymentStatus { get; set; }
+    public decimal? PrepaymentPercent { get; set; }
     public DateTime? DueDate { get; set; }
     public DateTime? PaidDate { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -71,8 +76,6 @@ public class InvoiceResponse
     public string? CustomerShippingAccount { get; set; }
     public string? CustomerTermsAndConditions { get; set; }
     public string? CustomerCurrencyType { get; set; }
-    public string? RejectionNote { get; set; }
-
     // Pulled from the linked RFQ (via Quote → RFQItem → RFQ). 0 = Ex Warehouse, 1 = Ex Vendor, 2 = Ex Customer.
     public int? RfqExType { get; set; }
 
