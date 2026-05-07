@@ -83,7 +83,7 @@ public class InvoicesController : ControllerBase
         var invoice = await _invoiceService.GetByIdAsync(id, userId, isAdmin);
         if (invoice == null) return NotFound();
 
-        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin);
+        var success = await _invoiceService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.AutoFinalize);
         if (!success) return BadRequest("Status change not allowed.");
 
         // Create notifications

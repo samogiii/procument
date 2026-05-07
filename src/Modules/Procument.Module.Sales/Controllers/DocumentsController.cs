@@ -307,29 +307,35 @@ public class DocumentsController : ControllerBase
             written.Add(piNumber);
         }
 
-        // ── Total Projects timestamps ──
-        try
+        // Update POItem statuses based on upload category
+        if (category is "supplier_invoice" or "our_pop")
         {
-            var pos = await GetPOsForInvoiceAndSupplierAsync(invoiceId, supplierId);
-            bool changed = false;
-            foreach (var po in pos)
+            var newStatus = category == "supplier_invoice" ? "Document Added" : "Payment Done";
+            var itemsToUpdate = await _db.Set<POItem>()
+                .Include(i => i.PurchaseOrder)
+                .Where(i => i.SupplierId == supplierId && i.ReturnedAt == null &&
+                            (i.POId == null || i.PurchaseOrder!.InvoiceId == invoiceId ||
+                             _db.Set<InvoiceItem>().Any(ii => ii.Id == i.InvoiceItemId && ii.InvoiceId == invoiceId)))
+                .ToListAsync();
+
+            var poIds = new HashSet<long>();
+            foreach (var item in itemsToUpdate)
             {
-                if (string.Equals(category, "supplier_invoice", StringComparison.OrdinalIgnoreCase)
-                    && po.SupplierDocumentReceivedAt == null)
+                item.Status = newStatus;
+                if (item.POId.HasValue) poIds.Add(item.POId.Value);
+            }
+
+            if (poIds.Count > 0)
+            {
+                var pos = await _db.Set<PurchaseOrder>().Where(p => poIds.Contains(p.Id)).ToListAsync();
+                foreach (var po in pos)
                 {
-                    po.SupplierDocumentReceivedAt = DateTime.UtcNow;
-                    changed = true;
-                }
-                if (string.Equals(category, "our_pop", StringComparison.OrdinalIgnoreCase)
-                    && isFinal && po.OurPOPSentAt == null)
-                {
-                    po.OurPOPSentAt = DateTime.UtcNow;
-                    changed = true;
+                    po.Status = newStatus;
                 }
             }
-            if (changed) await _db.SaveChangesAsync();
+
+            await _db.SaveChangesAsync();
         }
-        catch { /* non-fatal */ }
 
         return Ok(new { fileName = savedName, fannedOutToInvoices = written });
     }
@@ -365,20 +371,33 @@ public class DocumentsController : ControllerBase
         var supplier = await _db.Set<Supplier>().FirstOrDefaultAsync(s => s.Id == supplierId);
         if (supplier == null) return NotFound();
 
-        // ── Total Projects: stamp OurPOPDownloadedAt on first POP download ──
-        if (string.Equals(category, "our_pop", StringComparison.OrdinalIgnoreCase))
+        // Update status to "Waiting For Shipment" on download of critical documents
+        if (category is "supplier_invoice" or "our_pop")
         {
-            try
+            var itemsToUpdate = await _db.Set<POItem>()
+                .Include(i => i.PurchaseOrder)
+                .Where(i => i.SupplierId == supplierId && i.ReturnedAt == null &&
+                            (i.POId == null || i.PurchaseOrder!.InvoiceId == invoiceId ||
+                             _db.Set<InvoiceItem>().Any(ii => ii.Id == i.InvoiceItemId && ii.InvoiceId == invoiceId)))
+                .ToListAsync();
+
+            var poIds = new HashSet<long>();
+            foreach (var item in itemsToUpdate)
             {
-                var pos = await GetPOsForInvoiceAndSupplierAsync(invoiceId, supplierId);
-                bool changed = false;
+                item.Status = "Waiting For Shipment";
+                if (item.POId.HasValue) poIds.Add(item.POId.Value);
+            }
+
+            if (poIds.Count > 0)
+            {
+                var pos = await _db.Set<PurchaseOrder>().Where(p => poIds.Contains(p.Id)).ToListAsync();
                 foreach (var po in pos)
                 {
-                    if (po.OurPOPDownloadedAt == null) { po.OurPOPDownloadedAt = DateTime.UtcNow; changed = true; }
+                    po.Status = "Waiting For Shipment";
                 }
-                if (changed) await _db.SaveChangesAsync();
             }
-            catch { /* non-fatal */ }
+
+            await _db.SaveChangesAsync();
         }
 
         if (!string.IsNullOrWhiteSpace(category) && SupplierCategoryFolders.TryGetValue(category, out var categoryFolder))

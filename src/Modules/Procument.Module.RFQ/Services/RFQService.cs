@@ -56,14 +56,7 @@ public class RFQService : IRFQService
 
         if (customer == null)
         {
-            customer = new Customer
-            {
-                Name = request.CustomerName,
-                CreatedAt = DateTime.UtcNow,
-                IsActive = true
-            };
-            _db.Set<Customer>().Add(customer);
-            await _db.SaveChangesAsync(); // get the ID
+            throw new Exception($"Customer '{request.CustomerName}' does not exist. If you want to add a new Customer, please go to the Customers Page.");
         }
 
         // ── 2. Resolve or create PartNumbers ──

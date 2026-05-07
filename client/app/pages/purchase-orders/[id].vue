@@ -105,15 +105,15 @@
         <div v-if="po.adminApprovalNote" class="mb-3 text-body-2 text-medium-emphasis">
           <strong>Note:</strong> {{ po.adminApprovalNote }}
         </div>
-        <div v-if="po.adminApproval !== 'Approved' && isSuperAdmin" class="d-flex flex-wrap gap-2">
+        <div v-if="po.adminApproval !== 'Approved' && isAdmin" class="d-flex flex-wrap gap-2">
           <v-btn color="success" variant="flat" prepend-icon="mdi-check" :loading="approving" @click="approvePo">Accept</v-btn>
           <v-btn color="error" variant="tonal" prepend-icon="mdi-close" :loading="approving" @click="showRejectDialog = true">Reject</v-btn>
         </div>
-        <v-alert v-else-if="po.adminApproval !== 'Approved' && !isSuperAdmin" type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-lock">
-          This PO is locked — only a SuperAdmin can Accept or Reject it.
+        <v-alert v-else-if="po.adminApproval !== 'Approved' && !isAdmin" type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-lock">
+          This PO is locked — only an Admin or SuperAdmin can Accept or Reject it.
         </v-alert>
         <v-alert v-else type="success" variant="tonal" density="compact" class="mt-2" icon="mdi-check-circle">
-          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — SuperAdmin has accepted the PO.
+          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — The PO has been accepted.
         </v-alert>
 
         <!-- ── Document Verification (visible after SuperAdmin approval) ── -->

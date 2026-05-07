@@ -94,12 +94,13 @@ public class PdfController : ControllerBase
                         _storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, "PO", fileName, ms);
                     }
 
-                    // Stamp PDFSentAt the first time the PO PDF is generated
-                    if (po.PDFSentAt == null)
+                    // Update items and header to "PO Sent"
+                    po.Status = "PO Sent";
+                    foreach (var item in po.POItems.Where(i => i.ReturnedAt == null))
                     {
-                        po.PDFSentAt = DateTime.UtcNow;
-                        await _db.SaveChangesAsync();
+                        item.Status = "PO Sent";
                     }
+                    await _db.SaveChangesAsync();
                 }
             }
         }

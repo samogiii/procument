@@ -612,11 +612,11 @@ public class PurchaseOrdersController : ControllerBase
     // ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Approve or reject a PO. When a PO is created it is locked for Admins and regular users —
-    /// only SuperAdmin can change the AdminApproval state.
+    /// Approve or reject a PO. When a PO is created it is locked for regular users —
+    /// Admin and SuperAdmin can change the AdminApproval state.
     /// </summary>
     [HttpPatch("{id:long}/admin-approval")]
-    [Authorize(Roles = "SuperAdmin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     [Auditable("PurchaseOrder", "AdminApproval", CaptureBody = true)]
     public async Task<IActionResult> SetAdminApproval(long id, [FromBody] UpdateAdminApprovalRequest request)
     {

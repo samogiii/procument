@@ -24,6 +24,7 @@ public class CreateInvoiceItemRequest
 public class UpdateInvoiceStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public bool AutoFinalize { get; set; }
 }
 
 public class UpdateInvoiceRequest

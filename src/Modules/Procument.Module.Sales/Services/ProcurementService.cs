@@ -22,15 +22,20 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     // Create from accepted invoice (called by InvoiceService)
     // ────────────────────────────────────────────────────────────────
-    public async Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId)
+    public async Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false)
     {
         // Idempotent: return existing Procurement if already created for this invoice
         var existing = await _db.Set<Procurement>()
-            .AsNoTracking()
+            .Include(p => p.Items).ThenInclude(i => i.SupplierQuotes)
             .FirstOrDefaultAsync(p => p.InvoiceId == invoiceId);
+
         if (existing != null)
         {
-            return (await GetByIdInternalAsync(existing.Id))!;
+            if (autoFinalize && existing.Status != "Finalized" && existing.Status != "Cancelled")
+            {
+                await AutoFinalizeInternalAsync(existing, userId);
+            }
+            return (await GetByIdInternalAsync(existing.Id, userId, true))!;
         }
 
         var invoice = await _db.Set<Invoice>()
@@ -192,7 +197,69 @@ public class ProcurementService : IProcurementService
 
         await _db.SaveChangesAsync();
 
+        if (autoFinalize)
+        {
+            // Re-load with includes for the helper
+            var freshProc = await _db.Set<Procurement>()
+                .Include(p => p.Items).ThenInclude(i => i.SupplierQuotes)
+                .FirstAsync(p => p.Id == proc.Id);
+            await AutoFinalizeInternalAsync(freshProc, userId);
+        }
+
         return (await GetByIdInternalAsync(proc.Id, userId, true))!;
+    }
+
+    private async Task AutoFinalizeInternalAsync(Procurement proc, long userId)
+    {
+        bool anyPoItemCreated = false;
+        foreach (var item in proc.Items)
+        {
+            if (item.ItemStatus == "Cancelled") continue;
+
+            // Find selected quote
+            var sq = item.SupplierQuotes.FirstOrDefault(q => q.IsSelected);
+            var supplierId = sq?.SupplierId ?? item.CurrentSupplierId;
+
+            if (supplierId == null) continue;
+
+            // Check if already active
+            var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
+                p.SourceProcurementItemId == item.Id &&
+                p.SupplierId == supplierId &&
+                p.ReturnedAt == null);
+
+            if (!alreadyActive)
+            {
+                int qty = (sq != null && sq.Qty > 0) ? (int)Math.Round(sq.Qty) : item.Qty;
+                decimal price = (sq != null && sq.Price > 0) ? sq.Price : item.UnitPrice;
+                var poItem = new POItem
+                {
+                    POId = null,
+                    InvoiceItemId = item.SourceInvoiceItemId,
+                    ProcumentId = item.SourceProcumentRecordId,
+                    PartNumberId = item.PartNumberId,
+                    SupplierId = supplierId,
+                    Qty = qty,
+                    UnitPrice = price,
+                    TotalPrice = qty * price,
+                    Condition = sq?.Condition ?? item.Condition,
+                    SourceProcurementItemId = item.Id,
+                };
+                _db.Set<POItem>().Add(poItem);
+                anyPoItemCreated = true;
+            }
+        }
+
+        if (anyPoItemCreated)
+        {
+            await _db.SaveChangesAsync();
+        }
+
+        // Mark as finalized
+        proc.Status = "Finalized";
+        proc.FinalizedAt = DateTime.UtcNow;
+        proc.FinalizedByUserId = userId > 0 ? userId : null;
+        await _db.SaveChangesAsync();
     }
 
     // ────────────────────────────────────────────────────────────────

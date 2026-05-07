@@ -49,7 +49,13 @@
 
         <v-btn v-if="isAdmin" prepend-icon="mdi-shield-account" variant="tonal" size="small" @click="showPermissions = true">Perms</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
-        <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+        <v-btn
+          v-if="isAdmin || !['Draft', 'Pending', 'Cancelled'].includes(invoice.status)"
+          prepend-icon="mdi-file-pdf-box"
+          size="small"
+          color="error"
+          @click="showPdf = true"
+        >PDF</v-btn>
         <v-btn
           v-if="procurementId && !['Draft', 'Pending'].includes(invoice.status)"
           :to="`/procurements/${procurementId}`"
@@ -241,6 +247,24 @@
     <InvoiceDocuments :invoice-id="Number(route.params.id)" class="mt-6" ref="documentsRef" />
 
     <InvoicePdfGenerator v-model="showPdf" :invoice="invoice" @pdf-uploaded="documentsRef?.loadDocuments()" />
+
+    <!-- Procurement Choice Dialog -->
+    <v-dialog v-model="showProcurementChoice" max-width="500">
+      <v-card>
+        <v-card-title class="text-h6">Procurement Process</v-card-title>
+        <v-card-text class="pt-2">
+          Do you want to use the standard **Procurement** process (supplier quotes, expert sourcing) for this invoice?
+          <div class="mt-4 text-caption text-medium-emphasis">
+            Choosing "No" will automatically create the procurement and finalize all items based on existing quotes.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" color="primary" @click="confirmProcurementChoice(false)">No (Auto-Finalize)</v-btn>
+          <v-btn variant="flat" color="primary" @click="confirmProcurementChoice(true)">Yes (Standard)</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -258,6 +282,9 @@ const showAudit = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+const showProcurementChoice = ref(false)
+const pendingStatus = ref('')
 
 const isAdmin = computed(() => authStore.isAdmin)
 const showPdf = ref(false)
@@ -434,18 +461,33 @@ async function createFinalInvoice() {
 
 function onStatusSelect(newStatus: string) {
   if (newStatus === invoice.value.status) return
+
+  if (newStatus === 'Running' && isAdmin.value) {
+    pendingStatus.value = newStatus
+    showProcurementChoice.value = true
+    return
+  }
+
   updateStatus(newStatus)
 }
 
-async function updateStatus(newStatus: string) {
+function confirmProcurementChoice(useStandard: boolean) {
+  showProcurementChoice.value = false
+  updateStatus(pendingStatus.value, !useStandard)
+}
+
+async function updateStatus(newStatus: string, autoFinalize = false) {
   try {
-    await api.patch(`/invoices/${route.params.id}/status`, { status: newStatus })
+    await api.patch(`/invoices/${route.params.id}/status`, { 
+      status: newStatus,
+      autoFinalize
+    })
     invoice.value.status = newStatus
     showSnack(`Status updated to ${newStatus}`, 'success')
     // Re-fetch procurement link when status moves to Running
     if (newStatus === 'Running') await loadInvoice()
-  } catch {
-    showSnack('Failed to update status', 'error')
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to update status', 'error')
   }
 }
 

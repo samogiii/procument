@@ -171,14 +171,16 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 
-// Match the backend default + xlsx vocabulary
+// Match the backend automatic status vocabulary
 const statusOptions = [
   'Not Started',
-  'Sourcing',
-  'Ordered',
-  'In Transit',
-  'Received in Warehouse',
-  'Delivered to Customer',
+  'Under Contract',
+  'Waiting For Payment',
+  'PO Sent',
+  'Document Added',
+  'Payment Done',
+  'Waiting For Shipment',
+  'Ship to Warehouse/Customer',
   'Cancelled',
 ]
 
@@ -201,10 +203,13 @@ function formatDate(v: string | null | undefined) {
 
 function statusColorClass(status: string | null | undefined) {
   switch (status) {
-    case 'Delivered to Customer': return 'status-success'
-    case 'Received in Warehouse': return 'status-info'
-    case 'In Transit':
-    case 'Ordered':
+    case 'Ship to Warehouse/Customer': return 'status-success'
+    case 'Payment Done': return 'status-info'
+    case 'Waiting For Shipment':
+    case 'Document Added':
+    case 'PO Sent':
+    case 'Waiting For Payment':
+    case 'Under Contract':
     case 'Sourcing': return 'status-warning'
     case 'Cancelled': return 'status-error'
     default: return 'status-grey'

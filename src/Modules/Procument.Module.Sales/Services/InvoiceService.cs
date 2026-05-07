@@ -249,7 +249,7 @@ public class InvoiceService : IInvoiceService
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin)
+    public async Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, bool autoFinalize = false)
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.Quote)
@@ -286,7 +286,7 @@ public class InvoiceService : IInvoiceService
         {
             try
             {
-                await _procurementService.CreateFromAcceptedInvoiceAsync(invoice.Id, userId);
+                await _procurementService.CreateFromAcceptedInvoiceAsync(invoice.Id, userId, autoFinalize);
             }
             catch
             {

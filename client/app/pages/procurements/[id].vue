@@ -15,7 +15,7 @@
           </v-chip>
         </div>
         <div class="text-caption text-medium-emphasis">
-          <NuxtLink :to="`/procurements`" class="text-decoration-none text-medium-emphasis hover-underline">Procurements</NuxtLink>
+          <NuxtLink :to="`/procurements`" class="text-decoration-none text-medium-emphasis hover-underline">Order Items</NuxtLink>
           <v-icon icon="mdi-chevron-right" size="14" />
           <span>{{ procurement.procurementNumber }}</span>
         </div>

@@ -10,7 +10,7 @@ public interface IProcurementService
     /// a new Procurement. Idempotent — returns the existing Procurement for this invoice
     /// when one is already present.
     /// </summary>
-    Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId);
+    Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false);
 
     Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
     Task<List<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin);

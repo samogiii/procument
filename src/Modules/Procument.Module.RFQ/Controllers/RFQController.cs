@@ -30,7 +30,7 @@ public class RFQsController : ControllerBase
         _auditService = auditService;
     }
 
-    /// <summary>Create a new RFQ. Auto-creates customer and part numbers if they don't exist.</summary>
+    /// <summary>Create a new RFQ. Validates that the customer exists. Auto-creates part numbers if they don't exist.</summary>
     [HttpPost]
     public async Task<ActionResult<RFQResponse>> Create([FromBody] CreateRFQRequest request)
     {

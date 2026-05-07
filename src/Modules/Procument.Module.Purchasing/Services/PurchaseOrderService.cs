@@ -336,15 +336,16 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po == null) return false;
 
         // Allowed Statuses
-        var allowed = new[] { 
-            "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment", 
-            "Payment Done", "Ship To Warehouse 1", "Ship To Warehouse 2", 
-            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled" 
+        var allowed = new[] {
+            "Draft", "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment",
+            "PO Sent", "Document Added", "Payment Done", "Waiting For Shipment",
+            "Ship To Warehouse 1", "Ship To Warehouse 2",
+            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled"
         };
         if (!allowed.Contains(newStatus)) return false;
 
-        // Restriction: Only SuperAdmin can manually set back to "Waiting For Admin Approval"
-        if (!isSuperAdmin && newStatus == "Waiting For Admin Approval")
+        // Restriction: Only Admin or SuperAdmin can manually set back to "Waiting For Admin Approval"
+        if (!isAdmin && newStatus == "Waiting For Admin Approval")
         {
             return false;
         }
@@ -353,8 +354,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         // 1. If waiting for Admin approval
         if (po.AdminApproval != "Approved" && po.Status == "Waiting For Admin Approval")
         {
-            // Only SuperAdmin can override or correct status at this stage
-            if (!isSuperAdmin) return false;
+            // Only Admin or SuperAdmin can override or correct status at this stage
+            if (!isAdmin) return false;
         }
         
         // 2. If waiting for Documents
@@ -367,8 +368,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         // 3. If waiting for Payment (Admin approved but payment not yet submitted)
         if (po.AdminApproval == "Approved" && po.Status == "Waiting For Payment" && po.PaymentStatus != "Submitted")
         {
-            // Even SuperAdmin shouldn't skip the payment submission step manually via status change
-            if (!isSuperAdmin && newStatus != "Waiting For Documents") return false;
+            // Even Admin/SuperAdmin shouldn't skip the payment submission step manually via status change
+            if (!isAdmin && newStatus != "Waiting For Documents") return false;
         }
 
         po.Status = newStatus;
