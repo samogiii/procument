@@ -51,7 +51,7 @@
       <v-card-text class="pa-4">
         <v-row dense>
           <v-col v-if="isAdmin" cols="12" sm="6" md="3">
-            <div class="text-caption text-medium-emphasis font-weight-bold uppercase">Proforma Invoice</div>
+            <div class="text-caption text-medium-emphasis font-weight-bold uppercase">Sales Order</div>
             <NuxtLink v-if="procurement.invoiceId" :to="`/invoices/${procurement.invoiceId}`" class="text-body-1 font-weight-bold text-primary text-decoration-none hover-underline">
               {{ procurement.invoiceNumber || `#${procurement.invoiceId}` }}
             </NuxtLink>

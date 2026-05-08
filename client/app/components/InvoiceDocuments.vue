@@ -11,7 +11,7 @@
       <div class="mb-4">
         <div class="text-subtitle-2 mb-2 d-flex align-center">
           <v-icon icon="mdi-file-document-outline" size="18" class="mr-1" />
-          Proforma Invoice Documents
+          SaleS Order Documents
         </div>
         <v-row dense>
           <v-col v-for="cat in piCategories" :key="cat.key" cols="12" sm="6" md="3">
@@ -79,7 +79,7 @@
       </div>
 
       <div v-if="!suppliers.length" class="text-caption text-medium-emphasis">
-        No suppliers yet. Suppliers appear after POs are created for this Proforma Invoice.
+        No suppliers yet. Suppliers appear after POs are created for this Sales Order.
       </div>
 
       <v-expansion-panels v-else multiple variant="accordion">

@@ -4,9 +4,9 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
       <v-btn icon="mdi-arrow-left" variant="text" :to="`/quotes/${route.params.id}`" class="mr-1 flex-shrink-0" size="small" />
       <div class="min-width-0">
-        <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Proforma Invoice</h1>
+        <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Sales Order</h1>
         <p class="text-caption text-medium-emphasis mt-1">
-          Select items from Quote #{{ quote?.quoteNumber }} to create a proforma invoice.
+          Select items from {{ isMultiQuote ? 'multiple quotes' : 'Quote #' + quote?.quoteNumber }} to create a Sales Order.
         </p>
       </div>
     </div>
@@ -21,6 +21,9 @@
           <span class="text-body-2 text-medium-emphasis" v-if="selectedTotal > 0">
             Total: <strong style="color: #4ade80;">${{ formatPrice(selectedTotal) }}</strong>
           </span>
+          <v-chip v-if="isMultiQuote" size="small" variant="outlined" color="info" class="ml-2">
+            Merging {{ quoteCount }} quotes
+          </v-chip>
         </div>
         <div class="d-flex flex-wrap align-center gap-2">
           <v-text-field
@@ -93,6 +96,7 @@
               <th style="width: 40px;">
                 <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="record-checkbox" />
               </th>
+              <th v-if="isMultiQuote" style="width: 100px;">Quote #</th>
               <th>Part Number</th>
               <th>Description</th>
               <th style="width: 80px;">Cond</th>
@@ -117,6 +121,9 @@
                   @change="toggleSelection(item.id)"
                   class="record-checkbox"
                 />
+              </td>
+              <td v-if="isMultiQuote" style="font-size: 11px; font-weight: bold; color: rgba(var(--v-theme-primary), 0.7);">
+                {{ item.quoteNumber }}
               </td>
               <td class="cell-pn">{{ item.partNumberName }}</td>
               <td class="text-medium-emphasis" style="font-size: 13px;">{{ item.description || '—' }}</td>
@@ -149,8 +156,8 @@
               </td>
             </tr>
             <tr v-if="quoteItems.length === 0 && !loading">
-              <td colspan="8" class="text-center pa-8">
-                <p class="text-body-2 text-medium-emphasis">No items found in this quote.</p>
+              <td :colspan="isMultiQuote ? 10 : 9" class="text-center pa-8">
+                <p class="text-body-2 text-medium-emphasis">No items found in the selected quotes.</p>
               </td>
             </tr>
           </tbody>
@@ -190,6 +197,15 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 // Computeds
+const quoteIds = computed(() => {
+  const primaryId = route.params.id
+  const additional = route.query.additionalIds ? String(route.query.additionalIds).split(',') : []
+  return [primaryId, ...additional].map(Number)
+})
+
+const isMultiQuote = computed(() => quoteIds.value.length > 1)
+const quoteCount = computed(() => quoteIds.value.length)
+
 const selectedCount = computed(() =>
   Object.values(selections.value).filter(s => s.selected).length
 )
@@ -215,9 +231,18 @@ onMounted(async () => {
 async function loadData() {
   loading.value = true
   try {
-    const q = await api.get<any>(`/quotes/${route.params.id}`)
-    quote.value = q
-    quoteItems.value = q.items || []
+    const ids = quoteIds.value
+    const quotes = await Promise.all(ids.map(id => api.get<any>(`/quotes/${id}`)))
+    
+    quote.value = quotes[0]
+    
+    // Merge all items, adding quoteNumber to each
+    quoteItems.value = quotes.flatMap(q => 
+      (q.items || []).map((item: any) => ({
+        ...item,
+        quoteNumber: q.quoteNumber
+      }))
+    )
 
     // Initialize selections
     const sel: Record<number, any> = {}
@@ -280,12 +305,12 @@ async function createInvoice() {
     }
 
     const res = await api.post<any>('/invoices', payload)
-    showSnack('Proforma Invoice created successfully', 'success')
+    showSnack('Sales Order created successfully', 'success')
     setTimeout(() => {
       router.push(`/invoices/${res.id}`)
     }, 500)
   } catch (e) {
-    showSnack('Failed to create proforma invoice', 'error')
+    showSnack('Failed to create Sales Order', 'error')
   } finally {
     saving.value = false
   }

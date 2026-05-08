@@ -1,6 +1,6 @@
 <template>
   <DataListPage
-    title="Proforma Invoices"
+    title="SaleS Order"
     :headers="headers"
     api-url="/invoices"
     detail-route="/invoices"
@@ -13,7 +13,7 @@
     <template #filters>
       <v-text-field
         v-model="customerSearch"
-        label="Customer"
+        label="Customer Code"
         prepend-inner-icon="mdi-domain"
         hide-details
         clearable
@@ -45,29 +45,32 @@
         Permissions {{ selectedInvoices.length > 0 ? `(${selectedInvoices.length})` : '' }}
       </v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
-        Create Proforma Invoice
+        Create Sales Order
       </v-btn>
     </template>
 
     <v-dialog v-model="showCreateDialog" max-width="600">
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center">
-          Create Proforma Invoice
+          Create Sales Order
           <v-spacer />
           <v-btn icon="mdi-close" variant="text" @click="showCreateDialog = false" />
         </v-card-title>
         <v-card-text>
-          <p class="mb-4 text-grey-lighten-1">Select a Quote to create a proforma invoice from.</p>
+          <p class="mb-4 text-grey-lighten-1">Select one or more Quotes to create a Sales Order from.</p>
           
           <v-autocomplete
-            v-model="selectedQuote"
-            :items="availableQuotes"
+            v-model="selectedQuotes"
+            :items="filteredQuotes"
             :loading="loadingQuotes"
             item-title="quoteNumber"
             item-value="id"
-            label="Search Quote (Sent or Accepted)"
+            label="Search Quotes (Sent or Accepted)"
             placeholder="Type to search..."
             return-object
+            multiple
+            chips
+            closable-chips
             variant="outlined"
             prepend-inner-icon="mdi-magnify"
             clearable
@@ -75,18 +78,21 @@
             @update:search="fetchQuotes"
           >
             <template #item="{ props, item }">
-              <v-list-item v-bind="props" :subtitle="item.raw.customerName">
+              <v-list-item v-bind="props" :subtitle="item.raw.customerCode">
                 <template #append>
                    <v-chip size="x-small" :color="statusColor(item.raw.status)" class="ml-2">{{ item.raw.status }}</v-chip>
                 </template>
               </v-list-item>
             </template>
           </v-autocomplete>
+          <p v-if="selectedQuotes.length > 0" class="text-caption text-primary mt-1">
+            Selected Quotes for: <strong>{{ selectedQuotes[0].customerCode }}</strong>
+          </p>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="showCreateDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :disabled="!selectedQuote" @click="proceedToCreate">
+          <v-btn color="primary" :disabled="selectedQuotes.length === 0" @click="proceedToCreate">
             Proceed
           </v-btn>
         </v-card-actions>
@@ -111,10 +117,16 @@ const showCreateDialog = ref(false)
 const showPermissionDialog = ref(false)
 const loadingQuotes = ref(false)
 const availableQuotes = ref<any[]>([])
-const selectedQuote = ref<any>(null)
+const selectedQuotes = ref<any[]>([])
 const selectedInvoices = ref<number[]>([])
 
 const customerSearch = ref('')
+
+const filteredQuotes = computed(() => {
+  if (selectedQuotes.value.length === 0) return availableQuotes.value
+  const targetCustomer = selectedQuotes.value[0].customerName
+  return availableQuotes.value.filter(q => q.customerName === targetCustomer)
+})
 
 function applyFilters(items: any[]) {
   if (!customerSearch.value?.trim()) return items
@@ -126,7 +138,7 @@ function applyFilters(items: any[]) {
 }
 
 const headers = [
-  { title: 'Proforma Invoice #', key: 'invoiceNumber' },
+  { title: 'Sales Order #', key: 'invoiceNumber' },
   { title: 'Customer', key: 'customerCode' },
   { title: 'Subject', key: 'subject' },
   { title: 'Total', key: 'totalAmount' },
@@ -155,7 +167,11 @@ async function fetchQuotes(search: string) {
     ])
     
     availableQuotes.value = [...(sent.items || []), ...(accepted.items || [])]
-      .filter(q => !search || q.quoteNumber.toLowerCase().includes(search.toLowerCase()) || q.customerName.toLowerCase().includes(search.toLowerCase()))
+      .filter(q => !search || 
+        q.quoteNumber.toLowerCase().includes(search.toLowerCase()) || 
+        q.customerName.toLowerCase().includes(search.toLowerCase()) ||
+        q.customerCode?.toLowerCase().includes(search.toLowerCase())
+      )
       
   } catch (e) {
     console.error(e)
@@ -170,8 +186,13 @@ watch(showCreateDialog, (val) => {
 })
 
 function proceedToCreate() {
-  if (selectedQuote.value) {
-    router.push(`/quotes/${selectedQuote.value.id}/create-invoice`)
+  if (selectedQuotes.value.length > 0) {
+    const primaryId = selectedQuotes.value[0].id
+    const additionalIds = selectedQuotes.value.slice(1).map(q => q.id).join(',')
+    router.push({
+      path: `/quotes/${primaryId}/create-invoice`,
+      query: additionalIds ? { additionalIds } : {}
+    })
   }
 }
 </script>

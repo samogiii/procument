@@ -85,7 +85,7 @@
         </StatCard>
       </v-col>
       <v-col cols="12" :md="isAdmin ? 3 : 4">
-        <StatCard icon="mdi-file-document-outline" color="info" label="Proforma Invoice" :value="po.invoiceNumber || '—'" class="h-100" />
+        <StatCard icon="mdi-file-document-outline" color="info" label="Sales Order" :value="po.invoiceNumber || '—'" class="h-100" />
       </v-col>
     </v-row>
 

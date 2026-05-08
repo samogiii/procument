@@ -85,14 +85,14 @@
             :items="eligibleProformas"
             item-title="displayText"
             item-value="id"
-            label="Select Proforma Invoice"
+            label="Select Sales Order"
             variant="outlined"
             density="comfortable"
             hide-details
             placeholder="Choose an eligible Proforma..."
           />
           <div v-if="!loadingProformas && eligibleProformas.length === 0" class="text-caption text-error mt-2">
-            No proforma invoices are currently eligible. (Requires at least one Completed PO).
+            No Sales Order are currently eligible. (Requires at least one Completed PO).
           </div>
         </v-card-text>
         <v-card-actions>

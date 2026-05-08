@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">SaleS Order PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
@@ -197,7 +197,7 @@ const companyLocation = ref('')
 const companyPhone = ref('')
 const companyWebsite = ref('')
 const companyEmail = ref('')
-const footerText = ref('If you have any questions about this proforma invoice, please contact')
+const footerText = ref('If you have any questions about this SaleS Order, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
 const taxAmount = ref(0)
@@ -337,7 +337,7 @@ const renderedHtml = computed(() => {
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">PROFORMA INVOICE</div>
+          <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">Sales Order</div>
           <div style="font-size:11px; color:#6b7280; margin-top:4px;">INV-${inv.id}</div>
         </div>
       </div>
@@ -473,7 +473,7 @@ async function downloadPdf() {
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
         invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
-        invoiceTitle: "PROFORMA INVOICE PINV",
+        invoiceTitle: "SaleS Order PI",
         invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
         dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
         status: inv.status || '—',

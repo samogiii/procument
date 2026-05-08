@@ -113,18 +113,29 @@ public class InvoiceService : IInvoiceService
 
     public async Task<InvoiceResponse> CreateAsync(CreateInvoiceRequest request, long userId)
     {
-        var quote = await _db.Set<Quote>()
-            .Include(q => q.QuoteItems)
+        var primaryQuote = await _db.Set<Quote>()
             .FirstOrDefaultAsync(q => q.Id == request.QuoteId);
 
-        if (quote == null) throw new KeyNotFoundException("Quote not found");
+        if (primaryQuote == null) throw new KeyNotFoundException("Primary quote not found");
+
+        var quoteItemIds = request.Items.Select(i => i.QuoteItemId).Distinct().ToList();
+
+        var quoteItems = await _db.Set<QuoteItem>()
+            .Include(qi => qi.Quote)
+            .Where(qi => quoteItemIds.Contains(qi.Id))
+            .ToListAsync();
+
+        if (quoteItems.Any(qi => qi.Quote.CustomerId != primaryQuote.CustomerId))
+        {
+            throw new Exception("All selected quote items must belong to the same customer as the primary quote.");
+        }
 
         var invoiceItems = new List<InvoiceItem>();
         decimal totalAmount = 0;
 
         foreach (var itemReq in request.Items)
         {
-            var quoteItem = quote.QuoteItems.FirstOrDefault(qi => qi.Id == itemReq.QuoteItemId);
+            var quoteItem = quoteItems.FirstOrDefault(qi => qi.Id == itemReq.QuoteItemId);
             if (quoteItem == null) continue;
 
             var totalPrice = itemReq.Qty * itemReq.UnitPrice;
@@ -150,7 +161,7 @@ public class InvoiceService : IInvoiceService
         {
             InvoiceNumber = "",
             QuoteId = request.QuoteId,
-            CustomerId = quote.CustomerId,
+            CustomerId = primaryQuote.CustomerId,
             TotalAmount = totalAmount,
             Status = initialStatus,
             PaymentStatus = request.PaymentStatus,

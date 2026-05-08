@@ -5,7 +5,7 @@
       <div>
         <h1 class="text-h5 font-weight-bold">Customer Payments</h1>
         <div class="text-caption text-medium-emphasis">
-          Every Customer POP uploaded against a proforma invoice — grouped by customer.
+          Every Customer POP uploaded against a Sales Order — grouped by customer.
         </div>
       </div>
       <v-spacer />

@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-1 flex-shrink-0" size="small" />
-      <h1 class="text-h6 text-sm-h5 font-weight-bold">Proforma Invoice {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">SaleS Order {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Invoice Status Chip with Dropdown (admin only) -->
@@ -56,7 +56,7 @@
           color="error"
           @click="showPdf = true"
         >PDF</v-btn>
-        <v-btn
+        <!-- <v-btn
           v-if="procurementId && !['Draft', 'Pending'].includes(invoice.status)"
           :to="`/procurements/${procurementId}`"
           variant="tonal"
@@ -65,7 +65,7 @@
           prepend-icon="mdi-clipboard-edit-outline"
         >
           View Procurement
-        </v-btn>
+        </v-btn> -->
         <v-btn
           v-if="canCreateFinal"
           prepend-icon="mdi-receipt-text-check"
@@ -409,7 +409,7 @@ async function loadInvoice() {
       procurementId.value = res?.items?.[0]?.id ?? null
     }
   } catch {
-    showSnack('Failed to load proforma invoice', 'error')
+    showSnack('Failed to load Sale Order', 'error')
   }
 }
 

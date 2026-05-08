@@ -381,7 +381,7 @@ const submittedCount = computed(() => queue.value.filter(p => p.paymentStatus ==
 const headers = [
   { title: 'PO Number', key: 'poNumber' },
   { title: 'Supplier', key: 'supplierName' },
-  { title: 'Proforma Invoice', key: 'invoiceNumber' },
+  { title: 'Sales Order', key: 'invoiceNumber' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Approved', key: 'adminApprovalAt' },
   { title: 'Status', key: 'paymentStatus' },
