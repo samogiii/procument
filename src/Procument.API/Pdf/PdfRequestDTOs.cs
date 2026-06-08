@@ -28,6 +28,8 @@ public class InvoicePdfRequest
 
     // Customer
     public string? CustomerName { get; set; }
+    public string? CustomerBillToName { get; set; }
+    public string? CustomerShipToName { get; set; }
     public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerBillToEmail { get; set; }
@@ -183,6 +185,8 @@ public class FinalInvoicePdfRequest
 
     // Customer
     public string? CustomerName { get; set; }
+    public string? CustomerBillToName { get; set; }
+    public string? CustomerShipToName { get; set; }
     public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerBillToEmail { get; set; }
@@ -256,9 +260,12 @@ public class PackingListPdfRequest
     public string? InvoiceNumber { get; set; }
     public string? InvoiceDate { get; set; }
     public string? CustomerPONumber { get; set; }
+    public string? ProformaRef { get; set; }
 
     // Customer
     public string? CustomerName { get; set; }
+    public string? CustomerBillToName { get; set; }
+    public string? CustomerShipToName { get; set; }
     public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerBillToEmail { get; set; }
@@ -272,6 +279,9 @@ public class PackingListPdfRequest
 
     // Items
     public List<PackingListPdfItem>? Items { get; set; }
+
+    // Packages / shipping dimensions (global, not per-item)
+    public List<PackingListPackage>? Packages { get; set; }
 }
 
 public class PackingListPdfItem
@@ -281,6 +291,12 @@ public class PackingListPdfItem
     public int Qty { get; set; }
     public string? Condition { get; set; }
     public string? Certification { get; set; }
+}
+
+public class PackingListPackage
+{
+    public string? Weight { get; set; }
+    public string? Dimensions { get; set; }
 }
 
 // ──────────────────────────────────────────────────────
@@ -340,8 +356,16 @@ public class PaymentRequestPdfRequest
     public string? CurrencySymbol { get; set; }
     public string? Status { get; set; }
 
-    // Bank Details (Supplier's)
+    // Our Company Bank Details (paying company)
     public string? CompanyPayingFrom { get; set; }
+    public string? OurBeneficiaryName { get; set; }
+    public string? OurAccountNumber { get; set; }
+    public string? OurBankName { get; set; }
+    public string? OurSwiftCode { get; set; }
+    public string? OurBankAddress { get; set; }
+    public string? OurCompanyAddress { get; set; }
+
+    // Supplier Bank Details (receiving company)
     public string? CompanyPayingTo { get; set; }
     public string? AccountNumber { get; set; }
     public string? BankName { get; set; }
@@ -357,6 +381,14 @@ public class PaymentRequestPdfRequest
     public decimal ItemsTotal { get; set; }
     public decimal WireFee { get; set; }
     public decimal GrandTotal { get; set; }
+
+    /// <summary>
+    /// Bank fee option:
+    /// "OurCompanyAll"   → 本公司支付所有的银行费用 / Our company pays all bank fees.
+    /// "OurCompanyLocal" → 本公司支付本地银行费用，受款人支付海外银行费用。/ Our company pays local bank fees; the recipient pays overseas bank fees.
+    /// "RecipientAll"    → 受款公司支付所有的银行费用 / The recipient company pays all bank fees.
+    /// </summary>
+    public string? BankFeeOption { get; set; }
 
     // Text
     public string? FooterText { get; set; }

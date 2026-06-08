@@ -18,6 +18,13 @@ public class POItem : BaseEntity
     public long? InvoiceItemId { get; set; }
     /// <summary>Trace back to the Procurement snapshot this POItem was materialized from (nullable for legacy rows).</summary>
     public long? SourceProcurementItemId { get; set; }
+    /// <summary>
+    /// Trace back to the specific ProcurementSupplierQuote row that produced this POItem.
+    /// Nullable for legacy rows created before this column was added.
+    /// Used as the uniqueness key when the same supplier appears on multiple quotes for one item
+    /// (e.g. same supplier, different conditions — each quote must produce a separate POItem).
+    /// </summary>
+    public long? SourceSupplierQuoteId { get; set; }
 
     // ─── Return / Recycle tracking (soft-delete when a POItem is recycled back into Procurement) ───
     /// <summary>Soft-delete marker. Set when this item was returned to Procurement. Unassigned-item queries filter these out.</summary>

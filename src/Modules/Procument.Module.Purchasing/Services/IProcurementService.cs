@@ -12,8 +12,8 @@ public interface IProcurementService
     /// </summary>
     Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false);
 
-    Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
-    Task<List<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin);
+    Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
+    Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null);
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<bool> UserCanAccessAsync(long procurementId, long userId, bool isAdmin);
     Task<bool> UserCanAccessItemAsync(long procurementId, long itemId, long userId, bool isAdmin);
@@ -39,6 +39,12 @@ public interface IProcurementService
     Task<FinalizeProcurementItemResponse?> FinalizeSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId, long userId);
 
     Task<bool> CancelAsync(long procurementId, long userId);
+
+    /// <summary>
+    /// Reopen a finalized procurement so more supplier quotes can be added.
+    /// Does NOT touch existing approved POItems — only resets the procurement header status.
+    /// </summary>
+    Task<bool> ReopenAsync(long procurementId, long userId);
 
     /// <summary>
     /// Recycle the given POItems back into the Procurement layer. For each POItem:

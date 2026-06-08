@@ -1,70 +1,191 @@
 <template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
-    <v-card class="d-flex flex-column" color="background">
+    <v-card class="d-flex flex-column" color="background" style="overflow:hidden;">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ pdfData.invoiceNumber || '' }}</v-toolbar-title>
         <v-spacer />
-        <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" @click="downloadPackingList" class="mr-2">Download Packing List</v-btn>
+        <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" class="mr-2" @click="openPackingListDialog">Packing List</v-btn>
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
-      <v-container fluid class="flex-shrink-0 py-4">
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
-          <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
-          <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="4"><v-text-field v-model="billToContactPerson" label="Bill To Contact Person" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="billToEmail" label="Bill To Email" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="billToPhone" label="Bill To Phone" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="4"><v-text-field v-model="shipToContactPerson" label="Ship To Contact Person" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="shipToEmail" label="Ship To Email" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="shipToPhone" label="Ship To Phone" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="6"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="6"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="6"><v-text-field v-model="bankAccount" label="Bank Account" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="6"><v-text-field v-model="swiftCode" label="Swift Code" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-      </v-container>
-
-      <v-divider />
-
-      <div v-if="loadingData" class="flex-grow-1 d-flex justify-center align-center">
-        <v-progress-circular indeterminate color="primary" size="48" />
+      <!-- Section toggle chips -->
+      <div class="d-flex flex-wrap gap-2 px-4 py-2" style="border-bottom:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+        <v-chip
+          v-for="s in sections"
+          :key="s.key"
+          :color="s.open ? 'primary' : 'default'"
+          :variant="s.open ? 'tonal' : 'outlined'"
+          size="small"
+          :prepend-icon="s.open ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+          class="cursor-pointer"
+          @click="s.open = !s.open"
+        >{{ s.label }}</v-chip>
       </div>
-      <div v-else class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
-        <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+
+      <!-- Side-by-side layout -->
+      <div class="d-flex flex-grow-1" style="overflow:hidden; min-height:0;">
+
+        <!-- ── Left panel: collapsible sections ── -->
+        <div class="overflow-y-auto flex-shrink-0 pa-4" style="width:480px; border-right:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+
+          <!-- COMPANY -->
+          <template v-if="sections[0].open">
+            <div class="section-label">Company</div>
+            <v-row dense align="center">
+              <v-col cols="12">
+                <v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company Preset" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" />
+              </v-col>
+              <v-col cols="12">
+                <div class="d-flex align-center gap-2">
+                  <v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" class="flex-grow-1" @update:model-value="onLogoUpload" />
+                  <v-btn v-if="logoDataUrl" icon="mdi-image-remove" size="small" variant="tonal" color="error" density="compact" title="Remove Logo" @click="logoDataUrl = ''" />
+                </div>
+              </v-col>
+              <v-col cols="12"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="companyLocation" label="Company Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- INVOICE DETAILS -->
+          <template v-if="sections[1].open">
+            <div class="section-label">Invoice Details</div>
+            <v-row dense align="center">
+              <v-col cols="6">
+                <v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" />
+              </v-col>
+              <v-col v-if="currency === 'China Yuan (CNY)'" cols="6">
+                <v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" />
+              </v-col>
+              <v-col cols="6">
+                <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
+              </v-col>
+              <v-col cols="6">
+                <v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
+              </v-col>
+              <v-col cols="12"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- BILL TO / SHIP TO -->
+          <template v-if="sections[2].open">
+            <div class="section-label">Bill To</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="billToName" label="Bill To Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="billTo" label="Bill To Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="billToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <div class="section-label mt-3">Ship To</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="shipToName" label="Ship To Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="shipTo" label="Ship To Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="shipToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="shipToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="shipToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- BANK DETAILS -->
+          <template v-if="sections[3].open">
+            <div class="section-label">Bank Details</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="bankAccount" label="Bank Account" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="swiftCode" label="Swift Code" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+          </template>
+
+        </div>
+
+        <!-- ── Right panel: PDF preview ── -->
+        <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
+          <div v-if="loadingData" class="d-flex justify-center align-center" style="width:210mm;">
+            <v-progress-circular indeterminate color="primary" size="48" />
+          </div>
+          <div v-else ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+        </div>
+
       </div>
     </v-card>
+
+    <!-- ── Packing List: Packages Dialog ── -->
+    <v-dialog v-model="showPackingDialog" max-width="600" persistent scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-package-variant" class="mr-2" color="info" />
+          Packing List — Shipping Details
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showPackingDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text style="max-height: 60vh;">
+          <p class="text-caption text-medium-emphasis mb-4">
+            Add one or more packages with their total weight and dimensions. These will appear in the Shipping Details section of the packing list.
+          </p>
+
+          <div v-for="(pkg, i) in packages" :key="i" class="d-flex align-center gap-2 mb-2">
+            <span class="text-caption text-medium-emphasis" style="min-width:24px;">{{ i + 1 }}.</span>
+            <v-text-field
+              v-model="pkg.weight"
+              density="compact"
+              variant="outlined"
+              hide-details
+              label="Weight"
+              placeholder="e.g. 5 kg"
+              style="flex:1;"
+            />
+            <v-text-field
+              v-model="pkg.dimensions"
+              density="compact"
+              variant="outlined"
+              hide-details
+              label="Dimensions"
+              placeholder="e.g. 40×30×20 cm"
+              style="flex:1.5;"
+            />
+            <v-btn
+              icon="mdi-close"
+              size="x-small"
+              variant="text"
+              color="error"
+              :disabled="packages.length === 1"
+              @click="packages.splice(i, 1)"
+            />
+          </div>
+
+          <v-btn
+            prepend-icon="mdi-plus"
+            variant="tonal"
+            size="small"
+            color="primary"
+            class="mt-2"
+            @click="packages.push({ weight: '', dimensions: '' })"
+          >
+            Add Package
+          </v-btn>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showPackingDialog = false">Cancel</v-btn>
+          <v-btn variant="tonal" color="info" prepend-icon="mdi-download" :loading="generatingPacking" @click="downloadPackingList">Download Packing List</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
   </v-dialog>
 </template>
 
@@ -72,6 +193,14 @@
 const props = defineProps<{ invoiceId: number | string }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
+
+// ── Section toggle chips ──
+const sections = reactive([
+  { key: 'company',  label: 'Company',         open: true },
+  { key: 'details',  label: 'Invoice Details',  open: true },
+  { key: 'addresses',label: 'Bill To / Ship To',open: true },
+  { key: 'bank',     label: 'Bank Details',     open: true },
+])
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -103,7 +232,7 @@ watch(apiPresets, (presets) => {
   if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
 })
 
-watch(selectedPreset, (val) => {
+watch(selectedPreset, async (val) => {
   const preset = apiPresets.value.find((p: any) => p.name === val)
   if (preset) {
     companyName.value = preset.name
@@ -114,53 +243,72 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    // Pull bank details from preset
     beneficiaryName.value = preset.beneficiaryName || ''
     bankName.value = preset.bankName || ''
     bankAddress.value = preset.bankAddress || ''
     bankAccount.value = preset.accountNumber || ''
     swiftCode.value = preset.swiftCode || ''
-    // Prefer customer's terms & conditions over preset's
     companyTerms.value = pdfData.value?.customerTermsAndConditions || preset.termsAndConditions || ''
+    const walletId = pdfData.value?.defaultDepositWalletId
+    if (walletId) {
+      try {
+        const wallet = await api.get<any>(`/payment-boxes/${walletId}`)
+        if (wallet.bankName) bankName.value = wallet.bankName
+        if (wallet.bankAddress) bankAddress.value = wallet.bankAddress
+        if (wallet.accountNumber) bankAccount.value = wallet.accountNumber
+        if (wallet.beneficiaryName) beneficiaryName.value = wallet.beneficiaryName
+        if (wallet.swiftCode) swiftCode.value = wallet.swiftCode
+      } catch { /* non-critical */ }
+    }
   }
 })
 
-const companyName = ref('Your Company Name')
+const companyName     = ref('Your Company Name')
 const companyLocation = ref('')
-const companyPhone = ref('')
-const companyWebsite = ref('')
-const companyEmail = ref('')
-const footerText = ref('If you have any questions about this invoice, please contact')
-const logoDataUrl = ref('')
-const generating = ref(false)
+const companyPhone    = ref('')
+const companyWebsite  = ref('')
+const companyEmail    = ref('')
+const footerText      = ref('If you have any questions about this invoice, please contact')
+const logoDataUrl     = ref('')
+const generating      = ref(false)
 const generatingPacking = ref(false)
-const loadingData = ref(false)
-const pdfData = ref<any>({})
-const taxAmount = ref(0)
-const otherAmount = ref(0)
-const currency = ref('Dollar (USD)')
-const exchangeRate = ref(7.0)
-const comments = ref('No Comments')
-const contactPerson = ref('')
-const billTo = ref('')
-const shipTo = ref('')
-const companyTerms = ref('')
+const loadingData     = ref(false)
+const pdfData         = ref<any>({})
+const taxAmount       = ref(0)
+const otherAmount     = ref(0)
+const currency        = ref('Dollar (USD)')
+const exchangeRate    = ref(7.0)
+const comments        = ref('No Comments')
+const billToName      = ref('')
+const shipToName      = ref('')
+const contactPerson   = ref('')
+const billTo          = ref('')
+const shipTo          = ref('')
+const companyTerms    = ref('')
 
-// Bill To contact fields
 const billToContactPerson = ref('')
-const billToEmail = ref('')
-const billToPhone = ref('')
-
-// Ship To contact fields
+const billToEmail         = ref('')
+const billToPhone         = ref('')
 const shipToContactPerson = ref('')
-const shipToEmail = ref('')
-const shipToPhone = ref('')
-const beneficiaryName = ref('')
-const beneficiaryAddress = ref('')
-const bankName = ref('')
-const bankAddress = ref('')
-const bankAccount = ref('')
-const swiftCode = ref('')
+const shipToEmail         = ref('')
+const shipToPhone         = ref('')
+const beneficiaryName     = ref('')
+const beneficiaryAddress  = ref('')
+const bankName            = ref('')
+const bankAddress         = ref('')
+const bankAccount         = ref('')
+const swiftCode           = ref('')
+
+// ── Packing List dialog ──
+const showPackingDialog = ref(false)
+interface PackageEntry { weight: string; dimensions: string }
+const packages = ref<PackageEntry[]>([{ weight: '', dimensions: '' }])
+
+function openPackingListDialog() {
+  // Reset to a single empty package row each time
+  packages.value = [{ weight: '', dimensions: '' }]
+  showPackingDialog.value = true
+}
 
 function onLogoUpload(files: File[] | File | null) {
   const file = Array.isArray(files) ? files[0] : files
@@ -181,29 +329,29 @@ watch(model, async (open) => {
         if (data.notes) comments.value = data.notes
         if (data.customerBase == 3) {
           const currencyType = data.customerCurrencyType || 'Dollar'
+          const storedRate = (data.coefYuan ?? 1) * (data.exchangeRateYuan ?? 7)
           if (currencyType === 'Dollar') {
             currency.value = 'Dollar (USD)'
             exchangeRate.value = 1
           } else if (currencyType === 'Yuan') {
             currency.value = 'China Yuan (CNY)'
-            exchangeRate.value = 7
+            exchangeRate.value = storedRate
           } else if (currencyType === 'Both') {
             currency.value = 'Dollar (USD)'
-            exchangeRate.value = 7
-            // For Both, default to Dollar but allow user to switch
+            exchangeRate.value = storedRate
           }
         }
-        contactPerson.value = data.customerContactPerson || ''
-        billTo.value = data.customerBillTo || ''
-        shipTo.value = data.customerShipTo || data.customerBillTo || ''
-        // Populate separate contact fields from single Customer fields
-        billToContactPerson.value = data.customerContactPerson || ''
-        billToEmail.value = data.customerBillToEmail || ''
-        billToPhone.value = data.customerBillToPhone || ''
-        shipToContactPerson.value = data.customerContactPerson || ''
-        shipToEmail.value = data.customerShipToEmail || ''
-        shipToPhone.value = data.customerShipToPhone || ''
-        // Apply customer terms if present (overrides preset terms)
+        billToName.value           = data.customerName || ''
+        shipToName.value           = data.customerName || ''
+        contactPerson.value        = data.customerContactPerson || ''
+        billTo.value               = data.customerBillTo || ''
+        shipTo.value               = data.customerShipTo || data.customerBillTo || ''
+        billToContactPerson.value  = data.customerContactPerson || ''
+        billToEmail.value          = data.customerBillToEmail || ''
+        billToPhone.value          = data.customerBillToPhone || ''
+        shipToContactPerson.value  = data.customerContactPerson || ''
+        shipToEmail.value          = data.customerShipToEmail || ''
+        shipToPhone.value          = data.customerShipToPhone || ''
         if (data.customerTermsAndConditions) {
           companyTerms.value = data.customerTermsAndConditions
         }
@@ -215,7 +363,6 @@ watch(model, async (open) => {
 
 const fmt = (n: number) => formatPrice(n)
 
-// ── Currency lock based on customer settings ──
 const currencyLocked = computed(() => {
   if (pdfData.value.customerBase !== 3) return false
   const currencyType = pdfData.value.customerCurrencyType || 'Dollar'
@@ -249,7 +396,6 @@ const renderedHtml = computed(() => {
       : `<td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#9ca3af; border-bottom:1px solid #eef0f3;">—</td>`
     return `
     <tr style="background:${bg};">
-      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>
       <td style="padding:9px 8px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
       <td style="padding:9px 10px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
       <td style="padding:9px 10px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.description || '—'}</td>
@@ -297,7 +443,7 @@ const renderedHtml = computed(() => {
       <div style="display:flex; gap:0; margin:0 40px 20px 40px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Bill To</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${billToName.value || '—'}</div>
           ${billToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${billToContactPerson.value}</div>` : ''}
           ${(billTo.value || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${billTo.value || d.customerBillTo}</div>` : ''}
           ${billToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${billToEmail.value}</div>` : ''}
@@ -305,7 +451,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Ship To</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${d.customerName || '—'}</div>
+          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${shipToName.value || '—'}</div>
           ${shipToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${shipToContactPerson.value}</div>` : ''}
           ${(shipTo.value || d.customerShipTo || d.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5; white-space:pre-wrap;">${shipTo.value || d.customerShipTo || d.customerBillTo}</div>` : ''}
           ${shipToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${shipToEmail.value}</div>` : ''}
@@ -319,8 +465,7 @@ const renderedHtml = computed(() => {
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
             <tr style="background:#1a2744;">
-              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">Ref</th>
-              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">#</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">#</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:30px;">Qty</th>
@@ -337,7 +482,7 @@ const renderedHtml = computed(() => {
         </table>
       </div>
 
-      <!-- ═══ Totals + Shipping + Bank Details ═══ -->
+      <!-- ═══ Totals + Bank Details ═══ -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin:0 40px 16px 40px;">
         <div style="font-size:11px; max-width:340px;">
           ${d.shippingMethod ? `
@@ -393,20 +538,20 @@ const renderedHtml = computed(() => {
 })
 
 const pdfContent = ref<HTMLElement | null>(null)
+
 async function downloadPdf() {
   generating.value = true
   try {
-    const config = useRuntimeConfig()
     const authStore = useAuthStore()
     const d = pdfData.value
     const items: any[] = d.items || []
 
-    // Check if customerCurrencyType is Both - generate two PDFs
     const currencyType = pdfData.value.customerCurrencyType || 'Dollar'
     const isBoth = pdfData.value.customerBase === 3 && currencyType === 'Both'
 
+    const yuanRate = (pdfData.value.coefYuan ?? 1) * (pdfData.value.exchangeRateYuan ?? 7)
     const currenciesToGenerate = isBoth
-      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7 }]
+      ? [{ currency: 'Dollar (USD)', symbol: '$', rate: 1 }, { currency: 'China Yuan (CNY)', symbol: '¥', rate: yuanRate }]
       : [{ currency: currency.value, symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1 }]
 
     for (const curr of currenciesToGenerate) {
@@ -428,6 +573,8 @@ async function downloadPdf() {
         currencySymbol: curr.symbol,
         exchangeRate: curr.rate,
         customerName: d.customerName || '—',
+        customerBillToName: billToName.value || null,
+        customerShipToName: shipToName.value || null,
         customerContactPerson: contactPerson.value || d.customerContactPerson || null,
         customerBillTo: billTo.value || d.customerBillTo || null,
         customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
@@ -467,7 +614,7 @@ async function downloadPdf() {
         footerText: footerText.value || null,
       }
 
-      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/final-invoice`, {
+      const response = await $fetch<Blob>(`${api.baseURL}/pdf/final-invoice`, {
         method: 'POST',
         body: payload,
         responseType: 'blob',
@@ -491,10 +638,8 @@ async function downloadPdf() {
 async function downloadPackingList() {
   generatingPacking.value = true
   try {
-    const config = useRuntimeConfig()
     const authStore = useAuthStore()
     const d = pdfData.value
-    const items: any[] = d.items || []
 
     const payload = {
       companyName: companyName.value,
@@ -508,7 +653,10 @@ async function downloadPackingList() {
       invoiceNumber: d.invoiceNumber || '',
       invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
       customerPONumber: d.customerPONumber || null,
+      proformaRef: d.proformaInvoiceNumber || null,
       customerName: d.customerName || '—',
+      customerBillToName: billToName.value || null,
+      customerShipToName: shipToName.value || null,
       customerContactPerson: contactPerson.value || d.customerContactPerson || null,
       customerBillTo: billTo.value || d.customerBillTo || null,
       customerBillToEmail: billToEmail.value || d.customerBillToEmail || null,
@@ -517,18 +665,21 @@ async function downloadPackingList() {
       customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
       customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
       customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
-      customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
+      customerShipToPhone: shipToPhone.value || data.customerShipToPhone || null,
       customerShipToAccount: d.customerShipToAccount || null,
-      items: items.map((it: any) => ({
-        partNumber: it.partNumber || null,
-        description: it.description || null,
-        qty: it.qty || 0,
-        condition: it.condition || null,
+      items: (pdfData.value?.items || []).map((it: any) => ({
+        partNumber:    it.partNumber    || null,
+        description:   it.description   || null,
+        qty:           it.qty           || 0,
+        condition:     it.condition     || null,
         certification: it.certification || null,
       })),
+      packages: packages.value
+        .filter((p: PackageEntry) => p.weight || p.dimensions)
+        .map((p: PackageEntry) => ({ weight: p.weight || null, dimensions: p.dimensions || null })),
     }
 
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/packing-list`, {
+    const response = await $fetch<Blob>(`${api.baseURL}/pdf/packing-list`, {
       method: 'POST',
       body: payload,
       responseType: 'blob',
@@ -543,6 +694,7 @@ async function downloadPackingList() {
     link.click()
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
+    showPackingDialog.value = false
   } catch (err) { console.error('Packing List PDF generation failed:', err) }
   finally { generatingPacking.value = false }
 }
@@ -556,5 +708,13 @@ async function downloadPackingList() {
   box-shadow: 0 4px 40px rgba(0,0,0,0.2);
   border-radius: 4px;
   overflow: hidden;
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgb(var(--v-theme-primary));
+  margin-bottom: 8px;
 }
 </style>

@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
@@ -12,16 +13,17 @@ namespace Procument.Module.Sales.Services;
 
 public interface IQuoteService
 {
-    Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin);
-    Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
+    Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null);
+    Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
     Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
     Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin);
     Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin);
+    Task<bool> UpdateYuanSettingsAsync(long quoteId, decimal? coefYuan, decimal? exchangeRateYuan);
 }
 
 public class QuoteService : IQuoteService
@@ -35,15 +37,17 @@ public class QuoteService : IQuoteService
         _permissionService = permissionService;
     }
 
-    public async Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin)
+    public async Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null)
     {
+        // isAdmin here means Admin OR SuperAdmin — bypass for write-level access roles
         if (!isAdmin)
         {
-            // Check access to RFQ
-            var rfq = await _db.Set<RFQHeader>().FirstOrDefaultAsync(r => r.Id == rfqId);
+            var rfq = await _db.Set<RFQHeader>().Include(r => r.Customer).FirstOrDefaultAsync(r => r.Id == rfqId);
             if (rfq == null) return new List<QuoteResponse>();
 
-            if (rfq.UserId != userId)
+            bool inBase = userBases == null || rfq.Customer?.Base == null || userBases.Contains(rfq.Customer.Base.Value);
+            bool isCreator = rfq.UserId == userId;
+            if (!inBase && !isCreator)
             {
                 var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "View")
                                  || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
@@ -73,7 +77,7 @@ public class QuoteService : IQuoteService
         return quotes.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null)).ToList();
     }
 
-    public async Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin)
+    public async Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null)
     {
         var quote = await _db.Set<Quote>()
             .AsNoTrackingWithIdentityResolution()
@@ -95,21 +99,14 @@ public class QuoteService : IQuoteService
 
         if (!isAdmin)
         {
-            // Allow if:
-            // 1. I created the quote
-            // 2. I created the RFQ
-            // 3. I have permission on the RFQ
-
-            if (quote.UserId != userId)
+            bool inBase = userBases == null || quote.Customer?.Base == null || userBases.Contains(quote.Customer.Base.Value);
+            if (!inBase && quote.UserId != userId)
             {
                 var rfq = await _db.Set<RFQHeader>().FirstOrDefaultAsync(r => r.Id == quote.RFQId);
-
-                // If RFQ is null (shouldn't happen), assume no access unless I created quote (checked above)
                 if (rfq == null || rfq.UserId != userId)
                 {
                     var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "View")
                                      || await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
-
                     if (!hasPermission) return null;
                 }
             }
@@ -198,9 +195,10 @@ public class QuoteService : IQuoteService
             ?? throw new Exception("Failed to load created quote.");
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isAdmin, string? status = null)
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
+            .AsNoTracking()
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
@@ -214,16 +212,56 @@ public class QuoteService : IQuoteService
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ);
 
-        if (!string.IsNullOrEmpty(status))
+        if (statuses?.Count > 0)
+            query = query.Where(q => statuses.Contains(q.Status));
+
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(q => q.QuoteNumber.Contains(search) || (q.Customer != null && q.Customer.Name.Contains(search)));
+
+        if (!string.IsNullOrEmpty(pnSearch))
+            query = query.Where(q => q.QuoteItems.Any(qi => qi.PartNumber != null && qi.PartNumber.Name.Contains(pnSearch)));
+        List<long> rfqIds = new List<long>();
+        if (assignedUserNames?.Count > 0)
         {
-            query = query.Where(q => q.Status == status);
+            var rfqIdStrings = await _db.Set<EntityPermission>()
+                .Include(p => p.User)
+                .Where(p => p.EntityName == "RFQ" && assignedUserNames.Contains(p.User.Name))
+                .Select(p => p.EntityId)
+                .ToListAsync();
+            rfqIds = rfqIdStrings.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(id => id > 0).ToList();
+            query = query.Where(q => rfqIds.Contains(q.RFQId));
         }
 
-        if (!isAdmin)
+        if (customerNames?.Count > 0)
         {
-            // Filter: Owner OR Assigned Permission
+            var hasNullPlaceholder = customerNames.Contains("-") || customerNames.Contains("—");
+            query = query.Where(q => q.Customer != null && (
+                customerNames.Contains(q.Customer.Name) || 
+                (q.Customer.CustomerCode != null && customerNames.Contains(q.Customer.CustomerCode)) ||
+                (hasNullPlaceholder && (q.Customer.CustomerCode == null || q.Customer.CustomerCode == ""))
+            ));
+        }
 
-            // 1. Get Permitted Quote IDs
+        if (quoteNumbers?.Count > 0)
+            query = query.Where(q => quoteNumbers.Contains(q.QuoteNumber));
+
+        if (rfqNames?.Count > 0)
+        {
+            var rfqIdsFromNames = rfqNames
+                .Where(n => n.StartsWith("RFQ #"))
+                .Select(n => n.Substring(5))
+                .Select(idStr => long.TryParse(idStr, out var id) ? id : -1L)
+                .Where(id => id > 0)
+                .ToList();
+
+            query = query.Where(q => 
+                (q.RFQ != null && rfqNames.Contains(q.RFQ.Name)) ||
+                rfqIdsFromNames.Contains(q.RFQId)
+            );
+        }
+
+        if (!isSuperAdmin)
+        {
             var permittedQuoteIdsStr = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "Quote")
                 .Select(p => p.EntityId)
@@ -233,23 +271,35 @@ public class QuoteService : IQuoteService
                 .Select(id => long.TryParse(id, out var l) ? l : -1)
                 .ToList();
 
-            // 2. Also allow if user owns the Quote
-            // Note: We are no longer checking RFQ permissions here based on user request/edit.
-            // If strict adherence to "Creator can check it" is required:
+            var assignedCustomerIds = await GetUserAssignedCustomerIdsAsync(userId);
 
-            query = query.Where(q => q.UserId == userId || permittedQuoteIds.Contains(q.Id));
+            query = query.Where(q =>
+                q.Customer == null ||
+                q.Customer.Base == null ||
+                userBases.Contains(q.Customer.Base.Value) ||
+                assignedCustomerIds.Contains(q.Customer.Id) ||
+                permittedQuoteIds.Contains(q.Id));
         }
 
-        query = query.OrderByDescending(q => q.CreatedAt);
+        query = sortBy switch
+        {
+            "quoteNumber" => sortDesc ? query.OrderByDescending(q => q.QuoteNumber) : query.OrderBy(q => q.QuoteNumber),
+            "rfqName"     => sortDesc ? query.OrderByDescending(q => q.RFQ != null ? q.RFQ.Name : "") : query.OrderBy(q => q.RFQ != null ? q.RFQ.Name : ""),
+            "customerCode" => sortDesc ? query.OrderByDescending(q => q.Customer != null ? q.Customer.CustomerCode : "") : query.OrderBy(q => q.Customer != null ? q.Customer.CustomerCode : ""),
+            "totalAmount" => sortDesc ? query.OrderByDescending(q => q.TotalAmount) : query.OrderBy(q => q.TotalAmount),
+            "status"      => sortDesc ? query.OrderByDescending(q => q.Status) : query.OrderBy(q => q.Status),
+            "sentAt"      => sortDesc ? query.OrderByDescending(q => q.SentAt) : query.OrderBy(q => q.SentAt),
+            "createdAt"   => sortDesc ? query.OrderByDescending(q => q.CreatedAt) : query.OrderBy(q => q.CreatedAt),
+            _             => query.OrderByDescending(q => q.CreatedAt),
+        };
 
         var totalCount = await query.CountAsync();
         var items = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .ApplyPaging(page, pageSize)
             .ToListAsync();
 
-        var rfqIds = items.Select(q => q.RFQId).Distinct();
-        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIds);
+        var rfqIdsString = items.Select(q => q.RFQId).Distinct();
+        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIdsString);
 
         return new PagedResult<QuoteResponse>
         {
@@ -454,6 +504,7 @@ public class QuoteService : IQuoteService
             CustomerTermsAndConditions = q.Customer.TermsAndConditions,
             CustomerCurrencyType = q.Customer.CurrencyType,
             CustomerBase = q.Customer.Base,
+            CustomerId = q.Customer.Id,
             UserName = q.User?.Name,
             AssignedUsers = assignedUsers ?? new(),
             RejectionNote = q.RejectionNote,
@@ -461,6 +512,8 @@ public class QuoteService : IQuoteService
             FinalPrice = q.FinalPrice,
             SentAt = q.SentAt,
             RFQExType = q.RFQ?.ExType,
+            CoefYuan = q.CoefYuan,
+            ExchangeRateYuan = q.ExchangeRateYuan,
             Items = q.QuoteItems
                 //.OrderBy(qi => qi.SortOrder)
                 .OrderBy(qi => qi.RFQItemId)
@@ -529,5 +582,45 @@ public class QuoteService : IQuoteService
         quote.RFQ.ModifyAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<bool> UpdateYuanSettingsAsync(long quoteId, decimal? coefYuan, decimal? exchangeRateYuan)
+    {
+        var quote = await _db.Set<Quote>().FindAsync(quoteId);
+        if (quote == null) return false;
+        quote.CoefYuan = coefYuan;
+        quote.ExchangeRateYuan = exchangeRateYuan;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Raw SQL cross-module helper: fetches individually assigned customer IDs for a user
+    /// from the Identity module's UserCustomers table without importing Identity entities.
+    /// </summary>
+    private async Task<List<long>> GetUserAssignedCustomerIdsAsync(long userId)
+    {
+        if (userId <= 0) return [];
+        var conn = _db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        if (!wasOpen) await conn.OpenAsync();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT CustomerId FROM UserCustomers WHERE UserId = @userId";
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@userId";
+            param.Value = userId;
+            cmd.Parameters.Add(param);
+            using var reader = await cmd.ExecuteReaderAsync();
+            var ids = new List<long>();
+            while (await reader.ReadAsync())
+                ids.Add(reader.GetInt64(0));
+            return ids;
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
     }
 }

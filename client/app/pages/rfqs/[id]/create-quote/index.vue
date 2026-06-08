@@ -506,13 +506,17 @@ onMounted(async () => {
     } else if (rfq.value.customerCurrencyType == 'Yuan') {
       // For Yuan: Coef 1 = 1.1, Coef 2 = 1.22
       globalCoef1.value = 1.1
-      globalCoef2.value = 1.22
+      globalCoef2.value = 1.25
     } else {
       // For USA/Dollar: Coef 1 = 1.1
       globalCoef1.value = 1.1
       globalCoef2.value = 1.0
     }
   }
+  else if(rfq.value.customerBase == 5 && !isEditMode.value){
+    globalCoef1.value = 1.13
+  }
+
   else if(!isEditMode.value){
     globalCoef1.value = 1.1
   }

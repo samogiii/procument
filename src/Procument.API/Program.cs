@@ -52,7 +52,8 @@ builder.Services.AddTasksModule();
 builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());
 
 // ─── Application Services ───
-builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<Procument.Shared.Services.INotificationService>(sp => sp.GetRequiredService<NotificationService>());
 builder.Services.AddScoped<IFinalInvoiceLockGuard, FinalInvoiceLockGuard>();
 builder.Services.AddSingleton<IDocumentStorageService, DocumentStorageService>();
 builder.Services.AddSingleton<ICryptoService, CryptoService>();

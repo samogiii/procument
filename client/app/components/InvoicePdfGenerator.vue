@@ -1,10 +1,11 @@
-<template>
+﻿<template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">SaleS Order PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
         <v-spacer />
+        <v-btn variant="tonal" color="secondary" prepend-icon="mdi-content-save" class="mr-2" :loading="savingTotals" @click="saveTotalsToPi">Save to PI</v-btn>
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
@@ -138,7 +139,7 @@ watch(apiPresets, (presets) => {
   if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
 })
 
-watch(selectedPreset, (val) => {
+watch(selectedPreset, async (val) => {
   const preset = apiPresets.value.find((p: any) => p.name === val)
   if (preset) {
     companyName.value = preset.name
@@ -149,7 +150,7 @@ watch(selectedPreset, (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    // Pull bank details from preset
+    // Pull bank details from preset (fallback)
     beneficiaryName.value = preset.beneficiaryName || ''
     bankName.value = preset.bankName || ''
     bankAddress.value = preset.bankAddress || ''
@@ -157,6 +158,18 @@ watch(selectedPreset, (val) => {
     swiftCode.value = preset.swiftCode || ''
     // Prefer customer's terms & conditions over preset's
     companyTerms.value = props.invoice?.customerTermsAndConditions || preset.termsAndConditions || ''
+    // Override bank details with wallet-specific values when available
+    const walletId = props.invoice?.defaultDepositWalletId
+    if (walletId) {
+      try {
+        const wallet = await api.get<any>(`/payment-boxes/${walletId}`)
+        if (wallet.bankName) bankName.value = wallet.bankName
+        if (wallet.bankAddress) bankAddress.value = wallet.bankAddress
+        if (wallet.accountNumber) bankAccount.value = wallet.accountNumber
+        if (wallet.beneficiaryName) beneficiaryName.value = wallet.beneficiaryName
+        if (wallet.swiftCode) swiftCode.value = wallet.swiftCode
+      } catch { /* non-critical — wallet details unavailable */ }
+    }
   }
 })
 
@@ -175,17 +188,23 @@ watch(model, (open) => {
     shipToEmail.value = props.invoice?.customerEmail || ''
     shipToPhone.value = props.invoice?.customerPhone || ''
     shipToAccount.value = props.invoice?.customerShippingAccount || ''
+    
+    taxAmount.value = Number(props.invoice?.tax) || 0
+    shippingAmount.value = Number(props.invoice?.shipping) || 0
+    otherAmount.value = Number(props.invoice?.processingFee) || 0
+
     if (props.invoice?.customerBase == 3) {
       const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
+      const storedRate = (props.invoice?.quoteCoefYuan ?? 1) * (props.invoice?.quoteExchangeRateYuan ?? 7)
       if (currencyType === 'Dollar') {
         currency.value = 'Dollar (USD)'
         exchangeRate.value = 1
       } else if (currencyType === 'Yuan') {
         currency.value = 'China Yuan (CNY)'
-        exchangeRate.value = 7
+        exchangeRate.value = storedRate
       } else if (currencyType === 'Both') {
         currency.value = 'Dollar (USD)'
-        exchangeRate.value = 7
+        exchangeRate.value = storedRate
         // For Both, default to Dollar but allow user to switch
       }
     }
@@ -197,12 +216,27 @@ const companyLocation = ref('')
 const companyPhone = ref('')
 const companyWebsite = ref('')
 const companyEmail = ref('')
-const footerText = ref('If you have any questions about this SaleS Order, please contact')
+const footerText = ref('If you have any questions about this PI, please contact')
 const logoDataUrl = ref('')
 const generating = ref(false)
+const savingTotals = ref(false)
 const taxAmount = ref(0)
 const shippingAmount = ref(0)
 const otherAmount = ref(0)
+
+async function saveTotalsToPi() {
+  savingTotals.value = true
+  try {
+    const payload = {
+      tax:           taxAmount.value,
+      shipping:      shippingAmount.value,
+      processingFee: otherAmount.value,
+    }
+    await api.patch(`/invoices/${props.invoice.id}/totals`, payload)
+  } catch (e) { console.error('[InvoicePdf] Failed to save totals to PI', e) }
+  finally { savingTotals.value = false }
+}
+
 const currency = ref('Dollar (USD)')
 const exchangeRate = ref(7.0)
 const comments = ref('No Comments')
@@ -337,7 +371,7 @@ const renderedHtml = computed(() => {
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">Sales Order</div>
+          <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">Proforma Invoice</div>
           <div style="font-size:11px; color:#6b7280; margin-top:4px;">INV-${inv.id}</div>
         </div>
       </div>
@@ -448,17 +482,18 @@ async function downloadPdf() {
     const currencyType = props.invoice?.customerCurrencyType || 'Dollar'
     const isBoth = props.invoice?.customerBase === 3 && currencyType === 'Both'
 
+    const yuanRate = (props.invoice?.quoteCoefYuan ?? 1) * (props.invoice?.quoteExchangeRateYuan ?? 7)
     const currenciesToGenerate = isBoth
       ? [
-          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' }, 
-          { currency: 'China Yuan (CNY)', symbol: '¥', rate: 7, nameSuffix: ' - Yuan' }
+          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' },
+          { currency: 'China Yuan (CNY)', symbol: '¥', rate: yuanRate, nameSuffix: ' - Yuan' }
         ]
       : [
-          { 
-            currency: currency.value, 
-            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', 
+          {
+            currency: currency.value,
+            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$',
             rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1,
-            nameSuffix: '' 
+            nameSuffix: ''
           }
         ]
 
@@ -473,7 +508,7 @@ async function downloadPdf() {
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
         invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
-        invoiceTitle: "SaleS Order PI",
+        invoiceTitle: "Proforma Invoice PI",
         invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
         dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
         status: inv.status || '—',
@@ -535,7 +570,7 @@ async function downloadPdf() {
         swiftCode: swiftCode.value || null,
       }
 
-      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/invoice`, {
+      const response = await $fetch<Blob>(`${api.baseURL}/pdf/invoice`, {
         method: 'POST',
         body: payload,
         responseType: 'blob',
@@ -561,7 +596,7 @@ async function downloadPdf() {
           ? (curr.currency.includes('CNY') ? 'our_pi_yuan' : 'our_pi_dollar')
           : 'our_pi'
         form.append('category', category)
-        await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${inv.id}/upload`, {
+        await $fetch(`${api.baseURL}/documents/proforma-invoice/${inv.id}/upload`, {
           method: 'POST',
           body: form,
           headers: { Authorization: `Bearer ${authStore.user?.token}` },

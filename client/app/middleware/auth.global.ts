@@ -1,3 +1,11 @@
+// Routes any Inventory user is allowed to access.
+const INVENTORY_ALLOWED_PREFIXES = [
+    '/shipping',
+    '/total-shipping',
+    '/dashboard',
+    '/attention',
+] as const
+
 // Routes any Expert is allowed to access. Anything else → 404.
 // Sub-paths (e.g. /rfqs/123) are allowed via prefix match.
 const EXPERT_ALLOWED_PREFIXES = [
@@ -7,12 +15,19 @@ const EXPERT_ALLOWED_PREFIXES = [
     '/procurements',
     '/purchase-orders',
     '/tasks',
+    '/attention',
 ] as const
 
-// Expert SYD gets the full Expert allowlist PLUS /ils.
+// Expert SYD gets the full Expert allowlist PLUS /ils, shipment notes, and ready-for-sn.
 const EXPERT_SYD_ALLOWED_PREFIXES = [
     ...EXPERT_ALLOWED_PREFIXES,
     '/ils',
+    '/total-shipping',
+    '/shipment-notes',
+    '/shipping/ready-for-sn',
+    '/shipping',
+    '/inventory',
+    '/catalog',
 ] as const
 
 function matchesAnyPrefix(path: string, prefixes: readonly string[]): boolean {
@@ -24,6 +39,11 @@ export default defineNuxtRouteMiddleware((to) => {
 
     const authStore = useAuthStore()
     authStore.loadFromStorage()
+
+    // Load menu permissions from the API once per session (after restoring from storage)
+    if (authStore.isAuthenticated && Object.values(authStore.featurePermissions).every(v => v.length === 0)) {
+        authStore.loadMenuPermissions()  // fire-and-forget — non-blocking
+    }
 
     // If user has a token but it's expired, log them out
     if (authStore.user?.token && authStore.isTokenExpired) {
@@ -46,6 +66,17 @@ export default defineNuxtRouteMiddleware((to) => {
     // Experts (and the special SYD operator) get a tight whitelist of pages.
     // Visiting anything outside the list throws a 404 — typing the URL into
     // the address bar is denied the same way as a hidden nav entry.
+    // ── Inventory role: restrict to shipping-related pages ────────────────
+    if (authStore.isAuthenticated && authStore.user?.role === 'Inventory') {
+        if (to.path === '/login') return
+        if (to.path === '/' || to.path === '/dashboard') {
+            return navigateTo('/shipping')
+        }
+        if (!matchesAnyPrefix(to.path, INVENTORY_ALLOWED_PREFIXES)) {
+            throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
+        }
+    }
+
     if (authStore.isAuthenticated && authStore.user?.role === 'Expert') {
         const isSyd = authStore.user?.name === 'SYD'
         const allowed = isSyd ? EXPERT_SYD_ALLOWED_PREFIXES : EXPERT_ALLOWED_PREFIXES

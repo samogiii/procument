@@ -2,6 +2,16 @@
   <div>
     <PageHeader :title="title">
       <template #actions>
+        <v-chip
+          v-if="showTotalSum && tableTotalAmountSum"
+          color="success"
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-sigma"
+          class="mr-2"
+        >
+          Total: ${{ formatPrice(tableTotalAmountSum) }}
+        </v-chip>
         <slot name="actions" />
       </template>
     </PageHeader>
@@ -22,15 +32,38 @@
           <v-select
             v-if="statusOptions?.length"
             v-model="statusFilter"
-            :items="filteredStatusOptions"
+            :items="statusSelectItems"
+            item-title="label"
+            item-value="value"
             label="Status"
             hide-details
             multiple
             chips
             closable-chips
             clearable
-            style="min-width: 120px; max-width: 220px;"
-          />
+            style="min-width: 120px; max-width: 260px;"
+          >
+            <template #item="{ props: iProps, item }">
+              <v-list-item v-bind="iProps" :class="{ 'text-disabled': !item.raw.available }" density="compact">
+                <template #prepend="{ isSelected }">
+                  <v-checkbox-btn :model-value="isSelected" density="compact" class="mr-1" />
+                </template>
+                <template #append>
+                  <v-icon v-if="!item.raw.available" icon="mdi-eye-off-outline" size="14" class="text-disabled ml-1" />
+                </template>
+              </v-list-item>
+            </template>
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllStatuses ? 'Show available only' : 'Show all statuses'"
+                :prepend-icon="showAllStatuses ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllStatuses = !showAllStatuses"
+              />
+            </template>
+          </v-select>
           <slot name="filters" />
           <v-btn
             v-if="hasDlpActiveFilters"
@@ -45,11 +78,14 @@
           </v-btn>
         </div>
 
+        <!-- Optional summary row between filters and table — receives a pre-computed scalar only (no raw arrays) -->
+        <slot v-if="$slots['before-table']" name="before-table" :total-amount-sum="tableTotalAmountSum" />
+
         <!-- Server-side data table -->
         <v-data-table-server
           v-if="serverSide"
           :headers="headers"
-          :items="internalItems"
+          :items="filteredClientItems"
           :items-length="totalItems"
           :loading="loading"
           :items-per-page="itemsPerPage"
@@ -132,12 +168,15 @@ const props = withDefaults(defineProps<{
   pageKey?: string
   /** Extra query params to append to server-side API calls (e.g. { customer: 'Acme', status: 'Sent' }) */
   extraParams?: Record<string, string | string[]>
+  /** Show a live total-amount sum chip in the page header. Reads from frontend (current page for server-side, all items for client-side). */
+  showTotalSum?: boolean
 }>(), {
   serverSide: false,
   itemsPerPage: 50,
   searchPlaceholder: 'Search...',
   showSelect: false,
   modelValue: () => [],
+  showTotalSum: false,
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -164,6 +203,16 @@ if (initialStatus.length && statusFilter.value.length === 0) {
 const loading = ref(false)
 const internalItems = ref<any[]>([])
 const totalItems = ref(0)
+// Stores only scalar/metadata fields from the server response — items array is excluded to avoid storing data twice
+const serverMeta = ref<any>({})
+
+// Pre-computed totalAmount sum — scalar only (no raw arrays passed around).
+// Priority: backend-provided sum (all pages) → else sum from current page items.
+const tableTotalAmountSum = computed<number>(() => {
+  if (serverMeta.value.totalAmountSum != null) return serverMeta.value.totalAmountSum
+  return filteredClientItems.value.reduce((s: number, item: any) => s + (Number(item.totalAmount) || 0), 0)
+})
+
 
 // Statuses that exist in items AFTER customFilter but BEFORE statusFilter.
 // This makes the status dropdown cascade: pick a customer → only their statuses appear.
@@ -175,15 +224,21 @@ const availableStatuses = computed(() => {
   return set
 })
 
-const filteredStatusOptions = computed(() => {
+const showAllStatuses = ref(false)
+
+const statusSelectItems = computed(() => {
   const declared = (props.statusOptions || []).filter(s => s !== 'All')
-  // While loading (no items yet) show all declared options so the dropdown isn't empty.
-  if (availableStatuses.value.size === 0) return declared
-  // Otherwise narrow to statuses that actually exist given the current non-status filters.
-  return declared.length
-    ? declared.filter(s => availableStatuses.value.has(s))
-    : Array.from(availableStatuses.value).sort()
+  if (showAllStatuses.value) {
+    return declared.map(s => ({ label: s, value: s, available: availableStatuses.value.size === 0 || availableStatuses.value.has(s) }))
+  }
+  // Default: show only available + already-selected (so selections don't vanish)
+  return declared
+    .filter(s => availableStatuses.value.size === 0 || availableStatuses.value.has(s) || (statusFilter.value as string[]).includes(s))
+    .map(s => ({ label: s, value: s, available: true }))
 })
+
+// keep for backwards compat (used nowhere else now, but safe to leave)
+const filteredStatusOptions = statusSelectItems
 
 const filteredClientItems = computed(() => {
   let result = internalItems.value
@@ -209,10 +264,12 @@ const searchFilteredItems = computed(() => {
   return result
 })
 const lastServerOptions = ref<any>({ page: 1, itemsPerPage: 50 })
+const sort = useServerSort()
 
 // ─── Server-side loading ───
 async function loadServerItems(options: any) {
   lastServerOptions.value = options
+  sort.capture(options)
   loading.value = true
   try {
     const params = new URLSearchParams()
@@ -228,12 +285,16 @@ async function loadServerItems(options: any) {
         else if (val) params.append(key, val)
       }
     }
+    sort.appendTo(params)
 
     const url = `${props.apiUrl}?${params.toString()}`
     const res = await api.get<any>(url)
 
     internalItems.value = res.items || res.Items || []
     totalItems.value = res.totalCount || res.TotalCount || 0
+    // Store only scalar fields — exclude the items array to avoid keeping data in memory twice
+    const { items: _i, Items: _I, ...meta } = res
+    serverMeta.value = meta
   } catch (e) {
     console.error(`[DataListPage] Failed to load ${props.apiUrl}`, e)
   } finally {

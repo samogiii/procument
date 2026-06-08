@@ -155,6 +155,42 @@ public class ProcurementService : IProcurementService
             _db.Set<ProcurementItem>().Add(item);
             await _db.SaveChangesAsync();
 
+            // ── Auto-assign users from source RFQ to this Procurement Item ──
+            if (rfq != null)
+            {
+                var rfqIdStr = rfq.Id.ToString();
+                var rfqPermissions = await _db.Set<EntityPermission>()
+                    .Where(p => p.EntityName == "RFQ" && p.EntityId == rfqIdStr)
+                    .ToListAsync();
+
+                var usersToAssign = rfqPermissions.Select(p => new { p.UserId, p.Permission }).ToList();
+                
+                // Also include the RFQ owner as an 'Edit' user if not already there
+                if (rfq.UserId.HasValue && !usersToAssign.Any(u => u.UserId == rfq.UserId.Value))
+                {
+                    usersToAssign.Add(new { UserId = rfq.UserId.Value, Permission = "Edit" });
+                }
+
+                foreach (var u in usersToAssign)
+                {
+                    var exists = await _db.Set<EntityPermission>()
+                        .AnyAsync(p => p.UserId == u.UserId && p.EntityName == "Procurement" && p.EntityId == item.Id.ToString());
+                    
+                    if (!exists)
+                    {
+                        _db.Set<EntityPermission>().Add(new EntityPermission
+                        {
+                            UserId = u.UserId,
+                            EntityName = "Procurement",
+                            EntityId = item.Id.ToString(),
+                            Permission = u.Permission,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+                await _db.SaveChangesAsync();
+            }
+
             // Clone ProcumentRecords tied to this RFQItem into ProcurementSupplierQuote rows
             if (rfqItem != null)
             {
@@ -216,33 +252,70 @@ public class ProcurementService : IProcurementService
         {
             if (item.ItemStatus == "Cancelled") continue;
 
-            // Find selected quote
-            var sq = item.SupplierQuotes.FirstOrDefault(q => q.IsSelected);
-            var supplierId = sq?.SupplierId ?? item.CurrentSupplierId;
+            var selectedQuotesAuto = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
+            var effectiveAltAuto = item.Alt ?? item.QuoteAlt;
+            var effectivePnIdAuto = await ResolveAltPartNumberIdAsync(item.PartNumberId, effectiveAltAuto);
 
-            if (supplierId == null) continue;
-
-            // Check if already active
-            var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
-                p.SourceProcurementItemId == item.Id &&
-                p.SupplierId == supplierId &&
-                p.ReturnedAt == null);
-
-            if (!alreadyActive)
+            if (selectedQuotesAuto.Count > 0)
             {
-                int qty = (sq != null && sq.Qty > 0) ? (int)Math.Round(sq.Qty) : item.Qty;
-                decimal price = (sq != null && sq.Price > 0) ? sq.Price : item.UnitPrice;
+                // Multiple (or single) selected quotes — create one POItem per quote
+                foreach (var sq in selectedQuotesAuto)
+                {
+                    var supplierId = sq.SupplierId ?? item.CurrentSupplierId;
+                    if (supplierId == null) continue;
+
+                    // Guard by SourceSupplierQuoteId so same-supplier / different-condition quotes
+                    // each produce their own POItem
+                    var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
+                        p.SourceProcurementItemId == item.Id &&
+                        p.SourceSupplierQuoteId == sq.Id &&
+                        p.ReturnedAt == null);
+                    if (alreadyActive) continue;
+
+                    int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : item.Qty;
+                    decimal price = sq.Price > 0 ? sq.Price : item.UnitPrice;
+                    var poItem = new POItem
+                    {
+                        POId = null,
+                        InvoiceItemId = item.SourceInvoiceItemId,
+                        ProcumentId = item.SourceProcumentRecordId,
+                        PartNumberId = effectivePnIdAuto,
+                        SupplierId = supplierId,
+                        Qty = qty,
+                        UnitPrice = price,
+                        TotalPrice = qty * price,
+                        Condition = sq.Condition ?? item.Condition,
+                        SourceProcurementItemId = item.Id,
+                        SourceSupplierQuoteId = sq.Id,
+                    };
+                    _db.Set<POItem>().Add(poItem);
+                    anyPoItemCreated = true;
+                }
+            }
+            else
+            {
+                // No selected quotes — fall back to item-level supplier
+                var supplierId = item.CurrentSupplierId;
+                if (supplierId == null) continue;
+
+                var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
+                    p.SourceProcurementItemId == item.Id &&
+                    p.SourceSupplierQuoteId == null &&
+                    p.SupplierId == supplierId &&
+                    p.ReturnedAt == null);
+                if (alreadyActive) continue;
+
                 var poItem = new POItem
                 {
                     POId = null,
                     InvoiceItemId = item.SourceInvoiceItemId,
                     ProcumentId = item.SourceProcumentRecordId,
-                    PartNumberId = item.PartNumberId,
+                    PartNumberId = effectivePnIdAuto,
                     SupplierId = supplierId,
-                    Qty = qty,
-                    UnitPrice = price,
-                    TotalPrice = qty * price,
-                    Condition = sq?.Condition ?? item.Condition,
+                    Qty = item.Qty,
+                    UnitPrice = item.UnitPrice,
+                    TotalPrice = item.Qty * item.UnitPrice,
+                    Condition = item.Condition,
                     SourceProcurementItemId = item.Id,
                 };
                 _db.Set<POItem>().Add(poItem);
@@ -265,109 +338,152 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     // Query methods
     // ────────────────────────────────────────────────────────────────
-    public async Task<List<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin)
+    public async Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null)
     {
+        // Build procurement info map first (for customer/procStatus filtering)
+        // When no explicit procStatus filter is given, exclude Cancelled procurements by default
+        bool cancelledExplicitlyRequested = procStatuses != null && procStatuses.Contains("Cancelled");
+        var procQuery = _db.Set<Procurement>().AsNoTracking()
+            .Where(p => cancelledExplicitlyRequested || p.Status != "Cancelled")
+            .Select(p => new { p.Id, p.Status, p.InvoiceId });
+        var allProcs = await procQuery.ToListAsync();
+
+        var invoiceIds = allProcs.Select(p => p.InvoiceId).Distinct().ToList();
+        var invoiceMap = await _db.Set<Invoice>().AsNoTracking()
+            .Where(i => invoiceIds.Contains(i.Id))
+            .Select(i => new { i.Id, CustomerName = i.Customer.CustomerCode, CustomerBase = (int?)i.Customer.Base })
+            .ToDictionaryAsync(x => x.Id);
+
+        var procInfoMap = allProcs.ToDictionary(p => p.Id, p => new
+        {
+            p.Status,
+            CustomerName = invoiceMap.TryGetValue(p.InvoiceId, out var inv) ? inv.CustomerName : null,
+            CustomerBase = invoiceMap.TryGetValue(p.InvoiceId, out var inv2) ? inv2.CustomerBase : null,
+        });
+
+        var filteredCustomers = customerNames?.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        // Filter proc IDs by procStatus, customerName, and base
+        var allowedProcIds = procInfoMap
+            .Where(kv =>
+                (procStatuses == null || procStatuses.Count == 0 || procStatuses.Contains(kv.Value.Status)) &&
+                (filteredCustomers == null || filteredCustomers.Count == 0 || (kv.Value.CustomerName != null && filteredCustomers.Contains(kv.Value.CustomerName))) &&
+                (isSuperAdmin || userBases == null || kv.Value.CustomerBase == null || userBases.Contains(kv.Value.CustomerBase.Value)))
+            .Select(kv => kv.Key)
+            .ToHashSet();
+
         IQueryable<ProcurementItem> query = _db.Set<ProcurementItem>()
             .Include(i => i.CurrentSupplier)
-            .AsNoTracking();
+            .AsNoTracking()
+            .Where(i => allowedProcIds.Contains(i.ProcurementId));
 
         if (!isAdmin)
         {
             var permittedEntityIds = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "Procurement")
-                .Select(p => p.EntityId)
-                .ToListAsync();
-
+                .Select(p => p.EntityId).ToListAsync();
             var permittedItemIds = permittedEntityIds
-                .Select(s => long.TryParse(s, out var l) ? l : -1L)
-                .Where(l => l > 0)
-                .ToHashSet();
-
-            if (permittedItemIds.Count == 0) return new List<ProcurementItemFlatResponse>();
+                .Select(s => long.TryParse(s, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            if (permittedItemIds.Count == 0) return new PagedResult<ProcurementItemFlatResponse> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
             query = query.Where(i => permittedItemIds.Contains(i.Id));
         }
 
-        var items = await query.OrderByDescending(i => i.CreatedAt).ToListAsync();
-        if (items.Count == 0) return new List<ProcurementItemFlatResponse>();
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(i => i.PartNumberName.Contains(search) || (i.PartNumberDescription != null && i.PartNumberDescription.Contains(search)));
 
-        // Batch-load parent procurement status and invoice (customer) info
-        var procIds = items.Select(i => i.ProcurementId).Distinct().ToList();
-        var procs = await _db.Set<Procurement>()
-            .AsNoTracking()
-            .Where(p => procIds.Contains(p.Id))
-            .Select(p => new { p.Id, p.Status, p.InvoiceId })
-            .ToListAsync();
+        if (partNames?.Count > 0)
+            query = query.Where(i => partNames.Contains(i.PartNumberName));
 
-        var invoiceIds = procs.Select(p => p.InvoiceId).Distinct().ToList();
-        var invoiceMap = await _db.Set<Invoice>()
-            .AsNoTracking()
-            .Where(i => invoiceIds.Contains(i.Id))
-            .Select(i => new { i.Id, CustomerName = i.Customer.CustomerCode })
-            .ToDictionaryAsync(x => x.Id);
+        if (statuses?.Count > 0)
+            query = query.Where(i => statuses.Contains(i.ItemStatus));
 
-        var procInfoMap = procs.ToDictionary(
-            p => p.Id,
-            p => new
-            {
-                p.Status,
-                CustomerName = invoiceMap.TryGetValue(p.InvoiceId, out var inv) ? inv.CustomerName : null,
-            });
+        if (userIds?.Count > 0)
+        {
+            var itemIdStrs = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "Procurement" && userIds.Contains(p.UserId))
+                .Select(p => p.EntityId).ToListAsync();
+            var filteredIds = itemIdStrs.Select(s => long.TryParse(s, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            query = query.Where(i => filteredIds.Contains(i.Id));
+        }
 
-        // Batch-load per-item permissions (admin only — shown as chips)
+        if (conditions?.Count > 0)
+        {
+            var conds = conditions.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (conds.Count > 0)
+                query = query.Where(i => conds.Contains(i.Condition ?? ""));
+        }
+
+        if (supplierNames?.Count > 0)
+        {
+            var sups = supplierNames.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (sups.Count > 0)
+                query = query.Where(i => sups.Contains(i.CurrentSupplier != null ? i.CurrentSupplier.Name : i.SupplierName ?? ""));
+        }
+
+        var sortedQuery = sortBy switch
+        {
+            "partNumberName"      => sortDesc ? query.OrderByDescending(i => i.PartNumberName)      : query.OrderBy(i => i.PartNumberName),
+            "qty"                 => sortDesc ? query.OrderByDescending(i => i.Qty)                 : query.OrderBy(i => i.Qty),
+            "condition"           => sortDesc ? query.OrderByDescending(i => i.Condition)           : query.OrderBy(i => i.Condition),
+            "itemStatus"          => sortDesc ? query.OrderByDescending(i => i.ItemStatus)          : query.OrderBy(i => i.ItemStatus),
+            "currentSupplierName" => sortDesc ? query.OrderByDescending(i => i.CurrentSupplier != null ? i.CurrentSupplier.Name : "") : query.OrderBy(i => i.CurrentSupplier != null ? i.CurrentSupplier.Name : ""),
+            "createdAt"           => sortDesc ? query.OrderByDescending(i => i.CreatedAt)           : query.OrderBy(i => i.CreatedAt),
+            _                     => query.OrderByDescending(i => i.CreatedAt),
+        };
+
+        var totalCount = await query.CountAsync();
+        var items = await sortedQuery.ApplyPaging(page, pageSize).ToListAsync();
+
         var allPerms = new List<ProcurementAssignedUser>();
-        if (isAdmin)
+        if (isAdmin && items.Count > 0)
         {
             var itemIdStrs = items.Select(i => i.Id.ToString()).ToList();
             var permRows = await _db.Set<EntityPermission>()
                 .Where(p => p.EntityName == "Procurement" && itemIdStrs.Contains(p.EntityId))
                 .Join(_db.Set<User>(), p => p.UserId, u => u.Id, (p, u) => new { p, u })
                 .ToListAsync();
-
             allPerms = permRows.Select(r => new ProcurementAssignedUser
             {
-                Id = r.p.Id,
-                UserId = r.p.UserId,
+                Id = r.p.Id, UserId = r.p.UserId,
                 UserName = r.u.Name ?? r.u.Email ?? $"User #{r.u.Id}",
-                UserEmail = r.u.Email,
-                EntityName = r.p.EntityName,
-                EntityId = r.p.EntityId,
-                Permission = r.p.Permission,
-                CreatedAt = r.p.CreatedAt,
+                UserEmail = r.u.Email, EntityName = r.p.EntityName,
+                EntityId = r.p.EntityId, Permission = r.p.Permission, CreatedAt = r.p.CreatedAt,
             }).ToList();
         }
 
-        return items.Select(i =>
+        var result = items.Select(i =>
         {
             procInfoMap.TryGetValue(i.ProcurementId, out var procInfo);
             var itemIdStr = i.Id.ToString();
             return new ProcurementItemFlatResponse
             {
-                Id = i.Id,
-                ProcurementId = i.ProcurementId,
+                Id = i.Id, ProcurementId = i.ProcurementId,
                 ProcurementStatus = procInfo?.Status ?? "Open",
                 CustomerName = procInfo?.CustomerName,
-                PartNumberName = i.PartNumberName,
-                PartNumberDescription = i.PartNumberDescription,
-                Qty = i.Qty,
-                Condition = i.Condition,
-                Alt = i.Alt,
-                Note = i.Note,
-                ItemStatus = i.ItemStatus,
-                CurrentSupplierName = i.CurrentSupplier?.Name ?? i.SupplierName,
-                UnitPrice = i.UnitPrice,
-                LeadTime = i.LeadTime,
-                CreatedAt = i.CreatedAt,
-                AssignedUsers = isAdmin
-                    ? allPerms.Where(p => p.EntityId == itemIdStr).ToList()
-                    : new List<ProcurementAssignedUser>(),
+                PartNumberName = i.PartNumberName, PartNumberDescription = i.PartNumberDescription,
+                Qty = i.Qty, Condition = i.Condition, Alt = i.Alt, Note = i.Note,
+                ItemStatus = i.ItemStatus, CurrentSupplierName = i.CurrentSupplier?.Name ?? i.SupplierName,
+                UnitPrice = i.UnitPrice, LeadTime = i.LeadTime, CreatedAt = i.CreatedAt,
+                AssignedUsers = isAdmin ? allPerms.Where(p => p.EntityId == itemIdStr).ToList() : new List<ProcurementAssignedUser>(),
             };
         }).ToList();
+
+        return new PagedResult<ProcurementItemFlatResponse> { Items = result, TotalCount = totalCount, Page = page, PageSize = pageSize };
     }
 
-    public async Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin)
+    public async Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
     {
         IQueryable<Procurement> baseQ = _db.Set<Procurement>()
             .Include(p => p.Items);
+
+        // Base filter for non-SuperAdmin users (via Invoice → Customer.Base)
+        if (!isSuperAdmin && userBases != null && userBases.Length > 0)
+        {
+            var allowedInvoiceIds = await _db.Set<Invoice>()
+                .Where(i => i.Customer.Base == null || userBases.Contains(i.Customer.Base.Value))
+                .Select(i => i.Id)
+                .ToListAsync();
+            baseQ = baseQ.Where(p => allowedInvoiceIds.Contains(p.InvoiceId));
+        }
 
         HashSet<long>? explicitHeaderIds = null;
         HashSet<string>? permittedItemIds = null;
@@ -422,8 +538,7 @@ public class ProcurementService : IProcurementService
         var query = baseQ.OrderByDescending(p => p.CreatedAt);
         var total = await query.CountAsync();
         var rows = await query
-            .Skip((page.Page - 1) * page.PageSize)
-            .Take(page.PageSize)
+            .ApplyPaging(page)
             .ToListAsync();
 
         // Batch-load permissions for the page (both header and item level)
@@ -595,12 +710,12 @@ public class ProcurementService : IProcurementService
         {
             var itemIdList = resp.Items.Select(i => i.Id).ToList();
 
-            // Fetch active POItems projected to (SourceProcurementItemId, SupplierId)
+            // Fetch active POItems projected to (SourceProcurementItemId, SourceSupplierQuoteId, SupplierId)
             var activePairs = await _db.Set<POItem>()
                 .Where(p => p.SourceProcurementItemId.HasValue
                          && itemIdList.Contains(p.SourceProcurementItemId!.Value)
                          && p.ReturnedAt == null)
-                .Select(p => new { ItemId = p.SourceProcurementItemId!.Value, p.SupplierId })
+                .Select(p => new { ItemId = p.SourceProcurementItemId!.Value, p.SupplierId, p.SourceSupplierQuoteId })
                 .ToListAsync();
 
             // Build: itemId → active count
@@ -608,8 +723,14 @@ public class ProcurementService : IProcurementService
                 .GroupBy(p => p.ItemId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            // Build: (itemId, supplierId) set for per-quote lookup
-            var activeQuoteKeys = activePairs
+            // Build lookup sets for per-quote HasActivePOItem:
+            //   Prefer SourceSupplierQuoteId (new rows); fall back to (itemId, supplierId) for legacy rows
+            var activeByQuoteId = activePairs
+                .Where(p => p.SourceSupplierQuoteId.HasValue)
+                .Select(p => p.SourceSupplierQuoteId!.Value)
+                .ToHashSet();
+            var activeBySupplierKey = activePairs
+                .Where(p => !p.SourceSupplierQuoteId.HasValue)
                 .Select(p => (p.ItemId, p.SupplierId))
                 .ToHashSet();
 
@@ -622,7 +743,9 @@ public class ProcurementService : IProcurementService
 
                 // Per-quote: mark which selected rows already have a live POItem (admin approved)
                 foreach (var sq in ri.SupplierQuotes)
-                    sq.HasActivePOItem = sq.IsSelected && activeQuoteKeys.Contains((ri.Id, sq.SupplierId));
+                    sq.HasActivePOItem = sq.IsSelected && (
+                        activeByQuoteId.Contains(sq.Id) ||
+                        activeBySupplierKey.Contains((ri.Id, sq.SupplierId)));
             }
         }
 
@@ -921,6 +1044,36 @@ public class ProcurementService : IProcurementService
     /// Single-supplier (0 or 1 selected quote):
     ///   Standard guard — skip if any active POItem already exists for this item.
     /// </summary>
+    /// <summary>
+    /// Resolves the effective PartNumber ID for a POItem.
+    /// When the quote used an alt part number (Alt is set on the ProcurementItem),
+    /// the alt is used as the POItem's part number — creating a new catalog entry if needed.
+    /// Returns the original PartNumberId when no alt is set.
+    /// </summary>
+    private async Task<long?> ResolveAltPartNumberIdAsync(long? originalPartNumberId, string? alt)
+    {
+        var altTrimmed = alt?.Trim();
+        if (string.IsNullOrEmpty(altTrimmed))
+            return originalPartNumberId;
+
+        // Try to find an existing PartNumber with this name (case-insensitive)
+        var existing = await _db.Set<PartNumber>()
+            .FirstOrDefaultAsync(p => p.Name == altTrimmed);
+
+        if (existing != null)
+            return existing.Id;
+
+        // Auto-create a new PartNumber for the alt
+        var newPn = new PartNumber
+        {
+            Name = altTrimmed,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.Set<PartNumber>().Add(newPn);
+        await _db.SaveChangesAsync();
+        return newPn.Id;
+    }
+
     private async Task<List<long>> MaterializeItemAsync(ProcurementItem pi)
     {
         var created = new List<long>();
@@ -928,6 +1081,10 @@ public class ProcurementService : IProcurementService
         if (pi.ItemStatus == "Cancelled") return created;
 
         var selectedQuotes = pi.SupplierQuotes.Where(q => q.IsSelected).ToList();
+
+        // Resolve the effective PartNumber — use Alt if the expert quoted an alt to the customer
+        var effectiveAlt = pi.Alt ?? pi.QuoteAlt;
+        var effectivePartNumberId = await ResolveAltPartNumberIdAsync(pi.PartNumberId, effectiveAlt);
 
         if (selectedQuotes.Count >= 2)
         {
@@ -939,10 +1096,12 @@ public class ProcurementService : IProcurementService
             {
                 var supplierId = sq.SupplierId ?? pi.CurrentSupplierId;
 
-                // Skip only if THIS supplier already has an active (non-returned) POItem for this item
+                // Skip only if THIS specific supplier quote already has an active POItem.
+                // Keying on SourceSupplierQuoteId (not SupplierId) so two quotes for the same
+                // supplier but different conditions each get their own POItem.
                 var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
                     p.SourceProcurementItemId == pi.Id &&
-                    p.SupplierId == supplierId &&
+                    p.SourceSupplierQuoteId == sq.Id &&
                     p.ReturnedAt == null);
                 if (alreadyActive) continue;
 
@@ -953,13 +1112,14 @@ public class ProcurementService : IProcurementService
                     POId = null,
                     InvoiceItemId = pi.SourceInvoiceItemId,
                     ProcumentId = pi.SourceProcumentRecordId,
-                    PartNumberId = pi.PartNumberId,
+                    PartNumberId = effectivePartNumberId,
                     SupplierId = supplierId,
                     Qty = qty,
                     UnitPrice = price,
                     TotalPrice = qty * price,
                     Condition = sq.Condition ?? pi.Condition,
                     SourceProcurementItemId = pi.Id,
+                    SourceSupplierQuoteId = sq.Id,
                 };
                 _db.Set<POItem>().Add(splitItem);
                 await _db.SaveChangesAsync();
@@ -979,7 +1139,7 @@ public class ProcurementService : IProcurementService
             POId = null, // unassigned — admin will group & create POs from /purchase-orders
             InvoiceItemId = pi.SourceInvoiceItemId,
             ProcumentId = pi.SourceProcumentRecordId,
-            PartNumberId = pi.PartNumberId,
+            PartNumberId = effectivePartNumberId,
             SupplierId = pi.CurrentSupplierId,
             Qty = pi.Qty,
             UnitPrice = pi.UnitPrice,
@@ -1010,10 +1170,23 @@ public class ProcurementService : IProcurementService
             createdItemIds.AddRange(ids);
         }
 
-        proc.Status = "Finalized";
-        proc.FinalizedAt = DateTime.UtcNow;
-        proc.FinalizedByUserId = userId > 0 ? userId : null;
         if (!string.IsNullOrWhiteSpace(request?.Notes)) proc.Notes = request.Notes;
+
+        // Only mark as Finalized when every non-cancelled item has sufficient approved qty.
+        // If any item is under-qty, the procurement stays open so more supplier quotes can be added.
+        bool allQtySatisfied = true;
+        foreach (var pi in proc.Items)
+        {
+            if (pi.ItemStatus == "Cancelled") continue;
+            if (!await IsItemQtySatisfiedAsync(pi)) { allQtySatisfied = false; break; }
+        }
+
+        if (allQtySatisfied)
+        {
+            proc.Status = "Finalized";
+            proc.FinalizedAt = DateTime.UtcNow;
+            proc.FinalizedByUserId = userId > 0 ? userId : null;
+        }
 
         await _db.SaveChangesAsync();
 
@@ -1045,7 +1218,6 @@ public class ProcurementService : IProcurementService
         var createdIds = await MaterializeItemAsync(pi);
 
         // Check if all non-cancelled items are now fully materialized → auto-finalize the procurement.
-        // For multi-supplier splits, every selected supplier must have an active POItem.
         bool allDone = true;
         foreach (var item in proc.Items)
         {
@@ -1055,24 +1227,25 @@ public class ProcurementService : IProcurementService
 
             if (selectedQuotes.Count >= 2)
             {
-                // Multi-split: each selected supplier must have an active POItem
+                // Multi-split: each selected quote must have an active POItem
                 foreach (var sq in selectedQuotes)
                 {
-                    var supplierId = sq.SupplierId ?? item.CurrentSupplierId;
                     var hasActive = await _db.Set<POItem>().AnyAsync(p =>
                         p.SourceProcurementItemId == item.Id &&
-                        p.SupplierId == supplierId &&
+                        p.SourceSupplierQuoteId == sq.Id &&
                         p.ReturnedAt == null);
                     if (!hasActive) { allDone = false; break; }
                 }
             }
             else
             {
-                // Single-supplier: just need any active POItem
                 var hasPOItem = await _db.Set<POItem>().AnyAsync(p =>
                     p.SourceProcurementItemId == item.Id && p.ReturnedAt == null);
                 if (!hasPOItem) { allDone = false; }
             }
+
+            // Even if all quotes have POItems, block finalization when approved qty < invoice qty
+            if (allDone && !await IsItemQtySatisfiedAsync(item)) { allDone = false; }
 
             if (!allDone) break;
         }
@@ -1119,15 +1292,18 @@ public class ProcurementService : IProcurementService
 
         var supplierId = sq.SupplierId ?? pi.CurrentSupplierId;
 
-        // Guard: don't create a duplicate if this supplier's POItem is already active
+        // Guard: don't create a duplicate for this specific supplier quote (use quote ID as key,
+        // not supplier ID — the same supplier can appear on multiple quotes with different conditions)
         var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
             p.SourceProcurementItemId == pi.Id &&
-            p.SupplierId == supplierId &&
+            p.SourceSupplierQuoteId == sq.Id &&
             p.ReturnedAt == null);
 
         var createdIds = new List<long>();
         if (!alreadyActive)
         {
+            var sqAlt = pi.Alt ?? pi.QuoteAlt;
+            var sqEffectivePnId = await ResolveAltPartNumberIdAsync(pi.PartNumberId, sqAlt);
             int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
             decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
             var poItem = new POItem
@@ -1135,12 +1311,13 @@ public class ProcurementService : IProcurementService
                 POId = null,
                 InvoiceItemId = pi.SourceInvoiceItemId,
                 ProcumentId = pi.SourceProcumentRecordId,
-                PartNumberId = pi.PartNumberId,
+                PartNumberId = sqEffectivePnId,
                 SupplierId = supplierId,
                 Qty = qty,
                 UnitPrice = price,
                 TotalPrice = qty * price,
                 Condition = sq.Condition ?? pi.Condition,
+                SourceSupplierQuoteId = sq.Id,
                 SourceProcurementItemId = pi.Id,
             };
             _db.Set<POItem>().Add(poItem);
@@ -1168,14 +1345,19 @@ public class ProcurementService : IProcurementService
             {
                 foreach (var q in quoteList)
                 {
-                    var sid = q.SupplierId ?? item.CurrentSupplierId;
+                    // Check by SourceSupplierQuoteId first (new rows); fall back to SupplierId for legacy
                     var has = await _db.Set<POItem>().AnyAsync(p =>
                         p.SourceProcurementItemId == item.Id &&
-                        p.SupplierId == sid &&
-                        p.ReturnedAt == null);
+                        p.ReturnedAt == null &&
+                        (p.SourceSupplierQuoteId == q.Id ||
+                         (p.SourceSupplierQuoteId == null && p.SupplierId == (q.SupplierId ?? item.CurrentSupplierId))));
                     if (!has) { allDone = false; break; }
                 }
             }
+
+            // Block auto-finalization when total approved qty is still below the invoice qty
+            if (allDone && !await IsItemQtySatisfiedAsync(item)) { allDone = false; }
+
             if (!allDone) break;
         }
 
@@ -1208,6 +1390,31 @@ public class ProcurementService : IProcurementService
         proc.FinalizedByUserId = userId > 0 ? userId : null;
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<bool> ReopenAsync(long procurementId, long userId)
+    {
+        var proc = await _db.Set<Procurement>().FindAsync(procurementId);
+        if (proc == null) return false;
+        if (proc.Status != "Finalized") return false;
+
+        proc.Status = "Sourcing";
+        proc.FinalizedAt = null;
+        proc.FinalizedByUserId = null;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when the total qty of active (non-returned) POItems for this item
+    /// covers the AcceptedQty from the invoice. Used to gate finalization.
+    /// </summary>
+    private async Task<bool> IsItemQtySatisfiedAsync(ProcurementItem item)
+    {
+        var approvedQty = await _db.Set<POItem>()
+            .Where(p => p.SourceProcurementItemId == item.Id && p.ReturnedAt == null)
+            .SumAsync(p => (int?)p.Qty) ?? 0;
+        return approvedQty >= item.AcceptedQty;
     }
 
     // ────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <v-dialog v-model="model" max-width="800" scrollable>
     <v-card>
       <v-toolbar color="surface" density="compact">
@@ -364,7 +364,7 @@ async function generateAndDownload(q: any, preset: any) {
     footerText: 'If you have any questions about this quotation, please contact',
   }
 
-  const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/generate`, {
+  const response = await $fetch<Blob>(`${api.baseURL}/pdf/generate`, {
     method: 'POST',
     body: payload,
     responseType: 'blob',

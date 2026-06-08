@@ -18,57 +18,37 @@
             class="flex-grow-1"
             style="min-width: 180px;"
           />
-          <v-select
-            v-model="customerFilter"
-            :items="customerOptions"
-            item-title="title"
-            item-value="value"
+          <v-text-field
+            v-model="customerSearch"
+            prepend-inner-icon="mdi-domain"
             label="Customer"
+            single-line
             hide-details
-            class="mx-2"
-            multiple
-            chips
-            closable-chips
             clearable
             style="min-width: 140px; max-width: 260px;"
           />
-          <!-- <v-text-field
-            v-model="dateFrom"
-            label="From"
-            type="date"
-            hide-details
-            clearable
-            style="min-width: 130px; max-width: 160px;"
-          />
-          <v-text-field
-            v-model="dateTo"
-            label="To"
-            type="date"
-            hide-details
-            clearable
-            style="min-width: 130px; max-width: 160px;"
-          /> -->
         </div>
-    <v-data-table
-      :headers="headers"
-      :items="filteredInvoices"
-      :search="search"
-      :loading="loading"
-      density="comfortable"
-      :items-per-page="50"
-      hover
-      @click:row="(_: any, { item }: any) => navigateTo(`/final-invoices/${item.id}`)"
-    >
-      <template #item.status="{ item }">
-        <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
-      </template>
-      <template #item.totalAmount="{ item }">
-        ${{ formatPrice(item.totalAmount) }}
-      </template>
-      <template #item.createdAt="{ item }">
-        {{ new Date(item.createdAt).toLocaleDateString() }}
-      </template>
-    </v-data-table>
+        <v-data-table-server
+          :headers="headers"
+          :items="serverItems"
+          :items-length="totalItems"
+          :loading="loading"
+          :items-per-page="50"
+          density="comfortable"
+          hover
+          @update:options="onTableOptions"
+          @click:row="(_: any, { item }: any) => navigateTo(`/final-invoices/${item.id}`)"
+        >
+          <template #item.status="{ item }">
+            <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
+          </template>
+          <template #item.totalAmount="{ item }">
+            ${{ formatPrice(item.totalAmount) }}
+          </template>
+          <template #item.createdAt="{ item }">
+            {{ new Date(item.createdAt).toLocaleDateString() }}
+          </template>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -119,39 +99,49 @@
 
 <script setup lang="ts">
 const api = useApi()
-const invoices = ref<any[]>([])
+
+// ─── Server-side data ───
+const serverItems = ref<any[]>([])
+const totalItems = ref(0)
 const loading = ref(false)
 const search = ref('')
-const customerFilter = ref<string[]>([])
-const dateFrom = ref<string | null>(null)
-const dateTo = ref<string | null>(null)
+const customerSearch = ref('')
+const debouncedSearch = ref('')
+const debouncedCustomer = ref('')
+const currentOptions = ref({ page: 1, itemsPerPage: 50 })
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let customerTimer: ReturnType<typeof setTimeout> | null = null
 
-const customerOptions = computed(() => {
-  const map = new Map<string, string>()
-  invoices.value.forEach((inv: any) => {
-    if (inv.customerName && !map.has(inv.customerName))
-      map.set(inv.customerName, inv.customerCode || '')
-  })
-  return Array.from(map.entries())
-    .map(([name, code]) => ({ title: code || '—', value: name }))
-    .sort((a, b) => a.title.localeCompare(b.title))
+watch(search, (val) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    debouncedSearch.value = val
+    onTableOptions({ ...currentOptions.value, page: 1 })
+  }, 350)
 })
 
-const filteredInvoices = computed(() => {
-  let result = invoices.value
-  if (customerFilter.value?.length) {
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
-  }
-  if (dateFrom.value) {
-    const from = new Date(dateFrom.value).getTime()
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
-  }
-  if (dateTo.value) {
-    const to = new Date(dateTo.value).getTime() + 86400000
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
-  }
-  return result
+watch(customerSearch, (val) => {
+  if (customerTimer) clearTimeout(customerTimer)
+  customerTimer = setTimeout(() => {
+    debouncedCustomer.value = val ?? ''
+    onTableOptions({ ...currentOptions.value, page: 1 })
+  }, 350)
 })
+
+async function onTableOptions(opts: { page: number; itemsPerPage: number }) {
+  currentOptions.value = { page: opts.page, itemsPerPage: opts.itemsPerPage }
+  loading.value = true
+  try {
+    const params = new URLSearchParams({ page: String(opts.page), pageSize: String(opts.itemsPerPage) })
+    if (debouncedSearch.value) params.set('search', debouncedSearch.value)
+    if (debouncedCustomer.value) params.set('customerSearch', debouncedCustomer.value)
+    const res = await api.get<any>(`/final-invoices?${params}`)
+    serverItems.value = res.items ?? res.Items ?? []
+    totalItems.value = res.totalCount ?? res.TotalCount ?? serverItems.value.length
+  } finally {
+    loading.value = false
+  }
+}
 
 const headers = [
   { title: 'Invoice #', key: 'invoiceNumber', sortable: true },
@@ -164,24 +154,7 @@ const headers = [
 
 const { statusColor } = useStatusColor()
 
-onMounted(async () => {
-  loading.value = true
-  try {
-    const accumulated: any[] = []
-    let page = 1
-    while (true) {
-      const res = await api.get<any>(`/final-invoices?page=${page}&pageSize=200`)
-      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
-      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
-      accumulated.push(...batch)
-      if (batch.length < 200 || accumulated.length >= total) break
-      page++
-    }
-    invoices.value = accumulated
-  } catch {}
-  finally { loading.value = false }
-})
-
+// ─── Create dialog ───
 const showAddDialog = ref(false)
 const selectedProformaId = ref<number | null>(null)
 const eligibleProformas = ref<any[]>([])

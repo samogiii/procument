@@ -12,7 +12,7 @@ namespace Procument.Module.Purchasing.Services;
 
 public interface IProcumentPageService
 {
-    Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin, PageQuery page);
+    Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null);
     Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId);
 }
 
@@ -27,10 +27,11 @@ public class ProcumentPageService : IProcumentPageService
         _permissionService = permissionService;
     }
 
-    public async Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isAdmin, PageQuery page)
+    public async Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null)
     {
         // 1. Build base RFQ item query
         IQueryable<RFQItem> itemQuery = _db.Set<RFQItem>()
+            .AsNoTracking()
             .Include(i => i.PartNumber)
                 .ThenInclude(pn => pn.Alternatives)
             .Include(i => i.RFQ)
@@ -38,8 +39,8 @@ public class ProcumentPageService : IProcumentPageService
             .Include(i => i.RFQ)
                 .ThenInclude(r => r.User);
 
-        // 2. Permission filter for non-admins
-        if (!isAdmin)
+        // 2. Permission filter
+        if (!isSuperAdmin)
         {
             var permittedRfqIdsStr = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "RFQ")
@@ -51,7 +52,11 @@ public class ProcumentPageService : IProcumentPageService
                 .Where(l => l > 0)
                 .ToList();
 
-            itemQuery = itemQuery.Where(i => i.RFQ.UserId == userId || permittedRfqIds.Contains(i.RFQId));
+            itemQuery = itemQuery.Where(i =>
+                i.RFQ.Customer.Base == null ||
+                userBases.Contains(i.RFQ.Customer.Base.Value) ||
+                permittedRfqIds.Contains(i.RFQId) ||
+                i.RFQ.UserId == userId);
         }
 
         // 3. Search filter
@@ -64,14 +69,80 @@ public class ProcumentPageService : IProcumentPageService
                 i.RFQ.Customer.Name.Contains(s));
         }
 
-        // 4. Count + paginate
+        if (!string.IsNullOrWhiteSpace(pnSearch))
+        {
+            var pn = pnSearch.Trim();
+            itemQuery = itemQuery.Where(i => i.PartNumber.Name.Contains(pn));
+        }
+
+        if (statuses?.Count > 0)
+            itemQuery = itemQuery.Where(i => statuses.Contains(i.RFQ.Status ?? "Open"));
+
+        if (customerSearch?.Count > 0)
+        {
+            var customers = customerSearch.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (customers.Count > 0)
+            {
+                var hasNullPlaceholder = customers.Contains("-") || customers.Contains("—");
+                itemQuery = itemQuery.Where(i => 
+                    customers.Contains(i.RFQ.Customer.Name) || 
+                    (i.RFQ.Customer.CustomerCode != null && customers.Contains(i.RFQ.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (i.RFQ.Customer.CustomerCode == null || i.RFQ.Customer.CustomerCode == "")));
+            }
+        }
+
+        if (userIds?.Count > 0)
+        {
+            var rfqIdStrs = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "RFQ" && userIds.Contains(p.UserId))
+                .Select(p => p.EntityId).ToListAsync();
+            var filteredRfqIds = rfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            itemQuery = itemQuery.Where(i => filteredRfqIds.Contains(i.RFQId));
+        }
+
+        if (pendingOnly)
+        {
+            var pendingItemIds = await _db.Set<ProcumentRecord>()
+                .Where(r => r.Supplier.Status == "Pending" || r.Supplier.Status == "Rejected")
+                .Select(r => r.RFQItemId).Distinct().ToListAsync();
+            itemQuery = itemQuery.Where(i => pendingItemIds.Contains(i.Id));
+        }
+
+        // Column filters (exact-match multi-select)
+        if (conditions?.Count > 0)
+            itemQuery = itemQuery.Where(i => conditions.Contains(i.Condition ?? ""));
+
+        if (colPartNames?.Count > 0)
+            itemQuery = itemQuery.Where(i => colPartNames.Contains(i.PartNumber.Name));
+
+        if (customerCodes?.Count > 0)
+            itemQuery = itemQuery.Where(i => customerCodes.Contains(i.RFQ.Customer.CustomerCode ?? ""));
+
+        if (rfqIds?.Count > 0)
+            itemQuery = itemQuery.Where(i => rfqIds.Contains(i.RFQId));
+
+        if (rfqNames?.Count > 0)
+            itemQuery = itemQuery.Where(i => rfqNames.Contains(i.RFQ.Name));
+
+        // 4. Sort + count + paginate
+        itemQuery = sortBy switch
+        {
+            "rfqId"         => sortDesc ? itemQuery.OrderByDescending(i => i.RFQId).ThenByDescending(i => i.Id)  : itemQuery.OrderBy(i => i.RFQId).ThenBy(i => i.Id),
+            "rfqName"       => sortDesc ? itemQuery.OrderByDescending(i => i.RFQ.Name)                           : itemQuery.OrderBy(i => i.RFQ.Name),
+            "partNumberName"=> sortDesc ? itemQuery.OrderByDescending(i => i.PartNumber.Name)                    : itemQuery.OrderBy(i => i.PartNumber.Name),
+            "qty"           => sortDesc ? itemQuery.OrderByDescending(i => i.Qty)                                : itemQuery.OrderBy(i => i.Qty),
+            "condition"     => sortDesc ? itemQuery.OrderByDescending(i => i.Condition)                          : itemQuery.OrderBy(i => i.Condition),
+            "customerName"  => sortDesc ? itemQuery.OrderByDescending(i => i.RFQ.Customer.Name)                  : itemQuery.OrderBy(i => i.RFQ.Customer.Name),
+            "status"        => sortDesc ? itemQuery.OrderByDescending(i => i.RFQ.Status)                         : itemQuery.OrderBy(i => i.RFQ.Status),
+            "leadTime"      => sortDesc ? itemQuery.OrderByDescending(i => i.RFQ.LeadTime)                       : itemQuery.OrderBy(i => i.RFQ.LeadTime),
+            "createdAt"     => sortDesc ? itemQuery.OrderByDescending(i => i.RFQ.CreatedAt)                      : itemQuery.OrderBy(i => i.RFQ.CreatedAt),
+            _               => itemQuery.OrderByDescending(i => i.RFQId).ThenBy(i => i.Id),
+        };
+
         var total = await itemQuery.CountAsync();
-        var pageItems = await itemQuery
-            .OrderByDescending(i => i.RFQId)
-            .ThenBy(i => i.Id)
-            .Skip((page.Page - 1) * page.PageSize)
-            .Take(page.PageSize)
-            .ToListAsync();
+        var pageItems = await (page.PageSize == -1
+            ? itemQuery.ToListAsync()
+            : itemQuery.Skip((page.Page - 1) * page.PageSize).Take(page.PageSize).ToListAsync());
 
         // 5. Batch-load supplier quotes for this page's items only
         var allRfqItemIds = pageItems.Select(i => i.Id).ToList();
@@ -83,8 +154,8 @@ public class ProcumentPageService : IProcumentPageService
             .ToListAsync();
 
         // 6. Batch-load permissions for this page's unique RFQ IDs
-        var rfqIds = pageItems.Select(i => i.RFQId).Distinct().ToList();
-        var rfqIdStrings = rfqIds.Select(id => id.ToString()).ToList();
+        var loadedRfqIds = pageItems.Select(i => i.RFQId).Distinct().ToList();
+        var rfqIdStrings = loadedRfqIds.Select(id => id.ToString()).ToList();
         var allPermissions = await _db.Set<EntityPermission>()
             .Include(p => p.User)
             .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
@@ -274,7 +345,7 @@ public class ProcumentPageService : IProcumentPageService
             .Select(g => g.First())
             .ToList();
 
-        // 3. Recent procurement records for same/related part numbers from RFQs created within 7 days
+        // 3. Recent procurement records for same/related part numbers from RFQs created within 14 days
         var relatedRfqItemIds = await _db.Set<RFQItem>()
             .Include(i => i.RFQ)
             .Where(i => relatedPnIds.Contains(i.PartNumberId)
@@ -291,9 +362,9 @@ public class ProcumentPageService : IProcumentPageService
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 
-        // Group by supplier, take the most recent record per supplier
+        // One chip per unique (supplier, condition) pair — most recent record wins
         var recentBySupplier = recentRecords
-            .GroupBy(r => r.SupplierId)
+            .GroupBy(r => new { r.SupplierId, Condition = (r.Condition ?? "NE").ToUpper() })
             .Select(g => g.First())
             .Select(r => new RecentSupplierQuoteDto
             {

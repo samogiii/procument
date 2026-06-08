@@ -6,18 +6,35 @@ interface User {
     email: string
     role: string
     token: string
+    bases: number[]
+}
+
+/** Shape returned by GET /menu-permissions */
+interface MenuPermissionGroup {
+    feature: string
+    userNames: string[]
 }
 
 /**
- * Maps features to specific user names or roles.
- * Easy to update when adding new users or actions.
+ * All known gated features — keys must match the `feature` strings
+ * sent by the backend MenuPermissionsController.
  */
-const FeaturePermissions = {
-    customerMenu: ['AMJ', 'KZM', 'System Admin'],
-    isAmir: ['AMJ', 'KZM', 'MGH', 'System Admin'], // Management/Supervisor group
-    newRFQ: ['AHM','GHS'],
-    ilsUsers: ['System Admin', 'SYD', 'MGH'],
-    isPDFSelection: ['System Admin', 'AMJ', 'MGH'],
+const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
+    customerMenu:    [],
+    isAmir:          [],
+    newRFQ:          [],
+    ilsUsers:        [],
+    isPDFSelection:  [],
+    paymentMenu:     [],
+    companyPresets:  [],
+    syncApp:         [],
+    systemActivity:  [],
+    supplierRequests:[],
+    capList:         [],
+    ils:             [],
+    shippingMenu:    [],
+    actionCenter:    [],
+    taskManager:     [],
 }
 
 function getTokenExpiry(token: string): number | null {
@@ -34,6 +51,8 @@ function getTokenExpiry(token: string): number | null {
 export const useAuthStore = defineStore('auth', {
     state: () => ({
         user: null as User | null,
+        /** Live menu-permission map fetched from the API, keyed by feature name. */
+        featurePermissions: { ...DEFAULT_FEATURE_PERMISSIONS } as Record<string, string[]>,
     }),
 
     getters: {
@@ -52,24 +71,41 @@ export const useAuthStore = defineStore('auth', {
         // ─── Role Checks ───
         isAdmin: (state) => state.user?.role === 'Admin' || state.user?.role === 'SuperAdmin',
         isSuperAdmin: (state) => state.user?.role === 'SuperAdmin',
-        isPayment: (state) => state.user?.role === 'Payment' || state.user?.role === 'SuperAdmin',
+        userBases: (state): number[] => state.user?.bases ?? [],
+        isPayment: (state) => state.user?.role === 'Payment' || state.user?.role === 'AHM' || state.user?.role === 'SuperAdmin',
         isExpert: (state) => state.user?.role === 'Expert',
-        // isPDFSelection:(state) => state.user?.
+        isInventory: (state) => state.user?.role === 'Inventory',
+
         // ─── Feature/User Permissions ───
-        // Generic helper to check if current user has access to a specific feature key
-        can: (state) => (feature: keyof typeof FeaturePermissions) => {
+        /**
+         * Generic helper — checks if the current user's name (or SuperAdmin role)
+         * grants access to a specific feature key.
+         */
+        can: (state) => (feature: string) => {
             if (!state.user?.name) return false
-            const allowed = FeaturePermissions[feature]
-            return allowed.includes(state.user.name) || state.user.role === 'SuperAdmin'
+            if (state.user.role === 'SuperAdmin') return true
+            const allowed = state.featurePermissions[feature] ?? []
+            return allowed.includes(state.user.name)
         },
 
-        // Legacy getters refactored to use the central permission map
-        customerMenu(): boolean { return this.can('customerMenu') },
-        isAmir(): boolean { return this.can('isAmir') },
-        newRFQ(): boolean { return this.can('newRFQ') },
-        ilsUsers(): boolean { return this.can('ilsUsers') },
-        isPDFSelection(): boolean { return this.can('isPDFSelection') },
+        // Legacy getters — all delegate to can()
+        customerMenu():     boolean { return this.can('customerMenu') },
+        isAmir():           boolean { return this.can('isAmir') },
+        newRFQ():           boolean { return this.can('newRFQ') },
+        ilsUsers():         boolean { return this.can('ilsUsers') },
+        isPDFSelection():   boolean { return this.can('isPDFSelection') },
 
+        // Gated menu getters
+        paymentMenu():      boolean { return (this as any).isSuperAdmin || this.can('paymentMenu') || (this as any).isPayment },
+        companyPresets():   boolean { return (this as any).isSuperAdmin || this.can('companyPresets') },
+        syncApp():          boolean { return (this as any).isSuperAdmin || this.can('syncApp') },
+        systemActivity():   boolean { return (this as any).isSuperAdmin || this.can('systemActivity') },
+        supplierRequests(): boolean { return (this as any).isSuperAdmin || this.can('supplierRequests') },
+        capList():          boolean { return (this as any).isSuperAdmin || this.can('capList') },
+        ilsMenu():          boolean { return (this as any).isSuperAdmin || this.can('ils') || (this as any).ilsUsers },
+        shippingMenu():     boolean { return (this as any).isSuperAdmin || this.can('shippingMenu') },
+        actionCenter():     boolean { return (this as any).isSuperAdmin || this.can('actionCenter') },
+        taskManager():      boolean { return (this as any).isSuperAdmin || this.can('taskManager') },
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'
@@ -101,8 +137,39 @@ export const useAuthStore = defineStore('auth', {
 
         logout() {
             this.user = null
+            this.featurePermissions = { ...DEFAULT_FEATURE_PERMISSIONS }
             if (import.meta.client) {
                 localStorage.removeItem('procument_user')
+            }
+        },
+
+        /**
+         * Fetches the live menu-permission map from the backend.
+         * Called once after login and once after loadFromStorage.
+         * Non-SuperAdmin users hit this too — the backend returns the full map
+         * which the `can()` getter uses locally; non-SuperAdmin just can't
+         * modify it via the UI.
+         */
+        async loadMenuPermissions() {
+            if (!this.user?.token || !import.meta.client) return
+            try {
+                const config = useRuntimeConfig()
+                const apiMap = config.public.apiMap as Record<string, string>
+                const host = window.location.host
+                const baseURL = apiMap[host] || apiMap['default']
+
+                const groups = await $fetch<MenuPermissionGroup[]>('/menu-permissions', {
+                    baseURL,
+                    headers: { Authorization: `Bearer ${this.user.token}` },
+                })
+
+                const map: Record<string, string[]> = { ...DEFAULT_FEATURE_PERMISSIONS }
+                for (const g of groups) {
+                    map[g.feature] = g.userNames
+                }
+                this.featurePermissions = map
+            } catch {
+                // Non-critical — fall back to empty permissions
             }
         },
     },

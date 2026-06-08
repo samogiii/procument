@@ -18,11 +18,11 @@ public class PageQuery
         set => _page = value < 1 ? 1 : value;
     }
 
-    /// <summary>Page size. Clamped to [1, 500].</summary>
+    /// <summary>Page size. -1 means "return all records". Otherwise clamped to [1, 500].</summary>
     public int PageSize
     {
         get => _pageSize;
-        set => _pageSize = value < 1 ? 1 : (value > 500 ? 500 : value);
+        set => _pageSize = value == -1 ? -1 : (value < 1 ? 1 : (value > 500 ? 500 : value));
     }
 
     /// <summary>Optional free-text search term — interpretation is up to each endpoint.</summary>
@@ -41,9 +41,11 @@ public class PagedResult<T>
     public int TotalCount { get; set; }
     public int Page { get; set; }
     public int PageSize { get; set; }
-    public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling((double)TotalCount / PageSize);
+    public int TotalPages => PageSize == -1 ? 1 : (PageSize <= 0 ? 0 : (int)Math.Ceiling((double)TotalCount / PageSize));
     public bool HasPrevious => Page > 1;
     public bool HasNext => Page < TotalPages;
+    /// <summary>Optional: sum of a money column across ALL filtered rows (not just the current page). Set by endpoints that support it.</summary>
+    public decimal? TotalAmountSum { get; set; }
 }
 
 /// <summary>
@@ -59,14 +61,16 @@ public static class PagingExtensions
         CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
-        if (pageSize < 1) pageSize = 1;
-        if (pageSize > 500) pageSize = 500;
+        if (pageSize != -1)
+        {
+            if (pageSize < 1) pageSize = 1;
+            if (pageSize > 500) pageSize = 500;
+        }
 
         var total = await query.CountAsync(cancellationToken);
-        var items = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+        var items = pageSize == -1
+            ? await query.ToListAsync(cancellationToken)
+            : await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
 
         return new PagedResult<T>
         {
@@ -82,4 +86,15 @@ public static class PagingExtensions
         PageQuery page,
         CancellationToken cancellationToken = default)
         => query.ToPagedResultAsync(page.Page, page.PageSize, cancellationToken);
+
+    /// <summary>
+    /// Applies Skip/Take for a given page and pageSize.
+    /// Pass pageSize = -1 to skip pagination and return all rows.
+    /// Works with both PageQuery and raw int parameters.
+    /// </summary>
+    public static IQueryable<T> ApplyPaging<T>(this IQueryable<T> query, int page, int pageSize)
+        => pageSize == -1 ? query : query.Skip((page < 1 ? 0 : page - 1) * pageSize).Take(pageSize);
+
+    public static IQueryable<T> ApplyPaging<T>(this IQueryable<T> query, PageQuery pq)
+        => query.ApplyPaging(pq.Page, pq.PageSize);
 }

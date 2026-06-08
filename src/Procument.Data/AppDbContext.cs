@@ -16,10 +16,14 @@ public class AppDbContext : DbContext
   // Identity
   public DbSet<User> Users => Set<User>();
   public DbSet<EntityPermission> EntityPermissions => Set<EntityPermission>();
+  public DbSet<UserBase> UserBases => Set<UserBase>();
+  public DbSet<UserCustomer> UserCustomers => Set<UserCustomer>();
+  public DbSet<MenuPermission> MenuPermissions => Set<MenuPermission>();
 
   // Shared
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
   public DbSet<Notification> Notifications => Set<Notification>();
+  public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
   public DbSet<SatelliteNode> SatelliteNodes => Set<SatelliteNode>();
   public DbSet<SyncRegistry> SyncRegistries => Set<SyncRegistry>();
 
@@ -44,6 +48,9 @@ public class AppDbContext : DbContext
   public DbSet<CustomerPayment> CustomerPayments => Set<CustomerPayment>();
   public DbSet<FinalInvoice> FinalInvoices => Set<FinalInvoice>();
   public DbSet<FinalInvoiceItem> FinalInvoiceItems => Set<FinalInvoiceItem>();
+  public DbSet<PaymentBox> PaymentBoxes => Set<PaymentBox>();
+  public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+  public DbSet<WalletTransferPending> WalletTransferPendings => Set<WalletTransferPending>();
 
   // Purchasing
   public DbSet<ProcumentRecord> ProcumentRecords => Set<ProcumentRecord>();
@@ -51,6 +58,17 @@ public class AppDbContext : DbContext
   public DbSet<POItem> POItems => Set<POItem>();
   public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
   public DbSet<POItemTrackNumber> POItemTrackNumbers => Set<POItemTrackNumber>();
+
+  // Warehouse & Shipping
+  public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+  public DbSet<UserWarehouse> UserWarehouses => Set<UserWarehouse>();
+  public DbSet<CompanyPresetWarehouse> CompanyPresetWarehouses => Set<CompanyPresetWarehouse>();
+  public DbSet<TrackNumberItem> TrackNumberItems => Set<TrackNumberItem>();
+  public DbSet<TrackNumberDocument> TrackNumberDocuments => Set<TrackNumberDocument>();
+  public DbSet<ShipmentNote> ShipmentNotes => Set<ShipmentNote>();
+  public DbSet<ShipmentNoteTrackNumber> ShipmentNoteTrackNumbers => Set<ShipmentNoteTrackNumber>();
+  public DbSet<TrackNumberBox> TrackNumberBoxes => Set<TrackNumberBox>();
+  public DbSet<ShipmentNoteBox> ShipmentNoteBoxes => Set<ShipmentNoteBox>();
   public DbSet<ILSItem> ILSItems => Set<ILSItem>();
   public DbSet<ILSCustomer> ILSCustomers => Set<ILSCustomer>();
   public DbSet<ILSQuote> ILSQuotes => Set<ILSQuote>();
@@ -102,6 +120,40 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => new { e.EntityName, e.EntityId, e.UserId });
       // Composite index used by permission-filtered list queries (e.g. RFQService.GetAllAsync)
       entity.HasIndex(e => new { e.UserId, e.EntityName });
+    });
+
+    modelBuilder.Entity<UserBase>(entity =>
+    {
+      entity.ToTable("UserBases");
+      entity.HasKey(e => e.Id);
+      entity.HasIndex(e => new { e.UserId, e.Base }).IsUnique();
+      entity.HasIndex(e => e.UserId);
+      entity.HasOne(e => e.User)
+            .WithMany(u => u.UserBases)
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<UserCustomer>(entity =>
+    {
+      entity.ToTable("UserCustomers");
+      entity.HasKey(e => e.Id);
+      entity.HasIndex(e => new { e.UserId, e.CustomerId }).IsUnique();
+      entity.HasIndex(e => e.UserId);
+      entity.HasOne(e => e.User)
+            .WithMany(u => u.UserCustomers)
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<MenuPermission>(entity =>
+    {
+      entity.ToTable("MenuPermissions");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Feature).HasMaxLength(100);
+      entity.Property(e => e.UserName).HasMaxLength(200);
+      entity.HasIndex(e => new { e.Feature, e.UserName }).IsUnique();
+      entity.HasIndex(e => e.Feature);
     });
 
     // ───────────────────────────────────────────
@@ -661,13 +713,213 @@ public class AppDbContext : DbContext
       entity.Property(e => e.TrackNumber).HasMaxLength(200);
       entity.Property(e => e.Carrier).HasMaxLength(200);
       entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Ship to Warehouse");
 
       entity.HasOne(e => e.POItem)
                 .WithMany(i => i.TrackNumbers)
                 .HasForeignKey(e => e.POItemId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+      entity.HasOne(e => e.Warehouse)
+                .WithMany(w => w.TrackNumbers)
+                .HasForeignKey(e => e.WarehouseId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
       entity.HasIndex(e => e.POItemId);
+      entity.HasIndex(e => e.WarehouseId);
+      entity.HasIndex(e => e.Status);
+    });
+
+    // ───────────────────────────────────────────
+    // Warehouse & Shipping
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<Warehouse>(entity =>
+    {
+      entity.ToTable("Warehouses");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.Type).HasMaxLength(30).HasDefaultValue("OurWarehouse");
+      entity.Property(e => e.Address).HasMaxLength(500);
+      entity.Property(e => e.Phone).HasMaxLength(50);
+      entity.Property(e => e.Email).HasMaxLength(200);
+      entity.HasIndex(e => e.IsActive);
+    });
+
+    modelBuilder.Entity<UserWarehouse>(entity =>
+    {
+      entity.ToTable("UserWarehouses");
+      entity.HasKey(e => e.Id);
+
+      entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Warehouse)
+                .WithMany(w => w.UserWarehouses)
+                .HasForeignKey(e => e.WarehouseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => new { e.UserId, e.WarehouseId }).IsUnique();
+    });
+
+    modelBuilder.Entity<CompanyPresetWarehouse>(entity =>
+    {
+      entity.ToTable("CompanyPresetWarehouses");
+      entity.HasKey(e => e.Id);
+
+      entity.HasOne(e => e.CompanyPreset)
+                .WithMany()
+                .HasForeignKey(e => e.CompanyPresetId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Warehouse)
+                .WithMany(w => w.CompanyPresetWarehouses)
+                .HasForeignKey(e => e.WarehouseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => new { e.CompanyPresetId, e.WarehouseId }).IsUnique();
+    });
+
+    modelBuilder.Entity<TrackNumberItem>(entity =>
+    {
+      entity.ToTable("TrackNumberItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
+      entity.Property(e => e.ReviewNote).HasMaxLength(1000);
+
+      entity.HasOne(e => e.TrackNumber)
+                .WithMany(t => t.Items)
+                .HasForeignKey(e => e.TrackNumberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.POItem)
+                .WithMany()
+                .HasForeignKey(e => e.POItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ReviewedBy)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedByUserId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => new { e.TrackNumberId, e.POItemId }).IsUnique();
+      entity.HasIndex(e => e.Status);
+    });
+
+    modelBuilder.Entity<TrackNumberDocument>(entity =>
+    {
+      entity.ToTable("TrackNumberDocuments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(500);
+      entity.Property(e => e.OriginalFileName).HasMaxLength(500);
+      entity.Property(e => e.MimeType).HasMaxLength(100);
+
+      entity.HasOne(e => e.TrackNumber)
+                .WithMany(t => t.Documents)
+                .HasForeignKey(e => e.TrackNumberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.POItem)
+                .WithMany()
+                .HasForeignKey(e => e.POItemId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.UploadedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.TrackNumberId, e.POItemId });
+    });
+
+    modelBuilder.Entity<ShipmentNote>(entity =>
+    {
+      entity.ToTable("ShipmentNotes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SNNumber).HasMaxLength(50).IsRequired();
+      entity.Property(e => e.TId).HasMaxLength(200);
+      entity.Property(e => e.AWBNumber).HasMaxLength(200);
+      entity.Property(e => e.PdfFileName).HasMaxLength(500);
+      entity.Property(e => e.Type).HasMaxLength(10).HasDefaultValue("DDP");
+      entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Draft");
+      entity.Property(e => e.CustomsFileName).HasMaxLength(500);
+      entity.Property(e => e.CustomsOriginalFileName).HasMaxLength(500);
+
+      entity.HasOne(e => e.Warehouse)
+                .WithMany(w => w.ShipmentNotes)
+                .HasForeignKey(e => e.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.CreatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.WarehouseId);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.SNNumber).IsUnique();
+    });
+
+    modelBuilder.Entity<ShipmentNoteTrackNumber>(entity =>
+    {
+      entity.ToTable("ShipmentNoteTrackNumbers");
+      entity.HasKey(e => e.Id);
+
+      entity.HasOne(e => e.ShipmentNote)
+                .WithMany(sn => sn.TrackNumbers)
+                .HasForeignKey(e => e.ShipmentNoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.TrackNumber)
+                .WithMany(t => t.ShipmentNotes)
+                .HasForeignKey(e => e.TrackNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.ShipmentNoteId, e.TrackNumberId }).IsUnique();
+    });
+
+    modelBuilder.Entity<TrackNumberBox>(entity =>
+    {
+      entity.ToTable("TrackNumberBoxes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.WeightKg).HasColumnType("decimal(10,3)");
+      entity.Property(e => e.HeightCm).HasColumnType("decimal(10,2)");
+      entity.Property(e => e.WidthCm).HasColumnType("decimal(10,2)");
+      entity.Property(e => e.LengthCm).HasColumnType("decimal(10,2)");
+
+      entity.HasOne(e => e.TrackNumber)
+                .WithMany(t => t.Boxes)
+                .HasForeignKey(e => e.TrackNumberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.TrackNumberId);
+    });
+
+    modelBuilder.Entity<ShipmentNoteBox>(entity =>
+    {
+      entity.ToTable("ShipmentNoteBoxes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.WeightKg).HasColumnType("decimal(10,3)");
+      entity.Property(e => e.HeightCm).HasColumnType("decimal(10,2)");
+      entity.Property(e => e.WidthCm).HasColumnType("decimal(10,2)");
+      entity.Property(e => e.LengthCm).HasColumnType("decimal(10,2)");
+
+      entity.HasOne(e => e.ShipmentNote)
+                .WithMany(sn => sn.Boxes)
+                .HasForeignKey(e => e.ShipmentNoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.TrackNumber)
+                .WithMany()
+                .HasForeignKey(e => e.TrackNumberId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+
+      entity.HasIndex(e => e.ShipmentNoteId);
     });
 
     modelBuilder.Entity<PaymentRequest>(entity =>
@@ -681,7 +933,95 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.POId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+      entity.HasOne(e => e.CompanyPreset)
+                .WithMany()
+                .HasForeignKey(e => e.CompanyPresetId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
       entity.HasIndex(e => e.POId);
+    });
+
+    modelBuilder.Entity<PaymentBox>(entity =>
+    {
+      entity.ToTable("PaymentBoxes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Currency).HasMaxLength(10);
+
+      entity.HasOne(e => e.CompanyPreset)
+                .WithMany()
+                .HasForeignKey(e => e.CompanyPresetId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasMany(e => e.Transactions)
+                .WithOne(t => t.PaymentBox)
+                .HasForeignKey(t => t.PaymentBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.CompanyPresetId);
+    });
+
+    modelBuilder.Entity<PaymentTransaction>(entity =>
+    {
+      entity.ToTable("PaymentTransactions");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Type).HasMaxLength(20);
+      entity.Property(e => e.FromType).HasMaxLength(20);
+      entity.Property(e => e.ToType).HasMaxLength(20);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.TxCurrency).HasMaxLength(10).IsRequired(false);
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
+
+      entity.HasOne(e => e.FromCustomer)
+                .WithMany()
+                .HasForeignKey(e => e.FromCustomerId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ToSupplier)
+                .WithMany()
+                .HasForeignKey(e => e.ToSupplierId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.Invoice)
+                .WithMany()
+                .HasForeignKey(e => e.InvoiceId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.PaymentRequest)
+                .WithMany()
+                .HasForeignKey(e => e.PaymentRequestId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.PaymentBoxId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<WalletTransferPending>(entity =>
+    {
+      entity.ToTable("WalletTransferPendings");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Status).HasMaxLength(20);
+      entity.Property(e => e.PopFileName).HasMaxLength(500);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.RejectionNote).HasMaxLength(1000);
+
+      entity.HasOne(e => e.FromBox)
+            .WithMany()
+            .HasForeignKey(e => e.FromBoxId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ToBox)
+            .WithMany()
+            .HasForeignKey(e => e.ToBoxId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.CreatedAt);
     });
 
     modelBuilder.Entity<ILSItem>(entity =>

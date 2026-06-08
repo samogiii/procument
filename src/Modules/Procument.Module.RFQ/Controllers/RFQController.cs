@@ -38,28 +38,208 @@ public class RFQsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
+    /// <summary>Distinct filter options for the RFQs page (cascades with currently-active filters).</summary>
+    [HttpGet("filter-options")]
+    public async Task<ActionResult> GetFilterOptions(
+        [FromQuery] string[]? statuses = null,
+        [FromQuery] long[]? userIds = null,
+        [FromQuery] string[]? customerSearch = null)
+    {
+        var (userId, isSuperAdmin, userBases) = GetUserContext();
+
+        IQueryable<RFQHeader> query = _db.Set<RFQHeader>()
+            .AsNoTracking()
+            .Include(r => r.Customer);
+
+        if (!isSuperAdmin)
+        {
+            var permittedIdsStr = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId).ToListAsync();
+            var permittedIds = permittedIdsStr.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            query = query.Where(r =>
+                r.Customer.Base == null ||
+                userBases.Contains(r.Customer.Base.Value) ||
+                permittedIds.Contains(r.Id) ||
+                r.UserId == userId);
+        }
+
+        if (statuses?.Length > 0)
+            query = query.Where(r => statuses.Contains(r.Status ?? "Open"));
+
+        if (customerSearch?.Length > 0)
+        {
+            var customers = customerSearch.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (customers.Count > 0)
+            {
+                var hasNullPlaceholder = customers.Contains("-") || customers.Contains("—");
+                query = query.Where(r => 
+                    customers.Contains(r.Customer.Name) || 
+                    (r.Customer.CustomerCode != null && customers.Contains(r.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (r.Customer.CustomerCode == null || r.Customer.CustomerCode == "")));
+            }
+        }
+
+        if (userIds?.Length > 0)
+        {
+            var rfqIdStrs = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "RFQ" && userIds.Contains(p.UserId))
+                .Select(p => p.EntityId).ToListAsync();
+            var assignedIds = rfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            query = query.Where(r => assignedIds.Contains(r.Id));
+        }
+
+        var rfqIdList = await query.Select(r => r.Id.ToString()).ToListAsync();
+
+        var availableStatuses = await query
+            .Select(r => r.Status ?? "Open").Distinct().ToListAsync();
+
+        var availableCustomers = await query
+            .Select(r => new { name = r.Customer.Name, code = r.Customer.CustomerCode })
+            .Distinct().ToListAsync();
+
+        var availableUsers = await _db.Set<EntityPermission>()
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIdList.Contains(p.EntityId))
+            .Select(p => new { id = p.User.Id, name = p.User.Name })
+            .Distinct().ToListAsync();
+
+        return Ok(new
+        {
+            statuses = availableStatuses,
+            customers = availableCustomers.GroupBy(c => c.name).Select(g => g.First()).ToList(),
+            users = availableUsers.GroupBy(u => u.id).Select(g => g.First()).ToList(),
+        });
+    }
+
     /// <summary>Get all RFQs (paginated).</summary>
     [HttpGet]
     public async Task<ActionResult<PagedResult<RFQListItem>>> GetAll(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
         [FromQuery] string? search = null,
-        [FromQuery] string[]? status = null,
+        [FromQuery] string[]? statuses = null,
         [FromQuery] string? pnSearch = null,
-        [FromQuery] long[]? userId_filter = null,
-        [FromQuery] string? customer = null)
+        [FromQuery] long[]? userIds = null,
+        [FromQuery] string[]? customerSearch = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDesc = false,
+        [FromQuery] long[]? rfqIds = null,
+        [FromQuery] string[]? rfqNames = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
-        var (userId, isAdmin) = GetUserContext();
-        var result = await _rfqService.GetAllAsync(userId, isAdmin, pq, status, pnSearch, userId_filter, customer);
+        var (userId, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _rfqService.GetAllAsync(userId, isSuperAdmin, userBases, pq, statuses, pnSearch, userIds, customerSearch, sortBy, sortDesc, rfqIds, rfqNames);
         return Ok(result);
+    }
+
+    /// <summary>Flat paged list of RFQ items for the RFQ Items page.</summary>
+    [HttpGet("items")]
+    public async Task<ActionResult<PagedResult<RFQFlatItem>>> GetAllItems(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null,
+        [FromQuery] string[]? statuses = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] long[]? userIds = null,
+        [FromQuery] string[]? customerSearch = null)
+    {
+        var (userId, isSuperAdmin, userBases) = GetUserContext();
+
+        IQueryable<RFQItem> query = _db.Set<RFQItem>()
+            .AsNoTracking()
+            .Include(i => i.PartNumber)
+            .Include(i => i.RFQ)
+                .ThenInclude(r => r.Customer);
+
+        // Permission filter
+        if (!isSuperAdmin)
+        {
+            var permittedRfqIds = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId).ToListAsync();
+            var rfqIds = permittedRfqIds.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            query = query.Where(i =>
+                i.RFQ.Customer.Base == null ||
+                userBases.Contains(i.RFQ.Customer.Base.Value) ||
+                rfqIds.Contains(i.RFQId) ||
+                i.RFQ.UserId == userId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            query = query.Where(i => i.PartNumber.Name.Contains(s) || i.RFQ.Name.Contains(s));
+        }
+        if (!string.IsNullOrWhiteSpace(pnSearch))
+        {
+            var pn = pnSearch.Trim();
+            query = query.Where(i => i.PartNumber.Name.Contains(pn));
+        }
+        if (statuses?.Length > 0)
+            query = query.Where(i => statuses.Contains(i.RFQ.Status ?? "Open"));
+        if (customerSearch?.Length > 0)
+        {
+            var customers = customerSearch.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (customers.Count > 0)
+            {
+                var hasNullPlaceholder = customers.Contains("-") || customers.Contains("—");
+                query = query.Where(i => 
+                    customers.Contains(i.RFQ.Customer.Name) || 
+                    (i.RFQ.Customer.CustomerCode != null && customers.Contains(i.RFQ.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (i.RFQ.Customer.CustomerCode == null || i.RFQ.Customer.CustomerCode == "")));
+            }
+        }
+        if (userIds?.Length > 0)
+        {
+            var rfqIdStrings = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "RFQ" && userIds.Contains(p.UserId))
+                .Select(p => p.EntityId).ToListAsync();
+            var assignedIds = rfqIdStrings.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            query = query.Where(i => assignedIds.Contains(i.RFQId));
+        }
+
+        var total = await query.CountAsync();
+        var pageItems = await query
+            .OrderByDescending(i => i.RFQId).ThenBy(i => i.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync();
+
+        var rfqIdList = pageItems.Select(i => i.RFQId).Distinct().Select(id => id.ToString()).ToList();
+        var permissions = await _db.Set<EntityPermission>()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && rfqIdList.Contains(p.EntityId))
+            .ToListAsync();
+
+        var items = pageItems.Select(i =>
+        {
+            var perms = permissions.Where(p => p.EntityId == i.RFQId.ToString()).ToList();
+            return new RFQFlatItem
+            {
+                ItemId = i.Id,
+                RfqId = i.RFQId,
+                RfqName = i.RFQ.Name,
+                PartNumberName = i.PartNumber.Name,
+                Description = i.PartNumber.Description,
+                Qty = i.Qty,
+                Condition = i.Condition,
+                CustomerName = i.RFQ.Customer?.Name,
+                CustomerCode = i.RFQ.Customer?.CustomerCode,
+                Status = i.RFQ.Status ?? "Open",
+                LeadTime = i.RFQ.LeadTime,
+                CreatedAt = i.RFQ.CreatedAt,
+                AssignedUsers = perms.Select(p => new RFQListUserRef { Id = p.User.Id, Name = p.User.Name }).GroupBy(u => u.Id).Select(g => g.First()).ToList(),
+            };
+        }).ToList();
+
+        return Ok(new PagedResult<RFQFlatItem> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
     }
 
     /// <summary>Get RFQ by ID.</summary>
     [HttpGet("{id:long}")]
     public async Task<ActionResult<RFQResponse>> GetById(long id)
     {
-        var (userId, isAdmin) = GetUserContext();
-        var result = await _rfqService.GetByIdAsync(id, userId, isAdmin);
+        var (userId, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _rfqService.GetByIdAsync(id, userId, isSuperAdmin, userBases);
 
         if (result == null)
         {
@@ -79,16 +259,18 @@ public class RFQsController : ControllerBase
         return Ok(result);
     }
 
-    private (long userId, bool isAdmin) GetUserContext()
+    private (long userId, bool isSuperAdmin, int[] userBases) GetUserContext()
     {
         var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
         long userId = 0;
         if (idClaim != null && long.TryParse(idClaim.Value, out var id))
-        {
             userId = id;
-        }
-        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
-        return (userId, isAdmin);
+        bool isSuperAdmin = User.IsInRole("SuperAdmin");
+        var basesClaim = User.FindFirst("bases")?.Value ?? "";
+        int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s, out var b) ? b : -1)
+            .Where(b => b > 0).ToArray();
+        return (userId, isSuperAdmin, userBases);
     }
 
     /// <summary>Update an RFQ item's fields (Alt, Qty, Condition).</summary>
@@ -127,7 +309,8 @@ public class RFQsController : ControllerBase
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
 
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
+        bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "System";
 
         string targetStatus = request.Status;
@@ -170,7 +353,7 @@ public class RFQsController : ControllerBase
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
 
-        var (userId, _) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
         var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
 
         var oldStatus = rfq.Status;
@@ -200,7 +383,7 @@ public class RFQsController : ControllerBase
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
 
-        var (userId, _) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
         var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
 
         var success = await _rfqService.UpdateStatusAsync(id, "No Quote", rfq.NoQuoteReason);
@@ -220,7 +403,7 @@ public class RFQsController : ControllerBase
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);
         if (rfq == null) return NotFound();
 
-        var (userId, _) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
         var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "Admin";
 
         var oldReason = rfq.NoQuoteReason;
@@ -324,7 +507,7 @@ public class RFQsController : ControllerBase
     [HttpPatch("{id:long}/mark-read")]
     public async Task<IActionResult> MarkRead(long id)
     {
-        var (userId, _) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
         var record = await _db.Set<RFQUserRead>()
             .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == userId);
 
@@ -342,7 +525,7 @@ public class RFQsController : ControllerBase
     [HttpPatch("{id:long}/mark-unread")]
     public async Task<IActionResult> MarkUnread(long id)
     {
-        var (userId, _) = GetUserContext();
+        var (userId, _, _) = GetUserContext();
         var record = await _db.Set<RFQUserRead>()
             .FirstOrDefaultAsync(r => r.RFQId == id && r.UserId == userId);
 

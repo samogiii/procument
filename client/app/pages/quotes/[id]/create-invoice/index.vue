@@ -44,6 +44,15 @@
             style="min-width: 150px; max-width: 180px;"
           />
           <v-text-field
+            v-model="poDate"
+            label="Customer PO Date"
+            type="date"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 150px; max-width: 180px;"
+          />
+          <v-text-field
             v-model="dueDate"
             label="Due Date"
             type="date"
@@ -62,22 +71,25 @@
             variant="outlined"
             style="min-width: 140px; max-width: 160px;"
           />
-          <v-text-field
-            v-if="paymentStatus === 'Prepayment'"
-            v-model.number="prepaymentPercent"
-            label="Prepayment %"
-            type="number"
-            :min="1"
-            :max="100"
-            density="compact"
-            hide-details
-            variant="outlined"
-            style="min-width: 120px; max-width: 130px;"
-          />
+          <div v-if="paymentStatus === 'Prepayment'" class="d-flex flex-column">
+            <v-text-field
+              v-model.number="prepaymentPercent"
+              label="Prepayment % *"
+              type="number"
+              :min="1"
+              :max="100"
+              density="compact"
+              :hide-details="!prepaymentError"
+              variant="outlined"
+              :error="!!prepaymentError"
+              :error-messages="prepaymentError"
+              style="min-width: 130px; max-width: 150px;"
+            />
+          </div>
           <v-btn
             color="success"
             prepend-icon="mdi-check"
-            :disabled="selectedCount === 0 || !paymentStatus"
+            :disabled="selectedCount === 0 || !paymentStatus || (paymentStatus === 'Prepayment' && (!prepaymentPercent || prepaymentPercent <= 0))"
             :loading="saving"
             @click="createInvoice"
           >
@@ -86,6 +98,46 @@
         </div>
       </div>
     </v-card>
+
+    <!-- Wallet Picker Dialog -->
+    <v-dialog v-model="showWalletPicker" max-width="520" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-wallet-outline" class="mr-2" color="primary" />
+          Select Deposit Wallet
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Choose which wallet customer POP payments for this Sales Order should automatically deposit into.
+          </p>
+          <v-select
+            v-model="selectedWalletId"
+            :items="walletOptions"
+            item-title="label"
+            item-value="id"
+            label="Deposit Wallet *"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-bank-outline"
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-btn variant="text" @click="skipWalletAndNavigate">Skip</v-btn>
+          <v-spacer />
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!selectedWalletId"
+            :loading="savingWallet"
+            @click="saveWalletAndNavigate"
+          >
+            <v-icon start>mdi-check</v-icon>
+            Confirm
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Quote Items Grid -->
     <v-card class="excel-card">
@@ -125,7 +177,12 @@
               <td v-if="isMultiQuote" style="font-size: 11px; font-weight: bold; color: rgba(var(--v-theme-primary), 0.7);">
                 {{ item.quoteNumber }}
               </td>
-              <td class="cell-pn">{{ item.partNumberName }}</td>
+              <td class="cell-pn">
+                <span>{{ item.alt || item.partNumberName }}</span>
+                <div v-if="item.alt" class="text-caption text-medium-emphasis" style="font-size:10px; font-family: inherit; font-weight: normal;">
+                  orig: {{ item.partNumberName }}
+                </div>
+              </td>
               <td class="text-medium-emphasis" style="font-size: 13px;">{{ item.description || '—' }}</td>
               <td style="font-size: 12px;">{{ item.condition || 'N/A' }}</td>
               <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
@@ -186,8 +243,17 @@ const quoteItems = ref<any[]>([])
 const dueDate = ref('')
 const subject = ref('')
 const poNumber = ref('')
-const paymentStatus = ref<string>('Net30')
+const poDate = ref('')
+const paymentStatus = ref<string>('Prepayment')
 const prepaymentPercent = ref<number | null>(null)
+const prepaymentError = ref('')
+
+// Wallet picker
+const showWalletPicker = ref(false)
+const walletOptions = ref<{ id: number; label: string }[]>([])
+const selectedWalletId = ref<number | null>(null)
+const savingWallet = ref(false)
+const createdInvoiceId = ref<number | null>(null)
 
 // selections: { [quoteItemId]: { selected: boolean, qty: number, expectedDeliveryDate: string } }
 const selections = ref<Record<number, { selected: boolean; qty: number; expectedDeliveryDate: string }>>({})
@@ -292,6 +358,15 @@ async function createInvoice() {
     return
   }
 
+  if (paymentStatus.value === 'Prepayment') {
+    if (!prepaymentPercent.value || prepaymentPercent.value <= 0 || prepaymentPercent.value > 100) {
+      prepaymentError.value = 'Prepayment % is required and must be between 1 and 100.'
+      showSnack('Please enter a valid Prepayment %', 'error')
+      return
+    }
+  }
+  prepaymentError.value = ''
+
   saving.value = true
   try {
     const payload = {
@@ -299,6 +374,7 @@ async function createInvoice() {
       dueDate: dueDate.value || null,
       subject: subject.value || null,
       customerPONumber: poNumber.value || null,
+      customerPODate: poDate.value || null,
       paymentStatus: paymentStatus.value || null,
       prepaymentPercent: paymentStatus.value === 'Prepayment' ? prepaymentPercent.value : null,
       items: selectedEntries
@@ -306,9 +382,26 @@ async function createInvoice() {
 
     const res = await api.post<any>('/invoices', payload)
     showSnack('Sales Order created successfully', 'success')
-    setTimeout(() => {
-      router.push(`/invoices/${res.id}`)
-    }, 500)
+
+    // Check wallets for this customer
+    const customerId = quote.value?.customerId
+    if (customerId) {
+      try {
+        const wallets = await api.get<any[]>(`/payment-boxes/for-customer/${customerId}`)
+        if (wallets && wallets.length > 1) {
+          createdInvoiceId.value = res.id
+          walletOptions.value = wallets.map((w: any) => ({
+            id: w.id,
+            label: `${w.name || w.companyPresetName} (${w.currency})`,
+          }))
+          selectedWalletId.value = wallets[0].id
+          showWalletPicker.value = true
+          return // don't navigate yet — wait for wallet pick
+        }
+      } catch { /* silent — wallets not critical */ }
+    }
+
+    setTimeout(() => { router.push(`/invoices/${res.id}`) }, 500)
   } catch (e) {
     showSnack('Failed to create Sales Order', 'error')
   } finally {
@@ -320,6 +413,24 @@ function showSnack(text: string, color: string) {
   snackbarText.value = text
   snackbarColor.value = color
   snackbar.value = true
+}
+
+async function saveWalletAndNavigate() {
+  if (!createdInvoiceId.value || !selectedWalletId.value) {
+    skipWalletAndNavigate()
+    return
+  }
+  savingWallet.value = true
+  try {
+    await api.patch(`/invoices/${createdInvoiceId.value}/default-wallet`, { walletId: selectedWalletId.value })
+  } catch { /* non-critical */ }
+  finally { savingWallet.value = false }
+  router.push(`/invoices/${createdInvoiceId.value}`)
+}
+
+function skipWalletAndNavigate() {
+  showWalletPicker.value = false
+  router.push(`/invoices/${createdInvoiceId.value}`)
 }
 </script>
 

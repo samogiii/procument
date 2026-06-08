@@ -57,6 +57,7 @@ async function handleLogin() {
   try {
     const res = await api.post<any>('/auth/login', form.value)
     authStore.setUser(res)
+    await authStore.loadMenuPermissions()
     await navigateTo('/dashboard')
   } catch (e: any) {
     error.value = e?.data?.message || 'Invalid email or password'

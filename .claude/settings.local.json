@@ -45,7 +45,13 @@
       "Bash(sqlcmd -S . -U sa -P 2470 -d ProcumentDB -C -Q \"SELECT name FROM sys.tables WHERE name IN \\('Procurements','ProcurementItems','ProcurementSupplierQuotes'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('POItems'\\) AND name IN \\('SourceProcurementItemId','ReturnedAt','ReturnedFromPOId','ReturnReason'\\); SELECT name FROM sys.columns WHERE object_id = OBJECT_ID\\('ProcurementItems'\\) AND name IN \\('LoopCount','LastReturnReason','LastReturnedAt','FulfilledByPOItemId'\\);\")",
       "Bash(xargs grep *)",
       "Bash(npm run *)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(powershell -Command ' *)",
+      "Bash(where graphify *)",
+      "Bash(graphify --version)",
+      "Bash(graphify install *)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(python3 -W ignore -c ' *)"
     ]
   }
 }

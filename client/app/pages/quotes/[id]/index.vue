@@ -84,10 +84,11 @@
                   </v-chip>
                 </template>
                 <v-list density="compact" style="min-width: 180px">
-                  <v-list-subheader>Change ExType</v-list-subheader>
+                  <v-list-subheader>Change Exworks</v-list-subheader>
                   <v-list-item
-                    v-for="opt in exTypeOptions"
+                    v-for="opt in exTypeMenuOptions"
                     :key="opt.value"
+                    :active="quote.rfqExType === opt.value || (opt.value === 1 && quote.rfqExType === 2)"
                     @click="updateExType(opt.value)"
                   >
                     <template #prepend>
@@ -212,6 +213,48 @@
           </v-card-text>
         </div>
       </v-expand-transition>
+    </v-card>
+
+    <!-- Yuan Settings (base-3 customers only) -->
+    <v-card v-if="quote.customerBase === 3 && isAdmin" class="glass-card">
+      <v-card-title class="d-flex align-center gap-2">
+        <v-icon icon="mdi-currency-cny" color="warning" size="20" class="mr-1" />
+        Yuan Pricing Settings
+      </v-card-title>
+      <v-card-text>
+        <v-row dense align="center">
+          <v-col cols="12" sm="4" md="3">
+            <v-text-field
+              v-model.number="yuanCoef"
+              label="Tax Coefficient (Coef)"
+              variant="outlined"
+              density="compact"
+              hide-details
+              type="number"
+              step="0.01"
+              placeholder="e.g. 1.25"
+            />
+          </v-col>
+          <v-col cols="12" sm="4" md="3">
+            <v-text-field
+              v-model.number="yuanExchangeRate"
+              label="Exchange Rate (CNY/USD)"
+              variant="outlined"
+              density="compact"
+              hide-details
+              type="number"
+              step="0.01"
+              placeholder="e.g. 7.0"
+            />
+          </v-col>
+          <v-col cols="auto">
+            <v-chip v-if="yuanCoef && yuanExchangeRate" color="warning" variant="tonal" size="small" class="mr-2">
+              Effective rate: ¥{{ ((yuanCoef || 1) * (yuanExchangeRate || 1)).toFixed(4) }}
+            </v-chip>
+            <v-btn color="warning" size="small" :loading="savingYuan" @click="saveYuanSettings">Save</v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
     </v-card>
 
     <!-- All RFQ Items + Procurement Records -->
@@ -514,10 +557,15 @@ const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
 
+// value 2 kept for legacy display; both 1 and 2 show as Vendor/Customer
 const exTypeOptions = [
   { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
-  { value: 1, label: 'Ex Vendor', icon: 'mdi-truck-outline', color: 'info' },
-  { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
+  { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
+  { value: 2, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
+]
+const exTypeMenuOptions = [
+  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 
 async function updateExType(newExType: number) {
@@ -627,6 +675,9 @@ async function loadQuote() {
     }
 
     quote.value = q
+    // Init Yuan settings from loaded data
+    yuanCoef.value = q.coefYuan ?? null
+    yuanExchangeRate.value = q.exchangeRateYuan ?? null
   } catch {
     showSnack('Failed to load quote', 'error')
   } finally {
@@ -758,6 +809,28 @@ async function moveProcRecord(rfqItemId: number, recId: number, direction: -1 | 
 
 const showRejectDialog = ref(false)
 const rejectionNote = ref('')
+
+// ── Yuan settings (base-3 customers) ──
+const yuanCoef = ref<number | null>(null)
+const yuanExchangeRate = ref<number | null>(null)
+const savingYuan = ref(false)
+
+async function saveYuanSettings() {
+  savingYuan.value = true
+  try {
+    await api.patch(`/quotes/${route.params.id}/yuan-settings`, {
+      coefYuan: yuanCoef.value,
+      exchangeRateYuan: yuanExchangeRate.value,
+    })
+    quote.value.coefYuan = yuanCoef.value
+    quote.value.exchangeRateYuan = yuanExchangeRate.value
+    showSnack('Yuan settings saved', 'success')
+  } catch {
+    showSnack('Failed to save Yuan settings', 'error')
+  } finally {
+    savingYuan.value = false
+  }
+}
 
 const dragState = ref<{ rfqItemId: number; recId: number } | null>(null)
 const dragOverRecId = ref<number | null>(null)
@@ -916,14 +989,15 @@ async function exportToExcel() {
       ['Quote Number:', q.quoteNumber || '—', '', 'Date:', q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'],
       ['Customer:', q.customerName || '—', '', 'RFQ:', q.rfqName || '—'],
       [], // Spacer
-      ['#', 'Ref', 'Part Number', 'Description', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
+      ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Description', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
     ]
 
     sortedItems.forEach((it: any, idx: number) => {
       data.push([
         idx + 1,
         it.rfqReference || '—',
-        it.alt || it.partNumberName || '—',
+        it.partNumberName || '—',
+        it.alt || '—',
         it.description || '—',
         it.qty,
         it.condition || '—',
@@ -934,8 +1008,8 @@ async function exportToExcel() {
     })
 
     data.push([]) // Spacer
-    data.push(['', '', '', '', '', '', '', 'Subtotal:', Number(q.totalAmount || 0)])
-    data.push(['', '', '', '', '', '', '', 'Grand Total:', Number(q.totalAmount || 0)])
+    data.push(['', '', '', '', '', '', '', '', 'Subtotal:', Number(q.totalAmount || 0)])
+    data.push(['', '', '', '', '', '', '', '', 'Grand Total:', Number(q.totalAmount || 0)])
 
     // 4. Add Comments and Terms & Conditions
     if (q.comments) {
@@ -952,7 +1026,8 @@ async function exportToExcel() {
     ws['!cols'] = [
       { wch: 5 },  // #
       { wch: 10 }, // Ref
-      { wch: 25 }, // Part Number
+      { wch: 22 }, // Part Number
+      { wch: 22 }, // Alt Part Number
       { wch: 40 }, // Description
       { wch: 8 },  // Qty
       { wch: 8 },  // Cond

@@ -44,6 +44,17 @@
           Finalize → Create PO Items
         </v-btn>
       </template>
+      <!-- Reopen (Finalized only) -->
+      <v-btn
+        v-if="isAdmin && procurement.status === 'Finalized'"
+        color="warning"
+        variant="tonal"
+        prepend-icon="mdi-lock-open-variant-outline"
+        :loading="reopening"
+        @click="showReopenConfirm = true"
+      >
+        Reopen
+      </v-btn>
     </div>
 
     <!-- Meta Strip -->
@@ -154,6 +165,10 @@
               <div v-if="selectedQuoteCount(item) >= 2" class="text-caption text-warning" style="font-size: 9px;">
                 {{ selectedQuoteCount(item) }} splits
               </div>
+              <!-- Remaining qty indicator -->
+              <div v-if="remainingQty(item) > 0" class="text-caption text-error font-weight-bold" style="font-size: 9px;">
+                {{ remainingQty(item) }} short
+              </div>
             </div>
             <div style="width: 130px;">
               <div class="text-caption text-medium-emphasis uppercase font-weight-bold" style="font-size: 9px;">Unit Price</div>
@@ -221,7 +236,7 @@
                         <v-spacer />
                         <NuxtLink v-if="item.sourceRfqId" :to="`/rfqs/${item.sourceRfqId}`" target="_blank" class="text-caption text-primary text-decoration-none">View →</NuxtLink>
                       </div>
-                      <div class="text-body-2 mb-1"><strong>{{ item.rfqName || '—' }}</strong> &middot; {{ item.rfqExType === 0 ? 'Warehouse' : item.rfqExType === 1 ? 'Vendor' : 'Customer' }}</div>
+                      <div class="text-body-2 mb-1"><strong>{{ item.rfqName || '—' }}</strong> &middot; {{ item.rfqExType === 0 ? 'Warehouse' : 'Vendor/Customer' }}</div>
                       <div class="text-body-2">{{ item.rfqQty }} {{ item.rfqUnit }} @ {{ item.rfqCondition }}</div>
                       <div class="text-caption text-medium-emphasis mt-2" v-if="item.rfqNote">Note: {{ item.rfqNote }}</div>
                     </v-card>
@@ -313,6 +328,7 @@
                       <th>Cond</th>
                       <th>Qty</th>
                       <th>Price ($)</th>
+                      <th>Shipping</th>
                       <th>Total</th>
                       <th>Lead Time</th>
                       <th>Note</th>
@@ -355,9 +371,12 @@
                           <option value="RP">RP</option>
                         </select>
                       </td>
-                      <td><input type="number" v-model.number="sq.qty" class="quote-input text-center" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <!-- Qty is always the Invoice accepted qty — read-only so all suppliers are compared on equal footing -->
+                      <td class="text-center text-caption font-weight-bold px-2">{{ item.acceptedQty }}</td>
                       <td><input type="number" v-model.number="sq.price" class="quote-input text-right" step="0.01" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td class="text-right text-caption font-weight-bold px-2">${{ formatPrice(sq.qty * sq.price) }}</td>
+                      <td><input type="number" v-model.number="sq.shippingCost" class="quote-input text-right" step="0.01" placeholder="0.00" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <!-- Total = Invoice Qty × Supplier Price -->
+                      <td class="text-right text-caption font-weight-bold px-2">${{ formatPrice((item.acceptedQty || 0) * (sq.price || 0)) }}</td>
                       <td><input type="text" v-model="sq.leadTime" class="quote-input" placeholder="e.g. 3-5 days" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <td><input type="text" v-model="sq.note" class="quote-input" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
 
@@ -467,6 +486,27 @@
           <v-spacer />
           <v-btn variant="text" @click="showCancelConfirm = false">Back</v-btn>
           <v-btn color="error" variant="flat" :loading="cancelling" @click="cancel">Cancel Procurement</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Reopen Confirm Dialog -->
+    <v-dialog v-model="showReopenConfirm" max-width="500">
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-lock-open-variant-outline" color="warning" class="mr-2" />
+          Reopen Procurement?
+        </v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">This will reopen the procurement so you can add more supplier quotes to cover the remaining qty.</p>
+          <v-alert type="info" variant="tonal" density="compact">
+            Existing approved PO items will <strong>not</strong> be changed. Only new items can be added.
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showReopenConfirm = false">Back</v-btn>
+          <v-btn color="warning" variant="flat" :loading="reopening" @click="reopen">Reopen</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -591,7 +631,7 @@ async function loadDetail() {
 
       if (!users.value.length) {
         const allUsers = await api.get<any[]>('/users')
-        const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+        const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
         users.value = allUsers.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
       }
     }
@@ -642,12 +682,21 @@ function selectedQuoteQty(item: any): number {
   return (item.supplierQuotes || []).reduce((sum: number, q: any) => sum + (q.isSelected ? Number(q.qty) || 0 : 0), 0)
 }
 
+// ── Remaining qty = invoice qty minus total qty already approved in active POItems ──
+function remainingQty(item: any): number {
+  const required = Number(item.acceptedQty ?? item.qty) || 0
+  const approved = (item.supplierQuotes || [])
+    .filter((q: any) => q.hasActivePOItem)
+    .reduce((sum: number, q: any) => sum + (Number(q.qty) || 0), 0)
+  return Math.max(0, required - approved)
+}
+
 // ── Read-only summary for the collapsed item header ──
-// Mirrors what FinalizeAsync will materialize on the PO side.
+// Uses acceptedQty (Invoice QTY) so totals match what was confirmed on the Invoice.
 function summaryQty(item: any): number {
   const n = selectedQuoteCount(item)
-  if (n === 0) return Number(item.qty) || 0
-  return selectedQuoteQty(item)
+  if (n === 0) return Number(item.acceptedQty ?? item.qty) || 0
+  return Number(item.acceptedQty ?? item.qty) || 0
 }
 function summaryUnitPrice(item: any): number {
   const n = selectedQuoteCount(item)
@@ -660,9 +709,10 @@ function summaryUnitPrice(item: any): number {
 }
 function summaryTotal(item: any): number {
   const n = selectedQuoteCount(item)
-  if (n === 0) return (Number(item.qty) || 0) * (Number(item.unitPrice) || 0)
+  const acceptedQty = Number(item.acceptedQty ?? item.qty) || 0
+  if (n === 0) return acceptedQty * (Number(item.unitPrice) || 0)
   return (item.supplierQuotes || []).reduce(
-    (sum: number, q: any) => sum + (q.isSelected ? (Number(q.qty) || 0) * (Number(q.price) || 0) : 0),
+    (sum: number, q: any) => sum + (q.isSelected ? acceptedQty * (Number(q.price) || 0) : 0),
     0
   )
 }
@@ -687,6 +737,7 @@ function addSupplierQuote(item: any) {
     tempId: Date.now(),
     supplierName: '',
     price: 0,
+    shippingCost: 0,
     qty: item.qty,
     condition: item.rfqCondition || 'NE',
     leadTime: '',
@@ -706,6 +757,7 @@ async function saveSupplierQuote(item: any, sq: any) {
       supplierId: resolvedSupplierId,
       supplierName: sq.supplierName,
       price: sq.price,
+      shippingCost: sq.shippingCost,
       qty: sq.qty,
       condition: sq.condition,
       leadTime: sq.leadTime,
@@ -875,6 +927,23 @@ async function cancel() {
   } finally {
     cancelling.value = false
     showCancelConfirm.value = false
+  }
+}
+
+const reopening = ref(false)
+const showReopenConfirm = ref(false)
+
+async function reopen() {
+  reopening.value = true
+  try {
+    await api.post(`/procurements/${procurement.value.id}/reopen`, {})
+    showSnack('Procurement reopened — you can now add supplier quotes to cover remaining qty.', 'success')
+    await loadDetail()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to reopen', 'error')
+  } finally {
+    reopening.value = false
+    showReopenConfirm.value = false
   }
 }
 

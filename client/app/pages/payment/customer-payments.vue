@@ -1,9 +1,9 @@
-<template>
+﻿<template>
   <div>
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-3 mb-4">
       <div>
-        <h1 class="text-h5 font-weight-bold">Customer Payments</h1>
+        <h1 class="text-h5 font-weight-bold">Payment Deposit</h1>
         <div class="text-caption text-medium-emphasis">
           Every Customer POP uploaded against a Sales Order — grouped by customer.
         </div>
@@ -133,10 +133,10 @@
                       <v-btn
                         size="small"
                         variant="tonal"
-                        color="success"
-                        prepend-icon="mdi-download"
+                        color="primary"
+                        prepend-icon="mdi-eye-outline"
                         @click="download(p)"
-                      >Download</v-btn>
+                      >Preview</v-btn>
                     </td>
                   </tr>
                 </tbody>
@@ -150,6 +150,16 @@
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2500" location="bottom right">
       {{ snackbarText }}
     </v-snackbar>
+
+    <DocPreviewModal
+      :open="docPreview.open.value"
+      :blob-url="docPreview.blobUrl.value"
+      :file-name="docPreview.fileName.value"
+      :mime-type="docPreview.mimeType.value"
+      :is-pdf="docPreview.isPdf(docPreview.fileName.value, docPreview.mimeType.value)"
+      @close="docPreview.close()"
+      @download="docPreview.download()"
+    />
   </div>
 </template>
 
@@ -157,6 +167,7 @@
 const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
+const docPreview = useDocPreview()
 const isAdmin = computed(() => authStore.isAdmin)
 
 type Payment = {
@@ -249,7 +260,7 @@ function invoiceStatusColor(status: string): string {
 async function download(p: Payment) {
   try {
     const blob = await $fetch<Blob>(
-      `${config.public.apiBase}/documents/proforma-invoice/${p.invoiceId}/file`,
+      `${api.baseURL}/documents/proforma-invoice/${p.invoiceId}/file`,
       {
         method: 'GET',
         query: { name: p.fileName, category: 'customer_pop' },
@@ -257,16 +268,9 @@ async function download(p: Payment) {
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
       }
     )
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', p.fileName)
-    document.body.appendChild(link)
-    link.click()
-    link.parentNode?.removeChild(link)
-    window.URL.revokeObjectURL(url)
+    docPreview.previewBlob(blob as Blob, p.fileName)
   } catch {
-    showSnack('Download failed', 'error')
+    showSnack('Preview failed', 'error')
   }
 }
 

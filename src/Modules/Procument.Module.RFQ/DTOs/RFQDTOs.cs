@@ -132,6 +132,23 @@ public class RFQResponse
     public List<UserResponse> Edits { get; set; } = new();
 }
 
+public class RFQFlatItem
+{
+    public long ItemId { get; set; }
+    public long RfqId { get; set; }
+    public string RfqName { get; set; } = "";
+    public string PartNumberName { get; set; } = "";
+    public string? Description { get; set; }
+    public double Qty { get; set; }
+    public string? Condition { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerCode { get; set; }
+    public string Status { get; set; } = "Open";
+    public DateTime LeadTime { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<RFQListUserRef> AssignedUsers { get; set; } = new();
+}
+
 public class RFQItemResponse
 {
     public long Id { get; set; }

@@ -7,7 +7,7 @@ public interface IPaymentRequestService
 {
     Task<PaymentRequestResponse> GetByIdAsync(long id);
     Task<List<PaymentRequestResponse>> GetAllAsync();
-    Task<PaymentRequestResponse> CreateAsync(long poId);
+    Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null);
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> DeleteAsync(long id);
     Task<PaymentRequestResponse?> GetByPoIdAsync(long poId);
@@ -20,10 +20,12 @@ public class PaymentRequestResponse
     public string? Status { get; set; }
     public long? POId { get; set; }
     public string? PONumber { get; set; }
+    public long? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public DateTime CreatedAt { get; set; }
     
     // Bank Info (Flattened for UI)
+    public long? CompanyPresetId { get; set; }
     public string? CompanyPayingFrom { get; set; }
     public string? CompanyPayingTo { get; set; }
     public string? AccountNumber { get; set; }

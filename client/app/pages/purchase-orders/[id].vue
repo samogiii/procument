@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-1 flex-shrink-0" size="small" />
@@ -567,9 +567,13 @@
 
     <!-- ── Line Items with Track Numbers ── -->
     <v-card class="glass-card mb-6">
-      <v-card-title>
+      <v-card-title class="d-flex align-center">
         <v-icon icon="mdi-package-variant-closed" class="mr-2" size="20" />
         Line Items &amp; Tracking
+        <v-spacer />
+        <v-btn v-if="isAdmin" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-barcode-scan" @click="openBulkAddTrack">
+          Bulk Add Track
+        </v-btn>
       </v-card-title>
       <v-card-text>
         <v-table density="comfortable">
@@ -599,7 +603,37 @@
                 </td>
                 <td class="font-weight-medium">{{ item.partNumberName || '—' }}</td>
                 <td>{{ item.qty }}</td>
-                <td>${{ formatPrice(item.unitPrice) }}</td>
+
+                <!-- Unit Price — SuperAdmin can click pencil to edit inline -->
+                <td>
+                  <div v-if="isSuperAdmin && editingPriceItemId === item.id" class="d-flex align-center gap-1" style="min-width:160px">
+                    <v-text-field
+                      v-model.number="editPriceValue"
+                      type="number"
+                      prefix="$"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      style="max-width:110px"
+                      @keyup.enter="savePriceOverride(item)"
+                      @keyup.esc="cancelPriceEdit"
+                      autofocus
+                    />
+                    <v-btn icon size="x-small" color="success" variant="tonal" :loading="savingPrice" @click="savePriceOverride(item)">
+                      <v-icon>mdi-check</v-icon>
+                    </v-btn>
+                    <v-btn icon size="x-small" variant="text" @click="cancelPriceEdit">
+                      <v-icon>mdi-close</v-icon>
+                    </v-btn>
+                  </div>
+                  <div v-else class="d-flex align-center gap-1">
+                    <span>${{ formatPrice(item.unitPrice) }}</span>
+                    <v-btn v-if="isSuperAdmin" icon size="x-small" variant="text" color="secondary" @click="openPriceEdit(item)" title="Override price">
+                      <v-icon size="14">mdi-pencil</v-icon>
+                    </v-btn>
+                  </div>
+                </td>
+
                 <td class="font-weight-bold">${{ formatPrice(item.totalPrice) }}</td>
                 <td>{{ item.condition || '—' }}</td>
                 <td>
@@ -620,30 +654,143 @@
                     <div v-if="!(item.trackNumbers || []).length" class="text-body-2 text-medium-emphasis py-2">
                       No tracking numbers yet.
                     </div>
-                    <v-table v-else density="compact" class="bg-transparent">
-                      <thead>
-                        <tr>
-                          <th>Track Number</th>
-                          <th>Carrier</th>
-                          <th>Notes</th>
-                          <th>Added</th>
-                          <th style="width:40px;"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="t in item.trackNumbers" :key="t.id">
-                          <td class="font-weight-medium" style="color: #60a5fa;">{{ t.trackNumber }}</td>
-                          <td>{{ t.carrier || '—' }}</td>
-                          <td class="text-medium-emphasis">{{ t.notes || '—' }}</td>
-                          <td class="text-caption">{{ t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—' }}</td>
-                          <td>
-                            <v-btn icon size="x-small" variant="text" color="error" @click="deleteTrack(item, t.id)">
-                              <v-icon icon="mdi-delete-outline" size="16" />
-                            </v-btn>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </v-table>
+                    <div v-for="t in item.trackNumbers" :key="t.id" class="mb-3">
+                      <!-- Track header row -->
+                      <div class="d-flex align-center gap-2 mb-2 px-1">
+                        <v-icon icon="mdi-barcode-scan" size="14" color="primary" />
+                        <span class="font-weight-bold text-primary text-body-2">{{ t.trackNumber }}</span>
+                        <span v-if="t.carrier" class="text-caption text-medium-emphasis">· {{ t.carrier }}</span>
+                        <v-chip
+                          :color="t.status === 'Active' ? 'success' : 'error'"
+                          size="x-small"
+                          variant="tonal"
+                          class="ml-1"
+                        >{{ t.status }}</v-chip>
+                        <v-chip v-if="t.warehouseName" size="x-small" variant="tonal" color="secondary">
+                          <v-icon icon="mdi-home-city-outline" size="10" class="mr-1" />{{ t.warehouseName }}
+                        </v-chip>
+                        <v-spacer />
+                        <v-btn icon size="x-small" variant="text" color="error" @click="deleteTrack(item, t.id)">
+                          <v-icon icon="mdi-delete-outline" size="16" />
+                        </v-btn>
+                      </div>
+
+                      <!-- Inventory status panel -->
+                      <v-card
+                        variant="outlined"
+                        rounded="lg"
+                        class="mb-1"
+                        :color="inventoryStatusColor(t)"
+                      >
+                        <v-card-text class="pa-3">
+                          <!-- No submission yet -->
+                          <div v-if="!t.inventoryItems?.length" class="text-caption text-medium-emphasis d-flex align-center gap-1">
+                            <v-icon icon="mdi-clock-outline" size="14" />
+                            Waiting for inventory submission
+                          </div>
+
+                          <!-- Inventory submitted -->
+                          <template v-else>
+                            <div v-for="inv in t.inventoryItems" :key="inv.id">
+                              <!-- Qty summary -->
+                              <div class="d-flex align-center gap-3 flex-wrap mb-2">
+                                <span class="text-caption">
+                                  <strong>Expected:</strong> {{ inv.expectedQty ?? '—' }}
+                                </span>
+                                <span class="text-caption">
+                                  <strong>Received:</strong>
+                                  <span :class="inv.actualQty !== inv.expectedQty ? 'text-error font-weight-bold' : 'text-success'">
+                                    {{ inv.actualQty ?? '—' }}
+                                  </span>
+                                </span>
+                                <v-chip
+                                  v-if="inv.actualQty != null && inv.actualQty !== inv.expectedQty"
+                                  size="x-small"
+                                  color="error"
+                                  variant="tonal"
+                                >
+                                  <v-icon icon="mdi-alert" size="12" class="mr-1" />
+                                  Qty mismatch ({{ inv.expectedQty - inv.actualQty > 0 ? '-' : '+' }}{{ Math.abs((inv.expectedQty ?? 0) - (inv.actualQty ?? 0)) }})
+                                </v-chip>
+                                <v-chip
+                                  v-if="inv.isAvailable === false"
+                                  size="x-small"
+                                  color="error"
+                                  variant="tonal"
+                                >
+                                  <v-icon icon="mdi-close-circle" size="12" class="mr-1" />
+                                  Not Available
+                                </v-chip>
+                                <v-chip
+                                  v-if="inv.isAvailable === true"
+                                  size="x-small"
+                                  color="success"
+                                  variant="tonal"
+                                >Available</v-chip>
+                              </div>
+
+                              <!-- Review status + actions -->
+                              <div class="d-flex align-center gap-2 flex-wrap">
+                                <v-chip
+                                  :color="inv.status === 'Accepted' ? 'success' : inv.status === 'Rejected' ? 'error' : 'warning'"
+                                  size="x-small"
+                                  variant="flat"
+                                >
+                                  <v-icon
+                                    :icon="inv.status === 'Accepted' ? 'mdi-check-circle' : inv.status === 'Rejected' ? 'mdi-close-circle' : 'mdi-clock-outline'"
+                                    size="12"
+                                    class="mr-1"
+                                  />
+                                  {{ inv.status }}
+                                </v-chip>
+                                <span v-if="inv.reviewNote" class="text-caption text-medium-emphasis">
+                                  "{{ inv.reviewNote }}"
+                                </span>
+
+                                <!-- Accept / Reject buttons (Admin + Expert) -->
+                                <template v-if="inv.status === 'Pending' && (authStore.isAdmin || authStore.user?.role === 'Expert')">
+                                  <v-spacer />
+                                  <v-btn
+                                    size="x-small"
+                                    color="success"
+                                    variant="flat"
+                                    prepend-icon="mdi-check"
+                                    :loading="reviewingItem === inv.id + '-accept'"
+                                    @click="reviewInventoryItem(t.id, inv.id, 'Accept')"
+                                  >Accept</v-btn>
+                                  <v-btn
+                                    size="x-small"
+                                    color="error"
+                                    variant="tonal"
+                                    prepend-icon="mdi-close"
+                                    :loading="reviewingItem === inv.id + '-reject'"
+                                    @click="openRejectNoteDialog(t.id, inv.id)"
+                                  >Reject</v-btn>
+                                </template>
+                              </div>
+
+                              <!-- Documents from inventory -->
+                              <div v-if="t.inventoryDocs?.length" class="mt-2">
+                                <div class="text-caption text-medium-emphasis mb-1">Documents from inventory:</div>
+                                <div class="d-flex flex-wrap gap-1">
+                                  <v-chip
+                                    v-for="doc in t.inventoryDocs"
+                                    :key="doc.id"
+                                    size="x-small"
+                                    variant="tonal"
+                                    :prepend-icon="docPreview.isPreviewable(doc.originalFileName, doc.mimeType) ? 'mdi-eye-outline' : 'mdi-file-outline'"
+                                    class="cursor-pointer"
+                                    @click="downloadInventoryDoc(doc.id, doc.originalFileName, doc.mimeType)"
+                                  >
+                                    {{ doc.originalFileName }}
+                                  </v-chip>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                        </v-card-text>
+                      </v-card>
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -653,19 +800,128 @@
       </v-card-text>
     </v-card>
 
+    <!-- Reject Note Dialog -->
+    <v-dialog v-model="rejectNoteDialog" max-width="440" persistent>
+      <v-card>
+        <v-card-title class="text-h6 pa-4 pb-2">
+          <v-icon icon="mdi-close-circle-outline" color="error" class="mr-2" />
+          Reject Part
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-alert type="warning" density="compact" variant="tonal" class="mb-3">
+            This part will be marked <strong>Rejected</strong> and the PO will be flagged as <strong>Issue</strong>.
+          </v-alert>
+          <v-textarea
+            v-model="rejectNoteValue"
+            label="Rejection Note (visible to Inventory user)"
+            variant="outlined"
+            density="compact"
+            rows="3"
+            auto-grow
+            placeholder="e.g. Wrong part number received, quantity mismatch, damaged item..."
+          />
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-2">
+          <v-spacer />
+          <v-btn variant="text" @click="rejectNoteDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="reviewingItem != null" @click="confirmRejectWithNote">Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Add Track Number Dialog -->
-    <v-dialog v-model="showAddTrackDialog" max-width="450" persistent>
+    <v-dialog v-model="showAddTrackDialog" max-width="460" persistent>
       <v-card>
         <v-card-title class="text-h6">Add Tracking Number</v-card-title>
         <v-card-text>
           <v-text-field v-model="trackForm.trackNumber" label="Track Number" variant="outlined" density="compact" class="mb-3" />
           <v-text-field v-model="trackForm.carrier" label="Carrier (e.g. FedEx, DHL)" variant="outlined" density="compact" class="mb-3" />
-          <v-text-field v-model="trackForm.notes" label="Notes" variant="outlined" density="compact" />
+          <v-text-field v-model="trackForm.notes" label="Notes" variant="outlined" density="compact" class="mb-3" />
+          <v-autocomplete
+            v-model="trackForm.warehouseId"
+            :items="trackWarehouses"
+            item-title="name"
+            item-value="id"
+            label="Destination Warehouse"
+            variant="outlined"
+            density="compact"
+            clearable
+            prepend-inner-icon="mdi-home-city-outline"
+          />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="showAddTrackDialog = false">Cancel</v-btn>
           <v-btn color="primary" variant="flat" :loading="savingTrack" :disabled="!trackForm.trackNumber.trim()" @click="addTrack">Add</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Bulk Add Track Number Dialog -->
+    <v-dialog v-model="showBulkTrackDialog" max-width="600" persistent scrollable>
+      <v-card>
+        <v-card-title class="text-h6 pa-4 pb-2">
+          <v-icon icon="mdi-barcode-scan" class="mr-2" color="secondary" />
+          Bulk Add Track Number
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <p class="text-caption text-medium-emphasis mb-3">Select parts and assign one track number to all of them.</p>
+
+          <!-- Track details -->
+          <v-text-field v-model="bulkTrackForm.trackNumber" label="Track Number *" variant="outlined" density="compact" class="mb-3" />
+          <v-text-field v-model="bulkTrackForm.carrier" label="Carrier (e.g. FedEx, DHL)" variant="outlined" density="compact" class="mb-3" />
+          <v-text-field v-model="bulkTrackForm.notes" label="Notes" variant="outlined" density="compact" class="mb-3" />
+          <v-autocomplete
+            v-model="bulkTrackForm.warehouseId"
+            :items="trackWarehouses"
+            item-title="name"
+            item-value="id"
+            label="Destination Warehouse"
+            variant="outlined"
+            density="compact"
+            clearable
+            prepend-inner-icon="mdi-home-city-outline"
+            class="mb-4"
+          />
+
+          <!-- Part selection -->
+          <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SELECT PARTS</div>
+          <v-list density="compact" class="border rounded">
+            <v-list-item
+              v-for="item in (po?.items || [])"
+              :key="item.id"
+              :value="item.id"
+            >
+              <template #prepend>
+                <v-checkbox
+                  v-model="bulkSelectedItemIds"
+                  :value="item.id"
+                  density="compact"
+                  hide-details
+                  color="secondary"
+                />
+              </template>
+              <v-list-item-title class="text-body-2">{{ item.partNumberName || '—' }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">Qty: {{ item.qty }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4 pt-2">
+          <v-spacer />
+          <v-btn variant="text" @click="showBulkTrackDialog = false">Cancel</v-btn>
+          <v-btn
+            color="secondary"
+            variant="flat"
+            :loading="savingBulkTrack"
+            :disabled="!bulkTrackForm.trackNumber.trim() || !bulkSelectedItemIds.length"
+            @click="addBulkTrack"
+          >
+            Add to {{ bulkSelectedItemIds.length }} part(s)
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -732,6 +988,15 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Document Preview Modal -->
+    <DocPreviewModal
+      :open="docPreview.open.value"
+      :blob-url="docPreview.blobUrl.value"
+      :file-name="docPreview.fileName.value"
+      :mime-type="docPreview.mimeType.value"
+      @close="docPreview.close()"
+    />
+
     <!-- Return Items to Procurement Dialog -->
     <v-dialog v-model="showReturnDialog" max-width="550" persistent>
       <v-card class="glass-card">
@@ -795,6 +1060,7 @@
 const route = useRoute()
 const api = useApi()
 const authStore = useAuthStore()
+const docPreview = useDocPreview()
 const po = ref<any>({})
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -818,9 +1084,37 @@ const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 const showPdf = ref(false)
 const showPrDialog = ref(false)
 
-const isTerminalState = computed(() => 
+const isTerminalState = computed(() =>
   ['Completed', 'Cancelled', 'Returned'].includes(po.value.status)
 )
+
+// ── Price override (SuperAdmin only) ──
+const editingPriceItemId = ref<number | null>(null)
+const editPriceValue = ref<number>(0)
+const savingPrice = ref(false)
+
+function openPriceEdit(item: any) {
+  editingPriceItemId.value = item.id
+  editPriceValue.value = item.unitPrice
+}
+
+function cancelPriceEdit() {
+  editingPriceItemId.value = null
+}
+
+async function savePriceOverride(item: any) {
+  if (savingPrice.value) return
+  savingPrice.value = true
+  try {
+    await api.patch(`/purchase-orders/items/${item.id}/price`, { unitPrice: editPriceValue.value })
+    editingPriceItemId.value = null
+    await loadPo()
+  } catch (e: any) {
+    snackbar.value = { show: true, message: e?.data?.message || 'Failed to update price', color: 'error' }
+  } finally {
+    savingPrice.value = false
+  }
+}
 
 // ── Return Workflow ──
 type ReturnPOResponse = {
@@ -918,7 +1212,7 @@ async function loadAssignedUsers() {
 async function loadAllUsers() {
   try {
     const all = await api.get<any[]>('/users')
-    const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
     // Matching against username which is likely what 'GHS' etc are
     allUsers.value = all.filter(u => allowed.includes(u.username) || allowed.includes(u.name))
   } catch {
@@ -1129,7 +1423,7 @@ async function generateAndUploadDpPdf() {
 
   console.log('Generating DP PDF with payload:', payload)
 
-  const blob = await $fetch<Blob>(`${config.public.apiBase}/pdf/dp`, {
+  const blob = await $fetch<Blob>(`${api.baseURL}/pdf/dp`, {
     method: 'POST',
     body: payload,
     headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -1141,7 +1435,7 @@ async function generateAndUploadDpPdf() {
   const file = new File([blob], `DP-${po.value.poNumber || 'document'}.pdf`, { type: 'application/pdf' })
   form.append('file', file)
   form.append('category', 'dp')
-  await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/upload`, {
+  await $fetch(`${api.baseURL}/documents/proforma-invoice/${po.value.invoiceId}/supplier/${po.value.supplierId}/upload`, {
     method: 'POST',
     body: form,
     headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -1155,20 +1449,43 @@ const expandedItems = ref(new Set<number>())
 const showAddTrackDialog = ref(false)
 const savingTrack = ref(false)
 const addTrackItemId = ref<number | null>(null)
-const trackForm = ref({ trackNumber: '', carrier: '', notes: '' })
+const trackForm = ref({ trackNumber: '', carrier: '', notes: '', warehouseId: null as number | null })
+const trackWarehouses = ref<any[]>([])
+
+// Bulk Add Track
+const showBulkTrackDialog = ref(false)
+const savingBulkTrack = ref(false)
+const bulkSelectedItemIds = ref<number[]>([])
+const bulkTrackForm = ref({ trackNumber: '', carrier: '', notes: '', warehouseId: null as number | null })
 
 function toggleItemExpand(id: number) {
   if (expandedItems.value.has(id)) {
     expandedItems.value.delete(id)
   } else {
     expandedItems.value.add(id)
+    // Refresh inventory data for all track numbers of this item when expanding
+    const item = (po.value?.items || []).find((i: any) => i.id === id)
+    for (const t of (item?.trackNumbers || [])) {
+      loadInventoryDataForTrack(t.id)
+    }
   }
   expandedItems.value = new Set(expandedItems.value)
 }
 
-function openAddTrack(poItemId: number) {
+async function openAddTrack(poItemId: number) {
   addTrackItemId.value = poItemId
-  trackForm.value = { trackNumber: '', carrier: '', notes: '' }
+  trackForm.value = { trackNumber: '', carrier: '', notes: '', warehouseId: null }
+  // Load warehouses linked to the current PO's company preset
+  try {
+    const presetId = po.value?.companyPresetId
+    if (presetId) {
+      trackWarehouses.value = await api.get(`/companypresets/${presetId}/warehouses`)
+    } else {
+      trackWarehouses.value = await api.get('/warehouses')
+    }
+  } catch {
+    trackWarehouses.value = await api.get('/warehouses').catch(() => [])
+  }
   showAddTrackDialog.value = true
 }
 
@@ -1199,6 +1516,118 @@ async function deleteTrack(item: any, trackId: number) {
   } catch {
     showSnack('Failed to delete tracking number', 'error')
   }
+}
+
+async function openBulkAddTrack() {
+  bulkTrackForm.value = { trackNumber: '', carrier: '', notes: '', warehouseId: null }
+  bulkSelectedItemIds.value = []
+  try {
+    const presetId = po.value?.companyPresetId
+    if (presetId) {
+      trackWarehouses.value = await api.get(`/companypresets/${presetId}/warehouses`)
+    } else {
+      trackWarehouses.value = await api.get('/warehouses')
+    }
+  } catch {
+    trackWarehouses.value = await api.get('/warehouses').catch(() => [])
+  }
+  showBulkTrackDialog.value = true
+}
+
+async function addBulkTrack() {
+  if (!bulkTrackForm.value.trackNumber.trim() || !bulkSelectedItemIds.value.length) return
+  savingBulkTrack.value = true
+  try {
+    for (const itemId of bulkSelectedItemIds.value) {
+      const newTrack = await api.post<any>(`/purchase-orders/items/${itemId}/track-numbers`, bulkTrackForm.value)
+      const poItem = (po.value.items || []).find((i: any) => i.id === itemId)
+      if (poItem) {
+        if (!poItem.trackNumbers) poItem.trackNumbers = []
+        poItem.trackNumbers.unshift(newTrack)
+      }
+    }
+    showBulkTrackDialog.value = false
+    showSnack(`Track number added to ${bulkSelectedItemIds.value.length} part(s)`, 'success')
+  } catch {
+    showSnack('Failed to add bulk track number', 'error')
+  } finally {
+    savingBulkTrack.value = false
+  }
+}
+
+// ── Inventory Review ──
+const reviewingItem = ref<string | null>(null)
+const rejectNoteDialog = ref(false)
+const rejectNoteValue = ref('')
+const pendingRejectTrackId = ref<number | null>(null)
+const pendingRejectItemId = ref<number | null>(null)
+
+function openRejectNoteDialog(trackId: number, itemId: number) {
+  pendingRejectTrackId.value = trackId
+  pendingRejectItemId.value = itemId
+  rejectNoteValue.value = ''
+  rejectNoteDialog.value = true
+}
+
+async function confirmRejectWithNote() {
+  if (!pendingRejectTrackId.value || !pendingRejectItemId.value) return
+  rejectNoteDialog.value = false
+  await reviewInventoryItem(pendingRejectTrackId.value, pendingRejectItemId.value, 'Reject', rejectNoteValue.value)
+}
+
+function inventoryStatusColor(track: any) {
+  const items = track.inventoryItems || []
+  if (!items.length) return undefined
+  if (items.some((i: any) => i.status === 'Rejected')) return 'error'
+  if (items.some((i: any) => i.status === 'Accepted')) return 'success'
+  return 'warning'
+}
+
+async function reviewInventoryItem(trackId: number, itemId: number, action: 'Accept' | 'Reject', note?: string) {
+  const key = `${itemId}-${action.toLowerCase()}`
+  reviewingItem.value = key
+  try {
+    await api.post(`/shipping/track-numbers/${trackId}/items/${itemId}/review`, { action, note: note || null })
+    // Refresh inventory items for this track
+    await loadInventoryDataForTrack(trackId)
+    showSnack(`Part ${action === 'Accept' ? 'accepted' : 'rejected'} successfully`, action === 'Accept' ? 'success' : 'warning')
+  } catch {
+    showSnack('Review failed', 'error')
+  } finally {
+    reviewingItem.value = null
+  }
+}
+
+async function loadInventoryDataForTrack(trackId: number) {
+  try {
+    const trackData = await api.get<any>(`/shipping/track-numbers/${trackId}/review`).catch(() => null)
+    if (!trackData) return
+    for (const item of (po.value?.items || [])) {
+      const t = (item.trackNumbers || []).find((tn: any) => tn.id === trackId)
+      if (t) {
+        t.inventoryItems = trackData.items || []
+        t.inventoryDocs = trackData.documents || []
+        t.status = trackData.status || t.status
+        t.warehouseName = t.warehouseName || trackData.warehouseName
+        break
+      }
+    }
+  } catch { /* silent */ }
+}
+
+async function loadAllInventoryData() {
+  const allTrackIds: number[] = []
+  for (const item of (po.value?.items || [])) {
+    for (const t of (item.trackNumbers || [])) {
+      allTrackIds.push(t.id)
+    }
+  }
+  if (!allTrackIds.length) return
+  await Promise.allSettled(allTrackIds.map(id => loadInventoryDataForTrack(id)))
+}
+
+function downloadInventoryDoc(docId: number, fileName = 'document', mimeType?: string) {
+  docPreview.preview(`/shipping/documents/${docId}/file`, fileName, mimeType)
 }
 
 // ── Admin Approval ──
@@ -1239,7 +1668,10 @@ async function acceptDocuments() {
     await api.patch(`/purchase-orders/${route.params.id}/status`, { status: 'Waiting For Payment' })
     po.value.status = 'Waiting For Payment'
     showSnack('Documents verified. Status moved to Waiting For Payment.', 'success')
-  } catch { showSnack('Failed to verify documents', 'error') }
+  } catch (err: any) {
+    const msg = err?.data?.message || err?.message || 'Failed to verify documents'
+    showSnack(msg, 'error')
+  }
   finally { approving.value = false }
 }
 
@@ -1414,7 +1846,7 @@ async function onSupplierDocSelected(e: Event) {
       const form = new FormData()
       form.append('file', file)
       form.append('category', category)
-      await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/upload`, {
+      await $fetch(`${api.baseURL}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/upload`, {
         method: 'POST',
         body: form,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -1455,7 +1887,7 @@ async function onPiDocSelected(e: Event) {
       const form = new FormData()
       form.append('file', file)
       form.append('category', category)
-      await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${invId}/upload`, {
+      await $fetch(`${api.baseURL}/documents/proforma-invoice/${invId}/upload`, {
         method: 'POST',
         body: form,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -1478,8 +1910,8 @@ async function downloadSupplierDoc(name: string, overrideInvoiceId?: number, cat
   try {
     const isPiDoc = piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))
     const url = isPiDoc
-      ? `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
-      : `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
+      ? `${api.baseURL}/documents/proforma-invoice/${invId}/file`
+      : `${api.baseURL}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
 
     const blob = await $fetch<Blob>(url, {
       method: 'GET',
@@ -1503,8 +1935,8 @@ async function deleteSupplierDoc(name: string, overrideInvoiceId?: number, categ
   try {
     const isPiDoc = piDocs.value.some(f => f.name === name && (f.originalInvoiceId === invId || !f.originalInvoiceId))
     const url = isPiDoc
-      ? `${config.public.apiBase}/documents/proforma-invoice/${invId}/file`
-      : `${config.public.apiBase}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
+      ? `${api.baseURL}/documents/proforma-invoice/${invId}/file`
+      : `${api.baseURL}/documents/proforma-invoice/${invId}/supplier/${po.value.supplierId}/file`
 
     await $fetch(url, {
       method: 'DELETE',
@@ -1531,6 +1963,8 @@ onMounted(async () => {
       tasks.push(loadAssignedUsers(), loadAllUsers())
     }
     await Promise.all(tasks)
+    // Load inventory submission data for all track numbers (async, non-blocking)
+    loadAllInventoryData()
   } catch {}
 })
 
@@ -1593,3 +2027,4 @@ function showSnack(text: string, color: string) {
   background-color: rgba(var(--v-theme-on-surface), 0.05) !important;
 }
 </style>
+

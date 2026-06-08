@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Sales.Entities;
+using Procument.Module.Sales.Services;
 using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
@@ -17,6 +18,7 @@ public class DocumentsController : ControllerBase
 {
     private readonly DbContext _db;
     private readonly IDocumentStorageService _storage;
+    private readonly IPaymentBoxService _paymentBoxService;
 
     // Maps category key → folder name for PI-level documents
     private static readonly Dictionary<string, string> PiCategoryFolders = new(StringComparer.OrdinalIgnoreCase)
@@ -38,10 +40,11 @@ public class DocumentsController : ControllerBase
         ["po"] = "PO",
     };
 
-    public DocumentsController(DbContext db, IDocumentStorageService storage)
+    public DocumentsController(DbContext db, IDocumentStorageService storage, IPaymentBoxService paymentBoxService)
     {
         _db = db;
         _storage = storage;
+        _paymentBoxService = paymentBoxService;
     }
 
     // ───────────── List ─────────────
@@ -88,7 +91,9 @@ public class DocumentsController : ControllerBase
         long invoiceId,
         [FromForm] IFormFile file,
         [FromForm] decimal amount,
-        [FromForm] string? notes = null)
+        [FromForm] string? notes = null,
+        [FromForm] string? currency = null,
+        [FromForm] decimal? exchangeRate = null)
     {
         if (file == null || file.Length == 0) return BadRequest("No file uploaded.");
         if (amount <= 0) return BadRequest("Amount must be greater than zero.");
@@ -109,6 +114,8 @@ public class DocumentsController : ControllerBase
         };
         _db.Set<CustomerPayment>().Add(payment);
         await _db.SaveChangesAsync();
+
+        await _paymentBoxService.TryAutoDepositAsync(invoiceId, amount, invoice.CustomerId, currency, exchangeRate, invoice.DefaultDepositWalletId);
 
         var totalPaid = await _db.Set<CustomerPayment>()
             .Where(p => p.InvoiceId == invoiceId)
@@ -137,11 +144,18 @@ public class DocumentsController : ControllerBase
     /// <summary>
     /// All Customer Payment records across every proforma invoice, grouped by customer.
     /// Used by the Payment / SuperAdmin "Customer Payments" overview page.
+    /// Payment users only see customers whose Base is in their assigned bases.
     /// </summary>
     [HttpGet("customer-payments/all")]
-    [Authorize(Roles = "SuperAdmin,Payment")]
+    [Authorize(Roles = "SuperAdmin,Admin,Payment,AHM")]
     public async Task<IActionResult> GetAllCustomerPayments()
     {
+        bool isAdmin =  User.IsInRole("SuperAdmin");
+        var basesClaim = User.FindFirst("bases")?.Value ?? "";
+        int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s, out var b) ? b : -1)
+            .Where(b => b > 0).ToArray();
+
         // Pull every payment + its invoice + customer in one trip
         var rows = await (
             from cp in _db.Set<CustomerPayment>()
@@ -162,8 +176,16 @@ public class DocumentsController : ControllerBase
                 InvoiceStatus = inv.Status,
                 CustomerId = c != null ? c.Id : (long?)null,
                 CustomerName = c != null ? c.CustomerCode : null,
+                CustomerBase = c != null ? c.Base : (int?)null,
             }
         ).ToListAsync();
+
+        // For non-admin users, restrict to their assigned bases.
+        // If a user has no bases assigned, they see nothing (empty list).
+        if (!isAdmin && userBases.Length > 0)
+            rows = rows.Where(r => r.CustomerBase.HasValue && userBases.Contains(r.CustomerBase.Value)).ToList();
+        else if (!isAdmin)
+            rows = [];
 
         // Group by customer for the UI (one card per customer with all their payments inside)
         var groups = rows

@@ -17,23 +17,19 @@
             class="flex-grow-1 mx-2"
             style="min-width: 180px;"
           />
-          <v-autocomplete
-            v-model="partNumberFilter"
-            :items="partNumberOptions"
+          <v-text-field
+            v-model="pnSearch"
+            prepend-inner-icon="mdi-barcode"
             label="Part Number"
-            variant="outlined"
-            hide-details
             single-line
-            multiple
-            chips
-            closable-chips
+            hide-details
             clearable
             class="mx-2"
             style="min-width: 160px; max-width: 260px;"
           />
           <v-select
             v-model="statusFilter"
-            :items="statusOptions"
+            :items="ALL_RFQ_STATUSES"
             label="Status"
             hide-details
             multiple
@@ -57,16 +53,12 @@
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
           />
-          <v-select
-            v-model="customerFilter"
-            :items="customerOptions"
-            item-title="title"
-            item-value="value"
+          <v-text-field
+            v-model="customerSearch"
+            prepend-inner-icon="mdi-domain"
             label="Customer"
+            single-line
             hide-details
-            multiple
-            chips
-            closable-chips
             clearable
             style="min-width: 140px; max-width: 260px;"
           />
@@ -83,14 +75,15 @@
           </v-btn>
         </div>
 
-        <v-data-table
+        <v-data-table-server
           :headers="headers"
-          :items="filteredItems"
-          :search="search"
+          :items="serverItems"
+          :items-length="totalItems"
           :loading="loading"
           :items-per-page="50"
           hover
           density="comfortable"
+          @update:options="onTableOptions"
           @click:row="(_: any, { item }: any) => navigateTo(`/rfqs/${item.rfqId}?itemId=${item.itemId}`)"
         >
           <template #item.status="{ item }">
@@ -130,7 +123,7 @@
           <template #item.customerName="{ item }">
             {{ item.customerName }}<span v-if="item.customerCode" class="text-medium-emphasis ml-1">({{ item.customerCode }})</span>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
   </div>
@@ -138,35 +131,74 @@
 
 <script setup lang="ts">
 const api = useApi()
-const authStore = useAuthStore()
 const { statusColor: rfqStatusColor } = useStatusColor()
 
-// Guard: admin only
-// if (!authStore.isAdmin) {
-//   navigateTo('/dashboard')
-// }
+const ALL_RFQ_STATUSES = ['Open', 'In Progress', 'Quoted', 'No Quote', 'Closed', 'Cancelled']
 
-const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfq-items', {
-  search: '',
-  status: [] as string[],
-  user: [] as number[],
-  customer: [] as string[],
-  partNumber: [] as string[],
-})
-const search = pf.search
+// ─── Filters ───
+const search = ref('')
+const pnSearch = ref('')
+const statusFilter = ref<string[]>([])
+const userFilter = ref<number[]>([])
+const customerSearch = ref('')
+
+const hasActiveFilters = computed(() =>
+  search.value || pnSearch.value || statusFilter.value.length > 0
+  || userFilter.value.length > 0 || customerSearch.value
+)
+
+function clearFilters() {
+  search.value = ''
+  pnSearch.value = ''
+  statusFilter.value = []
+  userFilter.value = []
+  customerSearch.value = ''
+}
+
+// ─── Server-side data ───
+const serverItems = ref<any[]>([])
+const totalItems = ref(0)
 const loading = ref(false)
-const allItems = ref<any[]>([])
-const statusFilter = pf.status
-const userFilter = pf.user
-const customerFilter = pf.customer
-const partNumberFilter = pf.partNumber
+const currentOptions = ref({ page: 1, itemsPerPage: 50 })
 
-// Status options: unique statuses from loaded items
-const statusOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach((item: any) => { if (item.status) set.add(item.status) })
-  return Array.from(set).sort()
-})
+// Debounced text refs
+const dSearch = ref('')
+const dPn = ref('')
+const dCustomer = ref('')
+let searchTimer: any = null
+let pnTimer: any = null
+let customerTimer: any = null
+
+watch(search, val => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { dSearch.value = val; reload() }, 350) })
+watch(pnSearch, val => { if (pnTimer) clearTimeout(pnTimer); pnTimer = setTimeout(() => { dPn.value = val ?? ''; reload() }, 350) })
+watch(customerSearch, val => { if (customerTimer) clearTimeout(customerTimer); customerTimer = setTimeout(() => { dCustomer.value = val ?? ''; reload() }, 350) })
+watch(statusFilter, () => reload())
+watch(userFilter, () => reload())
+
+function reload() {
+  onTableOptions({ ...currentOptions.value, page: 1 })
+}
+
+async function onTableOptions(opts: { page: number; itemsPerPage: number }) {
+  currentOptions.value = { page: opts.page, itemsPerPage: opts.itemsPerPage }
+  loading.value = true
+  try {
+    const params = new URLSearchParams({ page: String(opts.page), pageSize: String(opts.itemsPerPage) })
+    if (dSearch.value) params.set('search', dSearch.value)
+    if (dPn.value) params.set('pnSearch', dPn.value)
+    if (dCustomer.value) params.set('customerSearch', dCustomer.value)
+    statusFilter.value.forEach(s => params.append('statuses', s))
+    userFilter.value.forEach(id => params.append('userIds', String(id)))
+    const res = await api.get<any>(`/rfqs/items?${params}`)
+    serverItems.value = res.items ?? res.Items ?? []
+    totalItems.value = res.totalCount ?? res.TotalCount ?? serverItems.value.length
+  } finally {
+    loading.value = false
+  }
+}
+
+// ─── User options (for filter) ───
+const userOptions = ref<{ id: number; name: string }[]>([])
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -182,55 +214,6 @@ const headers = [
   { title: 'Received Date', key: 'createdAt' },
 ]
 
-const partNumberOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach((item: any) => { if (item.partNumberName) set.add(item.partNumberName) })
-  return Array.from(set).sort()
-})
-
-const userOptions = computed(() => {
-  const map = new Map<number, string>()
-  allItems.value.forEach((item: any) => {
-    ;(item.assignedUsers || []).forEach((u: any) => {
-      if (u.id && u.name) map.set(u.id, u.name)
-    })
-  })
-  return Array.from(map, ([id, name]) => ({ id, name }))
-})
-
-const customerOptions = computed(() => {
-  const map = new Map<string, string>()
-  allItems.value.forEach((item: any) => {
-    if (item.customerName && !map.has(item.customerName))
-      map.set(item.customerName, item.customerCode || '')
-  })
-  return Array.from(map.entries())
-    .map(([name, code]) => ({ title: code || '—', value: name }))
-    .sort((a, b) => a.title.localeCompare(b.title))
-})
-
-const filteredItems = computed(() => {
-  let result = allItems.value
-  if (statusFilter.value?.length) {
-    result = result.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  }
-  if (userFilter.value?.length) {
-    result = result.filter((item: any) =>
-      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
-    )
-  }
-  if (customerFilter.value?.length) {
-    result = result.filter((item: any) =>
-      customerFilter.value.includes(item.customerName) ||
-      (item.customerCode && customerFilter.value.includes(item.customerCode))
-    )
-  }
-  if (partNumberFilter.value?.length) {
-    result = result.filter((item: any) => partNumberFilter.value.includes(item.partNumberName))
-  }
-  return result
-})
-
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
   const diff = new Date(dateStr).getTime() - Date.now()
@@ -244,33 +227,9 @@ function isLeadTimeExpired(dateStr: string) {
 }
 
 onMounted(async () => {
-  loading.value = true
   try {
-    const rfqs = await api.get<any[]>('/rfqs')
-    const flat: any[] = []
-    ;(rfqs || []).forEach((rfq: any) => {
-      const assignedUsers = [...(rfq.views || []), ...(rfq.edits || [])]
-        .filter((u: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === u.id) === i)
-      ;(rfq.items || []).forEach((item: any) => {
-        flat.push({
-          itemId: item.id,
-          rfqId: rfq.id,
-          rfqName: rfq.name,
-          partNumberName: item.partNumberName,
-          description: item.description || '—',
-          qty: item.qty,
-          condition: item.condition || '—',
-          customerName: rfq.customerName,
-          customerCode: rfq.customerCode,
-          status: rfq.status || 'Open',
-          assignedUsers,
-          leadTime: rfq.leadTime,
-          createdAt: rfq.createdAt,
-        })
-      })
-    })
-    allItems.value = flat
+    const users = await api.get<any[]>('/users')
+    userOptions.value = (users || []).map((u: any) => ({ id: u.id, name: u.name }))
   } catch {}
-  finally { loading.value = false }
 })
 </script>

@@ -39,6 +39,26 @@
   --date-picker-invert: none;
 }
 
+.v-theme--procumentFrost {
+  --glass-bg: rgba(155, 205, 228, 0.82);
+  --glass-border: rgba(80, 150, 190, 0.50);
+  --card-bg: rgba(168, 210, 230, 0.88);
+  --card-border: rgba(100, 168, 205, 0.52);
+  --card-hover-border: rgba(21, 95, 135, 0.55);
+  --toolbar-bg: rgba(140, 195, 220, 0.92);
+  --toolbar-border: rgba(80, 150, 190, 0.58);
+  --excel-bg: rgba(180, 218, 235, 0.96);
+  --excel-border: rgba(100, 168, 205, 0.55);
+  --row-hover: rgba(80, 150, 190, 0.18);
+  --cell-hover: rgba(80, 150, 190, 0.26);
+  --scrollbar-thumb: #5AABCC;
+  --scrollbar-track: #99C8DF;
+  --gradient-start: #155F87;
+  --gradient-end: #4AAEC8;
+  --pn-color: #155F87;
+  --date-picker-invert: none;
+}
+
 /* ─── Global Styles ─── */
 
 * {
@@ -92,6 +112,19 @@ body {
 /* ─── Cursor Utility ─── */
 .cursor-pointer { cursor: pointer; }
 
+/* ─── Theme Swatch (used in theme picker menu) ─── */
+.theme-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+/* ─── Theme-adaptive text color (light blue in dark mode, dark blue in light) ─── */
+.text-pn { color: var(--pn-color) !important; }
+
 /* ─── Monospace ─── */
 .font-monospace {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -142,6 +175,50 @@ body {
   top: 0;
   z-index: 2;
   background: rgb(var(--v-theme-surface)) !important;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)) !important;
+}
+
+/* ─── Dark-mode safety: bare v-table (used in modals, dialogs, expansion panels) ─── */
+/* v-data-table handles itself, but bare <v-table> needs explicit theme colors      */
+.v-table {
+  background: rgb(var(--v-theme-surface));
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+
+.v-table thead th {
+  background: rgb(var(--v-theme-surface)) !important;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)) !important;
+}
+
+.v-table tbody td,
+.v-table tbody tr {
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+
+/* ─── Expansion panels: propagate theme text color to nested content ─── */
+.v-expansion-panel,
+.v-expansion-panel-title,
+.v-expansion-panel-text {
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+
+/* ─── Dialog / overlay cards: guarantee theme text color in any nesting depth ─── */
+.v-overlay__content .v-card,
+.v-overlay__content .v-card-text,
+.v-overlay__content .v-card-title,
+.v-overlay__content .v-card-subtitle {
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+
+/* ─── bg-surface-variant: force readable text color (Vuetify auto-computes wrong contrast) ─── */
+.bg-surface-variant {
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity)) !important;
+}
+.bg-surface-variant .text-medium-emphasis {
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)) !important;
+}
+.bg-surface-variant .text-caption {
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)) !important;
 }
 
 /* ─── Responsive Dialogs ─── */
@@ -150,4 +227,45 @@ body {
     margin: 8px !important;
     max-height: calc(100vh - 16px) !important;
   }
+}
+
+/* ─── Global Table Borders ─── */
+/* Target v-table components and standard HTML tables */
+table,
+.v-table,
+.v-data-table,
+.v-data-table-server {
+  border: 1px solid var(--excel-border) !important;
+  border-radius: 8px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Cell-level borders for grid structure */
+.v-table th,
+.v-table td,
+table th,
+table td {
+  border-bottom: 1px solid var(--excel-border) !important;
+  border-inline-end: 1px solid var(--excel-border) !important;
+}
+
+/* Avoid double borders on the right edge */
+.v-table th:last-child,
+.v-table td:last-child,
+table th:last-child,
+table td:last-child {
+  border-inline-end: none !important;
+}
+
+/* Avoid double borders on the bottom edge */
+.v-table tbody tr:last-child td,
+table tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* Adjust sticky header background to prevent border bleed */
+.v-data-table thead th {
+  background-clip: padding-box !important;
 }

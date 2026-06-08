@@ -5,8 +5,10 @@
     api-url="/quotes"
     :status-options="quoteStatusOptions"
     detail-route="/quotes"
-    :custom-filter="applyFilters"
+    :server-side="true"
+    :extra-params="extraParams"
     page-key="quotes"
+    :show-total-sum="true"
   >
     <template #actions>
       <v-btn
@@ -40,8 +42,6 @@
         variant="outlined"
         class="mx-2"
         style="min-width: 180px; max-width: 280px;"
-        :loading="pnLoading"
-        @update:model-value="searchByPN"
       />
       <v-autocomplete
         v-model="userFilter"
@@ -84,6 +84,149 @@
           >
             Clear
           </v-btn>
+    </template>
+
+    <!-- Column filter header slots — server-side: toggling checks re-fetches from backend -->
+    <template #header.quoteNumber="{ column, toggleSort, isSorted, sortBy }">
+      <div class="q-th-inner">
+        <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+          <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+        </span>
+        <v-menu :close-on-content-click="false" max-width="260">
+          <template #activator="{ props: mp }">
+            <v-btn v-bind="mp" :icon="quoteNumberFilter?.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="quoteNumberFilter?.length ? 'primary' : undefined" class="q-filter-btn" @click.stop />
+          </template>
+          <v-card class="pa-2" min-width="220">
+            <v-text-field v-model="colSearch.quoteNumber" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+            <div style="max-height:220px;overflow-y:auto;">
+              <v-checkbox
+                v-for="val in filteredQuoteNumberColOptions"
+                :key="val"
+                :label="val"
+                :model-value="quoteNumberFilter.includes(val)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleColFilter(quoteNumberFilter, val)"
+              />
+              <div v-if="filteredQuoteNumberColOptions.length === 0" class="text-caption text-medium-emphasis pa-2">No options</div>
+            </div>
+            <v-btn v-if="quoteNumberFilter?.length" size="x-small" variant="text" color="error" class="mt-1" @click="quoteNumberFilter.splice(0)">Clear</v-btn>
+          </v-card>
+        </v-menu>
+      </div>
+    </template>
+
+    <template #header.customerCode="{ column, toggleSort, isSorted, sortBy }">
+      <div class="q-th-inner">
+        <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+          <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+        </span>
+        <v-menu :close-on-content-click="false" max-width="260">
+          <template #activator="{ props: mp }">
+            <v-btn v-bind="mp" :icon="customerFilter?.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="customerFilter?.length ? 'primary' : undefined" class="q-filter-btn" @click.stop />
+          </template>
+          <v-card class="pa-2" min-width="220">
+            <v-text-field v-model="colSearch.customer" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+            <div style="max-height:220px;overflow-y:auto;">
+              <v-checkbox
+                v-for="opt in filteredCustomerColOptions"
+                :key="opt.value"
+                :label="opt.title"
+                :model-value="customerFilter.includes(opt.value)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleColFilter(customerFilter, opt.value)"
+              />
+              <div v-if="filteredCustomerColOptions.length === 0" class="text-caption text-medium-emphasis pa-2">No options</div>
+            </div>
+            <v-btn v-if="customerFilter?.length" size="x-small" variant="text" color="error" class="mt-1" @click="customerFilter.splice(0)">Clear</v-btn>
+          </v-card>
+        </v-menu>
+      </div>
+    </template>
+
+    <template #header.status="{ column, toggleSort, isSorted, sortBy }">
+      <div class="q-th-inner">
+        <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+          <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+        </span>
+        <v-menu :close-on-content-click="false" max-width="260">
+          <template #activator="{ props: mp }">
+            <v-btn v-bind="mp" :icon="statusFilter?.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="statusFilter?.length ? 'primary' : undefined" class="q-filter-btn" @click.stop />
+          </template>
+          <v-card class="pa-2" min-width="220">
+            <v-text-field v-model="colSearch.status" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+            <div style="max-height:220px;overflow-y:auto;">
+              <v-checkbox
+                v-for="val in filteredStatusColOptions"
+                :key="val"
+                :label="val"
+                :model-value="statusFilter.includes(val)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleColFilter(statusFilter, val)"
+              />
+            </div>
+            <v-btn v-if="statusFilter?.length" size="x-small" variant="text" color="error" class="mt-1" @click="statusFilter.splice(0)">Clear</v-btn>
+          </v-card>
+        </v-menu>
+      </div>
+    </template>
+
+    <template #header.rfqName="{ column, toggleSort, isSorted, sortBy }">
+      <div class="q-th-inner">
+        <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+          <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+        </span>
+        <v-menu :close-on-content-click="false" max-width="260">
+          <template #activator="{ props: mp }">
+            <v-btn v-bind="mp" :icon="rfqFilter?.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="rfqFilter?.length ? 'primary' : undefined" class="q-filter-btn" @click.stop />
+          </template>
+          <v-card class="pa-2" min-width="220">
+            <v-text-field v-model="colSearch.rfq" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+            <div style="max-height:220px;overflow-y:auto;">
+              <v-checkbox
+                v-for="val in filteredRfqColOptions"
+                :key="val"
+                :label="val"
+                :model-value="rfqFilter.includes(val)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleColFilter(rfqFilter, val)"
+              />
+              <div v-if="filteredRfqColOptions.length === 0" class="text-caption text-medium-emphasis pa-2">No options</div>
+            </div>
+            <v-btn v-if="rfqFilter?.length" size="x-small" variant="text" color="error" class="mt-1" @click="rfqFilter.splice(0)">Clear</v-btn>
+          </v-card>
+        </v-menu>
+      </div>
+    </template>
+
+    <template #header.assignedUsers="{ column }">
+      <div class="q-th-inner">
+        <span>{{ column.title }}</span>
+        <v-menu :close-on-content-click="false" max-width="260">
+          <template #activator="{ props: mp }">
+            <v-btn v-bind="mp" :icon="userFilter?.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="userFilter?.length ? 'primary' : undefined" class="q-filter-btn" @click.stop />
+          </template>
+          <v-card class="pa-2" min-width="220">
+            <v-text-field v-model="colSearch.user" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+            <div style="max-height:220px;overflow-y:auto;">
+              <v-checkbox
+                v-for="val in filteredUserColOptions"
+                :key="val"
+                :label="val"
+                :model-value="userFilter.includes(val)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleColFilter(userFilter, val)"
+              />
+              <div v-if="filteredUserColOptions.length === 0" class="text-caption text-medium-emphasis pa-2">No options</div>
+            </div>
+            <v-btn v-if="userFilter?.length" size="x-small" variant="text" color="error" class="mt-1" @click="userFilter.splice(0)">Clear</v-btn>
+          </v-card>
+        </v-menu>
+      </div>
     </template>
 
     <template #item.quoteNumber="{ item }">
@@ -173,17 +316,6 @@
       <v-btn icon="mdi-eye" variant="text" size="small" :to="`/quotes/${item.id}`" />
     </template>
 
-    <template #tfoot="{ items }">
-      <tr>
-        <td colspan="3" class="text-right font-weight-bold" style="padding: 10px 12px; font-size: 13px;">
-          Total
-        </td>
-        <td class="font-weight-bold" style="padding: 10px 12px; font-size: 13px; color: #4ade80;">
-          ${{ formatPrice(items.reduce((sum: number, q: any) => sum + (Number(q.totalAmount) || 0), 0)) }}
-        </td>
-        <td colspan="5"></td>
-      </tr>
-    </template>
   </DataListPage>
 
   <BulkPermissionManager v-model="showBulkPerms" entity-name="Quote" />
@@ -346,53 +478,26 @@ async function confirmReject() {
 const showBulkPerms = ref(false)
 const showBulkDownload = ref(false)
 
-// Use a different key to avoid conflicts with DataListPage's search/status
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes', {
   search: '',
   status: [] as string[],
   user: [] as string[],
   customer: [] as string[],
+  rfq: [] as string[],
   pnSearch: '',
+  quoteNumber: [] as string[],
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
 const statusFilter = pf.status
-const dateFrom = ref<string | null>(null)
-const dateTo = ref<string | null>(null)
+const rfqFilter = pf.rfq
+const quoteNumberFilter = pf.quoteNumber
 
-// P/N Search — filters datatable by matching quote IDs
+// P/N Search — passed as server-side filter param
 const pnSearch = pf.pnSearch
-const pnMatchedQuoteIds = ref<Set<number> | null>(null)
-const pnLoading = ref(false)
-let pnDebounce: any = null
-
-function searchByPN(val: string | null) {
-  clearTimeout(pnDebounce)
-  if (!val || val.length < 2) {
-    pnMatchedQuoteIds.value = null
-    return
-  }
-  pnLoading.value = true
-  pnDebounce = setTimeout(async () => {
-    try {
-      const results = await api.get<any[]>(`/quotes/search-by-pn?q=${encodeURIComponent(val)}`)
-      pnMatchedQuoteIds.value = new Set((results || []).map((r: any) => r.quoteId))
-    } catch {
-      pnMatchedQuoteIds.value = new Set()
-    } finally {
-      pnLoading.value = false
-    }
-  }, 300)
-}
 
 const allQuotes = ref<any[]>([])
-
-// Status options: unique statuses from loaded quotes (not filtered)
-const quoteStatusOptions = computed(() => {
-  const set = new Set<string>(['All'])
-  allQuotes.value.forEach((q: any) => { if (q.status) set.add(q.status) })
-  return Array.from(set).sort()
-})
+const quoteStatusOptions = ['Draft', 'Sent', 'Accepted', 'Rejected']
 
 onMounted(async () => {
   try {
@@ -401,82 +506,187 @@ onMounted(async () => {
   } catch {}
 })
 
-// Base set filtered by status (shared starting point for cascading options)
-const statusFilteredQuotes = computed(() =>
-  statusFilter.value?.length
-    ? allQuotes.value.filter((q: any) => statusFilter.value.includes(q.status))
-    : allQuotes.value
-)
+// Helper to filter items based on a set of active filters
+function filterQuotesBy(quotes: any[], activeFilters: { customer?: string[], status?: string[], user?: string[], rfq?: string[], quoteNumber?: string[] }) {
+  let result = quotes;
+  
+  if (activeFilters.customer?.length) {
+    result = result.filter(q => 
+      activeFilters.customer.includes(q.customerName) || 
+      (q.customerCode && activeFilters.customer.includes(q.customerCode))
+    );
+  }
+  
+  if (activeFilters.status?.length) {
+    result = result.filter(q => activeFilters.status.includes(q.status));
+  }
+  
+  if (activeFilters.user?.length) {
+    result = result.filter(q => 
+      (q.assignedUsers || []).some((u: any) => activeFilters.user.includes(u.name))
+    );
+  }
+  
+  if (activeFilters.rfq?.length) {
+    result = result.filter(q => {
+      const displayName = q.rfqName || (q.rfqId ? `RFQ #${q.rfqId}` : '');
+      return activeFilters.rfq.includes(displayName);
+    });
+  }
 
-// User options: only ASSIGNED users (not creator), cascades by customerFilter
-const userOptions = computed(() => {
-  const userSet = new Map<string, string>()
-  let source = statusFilteredQuotes.value
-  // cascade: if customer filter active, only users from those customers
-  if (customerFilter.value?.length) {
-    source = source.filter((q: any) =>
-      customerFilter.value.includes(q.customerName) ||
-      (q.customerCode && customerFilter.value.includes(q.customerCode))
-    )
+  if (activeFilters.quoteNumber?.length) {
+    result = result.filter(q => activeFilters.quoteNumber.includes(q.quoteNumber));
   }
-  source.forEach((q: any) => {
-    ;(q.assignedUsers || []).forEach((u: any) => {
-      if (u.name) userSet.set(u.name, u.name)
-    })
-  })
-  return Array.from(userSet.values()).sort()
-})
-
-// Customer options: cascades by userFilter (assigned users only)
-const customerOptions = computed(() => {
-  const custMap = new Map<string, string>()
-  let source = statusFilteredQuotes.value
-  // cascade: if user filter active, only customers where those users are assigned
-  if (userFilter.value?.length) {
-    source = source.filter((q: any) =>
-      (q.assignedUsers || []).some((u: any) => userFilter.value.includes(u.name))
-    )
-  }
-  source.forEach((q: any) => {
-    if (q.customerName && !custMap.has(q.customerName))
-      custMap.set(q.customerName, q.customerCode || '')
-  })
-  return Array.from(custMap.entries())
-    .map(([name, code]) => ({
-      title: code || '—',
-      value: name,
-    }))
-    .sort((a, b) => a.title.localeCompare(b.title))
-})
-
-function applyFilters(items: any[]) {
-  let result = items
-  // Filter by ASSIGNED users only — not the quote creator
-  if (userFilter.value?.length) {
-    result = result.filter((item: any) =>
-      item.assignedUsers?.some((u: any) => userFilter.value.includes(u.name))
-    )
-  }
-  if (customerFilter.value?.length) {
-    result = result.filter((item: any) =>
-      customerFilter.value.includes(item.customerName) ||
-      (item.customerCode && customerFilter.value.includes(item.customerCode))
-    )
-  }
-  if (dateFrom.value) {
-    const from = new Date(dateFrom.value).getTime()
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() >= from)
-  }
-  if (dateTo.value) {
-    const to = new Date(dateTo.value).getTime() + 86400000
-    result = result.filter((item: any) => new Date(item.createdAt).getTime() < to)
-  }
-  // P/N filter
-  if (pnMatchedQuoteIds.value !== null) {
-    result = result.filter((item: any) => pnMatchedQuoteIds.value!.has(item.id))
-  }
-  return result
+  
+  return result;
 }
+
+// ── Cascading Dropdown Options (Non-self-filtering to preserve multi-select checkboxes) ──
+
+const customerColOptions = computed(() => {
+  const matchingQuotes = filterQuotesBy(allQuotes.value, {
+    status: statusFilter.value,
+    user: userFilter.value,
+    rfq: rfqFilter.value,
+    quoteNumber: quoteNumberFilter.value
+  });
+  
+  const map = new Map<string, string>(); // name → code
+  for (const q of matchingQuotes) {
+    if (q.customerName && !map.has(q.customerName)) {
+      map.set(q.customerName, q.customerCode || '');
+    }
+  }
+  
+  return Array.from(map.entries())
+    .map(([name, code]) => ({ title: code || '-', value: name }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+});
+
+const userColOptions = computed(() => {
+  const matchingQuotes = filterQuotesBy(allQuotes.value, {
+    customer: customerFilter.value,
+    status: statusFilter.value,
+    rfq: rfqFilter.value,
+    quoteNumber: quoteNumberFilter.value
+  });
+  
+  const names = new Set<string>();
+  for (const q of matchingQuotes) {
+    for (const u of q.assignedUsers || []) {
+      if (u.name) names.add(u.name);
+    }
+  }
+  return [...names].sort();
+});
+
+const statusColOptions = computed(() => {
+  const matchingQuotes = filterQuotesBy(allQuotes.value, {
+    customer: customerFilter.value,
+    user: userFilter.value,
+    rfq: rfqFilter.value,
+    quoteNumber: quoteNumberFilter.value
+  });
+  
+  const statuses = new Set<string>();
+  for (const q of matchingQuotes) {
+    if (q.status) statuses.add(q.status);
+  }
+  
+  return quoteStatusOptions.filter(s => statuses.has(s));
+});
+
+const rfqColOptions = computed(() => {
+  const matchingQuotes = filterQuotesBy(allQuotes.value, {
+    customer: customerFilter.value,
+    status: statusFilter.value,
+    user: userFilter.value,
+    quoteNumber: quoteNumberFilter.value
+  });
+  
+  const names = new Set<string>();
+  for (const q of matchingQuotes) {
+    if (q.rfqName) {
+      names.add(q.rfqName);
+    } else if (q.rfqId) {
+      names.add(`RFQ #${q.rfqId}`);
+    }
+  }
+  return [...names].sort();
+});
+
+const quoteNumberColOptions = computed(() => {
+  const matchingQuotes = filterQuotesBy(allQuotes.value, {
+    customer: customerFilter.value,
+    status: statusFilter.value,
+    user: userFilter.value,
+    rfq: rfqFilter.value
+  });
+  
+  const numbers = new Set<string>();
+  for (const q of matchingQuotes) {
+    if (q.quoteNumber) numbers.add(q.quoteNumber);
+  }
+  return [...numbers].sort();
+});
+
+// Top-bar autocomplete options mapped to the cascading column options
+const userOptions = computed(() => userColOptions.value);
+const customerOptions = computed(() => customerColOptions.value);
+
+const extraParams = computed<Record<string, string | string[]>>(() => {
+  const p: Record<string, string | string[]> = {}
+  if (pnSearch.value) p.pnSearch = pnSearch.value
+  if (userFilter.value?.length) p.assignedUserNames = userFilter.value
+  if (customerFilter.value?.length) p.customerNames = customerFilter.value
+  if (rfqFilter.value?.length) p.rfqNames = rfqFilter.value
+  if (quoteNumberFilter.value?.length) p.quoteNumbers = quoteNumberFilter.value
+  return p
+})
+
+// ── Excel-style column filters — server-side ──
+// These refs feed directly into extraParams / DataListPage's status param,
+// so toggling a checkbox triggers a real backend fetch with the filter applied.
+const colSearch = reactive<Record<string, string>>({ customer: '', status: '', user: '', rfq: '', quoteNumber: '' })
+
+/** Toggle a value in a reactive string array (add if absent, remove if present).
+ *  Receives the unwrapped array — as Vue auto-unwraps refs in templates. */
+function toggleColFilter(arr: string[], val: string) {
+  const idx = arr.indexOf(val)
+  if (idx >= 0) arr.splice(idx, 1)
+  else arr.push(val)
+}
+
+/** Customer column options filtered by the in-dropdown search box only. */
+const filteredCustomerColOptions = computed(() => {
+  const s = colSearch.customer.toLowerCase()
+  return customerColOptions.value.filter(o => !s || o.title.toLowerCase().includes(s) || o.value.toLowerCase().includes(s))
+})
+
+/** Status column options — static list, filtered by search box. */
+const filteredStatusColOptions = computed(() => {
+  const s = colSearch.status.toLowerCase()
+  return statusColOptions.value.filter(v => !s || v.toLowerCase().includes(s))
+})
+
+/** User column options filtered by the in-dropdown search box only. */
+const filteredUserColOptions = computed(() => {
+  const s = colSearch.user.toLowerCase()
+  return userColOptions.value.filter(v => !s || v.toLowerCase().includes(s))
+})
+
+/** RFQ column options filtered by the in-dropdown search box only. */
+const filteredRfqColOptions = computed(() => {
+  const s = colSearch.rfq.toLowerCase()
+  return rfqColOptions.value.filter(v => !s || v.toLowerCase().includes(s))
+})
+
+/** Quote# column options filtered by the in-dropdown search box only. */
+const filteredQuoteNumberColOptions = computed(() => {
+  const s = colSearch.quoteNumber.toLowerCase()
+  return quoteNumberColOptions.value.filter(v => !s || v.toLowerCase().includes(s))
+})
+
 const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
   { title: 'RFQ Name', key: 'rfqName' },
@@ -489,3 +699,9 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 </script>
+
+<style scoped>
+.q-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.q-filter-btn { opacity: 0.5; flex-shrink: 0; }
+.q-filter-btn:hover, .q-filter-btn.v-btn--active { opacity: 1; }
+</style>

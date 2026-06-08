@@ -28,14 +28,33 @@ public class InvoiceService : IInvoiceService
         _procurementService = procurementService;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
+            .AsNoTracking()
             .Include(i => i.Customer)
             .Include(i => i.Quote)
             .Include(i => i.InvoiceItems);
 
-        if (!isAdmin)
+        if (!isSuperAdmin && userBases != null)
+        {
+            var permittedInvoiceIdsStr = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Invoice")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+
+            var permittedIds = permittedInvoiceIdsStr
+                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .ToList();
+
+            query = query.Where(i =>
+                i.Customer == null ||
+                i.Customer.Base == null ||
+                userBases.Contains(i.Customer.Base.Value) ||
+                permittedIds.Contains(i.Id) ||
+                i.Quote.UserId == userId);
+        }
+        else if (!isAdmin)
         {
             var permittedInvoiceIdsStr = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "Invoice")
@@ -49,30 +68,74 @@ public class InvoiceService : IInvoiceService
             query = query.Where(i => i.Quote.UserId == userId || permittedIds.Contains(i.Id));
         }
 
+        // By default, hide cancelled invoices unless "Cancelled" is explicitly requested
+        bool cancelledRequested = status == "Cancelled" || (statuses != null && statuses.Contains("Cancelled"));
+        if (status == "Cancelled")
+            query = query.Where(i => i.IsCancelled);
+        else if (!cancelledRequested)
+            query = query.Where(i => !i.IsCancelled);
+
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
             var s = page.Search.Trim();
             query = query.Where(i => i.InvoiceNumber.Contains(s) || i.Customer.Name.Contains(s));
         }
 
-        if (!string.IsNullOrWhiteSpace(status) && status != "All")
+        if (!string.IsNullOrWhiteSpace(status) && status != "All" && status != "Cancelled")
             query = query.Where(i => i.Status == status);
 
         if (!string.IsNullOrWhiteSpace(customer))
             query = query.Where(i => i.Customer.Name.Contains(customer));
 
-        query = query.OrderByDescending(i => i.CreatedAt);
+        if (customerCodes?.Count > 0)
+        {
+            var codes = customerCodes.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (codes.Count > 0)
+            {
+                var hasNullPlaceholder = codes.Contains("-") || codes.Contains("—");
+                query = query.Where(i => 
+                    codes.Contains(i.Customer.CustomerCode) ||
+                    (hasNullPlaceholder && (i.Customer.CustomerCode == null || i.Customer.CustomerCode == ""))
+                );
+            }
+        }
+
+        if (statuses?.Count > 0)
+        {
+            var sts = statuses.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (sts.Count > 0)
+                query = query.Where(i => sts.Contains(i.Status));
+        }
+
+        if (invoiceNumbers?.Count > 0)
+        {
+            var invs = invoiceNumbers.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            if (invs.Count > 0)
+                query = query.Where(i => invs.Contains(i.InvoiceNumber));
+        }
+
+        query = sortBy switch
+        {
+            "invoiceNumber" => sortDesc ? query.OrderByDescending(i => i.InvoiceNumber) : query.OrderBy(i => i.InvoiceNumber),
+            "customerCode"  => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.CustomerCode : "") : query.OrderBy(i => i.Customer != null ? i.Customer.CustomerCode : ""),
+            "subject"       => sortDesc ? query.OrderByDescending(i => i.Subject) : query.OrderBy(i => i.Subject),
+            "totalAmount"   => sortDesc ? query.OrderByDescending(i => i.TotalAmount) : query.OrderBy(i => i.TotalAmount),
+            "status"        => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
+            "createdAt"     => sortDesc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
+            _               => query.OrderByDescending(i => i.CreatedAt),
+        };
 
         var totalCount = await query.CountAsync();
+        var totalAmountSum = await query.SumAsync(i => (decimal?)i.TotalAmount) ?? 0m;
         var items = await query
-            .Skip((page.Page - 1) * page.PageSize)
-            .Take(page.PageSize)
+            .ApplyPaging(page)
             .ToListAsync();
 
         return new PagedResult<InvoiceResponse>
         {
             Items = items.Select(MapToResponse).ToList(),
             TotalCount = totalCount,
+            TotalAmountSum = totalAmountSum,
             Page = page.Page,
             PageSize = page.PageSize
         };
@@ -167,7 +230,9 @@ public class InvoiceService : IInvoiceService
             PaymentStatus = request.PaymentStatus,
             PrepaymentPercent = request.PaymentStatus == "Prepayment" ? request.PrepaymentPercent : null,
             DueDate = request.DueDate,
+            DeadlineDate = request.DeadlineDate,
             CustomerPONumber = request.CustomerPONumber,
+            CustomerPODate = request.CustomerPODate,
             Subject = request.Subject,
             CreatedAt = DateTime.UtcNow,
             InvoiceItems = invoiceItems
@@ -227,6 +292,9 @@ public class InvoiceService : IInvoiceService
             {
                 item.Discount = null;
             }
+
+            if (itemReq.ExpectedDeliveryDate.HasValue)
+                item.ExpectedDeliveryDate = itemReq.ExpectedDeliveryDate;
         }
 
         // Recalculate invoice total as sum of final prices
@@ -242,8 +310,13 @@ public class InvoiceService : IInvoiceService
         if (invoice == null) return false;
 
         if (request.DueDate.HasValue) invoice.DueDate = request.DueDate.Value;
+        if (request.DeadlineDate.HasValue) invoice.DeadlineDate = request.DeadlineDate.Value;
         if (request.CustomerPONumber != null) invoice.CustomerPONumber = request.CustomerPONumber;
+        invoice.CustomerPODate = request.CustomerPODate;
         if (request.Subject != null) invoice.Subject = request.Subject;
+        if (request.Tax.HasValue) invoice.Tax = request.Tax.Value;
+        if (request.Shipping.HasValue) invoice.Shipping = request.Shipping.Value;
+        if (request.ProcessingFee.HasValue) invoice.ProcessingFee = request.ProcessingFee.Value;
         if (request.PaymentStatus != null)
         {
             invoice.PaymentStatus = request.PaymentStatus;
@@ -266,6 +339,7 @@ public class InvoiceService : IInvoiceService
             .Include(i => i.Quote)
             .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.QuoteItem)
+                    .ThenInclude(qi => qi!.PartNumber)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (invoice == null) return false;
@@ -282,6 +356,26 @@ public class InvoiceService : IInvoiceService
         // Only admin can move past Pending
         var adminOnlyStatuses = new[] { "Running", "Waiting For PrePayment", "Delivered", "Finish" };
         if (adminOnlyStatuses.Contains(status) && !isAdmin) return false;
+
+        // ── QTY mismatch guard: block auto-finalize when invoice qty differs from quote qty ──
+        if (status == "Running" && autoFinalize)
+        {
+            var mismatchedItems = invoice.InvoiceItems
+                .Where(ii => ii.QuoteItem != null && ii.Qty != ii.QuoteItem.Qty)
+                .Select(ii => ii.QuoteItem!.PartNumber?.Name ?? $"Item #{ii.Id}")
+                .ToList();
+
+            if (mismatchedItems.Count > 0)
+            {
+                var partList = string.Join(", ", mismatchedItems.Take(5));
+                var suffix = mismatchedItems.Count > 5 ? $" (+{mismatchedItems.Count - 5} more)" : "";
+                throw new InvalidOperationException(
+                    $"Cannot auto-finalize: QTY was changed on {mismatchedItems.Count} item(s) " +
+                    $"({partList}{suffix}) compared to the supplier quote. " +
+                    "Auto-finalize cannot automatically adjust supplier quantities. " +
+                    "Please choose manual finalization and update the quantities in the Procurement page.");
+            }
+        }
 
         invoice.Status = status;
 
@@ -318,6 +412,94 @@ public class InvoiceService : IInvoiceService
         return true;
     }
 
+    /// <summary>
+    /// Soft-cancel a Proforma Invoice. Sets IsCancelled = true, CancelledAt = now, Status = "Cancelled".
+    /// Cascades: cancels all linked POs, Procurements, ProcurementItems, and unassigned POItems.
+    /// Cannot cancel an invoice that already has a Final Invoice created from it.
+    /// </summary>
+    public async Task<bool> CancelAsync(long id)
+    {
+        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        if (invoice == null || invoice.IsCancelled) return false;
+
+        invoice.IsCancelled = true;
+        invoice.CancelledAt = DateTime.UtcNow;
+        invoice.Status = "Cancelled";
+
+        // ── 1. Cancel all POs linked to this invoice (skip already-terminal ones) ──
+        var terminalPOStatuses = new[] { "Completed", "Returned", "Cancelled" };
+        var linkedPOs = await _db.Set<PurchaseOrder>()
+            .Where(po => po.InvoiceId == id && !terminalPOStatuses.Contains(po.Status))
+            .ToListAsync();
+        foreach (var po in linkedPOs)
+            po.Status = "Cancelled";
+
+        // ── 2. Cancel all Procurements linked to this invoice ──
+        var linkedProcs = await _db.Set<Procurement>()
+            .Include(p => p.Items)
+            .Where(p => p.InvoiceId == id && p.Status != "Cancelled")
+            .ToListAsync();
+        foreach (var proc in linkedProcs)
+        {
+            proc.Status = "Cancelled";
+            foreach (var item in proc.Items.Where(i => i.ItemStatus != "Cancelled"))
+                item.ItemStatus = "Cancelled";
+        }
+
+        // ── 3. Cancel unassigned POItems that trace back to this invoice ──
+        // (POItems created from finalized Procurement but not yet grouped into a PO)
+        var invoiceItemIds = await _db.Set<InvoiceItem>()
+            .Where(ii => ii.InvoiceId == id)
+            .Select(ii => ii.Id)
+            .ToListAsync();
+        if (invoiceItemIds.Count > 0)
+        {
+            var unassignedPOItems = await _db.Set<POItem>()
+                .Where(pi => pi.POId == null && pi.InvoiceItemId != null
+                             && invoiceItemIds.Contains(pi.InvoiceItemId!.Value)
+                             && pi.ReturnedAt == null)
+                .ToListAsync();
+            foreach (var pi in unassignedPOItems)
+                pi.Status = "Cancelled";
+        }
+
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Returns prepayment check info: whether the customer's total POP (Customer Payments)
+    /// meets the required PrepaymentPercent of the invoice total.
+    /// </summary>
+    public async Task<PrepaymentCheckResponse?> GetPrepaymentCheckAsync(long id)
+    {
+        var invoice = await _db.Set<Invoice>()
+            .AsNoTracking()
+            .Where(i => i.Id == id)
+            .Select(i => new { i.TotalAmount, i.PaymentStatus, i.PrepaymentPercent })
+            .FirstOrDefaultAsync();
+
+        if (invoice == null) return null;
+
+        var totalPaid = await _db.Set<CustomerPayment>()
+            .Where(p => p.InvoiceId == id)
+            .SumAsync(p => (decimal?)p.Amount) ?? 0m;
+
+        var requiredAmount = invoice.PaymentStatus == "Prepayment" && invoice.PrepaymentPercent.HasValue
+            ? Math.Round(invoice.TotalAmount * invoice.PrepaymentPercent.Value / 100, 2)
+            : 0m;
+
+        return new PrepaymentCheckResponse
+        {
+            PaymentStatus = invoice.PaymentStatus,
+            PrepaymentPercent = invoice.PrepaymentPercent,
+            TotalAmount = invoice.TotalAmount,
+            RequiredAmount = requiredAmount,
+            TotalPaid = totalPaid,
+            IsSufficient = invoice.PaymentStatus != "Prepayment" || totalPaid >= requiredAmount
+        };
+    }
+
     private static InvoiceResponse MapToResponse(Invoice i)
     {
         // Build rank map from the full ordered RFQ item list (same logic as QuoteService).
@@ -338,13 +520,20 @@ public class InvoiceService : IInvoiceService
             InvoiceNumber = i.InvoiceNumber,
             TotalAmount = i.TotalAmount,
             Status = i.Status,
+            IsCancelled = i.IsCancelled,
+            CancelledAt = i.CancelledAt,
             PaymentStatus = i.PaymentStatus,
             PrepaymentPercent = i.PrepaymentPercent,
             DueDate = i.DueDate,
+            DeadlineDate = i.DeadlineDate,
             PaidDate = i.PaidDate,
             CreatedAt = i.CreatedAt,
             CustomerPONumber = i.CustomerPONumber,
+            CustomerPODate = i.CustomerPODate,
             Subject = i.Subject,
+            Tax = i.Tax,
+            Shipping = i.Shipping,
+            ProcessingFee = i.ProcessingFee,
             QuoteId = i.QuoteId,
             CustomerId = i.CustomerId,
             CustomerName = i.Customer?.Name ?? "",
@@ -355,11 +544,17 @@ public class InvoiceService : IInvoiceService
             CustomerBillTo = i.Customer?.BillTo,
             CustomerShipTo = i.Customer?.ShipTo,
             CustomerShippingAccount = i.Customer?.ShippingAccount,
-            CustomerTermsAndConditions = i.Customer?.TermsAndConditions,
+            CustomerTermsAndConditions = !string.IsNullOrWhiteSpace(i.Customer?.PITermsAndConditions)
+                ? i.Customer.PITermsAndConditions
+                : i.Customer?.TermsAndConditions,
             CustomerCurrencyType = i.Customer?.CurrencyType,
+            CustomerBase = i.Customer?.Base,
             RfqExType = i.InvoiceItems?
                 .Select(ii => ii.QuoteItem?.RFQItem?.RFQ?.ExType)
                 .FirstOrDefault(x => x.HasValue),
+            DefaultDepositWalletId = i.DefaultDepositWalletId,
+            QuoteCoefYuan = i.Quote?.CoefYuan,
+            QuoteExchangeRateYuan = i.Quote?.ExchangeRateYuan,
             Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse
             {
                 Id = ii.Id,
@@ -374,6 +569,7 @@ public class InvoiceService : IInvoiceService
                                rfqItemRank.TryGetValue(ii.QuoteItem.RFQItemId!.Value, out var rank)
                                ? rank.ToString() : null,
                 PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
+                Alt = ii.QuoteItem?.Alt,
                 Description = ii.QuoteItem?.PartNumber?.Description ?? "",
                 Condition = ii.QuoteItem?.Condition,
                 CertName = ii.QuoteItem?.ProcumentRecord?.CertName,

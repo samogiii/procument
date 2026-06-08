@@ -47,8 +47,8 @@
             <div class="detail-row"><v-icon icon="mdi-web" size="14" class="mr-1" />{{ preset.website || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-email" size="14" class="mr-1" />{{ preset.email || '—' }}</div>
 
-            <!-- Bank Details Summary -->
-            <div v-if="preset.bankName" class="mt-2 pa-2 bg-surface-variant rounded-sm border">
+            <!-- Bank Details Summary — hidden: bank details moved to individual wallets -->
+            <div v-if="false && preset.bankName" class="mt-2 pa-2 bg-surface-variant rounded-sm border">
               <div class="text-caption font-weight-bold text-primary mb-1">BANK DETAILS</div>
               <div class="detail-row"><v-icon icon="mdi-bank" size="12" class="mr-1" />{{ preset.bankName }}</div>
               <div class="detail-row"><v-icon icon="mdi-numeric" size="12" class="mr-1" />{{ preset.accountNumber }}</div>
@@ -177,8 +177,8 @@
               />
             </v-col>
 
-            <!-- Bank Details -->
-            <v-col cols="12">
+            <!-- Bank Details — hidden: bank details moved to individual wallets -->
+            <v-col v-if="false" cols="12">
               <div class="text-caption font-weight-bold text-medium-emphasis mb-2">BANK DETAILS</div>
               <v-row dense>
                 <v-col cols="12" md="6">
@@ -283,6 +283,25 @@
                   </div>
                 </div>
               </div>
+            </v-col>
+            <!-- Linked Warehouses for Ship To -->
+            <v-col cols="12">
+              <div class="text-caption font-weight-bold text-medium-emphasis mb-2">LINKED WAREHOUSES (Ship To in PDF)</div>
+              <v-autocomplete
+                v-model="selectedWarehouseIds"
+                :items="allWarehouses"
+                item-title="name"
+                item-value="id"
+                label="Warehouses"
+                variant="outlined"
+                density="compact"
+                hide-details
+                multiple
+                chips
+                closable-chips
+                prepend-inner-icon="mdi-home-city-outline"
+                placeholder="Select warehouses that can be used as Ship To"
+              />
             </v-col>
           </v-row>
         </v-card-text>
@@ -403,6 +422,9 @@ const showDeleteConfirm = ref(false)
 const deleteTarget = ref<any>(null)
 const editingId = ref<number | null>(null)
 const logoPreview = ref<string | null>(null)
+const allWarehouses = ref<any[]>([])
+const selectedWarehouseIds = ref<number[]>([])
+const originalWarehouseIds = ref<number[]>([])
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -435,6 +457,9 @@ const form = ref(defaultForm())
 
 onMounted(async () => {
   await loadPresets()
+  try {
+    allWarehouses.value = await api.get('/warehouses')
+  } catch { allWarehouses.value = [] }
 })
 
 async function loadPresets() {
@@ -452,10 +477,12 @@ function openCreate() {
   editingId.value = null
   form.value = defaultForm()
   logoPreview.value = null
+  selectedWarehouseIds.value = []
+  originalWarehouseIds.value = []
   showDialog.value = true
 }
 
-function openEdit(preset: any) {
+async function openEdit(preset: any) {
   editingId.value = preset.id
   form.value = {
     name: preset.name,
@@ -482,6 +509,15 @@ function openEdit(preset: any) {
   logoPreview.value = preset.logoBase64
     ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
     : null
+  // Load linked warehouses
+  selectedWarehouseIds.value = []
+  originalWarehouseIds.value = []
+  try {
+    const linked = await api.get(`/companypresets/${preset.id}/warehouses`)
+    const ids = linked.map((w: any) => w.id)
+    selectedWarehouseIds.value = [...ids]
+    originalWarehouseIds.value = [...ids]
+  } catch { /* ignore */ }
   showDialog.value = true
 }
 
@@ -515,12 +551,23 @@ async function savePreset() {
   }
   saving.value = true
   try {
+    let presetId = editingId.value
     if (editingId.value) {
       await api.put(`/companypresets/${editingId.value}`, form.value)
       showSnack('Preset updated', 'success')
     } else {
-      await api.post('/companypresets', form.value)
+      const res = await api.post('/companypresets', form.value)
+      presetId = res?.id ?? null
       showSnack('Preset created', 'success')
+    }
+    // Sync warehouse links
+    if (presetId) {
+      const toAdd = selectedWarehouseIds.value.filter(id => !originalWarehouseIds.value.includes(id))
+      const toRemove = originalWarehouseIds.value.filter(id => !selectedWarehouseIds.value.includes(id))
+      await Promise.all([
+        ...toAdd.map(wid => api.post(`/companypresets/${presetId}/warehouses/${wid}`, {})),
+        ...toRemove.map(wid => api.delete(`/companypresets/${presetId}/warehouses/${wid}`)),
+      ])
     }
     showDialog.value = false
     await loadPresets()

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -20,14 +21,46 @@ public class CustomersController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult> GetAll(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
+        [FromQuery] string? search = null,
+        [FromQuery(Name = "base")] int? baseFilter = null,
+        [FromQuery] string? sortBy = null, [FromQuery] bool sortDesc = false)
     {
-        var query = _db.Set<Customer>().OrderBy(c => c.Name);
+        IQueryable<Customer> query = _db.Set<Customer>();
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim();
-            query = (IOrderedQueryable<Customer>)query.Where(c => c.Name.Contains(s) || (c.CustomerCode != null && c.CustomerCode.Contains(s)));
+            query = query.Where(c => c.Name.Contains(s) || (c.CustomerCode != null && c.CustomerCode.Contains(s)));
         }
+        // Explicit base filter from query param (used for admin viewing a specific base)
+        if (baseFilter != null)
+            query = query.Where(c => c.Base == baseFilter);
+        else if (!User.IsInRole("SuperAdmin"))
+        {
+            // All non-SuperAdmin users (including Admin) always see only:
+            // null-base customers + their assigned base customers + individually assigned customers
+            var basesClaim = User.FindFirst("bases")?.Value ?? "";
+            int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s2 => int.TryParse(s2, out var b) ? b : -1)
+                .Where(b => b > 0).ToArray();
+            var userId = GetCurrentUserId();
+            var assignedIds = await GetUserAssignedCustomerIdsAsync(userId);
+            query = query.Where(c =>
+                c.Base == null ||
+                userBases.Contains(c.Base.Value) ||
+                assignedIds.Contains(c.Id));
+        }
+
+        query = sortBy switch
+        {
+            "customerCode"    => sortDesc ? query.OrderByDescending(c => c.CustomerCode)   : query.OrderBy(c => c.CustomerCode),
+            "email"           => sortDesc ? query.OrderByDescending(c => c.Email)          : query.OrderBy(c => c.Email),
+            "phone"           => sortDesc ? query.OrderByDescending(c => c.Phone)          : query.OrderBy(c => c.Phone),
+            "base"            => sortDesc ? query.OrderByDescending(c => c.Base)           : query.OrderBy(c => c.Base),
+            "isActive"        => sortDesc ? query.OrderByDescending(c => c.IsActive)       : query.OrderBy(c => c.IsActive),
+            "createdAt"       => sortDesc ? query.OrderByDescending(c => c.CreatedAt)      : query.OrderBy(c => c.CreatedAt),
+            _                 => sortDesc ? query.OrderByDescending(c => c.Name)           : query.OrderBy(c => c.Name),
+        };
         var pq = new PageQuery { Page = page, PageSize = pageSize };
         var total = await query.CountAsync();
         var items = await query
@@ -49,6 +82,10 @@ public class CustomersController : ControllerBase
                 c.TermsAndConditions,
                 c.CurrencyType,
                 c.ExWork,
+                c.PITermsAndConditions,
+                c.CompanyType,
+                c.Country,
+                c.Emails,
                 c.IsActive,
                 c.CreatedAt
             })
@@ -57,15 +94,59 @@ public class CustomersController : ControllerBase
         return Ok(new PagedResult<object> { Items = items.Cast<object>().ToList(), TotalCount = total, Page = pq.Page, PageSize = pq.PageSize });
     }
 
+    /// <summary>
+    /// Returns the next available customer code for a given base.
+    /// Pattern: C{base}{seq} — e.g. base=3 scans C3XX codes → returns "C304" if max is C303.
+    /// If no codes exist for the base yet, starts at C{base * 100}.
+    /// </summary>
+    [HttpGet("next-code")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> GetNextCode([FromQuery(Name = "base")] int baseNumber)
+    {
+        var prefix = $"C{baseNumber}";
+        var codes = await _db.Set<Customer>()
+            .Where(c => c.Base == baseNumber && c.CustomerCode != null && c.CustomerCode.StartsWith(prefix))
+            .Select(c => c.CustomerCode!)
+            .ToListAsync();
+
+        // Parse numeric part after the leading "C" and find the maximum
+        var maxNum = codes
+            .Select(code => code.Length > 1 && int.TryParse(code[1..], out var n) ? n : 0)
+            .DefaultIfEmpty(baseNumber * 100 - 1)   // e.g. base 3 → first code = C300
+            .Max();
+
+        return Ok(new { nextCode = $"C{maxNum + 1}" });
+    }
+
     [HttpGet("search")]
-    public async Task<ActionResult> Search([FromQuery] string q)
+    public async Task<ActionResult> Search([FromQuery] string q, [FromQuery] bool all = false)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 1)
             return Ok(Array.Empty<object>());
 
         // Match by Name OR CustomerCode so non-admin users (who only see codes) can search.
-        var results = await _db.Set<Customer>()
-            .Where(c => c.IsActive && (c.Name.Contains(q) || (c.CustomerCode != null && c.CustomerCode.Contains(q))))
+        IQueryable<Customer> query = _db.Set<Customer>()
+            .Where(c => c.IsActive && (c.Name.Contains(q) || (c.CustomerCode != null && c.CustomerCode.Contains(q))));
+
+        // Only SuperAdmin sees all customers unrestricted.
+        // `all=true` is a SuperAdmin-only override used by the user-management assign dialog.
+        if (!User.IsInRole("SuperAdmin") && !(all && User.IsInRole("SuperAdmin")))
+        {
+            // All non-SuperAdmin users (including Admin) always see only:
+            // null-base customers + their assigned base customers + individually assigned customers
+            var basesClaim = User.FindFirst("bases")?.Value ?? "";
+            int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => int.TryParse(s, out var b) ? b : -1)
+                .Where(b => b > 0).ToArray();
+            var userId = GetCurrentUserId();
+            var assignedIds = await GetUserAssignedCustomerIdsAsync(userId);
+            query = query.Where(c =>
+                c.Base == null ||
+                userBases.Contains(c.Base.Value) ||
+                assignedIds.Contains(c.Id));
+        }
+
+        var results = await query
             .OrderBy(c => c.Name)
             .Take(10)
             .Select(c => new { c.Id, c.Name, c.CustomerCode })
@@ -102,6 +183,11 @@ public class CustomersController : ControllerBase
             TermsAndConditions = dto.TermsAndConditions,
             CurrencyType = dto.CurrencyType,
             ExWork = dto.ExWork,
+            PITermsAndConditions = dto.PITermsAndConditions,
+            CompanyType = dto.CompanyType,
+            Country = dto.Country,
+            Emails = dto.Emails,
+            Website = dto.Website,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -129,6 +215,11 @@ public class CustomersController : ControllerBase
         entity.TermsAndConditions = dto.TermsAndConditions;
         entity.CurrencyType = dto.CurrencyType;
         entity.ExWork = dto.ExWork;
+        entity.PITermsAndConditions = dto.PITermsAndConditions;
+        entity.CompanyType = dto.CompanyType;
+        entity.Country = dto.Country;
+        entity.Emails = dto.Emails;
+        entity.Website = dto.Website;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -142,6 +233,41 @@ public class CustomersController : ControllerBase
         _db.Set<Customer>().Remove(entity);
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private long GetCurrentUserId()
+    {
+        var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return claim != null && long.TryParse(claim, out var id) ? id : 0;
+    }
+
+    /// <summary>Returns the customer IDs individually assigned to the current user via the UserCustomers table.</summary>
+    private async Task<List<long>> GetUserAssignedCustomerIdsAsync(long userId)
+    {
+        if (userId <= 0) return [];
+        var conn = _db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        if (!wasOpen) await conn.OpenAsync();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT CustomerId FROM UserCustomers WHERE UserId = @userId";
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@userId";
+            param.Value = userId;
+            cmd.Parameters.Add(param);
+            using var reader = await cmd.ExecuteReaderAsync();
+            var ids = new List<long>();
+            while (await reader.ReadAsync())
+                ids.Add(reader.GetInt64(0));
+            return ids;
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
     }
 }
 
@@ -160,6 +286,11 @@ public class CustomerDto
     public string? TermsAndConditions { get; set; }
     public string? CurrencyType { get; set; }
     public int? ExWork { get; set; }
+    public string? PITermsAndConditions { get; set; }
+    public string? CompanyType { get; set; }
+    public string? Country { get; set; }
+    public string? Emails { get; set; }
+    public string? Website { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════

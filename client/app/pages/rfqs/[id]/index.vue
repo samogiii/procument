@@ -133,7 +133,7 @@
               <v-icon icon="mdi-tag-outline" size="20" />
             </v-avatar>
             <div>
-              <p class="text-caption text-medium-emphasis mb-0">ExType</p>
+              <p class="text-caption text-medium-emphasis mb-0">Exworks</p>
               <v-menu>
                 <template #activator="{ props: menuProps }">
                   <v-chip
@@ -147,12 +147,12 @@
                   </v-chip>
                 </template>
                 <v-list density="compact" style="min-width: 180px">
-                  <v-list-subheader>Change ExType</v-list-subheader>
+                  <v-list-subheader>Change Exworks</v-list-subheader>
                   <v-list-item
-                    v-for="opt in exTypeOptions"
+                    v-for="opt in exTypeMenuOptions"
                     :key="opt.value"
                     :value="opt.value"
-                    :active="rfq.exType === opt.value"
+                    :active="rfq.exType === opt.value || (opt.value === 1 && rfq.exType === 2)"
                     @click="changeExType(opt.value)"
                   >
                     <template #prepend>
@@ -605,7 +605,7 @@
                         </span>
                         <v-chip
                           v-for="s in getSuggestions(item.id).recentQuotes"
-                          :key="'recent-' + s.supplierId"
+                          :key="'recent-' + s.supplierId + '-' + (s.condition || 'NE')"
                           size="small"
                           color="amber"
                           variant="tonal"
@@ -614,10 +614,11 @@
                           @click="applySuggestion(item, s)"
                         >
                           {{ s.supplierName }}
+                          <span class="text-caption ml-1 text-medium-emphasis">{{ s.condition || 'NE' }}</span>
                           <span class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
                         </v-chip>
                         <v-btn
-                          v-if="getSuggestions(item.id).recentQuotes.length > 1"
+                          v-if="getSuggestions(item.id).recentQuotes.length > 0"
                           size="x-small"
                           variant="outlined"
                           color="amber"
@@ -709,7 +710,7 @@
                       <table class="quote-grid">
                         <thead>
                           <tr>
-                            <th style="opacity:1; min-width: 160px; position: sticky; left: 0; background: #252A37; z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
+                            <th style="opacity:1; min-width: 160px; position: sticky; left: 0; background: rgb(var(--v-theme-surface)); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                             <th style="min-width: 80px;">Cond</th>
                             <th style="min-width: 130px;">Alt P/N</th>
                             <th style="min-width: 70px;">Qty</th>
@@ -730,7 +731,7 @@
                         <tbody>
                           <template v-for="(quote, qIdx) in getItemQuotes(item.id)" :key="qIdx">
                           <tr class="quote-row">
-                            <td style="position: sticky; left: 0; background: #252A37; opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
+                            <td style="position: sticky; left: 0; background: rgb(var(--v-theme-surface)); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                               <input
                                 type="text"
                                 class="quote-input"
@@ -811,7 +812,9 @@
                               <span
                                 v-else
                                 class="quote-input price-display"
+                                tabindex="0"
                                 @click="focusField(`price-${qIdx}-${item.id}`)"
+                                @focus="focusField(`price-${qIdx}-${item.id}`)"
                               >
                                 {{ quote.price ? '$' + formatPrice(quote.price) : '' }}
                               </span>
@@ -851,7 +854,9 @@
                               <span
                                 v-else
                                 class="quote-input price-display"
+                                tabindex="0"
                                 @click="focusField(`ship-${qIdx}-${item.id}`)"
+                                @focus="focusField(`ship-${qIdx}-${item.id}`)"
                               >
                                 {{ quote.shippingCost ? '$' + formatPrice(quote.shippingCost) : '' }}
                               </span>
@@ -952,7 +957,7 @@
                                 <table class="quote-grid" v-if="(quote.shopRecords || []).length > 0" style="width: 100%; border-collapse: collapse;">
                                   <thead>
                                     <tr>
-                                      <th style="opacity:1; position: sticky; left: 0; background: #252A37; z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
+                                      <th style="opacity:1; position: sticky; left: 0; background: rgb(var(--v-theme-surface)); z-index: 3; border-right: 1px solid var(--card-border);">Supplier</th>
                                       <th>Alt P/N</th>
                                       <th>Condition</th>
                                       <th>Qty</th>
@@ -972,7 +977,7 @@
                                   </thead>
                                   <tbody>
                                     <tr v-for="(shop, sIdx) in quote.shopRecords" :key="'shop-' + sIdx" class="shop-row">
-                                      <td style="position: sticky; left: 0; background: #252A37; opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
+                                      <td style="position: sticky; left: 0; background: rgb(var(--v-theme-surface)); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                                         <input type="text" class="quote-input" placeholder="Shop name..." v-model="shop.supplierName" @input="searchSupplier(shop.supplierName)" list="supplier-suggestions" />
                                       </td>
                                       <td><input type="text" class="quote-input" placeholder="Same P/N" v-model="shop.alt" /></td>
@@ -995,11 +1000,11 @@
                                       </td>
                                       <td>
                                         <input v-if="focusedField === `shop-price-${sIdx}-${quote.id}`" :data-focus-key="`shop-price-${sIdx}-${quote.id}`" type="number" class="quote-input price-input" placeholder="0.00" v-model.number="shop.price" step="0.01" min="0" @blur="focusedField = ''" />
-                                        <span v-else class="quote-input price-display" @click="focusField(`shop-price-${sIdx}-${quote.id}`)">{{ shop.price ? '$' + formatPrice(shop.price) : '' }}</span>
+                                        <span v-else class="quote-input price-display" tabindex="0" @click="focusField(`shop-price-${sIdx}-${quote.id}`)" @focus="focusField(`shop-price-${sIdx}-${quote.id}`)">{{ shop.price ? '$' + formatPrice(shop.price) : '' }}</span>
                                       </td>
                                       <td v-if="quote.condition === 'AR'">
                                         <input v-if="focusedField === `shop-fix-${sIdx}-${quote.id}`" :data-focus-key="`shop-fix-${sIdx}-${quote.id}`" type="number" class="quote-input price-input" style="color: #ff9800;" placeholder="0.00" v-model.number="shop.fixPrice" step="0.01" min="0" @blur="focusedField = ''" />
-                                        <span v-else class="quote-input price-display" style="color: #ff9800;" @click="focusField(`shop-fix-${sIdx}-${quote.id}`)">{{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}</span>
+                                        <span v-else class="quote-input price-display" style="color: #ff9800;" tabindex="0" @click="focusField(`shop-fix-${sIdx}-${quote.id}`)" @focus="focusField(`shop-fix-${sIdx}-${quote.id}`)">{{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}</span>
                                       </td>
                                       <td>
                                         <select class="quote-input quote-select" v-model="shop.certName">
@@ -1016,7 +1021,7 @@
                                       <td><input type="date" class="quote-input" v-model="shop.tagDate" :max="today" /></td>
                                       <td>
                                         <input v-if="focusedField === `shop-ship-${sIdx}-${quote.id}`" :data-focus-key="`shop-ship-${sIdx}-${quote.id}`" type="number" class="quote-input price-input" placeholder="0.00" v-model.number="shop.shippingCost" step="0.01" min="0" @blur="focusedField = ''" />
-                                        <span v-else class="quote-input price-display" @click="focusField(`shop-ship-${sIdx}-${quote.id}`)">{{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '' }}</span>
+                                        <span v-else class="quote-input price-display" tabindex="0" @click="focusField(`shop-ship-${sIdx}-${quote.id}`)" @focus="focusField(`shop-ship-${sIdx}-${quote.id}`)">{{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '' }}</span>
                                       </td>
                                       <td><input type="text" class="quote-input" placeholder="City / Hub" v-model="shop.shippingPoint" /></td>
                                       <td><input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="shop.leadTime" /></td>
@@ -1502,10 +1507,16 @@ const isAdmin = computed(() => authStore.isAdmin)
 const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('rfq', entityId)
 
+// value 1 and 2 are both treated as Vendor/Customer; keep value 2 for display of legacy data
 const exTypeOptions = [
   { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
-  { value: 1, label: 'Ex Vendor', icon: 'mdi-truck-outline', color: 'info' },
-  { value: 2, label: 'Ex Customer', icon: 'mdi-account-outline', color: 'warning' },
+  { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
+  { value: 2, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
+]
+// Only offer 2 choices in the change menu (Warehouse and Vendor/Customer)
+const exTypeMenuOptions = [
+  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 
 const { statusColor: getStatusColor } = useStatusColor()
@@ -1837,8 +1848,12 @@ function getSuggestions(itemId: number) {
 }
 
 function applySuggestion(item: any, suggestion: any) {
+  const suggestionCondition = (suggestion.condition || 'NE').toUpperCase()
   const alreadyExists = supplierQuotes.value.some(
-    (q: any) => q.rfqItemId === item.id && q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase()
+    (q: any) =>
+      q.rfqItemId === item.id &&
+      q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase() &&
+      (q.condition || 'NE').toUpperCase() === suggestionCondition
   )
   if (alreadyExists) return
   supplierQuotes.value.push({
@@ -2772,7 +2787,7 @@ function showSnack(text: string, color: string) {
   -webkit-overflow-scrolling: touch;
   max-width: 100%;
   scrollbar-width: auto;
-  scrollbar-color: var(--card-border) #252A37;
+  scrollbar-color: var(--card-border) var(--scrollbar-track);
 }
 
 .quote-grid-scroll::-webkit-scrollbar {
@@ -2780,7 +2795,7 @@ function showSnack(text: string, color: string) {
 }
 
 .quote-grid-scroll::-webkit-scrollbar-track {
-  background: #252A37;
+  background: var(--scrollbar-track);
   border-radius: 5px;
 }
 

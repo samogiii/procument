@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
     <v-card class="d-flex flex-column" color="background">
       <!-- ── Toolbar ── -->
@@ -388,7 +388,7 @@ async function downloadPdf() {
       })),
     }
 
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/rfq`, {
+    const response = await $fetch<Blob>(`${api.baseURL}/pdf/rfq`, {
       method: 'POST',
       body: payload,
       responseType: 'blob',

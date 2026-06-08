@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Identity.DTOs;
+using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
 
 using Procument.Shared.Audit;
@@ -58,10 +60,12 @@ public class AuthController : ControllerBase
 public class UsersController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly DbContext _db;
 
-    public UsersController(IAuthService authService)
+    public UsersController(IAuthService authService, DbContext db)
     {
         _authService = authService;
+        _db = db;
     }
 
     /// <summary>Admin: create a new Expert or Admin user.</summary>
@@ -128,5 +132,156 @@ public class UsersController : ControllerBase
     {
         var success = await _authService.ChangePasswordAsync(id, request.NewPassword);
         return success ? Ok(new { message = "Password changed." }) : NotFound();
+    }
+
+    /// <summary>Admin: get bases assigned to a user.</summary>
+    [HttpGet("{id:long}/bases")]
+    public async Task<ActionResult<List<int>>> GetUserBases(long id)
+    {
+        var bases = await _authService.GetUserBasesAsync(id);
+        return Ok(bases);
+    }
+
+    /// <summary>Admin: add a base to a user.</summary>
+    [HttpPost("{id:long}/bases")]
+    public async Task<ActionResult> AddUserBase(long id, [FromBody] AddUserBaseRequest request)
+    {
+        await _authService.AddUserBaseAsync(id, request.Base);
+        return Ok(new { message = "Base added." });
+    }
+
+    /// <summary>Admin: remove a base from a user.</summary>
+    [HttpDelete("{id:long}/bases/{baseValue:int}")]
+    public async Task<ActionResult> RemoveUserBase(long id, int baseValue)
+    {
+        await _authService.RemoveUserBaseAsync(id, baseValue);
+        return Ok(new { message = "Base removed." });
+    }
+
+    /// <summary>Admin: get individually-assigned customers for a user (returns id, name, customerCode).</summary>
+    [HttpGet("{id:long}/customers")]
+    public async Task<ActionResult> GetUserCustomers(long id)
+    {
+        var customerIds = await _authService.GetUserCustomerIdsAsync(id);
+        if (customerIds.Count == 0) return Ok(Array.Empty<object>());
+
+        // Raw SQL to avoid cross-module entity import
+        var conn = _db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        if (!wasOpen) await conn.OpenAsync();
+        try
+        {
+            var idList = string.Join(",", customerIds);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"SELECT Id, Name, CustomerCode FROM Customers WHERE Id IN ({idList}) ORDER BY Name";
+            using var reader = await cmd.ExecuteReaderAsync();
+            var results = new List<object>();
+            while (await reader.ReadAsync())
+            {
+                results.Add(new
+                {
+                    id = reader.GetInt64(0),
+                    name = reader.GetString(1),
+                    customerCode = reader.IsDBNull(2) ? null : reader.GetString(2),
+                });
+            }
+            return Ok(results);
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
+    }
+
+    /// <summary>Admin: individually assign a customer to a user.</summary>
+    [HttpPost("{id:long}/customers")]
+    public async Task<ActionResult> AddUserCustomer(long id, [FromBody] AddUserCustomerRequest request)
+    {
+        await _authService.AddUserCustomerAsync(id, request.CustomerId);
+        return Ok(new { message = "Customer assigned." });
+    }
+
+    /// <summary>Admin: remove an individually assigned customer from a user.</summary>
+    [HttpDelete("{id:long}/customers/{customerId:long}")]
+    public async Task<ActionResult> RemoveUserCustomer(long id, long customerId)
+    {
+        await _authService.RemoveUserCustomerAsync(id, customerId);
+        return Ok(new { message = "Customer removed." });
+    }
+}
+
+/// <summary>
+/// SuperAdmin-only controller for managing which users can see each gated menu/feature.
+/// GET  /api/menu-permissions         → grouped list [{ feature, userNames[] }]
+/// POST /api/menu-permissions         → add a user to a feature
+/// DELETE /api/menu-permissions/{feature}/{userName} → remove a user from a feature
+/// </summary>
+[ApiController]
+[Route("api/menu-permissions")]
+[Authorize]   // GET is open to all authenticated users; POST/DELETE enforce SuperAdmin below
+public class MenuPermissionsController : ControllerBase
+{
+    private readonly DbContext _db;
+
+    public MenuPermissionsController(DbContext db)
+    {
+        _db = db;
+    }
+
+    private static readonly string[] KnownFeatures =
+    [
+        "paymentMenu", "companyPresets", "syncApp", "systemActivity",
+        "supplierRequests", "capList", "ils", "shippingMenu",
+        "customerMenu", "isAmir", "newRFQ", "ilsUsers", "isPDFSelection"
+    ];
+
+    /// <summary>Returns all features with their currently allowed user names.</summary>
+    [HttpGet]
+    public async Task<ActionResult<List<MenuPermissionGroupResponse>>> GetAll()
+    {
+        var rows = await _db.Set<MenuPermission>().AsNoTracking().ToListAsync();
+
+        var result = KnownFeatures.Select(f => new MenuPermissionGroupResponse
+        {
+            Feature = f,
+            UserNames = rows.Where(r => r.Feature == f).Select(r => r.UserName).OrderBy(n => n).ToList()
+        }).ToList();
+
+        return Ok(result);
+    }
+
+    /// <summary>Grant a user access to a feature.</summary>
+    [HttpPost]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<ActionResult> Add([FromBody] AddMenuPermissionRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Feature) || string.IsNullOrWhiteSpace(request.UserName))
+            return BadRequest(new { message = "Feature and UserName are required." });
+
+        var exists = await _db.Set<MenuPermission>()
+            .AnyAsync(p => p.Feature == request.Feature && p.UserName == request.UserName);
+        if (exists) return Ok(new { message = "Already granted." });
+
+        _db.Set<MenuPermission>().Add(new MenuPermission
+        {
+            Feature = request.Feature,
+            UserName = request.UserName,
+        });
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Permission granted." });
+    }
+
+    /// <summary>Revoke a user's access to a feature.</summary>
+    [HttpDelete("{feature}/{userName}")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<ActionResult> Remove(string feature, string userName)
+    {
+        var row = await _db.Set<MenuPermission>()
+            .FirstOrDefaultAsync(p => p.Feature == feature && p.UserName == userName);
+        if (row == null) return NotFound();
+
+        _db.Set<MenuPermission>().Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Permission revoked." });
     }
 }

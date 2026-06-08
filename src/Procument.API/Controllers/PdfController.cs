@@ -36,8 +36,24 @@ public class PdfController : ControllerBase
 
     // ─── Purchase Order ──────────────────────────────────
     [HttpPost("po")]
-    public async Task<IActionResult> GeneratePo([FromBody] PurchaseOrderPdfRequest req)
+    public async Task<IActionResult> GeneratePo(
+        [FromBody] PurchaseOrderPdfRequest req,
+        [FromQuery] long? warehouseId = null)
     {
+        // If a warehouse is selected for "Ship To", override the DeliverTo fields
+        if (warehouseId.HasValue)
+        {
+            var wh = await _db.Set<Warehouse>().AsNoTracking()
+                .FirstOrDefaultAsync(w => w.Id == warehouseId.Value);
+            if (wh != null)
+            {
+                req.DeliverToName = wh.Name;
+                req.DeliverToAddress = wh.Address;
+                req.DeliverToPhone = wh.Phone;
+                req.DeliverToEmail = wh.Email;
+            }
+        }
+
         QuestPDF.Settings.License = LicenseType.Community;
         var pdf = PurchaseOrderDocument.Generate(req);
         var fileName = $"{req.PoNumber ?? "PO"}.pdf";
@@ -96,6 +112,10 @@ public class PdfController : ControllerBase
 
                     // Update items and header to "PO Sent"
                     po.Status = "PO Sent";
+                    if (!string.IsNullOrWhiteSpace(req.PoDate) && DateTime.TryParse(req.PoDate, out var parsedDate))
+                    {
+                        po.PODate = parsedDate;
+                    }
                     foreach (var item in po.POItems.Where(i => i.ReturnedAt == null))
                     {
                         item.Status = "PO Sent";

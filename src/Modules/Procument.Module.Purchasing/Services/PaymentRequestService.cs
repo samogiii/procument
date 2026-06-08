@@ -47,21 +47,19 @@ public class PaymentRequestService : IPaymentRequestService
         return responses;
     }
 
-    public async Task<PaymentRequestResponse> CreateAsync(long poId)
+    public async Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null)
     {
-        // Logic: if already exists for this PO, return it? Or create new?
-        // Usually, one PO has one PR.
         var existing = await _db.Set<PaymentRequest>().FirstOrDefaultAsync(x => x.POId == poId);
         if (existing != null) return await MapToResponse(existing);
 
-        // Get max PRId for numbering
         var maxPrId = await _db.Set<PaymentRequest>().MaxAsync(x => (long?)x.PRId) ?? 1500;
-        
+
         var pr = new PaymentRequest
         {
             POId = poId,
             PRId = maxPrId + 1,
             Status = "PENDING APPROVAL",
+            CompanyPresetId = companyPresetId,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -111,6 +109,10 @@ public class PaymentRequestService : IPaymentRequestService
                 .FirstOrDefaultAsync(x => x.Id == pr.POId);
         }
 
+        CompanyPreset? preset = null;
+        if (pr.CompanyPresetId.HasValue)
+            preset = await _db.Set<CompanyPreset>().FindAsync(pr.CompanyPresetId.Value);
+
         var response = new PaymentRequestResponse
         {
             Id = pr.Id,
@@ -119,31 +121,15 @@ public class PaymentRequestService : IPaymentRequestService
             POId = pr.POId,
             PONumber = po?.PONumber,
             CreatedAt = pr.CreatedAt,
+            SupplierId = po?.SupplierId,
             SupplierName = po?.Supplier?.Name,
-            WireFee = po?.ImportDetail?.Wirefee ?? 0
+            WireFee = po?.ImportDetail?.Wirefee ?? 0,
+            CompanyPresetId = pr.CompanyPresetId,
+            CompanyPayingFrom = preset?.Name
         };
 
         if (po != null)
         {
-            // Company Paying From: depends on Customer Base. 
-            // I need to find the Customer related to this PO.
-            // PO -> POItems -> ProcumentRecord -> RFQItem -> RFQ -> Customer
-            var customer = await (from p in _db.Set<PurchaseOrder>()
-                                  where p.Id == po.Id
-                                  join pi in _db.Set<POItem>() on p.Id equals pi.POId
-                                  join prrec in _db.Set<ProcumentRecord>() on pi.ProcumentId equals prrec.Id
-                                  join ri in _db.Set<RFQItem>() on prrec.RFQItemId equals ri.Id
-                                  join r in _db.Set<RFQHeader>() on ri.RFQId equals r.Id
-                                  join c in _db.Set<Customer>() on r.CustomerId equals c.Id
-                                  select c).FirstOrDefaultAsync();
-
-            var preset = await _db.Set<CompanyPreset>()
-                .OrderBy(p => p.SortOrder)
-                .FirstOrDefaultAsync(p => p.SortOrder == 105)
-                ?? await _db.Set<CompanyPreset>().OrderBy(p => p.SortOrder).FirstOrDefaultAsync();
-
-            response.CompanyPayingFrom = preset?.Name ?? "JETRUX";
-
             response.CompanyPayingTo = po.Supplier?.Name;
             response.AccountNumber = po.ImportDetail?.BankAccountNumber;
             response.BankName = po.ImportDetail?.BankName;
@@ -151,9 +137,8 @@ public class PaymentRequestService : IPaymentRequestService
             response.ABA = po.ImportDetail?.ABA;
             response.CompanyAddress = po.Supplier?.Address;
             response.BankAddress = po.ImportDetail?.BankAddress;
-
             response.ItemsTotal = po.POItems.Sum(x => x.TotalPrice);
-            }
+        }
 
         return response;
     }

@@ -30,6 +30,10 @@ public class FinalInvoiceResponse
     public string? CustomerShipToAccount { get; set; }
     public string? CustomerTermsAndConditions { get; set; }
     public string? CustomerCurrencyType { get; set; }
+    public long? DefaultDepositWalletId { get; set; }
+    // Yuan pricing settings from the source Quote
+    public decimal? QuoteCoefYuan { get; set; }
+    public decimal? QuoteExchangeRateYuan { get; set; }
     public List<FinalInvoiceItemResponse> Items { get; set; } = new();
 }
 
@@ -48,6 +52,10 @@ public class FinalInvoiceItemResponse
     public long? PartNumberId { get; set; }
     public string? RFQReference { get; set; }
     public string PartNumberName { get; set; } = "";
+    /// <summary>Alt part number from the source QuoteItem. When set, this is the effective part number shown to the customer.</summary>
+    public string? Alt { get; set; }
+    /// <summary>Effective part number for display: Alt if set, otherwise PartNumberName.</summary>
+    public string EffectivePartNumber => !string.IsNullOrWhiteSpace(Alt) ? Alt : PartNumberName;
     public string? Description { get; set; }
 }
 

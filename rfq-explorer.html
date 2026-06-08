@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RFQ Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0f1117;
+      --surface:    #1a1d27;
+      --surface2:   #222636;
+      --border:     rgba(255,255,255,0.08);
+      --primary:    #3b82f6;
+      --primary-dim:#1d4ed8;
+      --success:    #22c55e;
+      --warning:    #f59e0b;
+      --danger:     #ef4444;
+      --text:       #e2e8f0;
+      --muted:      #64748b;
+      --accent:     #818cf8;
+      --hover:      rgba(59,130,246,0.08);
+      --active:     rgba(59,130,246,0.16);
+      --panel-w:    280px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top Bar ── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .logo { font-weight: 700; font-size: 16px; color: var(--primary); }
+    .spacer { flex: 1; }
+
+    .stat-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .stat-chip b { color: var(--text); }
+
+    /* ── File label button (most reliable way to open file dialog) ── */
+    .file-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 7px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .file-label:hover { background: var(--primary-dim); }
+    #fileInput { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+    .search-wrap { position: relative; display: flex; align-items: center; }
+    .search-wrap svg { position: absolute; left: 9px; color: var(--muted); width: 14px; height: 14px; }
+    .search-wrap input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 5px 10px 5px 30px;
+      font-size: 13px;
+      width: 200px;
+      outline: none;
+    }
+    .search-wrap input:focus { border-color: var(--primary); }
+    .search-wrap input::placeholder { color: var(--muted); }
+
+    /* ── Error banner ── */
+    #error-bar {
+      display: none;
+      background: rgba(239,68,68,0.12);
+      border-bottom: 1px solid rgba(239,68,68,0.3);
+      color: #fca5a5;
+      padding: 8px 20px;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    /* ── Load screen (shown before data) ── */
+    #load-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 40px;
+    }
+    .load-box {
+      border: 2px dashed var(--primary);
+      border-radius: 16px;
+      padding: 48px 64px;
+      text-align: center;
+      max-width: 520px;
+      width: 100%;
+    }
+    .load-box h2 { font-size: 22px; margin-bottom: 10px; }
+    .load-box p  { color: var(--muted); font-size: 13px; line-height: 1.7; }
+    .load-box .big-icon { font-size: 52px; margin-bottom: 16px; }
+
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      width: 100%;
+      max-width: 520px;
+    }
+    .or-divider::before, .or-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .paste-area {
+      width: 100%;
+      max-width: 520px;
+    }
+    .paste-area textarea {
+      width: 100%;
+      height: 100px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: monospace;
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+    }
+    .paste-area textarea:focus { border-color: var(--primary); }
+    .paste-area textarea::placeholder { color: var(--muted); }
+    .paste-btn {
+      margin-top: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 6px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .paste-btn:hover { background: var(--hover); border-color: var(--primary); }
+
+    /* ── Three-pane layout ── */
+    #app {
+      display: none;   /* hidden until data loads */
+      flex: 1;
+      overflow: hidden;
+      flex-direction: row;
+    }
+
+    .pane {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .pane:last-child { border-right: none; flex: 1; }
+
+    .pane-header {
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .count-badge {
+      background: var(--surface2);
+      border-radius: 20px;
+      padding: 1px 8px;
+      font-size: 11px;
+      color: var(--text);
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .pane-list { overflow-y: auto; flex: 1; }
+    .pane-list::-webkit-scrollbar { width: 4px; }
+    .pane-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    #pane-customers { width: var(--panel-w); min-width: var(--panel-w); }
+    #pane-rfqs      { width: var(--panel-w); min-width: var(--panel-w); }
+
+    /* ── Customer Row ── */
+    .customer-row {
+      padding: 11px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .customer-row:hover { background: var(--hover); }
+    .customer-row.active { background: var(--active); }
+
+    .cust-avatar {
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+    .cust-info { flex: 1; min-width: 0; }
+    .cust-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cust-code { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .cust-badge {
+      background: var(--surface2);
+      border-radius: 12px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    /* ── RFQ Row ── */
+    .rfq-row {
+      padding: 11px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    .rfq-row:hover { background: var(--hover); }
+    .rfq-row.active { background: var(--active); }
+    .rfq-num { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rfq-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+    .rfq-date { font-size: 11px; color: var(--muted); }
+
+    .spill {
+      font-size: 10px; font-weight: 700;
+      padding: 1px 7px; border-radius: 20px;
+    }
+    .spill-Open    { background: rgba(34,197,94,0.15);   color: #22c55e; }
+    .spill-Closed  { background: rgba(100,116,139,0.2);  color: var(--muted); }
+    .spill-Pending { background: rgba(245,158,11,0.15);  color: #f59e0b; }
+    .spill-def     { background: rgba(129,140,248,0.15); color: var(--accent); }
+
+    .rfq-part-n { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    /* ── Parts panel ── */
+    #pane-parts { flex: 1; display: flex; flex-direction: column; }
+    .parts-empty {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: var(--muted);
+    }
+    .parts-empty svg { width: 48px; height: 48px; opacity: 0.3; }
+    .parts-empty p { font-size: 14px; }
+
+    .parts-scroll { overflow: auto; flex: 1; }
+    .parts-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .parts-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    table.pt {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    table.pt thead th {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 9px 14px;
+      text-align: left;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+      position: sticky; top: 0; z-index: 2;
+    }
+    table.pt tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    table.pt tbody tr:hover { background: var(--hover); }
+    table.pt tbody td { padding: 9px 14px; vertical-align: middle; }
+    table.pt tfoot td { padding: 9px 14px; background: var(--surface); font-size: 12px; }
+
+    .p-name { font-weight: 600; }
+    .p-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .p-alt  { font-size: 11px; color: var(--accent); }
+
+    .price-val { font-weight: 700; color: #22c55e; white-space: nowrap; }
+    .price-sub { font-size: 11px; color: var(--muted); }
+    .no-quote  { font-size: 12px; color: var(--muted); font-style: italic; }
+
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+    .tg-High     { background: rgba(239,68,68,0.15);   color: #ef4444; }
+    .tg-Medium   { background: rgba(245,158,11,0.15);  color: #f59e0b; }
+    .tg-Low      { background: rgba(34,197,94,0.12);   color: #22c55e; }
+    .tg-def      { background: rgba(100,116,139,0.15); color: var(--muted); }
+    .tg-Accepted { background: rgba(34,197,94,0.15);   color: #22c55e; }
+    .tg-Sent     { background: rgba(59,130,246,0.15);  color: #3b82f6; }
+    .tg-Rejected { background: rgba(239,68,68,0.15);   color: #ef4444; }
+    .tg-Draft    { background: rgba(100,116,139,0.15); color: var(--muted); }
+
+    @media (max-width: 900px) {
+      #pane-customers { width: 200px; min-width: 200px; }
+      #pane-rfqs      { width: 200px; min-width: 200px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Top Bar ── -->
+<div class="topbar">
+  <span class="logo">✈ RFQ Explorer</span>
+  <div class="spacer"></div>
+
+  <div class="search-wrap" id="search-wrap" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <input id="searchInput" type="text" placeholder="Search customers…" oninput="filterCustomers()" />
+  </div>
+
+  <span class="stat-chip" id="chip-c" style="display:none;"><b>0</b> Customers</span>
+  <span class="stat-chip" id="chip-r" style="display:none;"><b>0</b> RFQs</span>
+  <span class="stat-chip" id="chip-p" style="display:none;"><b>0</b> Items</span>
+
+  <!-- Using <label> directly — most reliable cross-browser way to open file dialog -->
+  <label for="fileInput" class="file-label">📁 Load data.json</label>
+  <input type="file" id="fileInput" accept=".json,.txt,.rpt" />
+</div>
+
+<!-- ── Error Bar ── -->
+<div id="error-bar"></div>
+
+<!-- ── Load Screen ── -->
+<div id="load-screen">
+  <div class="load-box" id="drop-target">
+    <div class="big-icon">📂</div>
+    <h2>RFQ Explorer</h2>
+    <p>Click <strong>Load data.json</strong> in the top-right corner<br>
+    — or drag &amp; drop your <code style="color:var(--primary)">data.json</code> file here.</p>
+    <br>
+    <label for="fileInput" class="file-label" style="display:inline-flex; margin:0 auto;">
+      📁 &nbsp;Choose data.json
+    </label>
+  </div>
+
+  <div class="or-divider">or paste the JSON text below</div>
+
+  <div class="paste-area">
+    <textarea id="pasteBox" placeholder='Paste your JSON here: [{"CustomerName":"..."},...]'></textarea>
+    <br>
+    <button class="paste-btn" onclick="loadPasted()">▶ Load from paste</button>
+  </div>
+</div>
+
+<!-- ── Main App (hidden until data loads) ── -->
+<div id="app">
+  <div class="pane" id="pane-customers">
+    <div class="pane-header">
+      Customers
+      <span class="count-badge" id="customer-count">0</span>
+    </div>
+    <div class="pane-list" id="customer-list"></div>
+  </div>
+
+  <div class="pane" id="pane-rfqs">
+    <div class="pane-header">
+      RFQs
+      <span class="count-badge" id="rfq-count">0</span>
+    </div>
+    <div class="pane-list" id="rfq-list">
+      <div class="parts-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p>Select a customer</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-parts">
+    <div class="pane-header">
+      Parts / Items
+      <span class="count-badge" id="parts-count">0</span>
+    </div>
+    <div class="parts-empty" id="parts-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+      </svg>
+      <p>Select a customer then an RFQ</p>
+    </div>
+    <div class="parts-scroll" id="parts-scroll" style="display:none;"></div>
+  </div>
+</div>
+
+<script>
+  /* ── State ── */
+  let allData        = [];
+  let grouped        = {};
+  let activeCustomer = null;
+  let activeRFQ      = null;
+
+  /* ── File input (onchange — fired when user picks a file) ── */
+  document.getElementById('fileInput').addEventListener('change', function () {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      processText(e.target.result, file.name);
+    };
+    reader.onerror = function () {
+      showError('Could not read the file. Try the paste method below.');
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
+
+  /* ── Drag & Drop ── */
+  const dropTarget = document.getElementById('drop-target');
+  document.addEventListener('dragover',  e => { e.preventDefault(); dropTarget.style.borderColor = '#60a5fa'; });
+  document.addEventListener('dragleave', e => { dropTarget.style.borderColor = ''; });
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    dropTarget.style.borderColor = '';
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => processText(ev.target.result, file.name);
+    reader.readAsText(file, 'UTF-8');
+  });
+
+  /* ── Paste ── */
+  function loadPasted() {
+    const text = document.getElementById('pasteBox').value.trim();
+    if (!text) { showError('Paste box is empty.'); return; }
+    processText(text, 'pasted text');
+  }
+
+  /* ── Core: parse text → build app ── */
+  function processText(raw, source) {
+    hideError();
+
+    // Strip UTF-8 BOM (0xEF 0xBB 0xBF) that SSMS sometimes adds
+    let text = raw.replace(/^﻿/, '').trim();
+
+    // ── Strip SSMS / sqlcmd wrapper lines ───────────────────────
+    // sqlcmd and Results-to-File both wrap the JSON with:
+    //   header dashes, blank lines, "(N row affected)", "Completion time:..."
+    // Strategy: grab everything from the first [ to the last ]
+    const arrStart = text.indexOf('[');
+    const arrEnd   = text.lastIndexOf(']');
+    if (arrStart !== -1 && arrEnd > arrStart) {
+      text = text.slice(arrStart, arrEnd + 1);
+    } else {
+      // Fallback: find the first line that looks like JSON
+      const jsonLine = text.split('\n').map(l => l.trim())
+        .find(l => l.startsWith('[') || l.startsWith('{'));
+      if (jsonLine) text = jsonLine;
+    }
+
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (err) {
+      showError('JSON parse error from ' + source + ': ' + err.message +
+        ' — The data may be truncated. Use sqlcmd (see instructions below) to export without limits.');
+      return;
+    }
+
+    // Accept: plain array, { data:[...] }, or first array-valued key
+    if (Array.isArray(json))            allData = json;
+    else if (Array.isArray(json.data))  allData = json.data;
+    else if (Array.isArray(json.value)) allData = json.value;
+    else {
+      const firstArr = Object.values(json).find(v => Array.isArray(v));
+      if (firstArr) allData = firstArr;
+      else { showError('Could not find a JSON array in the file. Expected [{...}, ...]'); return; }
+    }
+
+    if (allData.length === 0) {
+      showError('The JSON loaded but contains 0 rows. Check your SQL query returned results.');
+      return;
+    }
+
+    buildGrouped();
+    renderCustomers();
+    updateStats();
+    showApp();
+  }
+
+  /* ── Build grouped data ── */
+  function buildGrouped() {
+    grouped = {};
+    allData.forEach(row => {
+      const cKey = (row.CustomerName || '(No Customer)').trim();
+      if (!grouped[cKey]) {
+        grouped[cKey] = { name: cKey, code: row.CustomerCode || '', rfqs: {} };
+      }
+      const rKey = (row.RFQNumber || '(No RFQ)').trim();
+      if (!grouped[cKey].rfqs[rKey]) {
+        grouped[cKey].rfqs[rKey] = {
+          number: rKey,
+          date:   row.ReceivedDate,
+          status: row.RFQStatus || 'Open',
+          items:  []
+        };
+      }
+      // De-dupe: same part + same quote
+      const items  = grouped[cKey].rfqs[rKey].items;
+      const dupKey = (row.PartNumber || '') + '|' + (row.QuoteNumber || '');
+      if (!items.some(i => i._key === dupKey)) {
+        items.push({
+          _key:        dupKey,
+          partNumber:  row.PartNumber        || '',
+          description: row.PartDescription   || '',
+          qty:         row.Qty,
+          unit:        row.Unit              || '',
+          condition:   row.Condition         || '',
+          alternative: row.Alternative       || '',
+          priority:    row.Priority          || '',
+          quoteNumber: row.QuoteNumber       || '',
+          quoteStatus: row.QuoteStatus       || '',
+          unitPrice:   row.UnitPrice,
+          totalPrice:  row.TotalPrice,
+          quoteDate:   row.QuoteDate,
+        });
+      }
+    });
+  }
+
+  /* ── Show / hide app ── */
+  function showApp() {
+    document.getElementById('load-screen').style.display = 'none';
+    const app = document.getElementById('app');
+    app.style.display = 'flex';
+    document.getElementById('search-wrap').style.display = '';
+    document.getElementById('chip-c').style.display = '';
+    document.getElementById('chip-r').style.display = '';
+    document.getElementById('chip-p').style.display = '';
+  }
+
+  /* ── Stats ── */
+  function updateStats() {
+    const cc = Object.keys(grouped).length;
+    const rc = Object.values(grouped).reduce((s, c) => s + Object.keys(c.rfqs).length, 0);
+    const ic = allData.length;
+    document.getElementById('chip-c').innerHTML = `<b>${cc}</b> Customers`;
+    document.getElementById('chip-r').innerHTML = `<b>${rc}</b> RFQs`;
+    document.getElementById('chip-p').innerHTML = `<b>${ic}</b> Items`;
+  }
+
+  /* ── Customers ── */
+  function filterCustomers() { renderCustomers(); }
+
+  function renderCustomers() {
+    const q    = (document.getElementById('searchInput').value || '').toLowerCase();
+    const keys = Object.keys(grouped)
+      .filter(k => !q || k.toLowerCase().includes(q) || (grouped[k].code || '').toLowerCase().includes(q))
+      .sort();
+
+    document.getElementById('customer-count').textContent = keys.length;
+    document.getElementById('customer-list').innerHTML = keys.map(k => {
+      const c    = grouped[k];
+      const rfqN = Object.keys(c.rfqs).length;
+      const init = k.split(' ').filter(Boolean).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+      const isActive = activeCustomer === k;
+      // Use data-key attr to avoid quoting issues in onclick
+      return `<div class="customer-row${isActive ? ' active' : ''}" data-key="${htmlAttr(k)}" onclick="selectCustomer(this.dataset.key)">
+        <div class="cust-avatar">${init}</div>
+        <div class="cust-info">
+          <div class="cust-name">${htmlSafe(c.name)}</div>
+          <div class="cust-code">${htmlSafe(c.code) || '—'}</div>
+        </div>
+        <div class="cust-badge">${rfqN}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function selectCustomer(key) {
+    activeCustomer = key;
+    activeRFQ      = null;
+    renderCustomers();
+    renderRFQs(key);
+    clearParts();
+  }
+
+  /* ── RFQs ── */
+  function renderRFQs(cKey) {
+    const c       = grouped[cKey];
+    if (!c) return;
+    const rfqKeys = Object.keys(c.rfqs).sort((a, b) => {
+      return new Date(c.rfqs[b].date || 0) - new Date(c.rfqs[a].date || 0);
+    });
+    document.getElementById('rfq-count').textContent = rfqKeys.length;
+    document.getElementById('rfq-list').innerHTML = rfqKeys.map(rk => {
+      const r       = c.rfqs[rk];
+      const st      = r.status || 'Open';
+      const stClass = ['Open','Closed','Pending'].includes(st) ? `spill-${st}` : 'spill-def';
+      const dateStr = r.date
+        ? new Date(r.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+        : '—';
+      const isActive = activeRFQ === rk;
+      return `<div class="rfq-row${isActive ? ' active' : ''}" data-ckey="${htmlAttr(cKey)}" data-rkey="${htmlAttr(rk)}" onclick="selectRFQ(this.dataset.ckey, this.dataset.rkey)">
+        <div class="rfq-num">${htmlSafe(r.number)}</div>
+        <div class="rfq-meta">
+          <span class="rfq-date">${dateStr}</span>
+          <span class="spill ${stClass}">${htmlSafe(st)}</span>
+          <span class="rfq-part-n">${r.items.length} parts</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function selectRFQ(cKey, rKey) {
+    activeRFQ = rKey;
+    renderRFQs(cKey);
+    renderParts(cKey, rKey);
+  }
+
+  /* ── Parts ── */
+  function clearParts() {
+    document.getElementById('parts-empty').style.display  = 'flex';
+    document.getElementById('parts-scroll').style.display = 'none';
+    document.getElementById('parts-count').textContent    = '0';
+  }
+
+  function renderParts(cKey, rKey) {
+    const items = grouped[cKey]?.rfqs[rKey]?.items || [];
+    document.getElementById('parts-count').textContent    = items.length;
+    document.getElementById('parts-empty').style.display  = 'none';
+    document.getElementById('parts-scroll').style.display = 'block';
+
+    const totalVal = items.reduce((s, i) => s + (parseFloat(i.totalPrice) || 0), 0);
+
+    const rows = items.map(i => {
+      const prCls = { High:'tg-High', Medium:'tg-Medium', Low:'tg-Low' }[i.priority] || 'tg-def';
+      const qsCls = { Accepted:'tg-Accepted', Sent:'tg-Sent', Rejected:'tg-Rejected', Draft:'tg-Draft' }[i.quoteStatus] || 'tg-def';
+      const priceCell = (i.unitPrice != null)
+        ? `<div class="price-val">$${fmt(i.unitPrice)}</div><div class="price-sub">Total: $${fmt(i.totalPrice)}</div>`
+        : `<span class="no-quote">No quote yet</span>`;
+      const qDateStr = i.quoteDate
+        ? new Date(i.quoteDate).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+        : '—';
+      return `<tr>
+        <td>
+          <div class="p-name">${htmlSafe(i.partNumber)}</div>
+          ${i.description ? `<div class="p-desc">${htmlSafe(i.description)}</div>` : ''}
+          ${i.alternative ? `<div class="p-alt">Alt: ${htmlSafe(i.alternative)}</div>` : ''}
+        </td>
+        <td style="text-align:center; font-weight:600;">${i.qty != null ? i.qty : '—'}<span style="color:var(--muted); font-size:11px;"> ${htmlSafe(i.unit)}</span></td>
+        <td style="color:var(--muted); font-size:12px;">${htmlSafe(i.condition) || '—'}</td>
+        <td>${i.priority ? `<span class="tag ${prCls}">${htmlSafe(i.priority)}</span>` : '—'}</td>
+        <td>${priceCell}</td>
+        <td>
+          ${i.quoteNumber
+            ? `<div style="font-size:12px; font-weight:600;">${htmlSafe(i.quoteNumber)}</div>
+               <span class="tag ${qsCls}">${htmlSafe(i.quoteStatus)}</span>`
+            : '<span class="no-quote">—</span>'}
+        </td>
+        <td style="font-size:12px; color:var(--muted); white-space:nowrap;">${qDateStr}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('parts-scroll').innerHTML = `
+      <table class="pt">
+        <thead>
+          <tr>
+            <th>Part Number</th><th>Qty</th><th>Condition</th>
+            <th>Priority</th><th>Price</th><th>Quote</th><th>Quote Date</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" style="color:var(--muted);">
+              ${items.length} part${items.length !== 1 ? 's' : ''} · <b style="color:var(--text)">${htmlSafe(rKey)}</b>
+            </td>
+            <td colspan="3" style="font-weight:700; color:#22c55e;">
+              Grand Total: $${fmt(totalVal)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>`;
+  }
+
+  /* ── Error display ── */
+  function showError(msg) {
+    const bar = document.getElementById('error-bar');
+    bar.textContent = '⚠ ' + msg;
+    bar.style.display = 'block';
+  }
+  function hideError() {
+    document.getElementById('error-bar').style.display = 'none';
+  }
+
+  /* ── Helpers ── */
+  function fmt(n) {
+    return (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // Escape for HTML attribute values (data-* attrs)
+  function htmlAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  }
+  // Escape for HTML text content
+  function htmlSafe(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>

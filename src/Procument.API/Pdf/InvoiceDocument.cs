@@ -51,7 +51,7 @@ public static class InvoiceDocument
                                 t.Span(val ?? "—").FontSize(9).FontColor(Colors.Grey.Darken1);
                             });
                         Meta("Date", req.InvoiceDate);
-                        Meta("Ship Date", req.DueDate);
+                        //Meta("Ship Date", req.DueDate);
                         Meta("Customer PO", req.CustomerPONumber);
                         //Meta("Status", req.Status);
                         Meta("Currency", req.Currency);
@@ -78,7 +78,7 @@ public static class InvoiceDocument
                                 if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
                                     bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerContactPerson))
-                                    bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").Bold().FontSize(9).FontColor(primary);
                                 Field("Email", req.CustomerBillToEmail);
                                 Field("Phone", req.CustomerBillToPhone);
                             });

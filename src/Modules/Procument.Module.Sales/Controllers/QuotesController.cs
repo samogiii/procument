@@ -31,10 +31,21 @@ public class QuotesController : ControllerBase
 
     /// <summary>Get all quotes (paginated).</summary>
     [HttpGet]
-    public async Task<ActionResult<PagedResult<QuoteResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? status = null)
+    public async Task<ActionResult<PagedResult<QuoteResponse>>> GetAll(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] List<string>? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] List<string>? assignedUserNames = null,
+        [FromQuery] List<string>? customerNames = null,
+        [FromQuery] List<string>? rfqNames = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDesc = false,
+        [FromQuery] List<string>? quoteNumbers = null)
     {
-        var (userId, isAdmin) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isAdmin, status);
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers);
         return Ok(result);
     }
 
@@ -42,8 +53,8 @@ public class QuotesController : ControllerBase
     [HttpGet("by-rfq/{rfqId:long}")]
     public async Task<ActionResult<List<QuoteResponse>>> GetByRFQ(long rfqId)
     {
-        var (userId, isAdmin) = GetUserContext();
-        var result = await _quoteService.GetByRFQIdAsync(rfqId, userId, isAdmin);
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _quoteService.GetByRFQIdAsync(rfqId, userId, isAdmin, userBases);
         return Ok(result);
     }
 
@@ -51,8 +62,8 @@ public class QuotesController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<ActionResult<QuoteResponse>> GetById(long id)
     {
-        var (userId, isAdmin) = GetUserContext();
-        var result = await _quoteService.GetByIdAsync(id, userId, isAdmin);
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _quoteService.GetByIdAsync(id, userId, isAdmin, userBases);
         return result == null ? NotFound() : Ok(result);
     }
 
@@ -61,7 +72,7 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "Create", CaptureBody = true)]
     public async Task<ActionResult<QuoteResponse>> Create([FromBody] CreateQuoteRequest request)
     {
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         if (userId == 0) return Unauthorized("User ID not found in token.");
 
         try
@@ -83,7 +94,7 @@ public class QuotesController : ControllerBase
         if (await _lockGuard.IsQuoteLocked(id))
             return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
 
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         // Get quote info before update for notification
         var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);
         if (quote == null) return NotFound();
@@ -141,7 +152,7 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "Update", CaptureBody = true)]
     public async Task<ActionResult<QuoteResponse>> Update(long id, [FromBody] CreateQuoteRequest request)
     {
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var result = await _quoteService.UpdateAsync(id, request, userId, isAdmin);
         return result == null ? NotFound() : Ok(result);
     }
@@ -151,7 +162,7 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "UpdateStatus", CaptureBody = true)]
     public async Task<IActionResult> UpdateQuoteType(long id, [FromBody] QuoteTypeDTO request)
     {
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var success = await _quoteService.UpdateQuoteTypeAsync(id, request.QuoteType,request.TypeAdditional, userId, isAdmin);
         return success ? Ok() : NotFound();
     }
@@ -163,7 +174,7 @@ public class QuotesController : ControllerBase
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
             return Ok(Array.Empty<object>());
 
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var query = _db.Set<QuoteItem>()
             .Include(qi => qi.PartNumber)
             .Include(qi => qi.Quote)
@@ -174,9 +185,13 @@ public class QuotesController : ControllerBase
                 qi.PartNumber.Alternatives.Any(a => a.Name.Contains(q))
             ));
 
-        if (!isAdmin)
+        if (!isSuperAdmin)
         {
-            query = query.Where(qi => qi.Quote.UserId == userId);
+            query = query.Where(qi =>
+                qi.Quote.Customer == null ||
+                qi.Quote.Customer.Base == null ||
+                userBases.Contains(qi.Quote.Customer.Base.Value) ||
+                qi.Quote.UserId == userId);
         }
 
         var results = await query
@@ -202,7 +217,7 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "UpdateItemsOrder", CaptureBody = true)]
     public async Task<IActionResult> UpdateItemsOrder(long id, [FromBody] UpdateItemsOrderRequest request)
     {
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var ok = await _quoteService.UpdateItemsOrderAsync(id, request.Items, userId, isAdmin);
         return ok ? Ok() : NotFound();
     }
@@ -212,8 +227,16 @@ public class QuotesController : ControllerBase
     [Auditable("Quote", "UpdateRFQExType", CaptureBody = true)]
     public async Task<IActionResult> UpdateRFQExType(long id, [FromBody] int? exType)
     {
-        var (userId, isAdmin) = GetUserContext();
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var ok = await _quoteService.UpdateRFQExTypeAsync(id, exType, userId, isAdmin);
+        return ok ? Ok() : NotFound();
+    }
+
+    /// <summary>Save Yuan tax coefficient and exchange rate for a quote (base-3 customers).</summary>
+    [HttpPatch("{id:long}/yuan-settings")]
+    public async Task<IActionResult> UpdateYuanSettings(long id, [FromBody] UpdateQuoteYuanSettingsRequest request)
+    {
+        var ok = await _quoteService.UpdateYuanSettingsAsync(id, request.CoefYuan, request.ExchangeRateYuan);
         return ok ? Ok() : NotFound();
     }
 
@@ -226,15 +249,18 @@ public class QuotesController : ControllerBase
         return deleted ? NoContent() : NotFound();
     }
 
-    private (long userId, bool isAdmin) GetUserContext()
+    private (long userId, bool isAdmin, bool isSuperAdmin, int[] userBases) GetUserContext()
     {
         var idClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub");
         long userId = 0;
         if (idClaim != null && long.TryParse(idClaim.Value, out var id))
-        {
             userId = id;
-        }
         bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
-        return (userId, isAdmin);
+        bool isSuperAdmin = User.IsInRole("SuperAdmin");
+        var basesClaim = User.FindFirst("bases")?.Value ?? "";
+        int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s, out var b) ? b : -1)
+            .Where(b => b > 0).ToArray();
+        return (userId, isAdmin, isSuperAdmin, userBases);
     }
 }

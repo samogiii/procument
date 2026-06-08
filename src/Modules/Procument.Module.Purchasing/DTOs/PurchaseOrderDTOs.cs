@@ -8,6 +8,8 @@ public class CreatePORequest
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }
     public List<long> POItemIds { get; set; } = new();
+    /// <summary>Wallet chosen at creation time — used as the default debit wallet on payment acceptance.</summary>
+    public long? PreferredWalletId { get; set; }
 }
 
 /// <summary>Update a single POItem (supplier, qty, unitPrice).</summary>
@@ -32,6 +34,7 @@ public class POResponse
 {
     public long Id { get; set; }
     public string PONumber { get; set; } = string.Empty;
+    public DateTime? PODate { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAt { get; set; }
@@ -39,6 +42,7 @@ public class POResponse
     public string SupplierName { get; set; } = string.Empty;
     public long? InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
+    public long? CustomerId { get; set; }
     public string? RejectionNote { get; set; }
     public string AdminApproval { get; set; } = "Pending";
     public string? AdminApprovalNote { get; set; }
@@ -52,12 +56,19 @@ public class POResponse
     public decimal? ProcessingFee { get; set; }
     public decimal? Shipping { get; set; }
     public decimal? Tax { get; set; }
+    /// <summary>Wallet chosen at creation time — pre-selected in the payment acceptance wallet picker.</summary>
+    public long? PreferredWalletId { get; set; }
+    public string? PreferredWalletName { get; set; }
+    public string? PreferredWalletCompany { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
+    public int AcceptedTrackItems { get; set; }
+    public int TotalTrackItems { get; set; }
 }
 
 /// <summary>Update PO-level cost adjustments (Processing Fee, Shipping, Tax) shown on the PDF.</summary>
 public class UpdatePOTotalsRequest
 {
+    public DateTime? PODate { get; set; }
     public decimal? ProcessingFee { get; set; }
     public decimal? Shipping { get; set; }
     public decimal? Tax { get; set; }
@@ -75,6 +86,12 @@ public class UpdatePaymentApprovalRequest
     /// <summary>Accepted | Rejected</summary>
     public string Decision { get; set; } = string.Empty;
     public string? Note { get; set; }
+}
+
+public class PopWithdrawRequest
+{
+    /// <summary>The wallet (PaymentBox) to debit when the POP is uploaded.</summary>
+    public long WalletId { get; set; }
 }
 
 public class POItemResponse
@@ -141,6 +158,9 @@ public class TrackNumberResponse
     public string TrackNumber { get; set; } = string.Empty;
     public string? Carrier { get; set; }
     public string? Notes { get; set; }
+    public long? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
+    public string Status { get; set; } = "Active";
     public DateTime CreatedAt { get; set; }
 }
 
@@ -149,6 +169,93 @@ public class SaveTrackNumberRequest
     public string TrackNumber { get; set; } = string.Empty;
     public string? Carrier { get; set; }
     public string? Notes { get; set; }
+    public long? WarehouseId { get; set; }
+}
+
+/// <summary>Admin summary of all track numbers across all POs, with their items.</summary>
+public class TrackNumberSummaryResponse
+{
+    public long Id { get; set; }
+    public string TrackNumber { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? Notes { get; set; }
+    public string Status { get; set; } = "Active";
+    public long? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
+    public string? WarehouseAddress { get; set; }
+    public long POItemId { get; set; }
+    public long? POId { get; set; }
+    public string? PONumber { get; set; }
+    public string? PartNumberName { get; set; }
+    public string? Description { get; set; }
+    public string? SupplierName { get; set; }
+    public int Qty { get; set; }
+    public string? Condition { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerCode { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<TrackSummaryItem> Items { get; set; } = new();
+    public List<TrackSummaryDocument> Documents { get; set; } = new();
+    public List<TrackSummaryBox> ReceivedBoxes { get; set; } = new();
+    public List<TrackSummarySnBox> SnBoxes { get; set; } = new();
+}
+
+public class TrackSummaryItem
+{
+    public long Id { get; set; }
+    public long POItemId { get; set; }
+    public string? PartNumberName { get; set; }
+    public string? Description { get; set; }
+    public string? SupplierName { get; set; }
+    public int Qty { get; set; }
+    public string? Condition { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerCode { get; set; }
+    public int ExpectedQty { get; set; }
+    public int? ActualQty { get; set; }
+    public bool? IsAvailable { get; set; }
+    public string Status { get; set; } = "Pending";
+    public string? ReviewedByName { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewNote { get; set; }
+}
+
+public class TrackSummaryDocument
+{
+    public long Id { get; set; }
+    public long? POItemId { get; set; }
+    public string? PartNumberName { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public string? MimeType { get; set; }
+    public long FileSizeBytes { get; set; }
+    public DateTime UploadedAt { get; set; }
+    public string? UploadedByName { get; set; }
+}
+
+public class TrackSummaryBox
+{
+    public long Id { get; set; }
+    public int BoxNumber { get; set; }
+    public decimal? WeightKg { get; set; }
+    public decimal? HeightCm { get; set; }
+    public decimal? WidthCm { get; set; }
+    public decimal? LengthCm { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class TrackSummarySnBox
+{
+    public long Id { get; set; }
+    public long ShipmentNoteId { get; set; }
+    public string? SNNumber { get; set; }
+    public int BoxNumber { get; set; }
+    public decimal? WeightKg { get; set; }
+    public decimal? HeightCm { get; set; }
+    public decimal? WidthCm { get; set; }
+    public decimal? LengthCm { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 // ──── Total P/N (TPP) view DTOs ────
@@ -158,6 +265,7 @@ public class SaveTrackNumberRequest
 public class TotalPNRowResponse
 {
     public long Id { get; set; }                       // POItem.Id (used by inline edit)
+    public long? PurchaseOrderId { get; set; }         // PurchaseOrder.Id (used for navigation link)
     public string? PONumber { get; set; }              // PurchaseOrder.PONumber, null until assigned
     public int? PORef { get; set; }                    // POItem.PORef (line # within PO)
     public string? QuotationExpert { get; set; }       // Quote.User.Name
@@ -170,7 +278,8 @@ public class TotalPNRowResponse
     public string? Condition { get; set; }             // POItem.Condition
     public string? Priority { get; set; }              // ProcurementItem.RfqPriority
     public string? Warehouse { get; set; }             // RFQ.ExType → "Warehouse" / "Vendor" / "Customer"
-    public string? SerialNumber { get; set; }          // SN# — null for now
+    public string? SerialNumber { get; set; }          // SN# — from ShipmentNote(s) linked to this PO item's track numbers
+    public string? ShippingStatus { get; set; }        // POItemTrackNumber.Status (most recent / joined)
     public string? CustomerInvoiceNumber { get; set; } // Invoice.InvoiceNumber (PI# to Customer)
     public decimal PurchasingUnitPriceUsd { get; set; }
     public decimal PurchasingTotalPriceUsd { get; set; }
@@ -193,6 +302,10 @@ public class TotalPNRowResponse
     public string? TrackNumbers { get; set; }          // joined POItemTrackNumber.TrackNumber list
     public decimal? ShippingCost { get; set; }         // ProcurementItem.ShippingCost
     public string? Note { get; set; }                  // POItem.Note (NEW)
+    // ── Shipment Note fields (populated only in Total Order view) ──
+    public string? TId { get; set; }                   // ShipmentNote.TId
+    public string? SONumber { get; set; }              // ShipmentNote.SONumber
+    public string? AwbNumber { get; set; }             // ShipmentNote.AWBNumber
 }
 
 /// <summary>Inline edit for the two new POItem fields exposed by the Total P/N grid.</summary>
@@ -200,6 +313,26 @@ public class UpdatePOItemTotalPNRequest
 {
     public string? Status { get; set; }
     public string? Note { get; set; }
+}
+
+/// <summary>SuperAdmin-only price override for a POItem. Recalculates TotalPrice and PO.TotalAmount.</summary>
+public class UpdatePOItemPriceRequest
+{
+    public decimal UnitPrice { get; set; }
+}
+
+/// <summary>Unique values per filterable column — used to populate the filter dropdowns client-side.</summary>
+public class TotalPNFilterOptions
+{
+    public List<string> Customers { get; set; } = [];
+    public List<string> InvoiceNumbers { get; set; } = [];
+    public List<string> PartNumbers { get; set; } = [];
+    public List<string> Conditions { get; set; } = [];
+    public List<string> PoNumbers { get; set; } = [];
+    public List<string> Suppliers { get; set; } = [];
+    public List<string> PaymentTerms { get; set; } = [];
+    public List<string> Statuses { get; set; } = [];
+    public List<string> ShippingStatuses { get; set; } = [];
 }
 
 /// <summary>Unassigned POItem response — enriched with ExType, customer, supplier info.</summary>

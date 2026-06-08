@@ -43,7 +43,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
     public async Task<IActionResult> Delete(long id)
     {
         var deleted = await _inventoryService.DeleteAsync(id);

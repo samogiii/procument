@@ -2,11 +2,8 @@
   <v-container>
     <v-row>
       <v-col cols="12">
-        <h1 class="text-h4 mb-1">Browser Sync with Satellite</h1>
-        <p class="text-body-2 text-medium-emphasis mb-4">
-          Your browser acts as the bridge between this app (local network) and the satellite (internet).
-          No server-to-server connection is needed.
-        </p>
+        <h1 class="text-h4 mb-1">Browser Sync</h1>
+       
       </v-col>
     </v-row>
 
@@ -24,7 +21,7 @@
               prepend-icon="mdi-sync"
               @click="runSync"
             >
-              Sync with Satellite
+              Sync with B2
             </v-btn>
           </v-card-title>
           <v-card-text>
@@ -162,10 +159,10 @@
     <v-row>
       <v-col cols="12">
         <v-expansion-panels>
-          <v-expansion-panel title="Import Encrypted Package from Satellite">
+          <v-expansion-panel title="Import Encrypted Package from B2">
             <v-expansion-panel-text>
               <p class="text-body-2 mb-3">
-                If a satellite user exported a sync package, paste it here to review and import.
+                If a B2 user exported a sync package, paste it here to review and import.
               </p>
               <v-row>
                 <v-col cols="12" md="9">

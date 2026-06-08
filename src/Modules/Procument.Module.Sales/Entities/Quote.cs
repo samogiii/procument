@@ -19,6 +19,8 @@ public class Quote : BaseEntity
     public string? RejectionNote { get; set; }
     public decimal? FinalPrice { get; set; }
     public DateTime? SentAt { get; set; }
+    public decimal? CoefYuan { get; set; }
+    public decimal? ExchangeRateYuan { get; set; }
 
     // Foreign keys
     public long RFQId { get; set; }

@@ -36,7 +36,9 @@
           />
           <v-select
             v-model="statusFilter"
-            :items="rfqStatusOptions"
+            :items="statusSelectItems"
+            item-title="label"
+            item-value="value"
             label="Status"
             hide-details
             multiple
@@ -44,8 +46,29 @@
             closable-chips
             clearable
             class="mr-2"
-            style="min-width: 120px; max-width: 200px;"
-          />
+            style="min-width: 120px; max-width: 260px;"
+          >
+            <template #item="{ props: iProps, item }">
+              <v-list-item v-bind="iProps" :class="{ 'text-disabled': !item.raw.available }" density="compact">
+                <template #prepend="{ isSelected }">
+                  <v-checkbox-btn :model-value="isSelected" density="compact" class="mr-1" />
+                </template>
+                <template #append>
+                  <v-icon v-if="!item.raw.available" icon="mdi-eye-off-outline" size="14" class="text-disabled ml-1" />
+                </template>
+              </v-list-item>
+            </template>
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllStatuses ? 'Show available only' : 'Show all statuses'"
+                :prepend-icon="showAllStatuses ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllStatuses = !showAllStatuses"
+              />
+            </template>
+          </v-select>
           <v-text-field
             v-model="pnSearch"
             label="Search by P/N"
@@ -59,7 +82,7 @@
           />
           <v-autocomplete
             v-model="userFilter"
-            :items="userOptions"
+            :items="userSelectItems"
             item-title="name"
             item-value="id"
             label="User"
@@ -72,33 +95,44 @@
             variant="outlined"
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
-          />
-          <div class="d-flex align-center gap-1">
-            <v-autocomplete
-              v-model="customerFilter"
-              :items="customerOptions"
-              item-title="title"
-              item-value="value"
-              label="Customer"
-              prepend-inner-icon="mdi-domain"
-              hide-details
-              multiple
-              chips
-              closable-chips
-              clearable
-              density="compact"
-              variant="outlined"
-              style="min-width: 180px; max-width: 300px;"
-            />
-            <v-btn
-              v-if="customerOptions.length"
-              size="x-small"
-              variant="tonal"
-              color="secondary"
-              title="Select all customers"
-              @click="selectAllCustomers"
-            >All</v-btn>
-          </div>
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllUsers ? 'Show available only' : 'Show all users'"
+                :prepend-icon="showAllUsers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllUsers = !showAllUsers"
+              />
+            </template>
+          </v-autocomplete>
+          <v-autocomplete
+            v-model="customerFilter"
+            :items="customerSelectItems"
+            item-title="title"
+            item-value="value"
+            label="Customer"
+            hide-details
+            multiple
+            chips
+            closable-chips
+            clearable
+            density="compact"
+            variant="outlined"
+            style="min-width: 160px; max-width: 280px;"
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllCustomers ? 'Show available only' : 'Show all customers'"
+                :prepend-icon="showAllCustomers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllCustomers = !showAllCustomers"
+              />
+            </template>
+          </v-autocomplete>
           
           <v-btn
             v-if="hasActiveFilters"
@@ -112,15 +146,102 @@
             Clear
           </v-btn>
         </div>
-        <v-data-table
+        <v-data-table-server
           :headers="headers"
-          :items="filteredItems"
+          :items="items"
+          :items-length="totalItems"
           :loading="loading"
           :items-per-page="50"
           hover
           :row-props="getRowProps"
+          @update:options="loadServerPage"
           @click:row="goToRfq"
         >
+          <!-- Column filter: ID -->
+          <template #header.id="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="id"
+              :label="column.title"
+              :options="cfIdOptionsPage"
+              :all-options="cfIdOptions"
+              :selected="colFilter.selected['id'] || new Set()"
+              :search="colFilter.search['id'] || ''"
+              @toggle="(v) => { colFilter.toggle('id', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('id', cfIdOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('id'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['id'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Name -->
+          <template #header.name="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="name"
+              :label="column.title"
+              :options="cfNameOptionsPage"
+              :all-options="cfNameOptions"
+              :selected="colFilter.selected['name'] || new Set()"
+              :search="colFilter.search['name'] || ''"
+              @toggle="(v) => { colFilter.toggle('name', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('name', cfNameOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('name'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['name'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Customer -->
+          <template #header.customerName="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="customerName"
+              :label="column.title"
+              :options="cfCustomerOptionsPage"
+              :all-options="cfCustomerOptions"
+              :selected="colFilter.selected['customerName'] || new Set()"
+              :search="colFilter.search['customerName'] || ''"
+              @toggle="(v) => { colFilter.toggle('customerName', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('customerName', cfCustomerOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('customerName'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['customerName'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Status -->
+          <template #header.status="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="status"
+              :label="column.title"
+              :options="cfStatusOptionsPage"
+              :all-options="cfStatusOptions"
+              :selected="colFilter.selected['status'] || new Set()"
+              :search="colFilter.search['status'] || ''"
+              @toggle="(v) => { colFilter.toggle('status', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('status', cfStatusOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('status'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['status'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Assigned Users -->
+          <template #header.assignedUsers="{ column }">
+            <ColFilterMenu
+              col-key="assignedUsers"
+              :label="column.title"
+              :options="cfUserOptionsPage"
+              :all-options="cfUserOptions"
+              :selected="colFilter.selected['assignedUsers'] || new Set()"
+              :search="colFilter.search['assignedUsers'] || ''"
+              @toggle="(v) => { colFilter.toggle('assignedUsers', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('assignedUsers', cfUserOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('assignedUsers'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['assignedUsers'] = v"
+              @sort-click="() => {}"
+            />
+          </template>
+
           <template #item.id="{ item }">
             <div class="d-flex align-center gap-1">
               <v-icon v-if="item.isUnread" icon="mdi-circle" size="10" color="blue" />
@@ -204,7 +325,7 @@
           <!-- <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" variant="text" size="small" :to="`/rfqs/${item.id}`" />
           </template> -->
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -798,6 +919,17 @@
         </v-card-text>
         <v-divider />
         <v-card-actions class="pa-4">
+          <!-- No Quote button — only for Open / In Progress RFQs -->
+          <v-btn
+            v-if="['Open', 'In Progress'].includes(assigningRfqData?.status)"
+            color="deep-purple"
+            variant="tonal"
+            prepend-icon="mdi-cancel"
+            :disabled="loadingAssignItems"
+            @click="showQuickNoQuote = true"
+          >
+            No Quote
+          </v-btn>
           <v-spacer />
           <v-btn variant="text" @click="showQuickAssign = false">Cancel</v-btn>
           <v-btn
@@ -813,8 +945,50 @@
       </v-card>
     </v-dialog>
 
+    <!-- No Quote confirmation (from Quick Assign Modal) -->
+    <v-dialog v-model="showQuickNoQuote" max-width="480" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-cancel" color="deep-purple" class="mr-2" />
+          Mark as No Quote?
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showQuickNoQuote = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <p class="text-body-2 mb-3">
+            This will set <strong>RFQ #{{ assigningRfqData?.id }}</strong> to <strong>No Quote</strong>
+            and prevent any new quote from being created for it.
+          </p>
+          <v-textarea
+            v-model="quickNoQuoteReason"
+            label="Reason *"
+            placeholder="Why is this RFQ being marked as No Quote?"
+            variant="outlined"
+            density="compact"
+            rows="3"
+            hide-details
+            auto-grow
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showQuickNoQuote = false">Cancel</v-btn>
+          <v-btn
+            color="deep-purple"
+            variant="flat"
+            :loading="quickNoQuoteLoading"
+            :disabled="!quickNoQuoteReason.trim()"
+            @click="doQuickNoQuote"
+          >
+            Confirm No Quote
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Bulk Permission Manager -->
-    <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" @update:model-value="(v) => !v && loadItems()" />
+    <BulkPermissionManager v-model="showBulkPerms" entity-name="RFQ" @update:model-value="(v) => !v && loadServerPage()" />
   </div>
 </template>
 
@@ -868,6 +1042,8 @@ const showBulkPerms = ref(false)
 const search = pf.search
 const loading = ref(false)
 const items = ref<any[]>([])
+const totalItems = ref(0)
+const sort = useServerSort()
 const statusFilter = pf.status
 const userFilter = pf.user
 const pnSearch = pf.pnSearch
@@ -883,90 +1059,115 @@ function assignedOf(item: any): { id: number; name: string }[] {
   return out
 }
 
-// ── Cascading filter options ──
-// Each option set is built from items that pass ALL OTHER active filters (not its own).
-// This ensures: pick customer → user+status options narrow, pick user → customer+status narrow, etc.
-
-// Base after customer+user (no status) — used by statusOptions
-const baseForStatus = computed(() => {
-  let r = items.value
-  if (customerFilter.value?.length)
-    r = r.filter((item: any) => customerFilter.value.includes(item.customerName))
-  if (userFilter.value?.length)
-    r = r.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
-  return r
-})
-
-// Base after status+user (no customer) — used by customerOptions
-const baseForCustomer = computed(() => {
-  let r = items.value
-  if (statusFilter.value?.length)
-    r = r.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  if (userFilter.value?.length)
-    r = r.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
-  return r
-})
-
-// Base after status+customer (no user) — used by userOptions
-const baseForUser = computed(() => {
-  let r = items.value
-  if (statusFilter.value?.length)
-    r = r.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  if (customerFilter.value?.length)
-    r = r.filter((item: any) => customerFilter.value.includes(item.customerName))
-  return r
-})
-
-// Status options: only statuses present after customer+user filter
 const ALL_RFQ_STATUSES = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
-const rfqStatusOptions = computed(() => {
-  if (baseForStatus.value.length === 0 && !customerFilter.value?.length && !userFilter.value?.length)
-    return ALL_RFQ_STATUSES
-  const set = new Set(baseForStatus.value.map((item: any) => item.status || 'Open'))
-  return ALL_RFQ_STATUSES.filter(s => set.has(s))
+const rfqStatusOptions = ref<string[]>([...ALL_RFQ_STATUSES])
+const showAllStatuses = ref(false)
+const statusSelectItems = computed(() => {
+  const available = new Set(rfqStatusOptions.value)
+  if (showAllStatuses.value) {
+    return ALL_RFQ_STATUSES.map(s => ({ label: s, value: s, available: available.has(s) }))
+  }
+  return ALL_RFQ_STATUSES
+    .filter(s => available.has(s) || (statusFilter.value as string[]).includes(s))
+    .map(s => ({ label: s, value: s, available: true }))
 })
+const userOptions = ref<{ id: number; name: string }[]>([])
+const customerOptions = ref<{ title: string; value: string }[]>([])
+const allUserOptions = ref<{ id: number; name: string }[]>([])
+const allCustomerOptions = ref<{ title: string; value: string }[]>([])
+const showAllUsers = ref(false)
+const showAllCustomers = ref(false)
 
-// User options: assigned users, cascades by status+customer
-const userOptions = computed(() => {
-  const map = new Map<number, string>()
-  baseForUser.value.forEach((item: any) => {
-    assignedOf(item).forEach(u => { if (!map.has(u.id)) map.set(u.id, u.name) })
-  })
-  return Array.from(map, ([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-})
+// ── Column filters (header menus) ──
+const colFilter = useColFilterPersisted('rfqs')
+// "All" options — full DB / hardcoded lists (shown when showAll=true in ColFilterMenu)
+const cfStatusOptions = computed(() => ALL_RFQ_STATUSES)
+const cfCustomerOptions = computed(() => allCustomerOptions.value.map((c: any) => c.title).sort())
+const cfUserOptions = computed(() => allUserOptions.value.map((u: any) => u.name).sort())
+const cfIdOptions = computed(() => [...new Set(items.value.map((i: any) => String(i.id)).filter(Boolean))].sort((a, b) => Number(b) - Number(a)))
+const cfNameOptions = computed(() => [...new Set(items.value.map((i: any) => i.name).filter(Boolean))].sort())
 
-// Customer options: cascades by status+user
-const customerOptions = computed(() => {
-  const map = new Map<string, string>()
-  baseForCustomer.value.forEach((item: any) => {
-    if (item.customerName && !map.has(item.customerName))
-      map.set(item.customerName, item.customerCode || '')
-  })
-  return Array.from(map.entries())
-    .map(([name, code]) => ({
-      // Admins see "Name (Code)"; non-admins (User role) see only the Code.
-      title: code || '—',
-      value: name,
-    }))
-    .sort((a, b) => a.title.localeCompare(b.title))
-})
+// "Available" options — only values present in the current 50-row page (shown by default)
+const cfStatusOptionsPage = computed(() =>
+  [...new Set(items.value.map((i: any) => i.status).filter(Boolean))].sort() as string[]
+)
+const cfCustomerOptionsPage = computed(() =>
+  [...new Set(items.value.map((i: any) => i.customerCode || '-').filter(Boolean))].sort() as string[]
+)
+const cfUserOptionsPage = computed(() =>
+  [...new Set(
+    items.value.flatMap((i: any) => [...(i.views || []), ...(i.edits || [])])
+      .map((u: any) => u.name).filter(Boolean)
+  )].sort() as string[]
+)
+const cfIdOptionsPage = computed(() => cfIdOptions.value)
+const cfNameOptionsPage = computed(() => cfNameOptions.value)
 
-// All filters applied client-side on loaded items
-const filteredItems = computed(() => {
-  let result = items.value
-  if (statusFilter.value?.length)
-    result = result.filter((item: any) => statusFilter.value.includes(item.status || 'Open'))
-  if (customerFilter.value?.length)
-    result = result.filter((item: any) => customerFilter.value.includes(item.customerName))
-  if (userFilter.value?.length)
-    result = result.filter((item: any) => assignedOf(item).some(u => userFilter.value.includes(u.id)))
-  return result
-})
-
-function selectAllCustomers() {
-  customerFilter.value = customerOptions.value.map((opt: any) => opt.value) as string[]
+function collectCfOptions(_loadedItems: any[]) {
+  // No-op: page-level options are computed reactively from items.value
 }
+
+let cfDebounce: any = null
+function debouncedCfLoad() {
+  clearTimeout(cfDebounce)
+  cfDebounce = setTimeout(() => loadServerPage({ ...lastServerOpts.value, page: 1 }), 200)
+}
+
+const userSelectItems = computed(() => showAllUsers.value ? allUserOptions.value : userOptions.value)
+const customerSelectItems = computed(() => showAllCustomers.value ? allCustomerOptions.value : customerOptions.value)
+
+// ── Filter-options loading (cascading) ──
+let filterOptsDebounce: any = null
+
+async function loadFilterOptions() {
+  try {
+    const params = new URLSearchParams()
+    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach(s => params.append('statuses', s))
+    if (userFilter.value?.length) (userFilter.value as number[]).forEach(id => params.append('userIds', String(id)))
+    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach(c => params.append('customerSearch', c))
+    const res = await api.get<any>(`/rfqs/filter-options?${params}`)
+
+    rfqStatusOptions.value = res.statuses?.length
+      ? [...new Set([...ALL_RFQ_STATUSES, ...res.statuses])]
+      : [...ALL_RFQ_STATUSES]
+
+    userOptions.value = (res.users || [])
+      .map((u: any) => ({ id: u.id, name: u.name }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name))
+
+    customerOptions.value = (res.customers || [])
+      .map((c: any) => ({ title: c.code || '-', value: c.name }))
+      .sort((a: any, b: any) => a.title.localeCompare(b.title))
+
+    // Cache the full list from the first (no-filter) call
+    if (!allUserOptions.value.length) allUserOptions.value = [...userOptions.value]
+    if (!allCustomerOptions.value.length) allCustomerOptions.value = [...customerOptions.value]
+  } catch {}
+}
+
+/** Unconstraint call — always loads ALL customers and users from the full DB. */
+async function loadAllFilterOptions() {
+  try {
+    const res = await api.get<any>('/rfqs/filter-options')
+    userOptions.value = (res.users || [])
+      .map((u: any) => ({ id: u.id, name: u.name }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    allUserOptions.value = [...userOptions.value]
+    customerOptions.value = (res.customers || [])
+      .map((c: any) => ({ title: c.code || '-', value: c.name }))
+      .sort((a: any, b: any) => a.title.localeCompare(b.title))
+    allCustomerOptions.value = [...customerOptions.value]
+  } catch {}
+}
+
+function debouncedFilterOptions() {
+  clearTimeout(filterOptsDebounce)
+  filterOptsDebounce = setTimeout(loadFilterOptions, 200)
+}
+
+watch(statusFilter, debouncedFilterOptions, { deep: true })
+watch(userFilter, debouncedFilterOptions, { deep: true })
+watch(customerFilter, debouncedFilterOptions, { deep: true })
 
 const headers = [
   { title: 'ID', key: 'id', width: '80px' },
@@ -980,42 +1181,55 @@ const headers = [
   { title: 'Received Date', key: 'receivedDate' },
 ]
 
-let _rfqLoadId = 0
-async function loadItems() {
-  const id = ++_rfqLoadId
+const lastServerOpts = ref<any>({ page: 1, itemsPerPage: 50 })
+
+async function loadServerPage(opts?: any) {
+  if (opts) {
+    sort.capture(opts)
+    lastServerOpts.value = { page: opts.page ?? lastServerOpts.value.page, itemsPerPage: opts.itemsPerPage ?? lastServerOpts.value.itemsPerPage }
+  }
+  const { page, itemsPerPage } = lastServerOpts.value
   loading.value = true
-  items.value = []
-  const batchSize = 200
-  const params = new URLSearchParams()
-  if (search.value?.trim()) params.set('search', search.value.trim())
-  if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
   try {
-    let page = 1
-    while (true) {
-      params.set('page', String(page))
-      params.set('pageSize', String(batchSize))
-      const res = await api.get<any>(`/rfqs?${params.toString()}`)
-      if (_rfqLoadId !== id) return
-      const batch: any[] = res.items ?? res.Items ?? []
-      const total: number = res.totalCount ?? res.TotalCount ?? batch.length
-      items.value = [...items.value, ...batch]
-      if (batch.length < batchSize || items.value.length >= total) break
-      page++
+    const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
+    sort.appendTo(params)
+    if (search.value?.trim()) params.set('search', search.value.trim())
+    if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
+    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach((s: string) => params.append('statuses', s))
+    if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
+    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
+    // Column header filters
+    if (colFilter.isActive('customerName')) colFilter.getSelected('customerName').forEach(v => params.append('customerSearch', v))
+    if (colFilter.isActive('status')) colFilter.getSelected('status').forEach(v => params.append('statuses', v))
+    if (colFilter.isActive('assignedUsers')) {
+      // Map user names to IDs using allUserOptions
+      const nameToId = new Map(allUserOptions.value.map(u => [u.name, u.id]))
+      colFilter.getSelected('assignedUsers').forEach(name => {
+        const id = nameToId.get(name)
+        if (id) params.append('userIds', String(id))
+      })
     }
+    if (colFilter.isActive('id')) colFilter.getSelected('id').forEach(v => params.append('rfqIds', v))
+    if (colFilter.isActive('name')) colFilter.getSelected('name').forEach(v => params.append('rfqNames', v))
+    const res = await api.get<any>(`/rfqs?${params.toString()}`)
+    items.value = res.items ?? res.Items ?? []
+    totalItems.value = res.totalCount ?? res.TotalCount ?? items.value.length
+    collectCfOptions(items.value)
   } catch {}
-  finally { if (_rfqLoadId === id) loading.value = false }
+  finally { loading.value = false }
 }
 
 let rfqDebounce: any = null
 function debouncedLoad() {
   clearTimeout(rfqDebounce)
-  rfqDebounce = setTimeout(() => loadItems(), 350)
+  rfqDebounce = setTimeout(() => loadServerPage({ ...lastServerOpts.value, page: 1 }), 350)
 }
 
 watch(search, debouncedLoad)
 watch(pnSearch, debouncedLoad)
-
-onMounted(() => loadItems())
+watch(statusFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
+watch(userFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
+watch(customerFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
 
 function goToRfq(pointerEvent: Event, rowData: { item: any }) {
   if (rowData && rowData.item && rowData.item.id) {
@@ -1032,6 +1246,11 @@ function isAltMatch(part: any, search: string) {
   return (part.alternatives || []).some((a: any) => a.name?.toLowerCase().includes(q))
 }
 
+onMounted(() => {
+  loadFilterOptions()
+  loadAllFilterOptions()
+})
+
 // ── Quick Assignment Modal state ──
 const showQuickAssign = ref(false)
 const assigningRfqData = ref<any>(null)
@@ -1039,6 +1258,30 @@ const loadingAssignItems = ref(false)
 const quickAssignUsers = ref<any[]>([])
 const selectedQuickUsers = ref<number[]>([])
 const savingQuickAssign = ref(false)
+
+// ── No Quote (from Quick Assign Modal) ──
+const showQuickNoQuote = ref(false)
+const quickNoQuoteReason = ref('')
+const quickNoQuoteLoading = ref(false)
+
+async function doQuickNoQuote() {
+  if (!assigningRfqData.value) return
+  quickNoQuoteLoading.value = true
+  try {
+    await api.patch(`/rfqs/${assigningRfqData.value.id}/status`, {
+      status: 'No Quote',
+      noQuoteReason: quickNoQuoteReason.value.trim(),
+    })
+    showQuickNoQuote.value = false
+    showQuickAssign.value = false
+    quickNoQuoteReason.value = ''
+    await loadServerPage()
+  } catch (e) {
+    console.error('Failed to set No Quote', e)
+  } finally {
+    quickNoQuoteLoading.value = false
+  }
+}
 
 async function openAssignModal(rfq: any) {
   assigningRfqData.value = rfq
@@ -1058,7 +1301,7 @@ async function openAssignModal(rfq: any) {
     // 3. Ensure we have the target user list (only once)
     if (!quickAssignUsers.value.length) {
       const all = await api.get<any[]>('/users')
-      const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+      const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
       quickAssignUsers.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
     }
   } catch (e) {
@@ -1095,7 +1338,7 @@ async function saveQuickAssign() {
 
     await Promise.all(promises)
     showQuickAssign.value = false
-    loadItems() // Refresh list to show new chips
+    loadServerPage() // Refresh list to show new chips
   } catch (e) {
     console.error('Failed to save quick assign', e)
   } finally {
@@ -1128,9 +1371,15 @@ function makeEmptyRow(): ItemRow {
 
 const exTypeOptions = [
   { label: 'Ex Warehouse', value: 0 },
-  { label: 'Ex Vendor', value: 1 },
-  { label: 'Ex Customer', value: 2 },
+  { label: 'Vendor/Customer', value: 1 },
 ]
+
+// Display helper: maps stored exType value to label (1 and 2 both show Vendor/Customer)
+function exTypeLabel(val: number | null | undefined): string {
+  if (val === 0) return 'Ex Warehouse'
+  if (val === 1 || val === 2) return 'Vendor/Customer'
+  return 'Not Set'
+}
 
 const form = ref({
   name: '',
@@ -1521,6 +1770,7 @@ function parseBulkRFQs() {
   // 0: RFQ Name | 1: # (row order, skip) | 2: Part Number | 3: Description
   // 4: Qty | 5: Condition | 6: Priority | 7: Alt | 8: Remark | 9: Received Date | 10: Deadline
   interface GroupMeta { items: BulkRFQItem[]; receivedDate: string; deadline: string }
+  // Key = "rfqName||deadline" so same name with different deadlines becomes separate groups
   const groupMap = new Map<string, GroupMeta>()
 
   for (let i = startIdx; i < lines.length; i++) {
@@ -1539,13 +1789,13 @@ function parseBulkRFQs() {
     const receivedDate = parseDateToISO((cols[9] || '').trim())
     const deadline = parseDateToISO((cols[10] || '').trim())
 
-    if (!groupMap.has(rfqName)) {
-      groupMap.set(rfqName, { items: [], receivedDate, deadline })
+    // Group key includes deadline so same-name + different-deadline → separate groups
+    const groupKey = `${rfqName}||${deadline}`
+    if (!groupMap.has(groupKey)) {
+      groupMap.set(groupKey, { items: [], receivedDate, deadline })
     }
-    groupMap.get(rfqName)!.items.push({ partNumber, description, qty, condition, priority, remark, alternatives })
-    // Always use last-seen dates (they're the same per RFQ)
-    if (receivedDate) groupMap.get(rfqName)!.receivedDate = receivedDate
-    if (deadline) groupMap.get(rfqName)!.deadline = deadline
+    groupMap.get(groupKey)!.items.push({ partNumber, description, qty, condition, priority, remark, alternatives })
+    if (receivedDate) groupMap.get(groupKey)!.receivedDate = receivedDate
   }
 
   if (groupMap.size === 0) {
@@ -1554,8 +1804,35 @@ function parseBulkRFQs() {
     return
   }
 
+  // Group entries by base rfqName to detect multi-deadline splits
+  const byName = new Map<string, Array<{ key: string; meta: GroupMeta }>>()
+  for (const [key, meta] of groupMap.entries()) {
+    const baseName = key.split('||')[0]
+    if (!byName.has(baseName)) byName.set(baseName, [])
+    byName.get(baseName)!.push({ key, meta })
+  }
+
+  // Build final list: if a name has multiple deadline groups, rename with (1), (2), (3)...
+  const finalGroups: Array<{ rfqName: string; meta: GroupMeta }> = []
+  for (const [baseName, entries] of byName.entries()) {
+    if (entries.length === 1) {
+      // Only one deadline group — keep original name
+      finalGroups.push({ rfqName: baseName, meta: entries[0].meta })
+    } else {
+      // Multiple deadline groups — sort by deadline ascending, then number them
+      entries.sort((a, b) => {
+        const da = a.meta.deadline ? new Date(a.meta.deadline).getTime() : 0
+        const db = b.meta.deadline ? new Date(b.meta.deadline).getTime() : 0
+        return da - db
+      })
+      entries.forEach((entry, idx) => {
+        finalGroups.push({ rfqName: `${baseName}(${idx + 1})`, meta: entry.meta })
+      })
+    }
+  }
+
   const existingNames = new Set(items.value.map((r: any) => r.name?.toLowerCase()))
-  bulkGroups.value = Array.from(groupMap.entries()).map(([rfqName, meta]) => ({
+  bulkGroups.value = finalGroups.map(({ rfqName, meta }) => ({
     rfqName,
     items: meta.items,
     receivedDate: meta.receivedDate,
@@ -1635,7 +1912,7 @@ async function submitBulkRFQs() {
     }
 
     showBulkImport.value = false
-    await loadItems()
+    await loadServerPage()
   } catch (e: any) {
     console.log(e)
     bulkSubmitError.value = e?.data?.message || 'Bulk import failed.'
@@ -1755,7 +2032,7 @@ async function submitRfq() {
     }
 
     showCreate.value = false
-    await loadItems()
+    await loadServerPage()
   } catch (e: any) {
     submitError.value = e?.data?.message || 'Failed to create RFQ.'
   } finally {
@@ -1765,6 +2042,10 @@ async function submitRfq() {
 </script>
 
 <style scoped>
+.cf-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
+.cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
+
 :deep(.unread-rfq-row) {
   background-color: rgba(66, 165, 245, 0.12) !important;
   border-left: 3px solid #42a5f5;

@@ -9,7 +9,7 @@ namespace Procument.Module.Sales.Services;
 
 public interface IFinalInvoiceService
 {
-    Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page);
+    Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null);
     Task<FinalInvoiceResponse?> GetByIdAsync(long id);
     Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
     Task<bool> UpdateStatusAsync(long id, string status);
@@ -32,9 +32,14 @@ public class FinalInvoiceService : IFinalInvoiceService
     /// SELECT with only the columns the list page actually displays. Avoids the 5-level
     /// Include/ThenInclude chain used by <see cref="GetByIdAsync"/>.
     /// </summary>
-    public async Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page)
+    public async Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null)
     {
-        var q = _db.Set<FinalInvoice>().AsQueryable();
+        var q = _db.Set<FinalInvoice>().AsNoTracking().AsQueryable();
+
+        if (!isSuperAdmin && userBases != null)
+        {
+            q = q.Where(fi => fi.Customer == null || fi.Customer.Base == null || userBases.Contains(fi.Customer.Base.Value));
+        }
 
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
@@ -43,6 +48,12 @@ public class FinalInvoiceService : IFinalInvoiceService
                 fi.InvoiceNumber.Contains(s)
              || (fi.Customer != null && fi.Customer.Name.Contains(s))
              || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(customerSearch))
+        {
+            var cs = customerSearch.Trim();
+            q = q.Where(fi => fi.Customer != null && fi.Customer.Name.Contains(cs));
         }
 
         var projected = q
@@ -72,6 +83,7 @@ public class FinalInvoiceService : IFinalInvoiceService
         var fi = await _db.Set<FinalInvoice>()
             .Include(f => f.Customer)
             .Include(f => f.ProformaInvoice)
+                .ThenInclude(pi => pi.Quote)
             .Include(f => f.Items).ThenInclude(i => i.PartNumber)
             .Include(f => f.Items).ThenInclude(i => i.InvoiceItem)
                 .ThenInclude(ii => ii!.QuoteItem)
@@ -83,14 +95,30 @@ public class FinalInvoiceService : IFinalInvoiceService
         return fi == null ? null : MapToResponse(fi);
     }
 
+    /// <summary>
+    /// PO statuses that are considered "active enough" for Net30 invoices.
+    /// Net30 skips the payment workflow, so we never wait for "Completed" —
+    /// any PO that has moved past draft/admin-approval is sufficient.
+    /// </summary>
+    private static readonly string[] Net30EligiblePoStatuses =
+    [
+        "Waiting For Documents", "Waiting For Payment", "PO Sent", "Document Added",
+        "Payment Done", "Waiting For Shipment",
+        "Ship To Warehouse 1", "Ship To Warehouse 2", "Ship To Warehouse 3",
+        "Ship To Customer", "Completed"
+    ];
+
     public async Task<List<EligibleProformaResponse>> GetEligibleProformasAsync()
     {
         var finalInvoiceProformaIds = await _db.Set<FinalInvoice>().Select(f => f.ProformaInvoiceId).ToListAsync();
 
         var eligibleProformas = await _db.Set<Invoice>()
             .Include(i => i.Customer)
-            .Where(i => !finalInvoiceProformaIds.Contains(i.Id))
-            .Where(i => _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && po.Status == "Completed"))
+            .Where(i => !finalInvoiceProformaIds.Contains(i.Id) && !i.IsCancelled)
+            .Where(i =>
+                i.PaymentStatus == "Net30"
+                    ? _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && Net30EligiblePoStatuses.Contains(po.Status))
+                    : _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && po.Status == "Completed"))
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
@@ -104,17 +132,33 @@ public class FinalInvoiceService : IFinalInvoiceService
         }).ToList();
     }
 
-    /// <summary>Check if proforma has at least one Completed PO and no existing final invoice.</summary>
+    /// <summary>
+    /// Check if a final invoice can be created for the given proforma invoice.
+    /// Net30: any PO past draft/approval stage qualifies (payment workflow is skipped).
+    /// Other payment types: at least one PO must be fully Completed.
+    /// </summary>
     public async Task<bool> CanCreateFinalInvoice(long proformaInvoiceId)
     {
         var exists = await _db.Set<FinalInvoice>()
             .AnyAsync(fi => fi.ProformaInvoiceId == proformaInvoiceId);
         if (exists) return false;
 
-        var hasCompletedPo = await _db.Set<PurchaseOrder>()
-            .AnyAsync(po => po.InvoiceId == proformaInvoiceId && po.Status == "Completed");
+        var invoice = await _db.Set<Invoice>()
+            .AsNoTracking()
+            .Where(i => i.Id == proformaInvoiceId)
+            .Select(i => new { i.PaymentStatus, i.IsCancelled })
+            .FirstOrDefaultAsync();
 
-        return hasCompletedPo;
+        if (invoice == null || invoice.IsCancelled) return false;
+
+        if (invoice.PaymentStatus == "Net30")
+        {
+            return await _db.Set<PurchaseOrder>()
+                .AnyAsync(po => po.InvoiceId == proformaInvoiceId && Net30EligiblePoStatuses.Contains(po.Status));
+        }
+
+        return await _db.Set<PurchaseOrder>()
+            .AnyAsync(po => po.InvoiceId == proformaInvoiceId && po.Status == "Completed");
     }
 
     /// <summary>Create a Final Invoice from a proforma invoice, pulling in items and track numbers from POs.</summary>
@@ -191,10 +235,28 @@ public class FinalInvoiceService : IFinalInvoiceService
             var proc = quoteItem?.ProcumentRecord;
             var track = trackMap.ContainsKey(ii.Id) ? trackMap[ii.Id] : null;
 
+            // Resolve the effective PartNumber: if the expert quoted an alt to the customer,
+            // find or create a PartNumber entry for the alt so the Final Invoice uses it.
+            var effectivePartNumberId = quoteItem?.PartNumberId;
+            var altName = quoteItem?.Alt?.Trim();
+            if (!string.IsNullOrEmpty(altName))
+            {
+                var altPn = await _db.Set<PartNumber>().FirstOrDefaultAsync(p => p.Name == altName);
+                if (altPn != null)
+                    effectivePartNumberId = altPn.Id;
+                else
+                {
+                    var newAltPn = new PartNumber { Name = altName, CreatedAt = DateTime.UtcNow };
+                    _db.Set<PartNumber>().Add(newAltPn);
+                    await _db.SaveChangesAsync();
+                    effectivePartNumberId = newAltPn.Id;
+                }
+            }
+
             var item = new FinalInvoiceItem
             {
                 FinalInvoiceId = finalInvoice.Id,
-                PartNumberId = quoteItem?.PartNumberId,
+                PartNumberId = effectivePartNumberId,
                 InvoiceItemId = ii.Id,
                 Qty = ii.Qty,
                 UnitPrice = ii.UnitPrice,   // Sell price from proforma
@@ -275,6 +337,9 @@ public class FinalInvoiceService : IFinalInvoiceService
             CustomerBillToPhone = fi.Customer?.Phone,
             CustomerTermsAndConditions = fi.Customer?.TermsAndConditions,
             CustomerCurrencyType = fi.Customer?.CurrencyType,
+            DefaultDepositWalletId = fi.ProformaInvoice?.DefaultDepositWalletId,
+            QuoteCoefYuan = fi.ProformaInvoice?.Quote?.CoefYuan,
+            QuoteExchangeRateYuan = fi.ProformaInvoice?.Quote?.ExchangeRateYuan,
             //CustomerBillToContactPerson = fi.Customer?.ContactPerson,
             CustomerShipTo = fi.Customer?.ShipTo,
             CustomerShipToContactPerson = fi.Customer?.ContactPerson,
@@ -297,6 +362,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                                rfqItemRank.TryGetValue(i.InvoiceItem.QuoteItem.RFQItemId!.Value, out var rank)
                                ? rank.ToString() : null,
                 PartNumberName = i.PartNumber?.Name ?? "",
+                Alt = i.InvoiceItem?.QuoteItem?.Alt,
                 Description = i.PartNumber?.Description,
             }).ToList()
         };

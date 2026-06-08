@@ -11,7 +11,10 @@ namespace Procument.Module.Catalog.Controllers;
 public class CompanyPresetsController : ControllerBase
 {
     private readonly DbContext _db;
-    public CompanyPresetsController(DbContext db) => _db = db;
+    public CompanyPresetsController(DbContext db)
+    {
+        _db = db;
+    }
 
     [HttpGet]
     [Authorize(Roles = "Admin,SuperAdmin,Expert")]
@@ -189,6 +192,7 @@ public class CompanyPresetsController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok();
     }
+
 }
 
 public class CompanyPresetDto

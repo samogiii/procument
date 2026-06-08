@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
@@ -155,15 +155,16 @@ watch(model, (open) => {
     loadPresets()
     if (props.quote?.customerBase == 3) {
       const currencyType = props.quote?.customerCurrencyType || 'Dollar'
+      const storedRate = (props.quote?.coefYuan ?? 1) * (props.quote?.exchangeRateYuan ?? 7)
       if (currencyType === 'Dollar') {
         currency.value = 'Dollar (USD)'
         exchangeRate.value = 1
       } else if (currencyType === 'Yuan') {
         currency.value = 'China Yuan (CNY)'
-        exchangeRate.value = 7
+        exchangeRate.value = storedRate
       } else if (currencyType === 'Both') {
         currency.value = 'Dollar (USD)'
-        exchangeRate.value = 7
+        exchangeRate.value = storedRate
         // For Both, default to Dollar but allow user to switch
       }
     }
@@ -499,17 +500,18 @@ async function downloadPdf() {
     const currencyType = props.quote?.customerCurrencyType || 'Dollar'
     const isBoth = props.quote?.customerBase === 3 && currencyType === 'Both'
 
+    const yuanRate = (props.quote?.coefYuan ?? 1) * (props.quote?.exchangeRateYuan ?? 7)
     const currenciesToGenerate = isBoth
       ? [
-          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' }, 
-          { currency: 'China Yuan (CNY)', symbol: '¥', rate: 8.54, nameSuffix: ' - Yuan' }
+          { currency: 'Dollar (USD)', symbol: '$', rate: 1.0, nameSuffix: ' - Dollar' },
+          { currency: 'China Yuan (CNY)', symbol: '¥', rate: yuanRate, nameSuffix: ' - Yuan' }
         ]
       : [
-          { 
-            currency: currency.value, 
-            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$', 
+          {
+            currency: currency.value,
+            symbol: currency.value === 'China Yuan (CNY)' ? '¥' : '$',
             rate: currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1,
-            nameSuffix: '' 
+            nameSuffix: ''
           }
         ]
 
@@ -556,7 +558,7 @@ async function downloadPdf() {
         footerText: footerText.value || null,
       }
 
-      const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/generate`, {
+      const response = await $fetch<Blob>(`${api.baseURL}/pdf/generate`, {
         method: 'POST',
         body: payload,
         responseType: 'blob',

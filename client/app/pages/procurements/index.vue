@@ -85,10 +85,10 @@
           </v-btn>
         </div>
 
-        <v-data-table
+        <v-data-table-server
           :headers="headers"
-          :items="filteredItems"
-          :search="search"
+          :items="allItems"
+          :items-length="totalItems"
           :loading="loading"
           :items-per-page="50"
           hover
@@ -96,8 +96,128 @@
           :item-value="item => (item.id ?? item.Id)"
           v-model:expanded="expanded"
           show-expand
+          @update:options="loadServerPage"
           @click:row="(_: any, { item }: any) => toggleExpand(item)"
         >
+          <!-- Column filter: Part Number -->
+          <template #header.partNumberName="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="partNumberName"
+              :label="column.title"
+              :options="cfPartOptions"
+              :all-options="allPartOptions"
+              :selected="colFilter.selected['partNumberName'] || new Set()"
+              :search="colFilter.search['partNumberName'] || ''"
+              @toggle="(v) => { colFilter.toggle('partNumberName', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('partNumberName', allPartOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('partNumberName'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['partNumberName'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Item Status -->
+          <template #header.itemStatus="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="itemStatus"
+              :label="column.title"
+              :options="cfItemStatusOptionsPage"
+              :all-options="cfItemStatusOptions"
+              :selected="colFilter.selected['itemStatus'] || new Set()"
+              :search="colFilter.search['itemStatus'] || ''"
+              @toggle="(v) => { colFilter.toggle('itemStatus', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('itemStatus', cfItemStatusOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('itemStatus'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['itemStatus'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Customer -->
+          <template #header.customerName="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="customerName"
+              :label="column.title"
+              :options="cfCustomerOptionsPage"
+              :all-options="cfCustomerOptions"
+              :selected="colFilter.selected['customerName'] || new Set()"
+              :search="colFilter.search['customerName'] || ''"
+              @toggle="(v) => { colFilter.toggle('customerName', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('customerName', cfCustomerOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('customerName'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['customerName'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Condition -->
+          <template #header.condition="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="condition"
+              :label="column.title"
+              :options="cfCondOptionsPage"
+              :all-options="cfCondOptions"
+              :selected="colFilter.selected['condition'] || new Set()"
+              :search="colFilter.search['condition'] || ''"
+              @toggle="(v) => { colFilter.toggle('condition', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('condition', cfCondOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('condition'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['condition'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Proc Status -->
+          <template #header.procurementStatus="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="procurementStatus"
+              :label="column.title"
+              :options="cfProcStatusOptionsPage"
+              :all-options="cfProcStatusOptions"
+              :selected="colFilter.selected['procurementStatus'] || new Set()"
+              :search="colFilter.search['procurementStatus'] || ''"
+              @toggle="(v) => { colFilter.toggle('procurementStatus', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('procurementStatus', cfProcStatusOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('procurementStatus'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['procurementStatus'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Supplier -->
+          <template #header.currentSupplierName="{ column, toggleSort }">
+            <ColFilterMenu
+              col-key="currentSupplierName"
+              :label="column.title"
+              :options="cfSupplierOptionsPage"
+              :all-options="cfSupplierOptions"
+              :selected="colFilter.selected['currentSupplierName'] || new Set()"
+              :search="colFilter.search['currentSupplierName'] || ''"
+              @toggle="(v) => { colFilter.toggle('currentSupplierName', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('currentSupplierName', cfSupplierOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('currentSupplierName'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['currentSupplierName'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
+          <!-- Column filter: Assigned Users -->
+          <template #header.assignedUsers="{ column }">
+            <ColFilterMenu
+              col-key="assignedUsers"
+              :label="column.title"
+              :options="cfUserOptionsPage"
+              :all-options="cfUserOptions"
+              :selected="colFilter.selected['assignedUsers'] || new Set()"
+              :search="colFilter.search['assignedUsers'] || ''"
+              @toggle="(v) => { colFilter.toggle('assignedUsers', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('assignedUsers', cfUserOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('assignedUsers'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['assignedUsers'] = v"
+              @sort-click="() => {}"
+            />
+          </template>
+
           <!-- # -->
           <template #item.index="{ index }">
             <span class="text-caption text-medium-emphasis">{{ index + 1 }}</span>
@@ -238,16 +358,30 @@
                         Split: {{ selectedQuoteCount(item) }} suppliers · {{ selectedQuoteQty(item) }} of {{ item.qty }} qty
                       </v-chip>
                     </div>
-                    <v-btn
-                      v-if="!isFinalizedOrCancelled(item)"
-                      size="x-small"
-                      color="primary"
-                      variant="flat"
-                      prepend-icon="mdi-plus"
-                      @click.stop="addSupplierQuote(item)"
-                    >
-                      Add Quote
-                    </v-btn>
+                    <div class="d-flex gap-2">
+                      <!-- Reopen button — shown only for Finalized procurement rows (admin only) -->
+                      <v-btn
+                        v-if="isAdmin && item.procurementStatus === 'Finalized'"
+                        size="x-small"
+                        color="warning"
+                        variant="tonal"
+                        prepend-icon="mdi-lock-open-variant-outline"
+                        :loading="reopeningId === (item.procurementId || item.ProcurementId)"
+                        @click.stop="reopenProcurement(item)"
+                      >
+                        Reopen
+                      </v-btn>
+                      <v-btn
+                        v-if="!isFinalizedOrCancelled(item)"
+                        size="x-small"
+                        color="primary"
+                        variant="flat"
+                        prepend-icon="mdi-plus"
+                        @click.stop="addSupplierQuote(item)"
+                      >
+                        Add Quote
+                      </v-btn>
+                    </div>
                   </div>
 
                   <div class="border rounded bg-surface overflow-hidden mb-2">
@@ -260,6 +394,7 @@
                           <th style="width: 60px;">Cond</th>
                           <th style="width: 60px;" class="text-center">Qty</th>
                           <th style="width: 100px;" class="text-right">Price ($)</th>
+                          <th style="width: 100px;" class="text-right">Shipping</th>
                           <th style="width: 100px;" class="text-right">Total</th>
                           <th style="width: 120px;">Lead Time</th>
                           <th>Note</th>
@@ -334,6 +469,18 @@
                               @click.stop
                             />
                           </td>
+                          <td>
+                            <input
+                              type="number"
+                              v-model.number="sq.shippingCost"
+                              class="quote-input text-right"
+                              step="0.01"
+                              placeholder="0.00"
+                              :readonly="isFinalizedOrCancelled(item) || sq.hasActivePOItem"
+                              @blur="saveSupplierQuote(item, sq)"
+                              @click.stop
+                            />
+                          </td>
                           <td class="text-right text-caption font-weight-bold px-2">
                             ${{ formatPrice((sq.qty || 0) * (sq.price || 0)) }}
                           </td>
@@ -400,7 +547,7 @@
               </td>
             </tr>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -457,11 +604,74 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const loading = ref(false)
 const allItems = ref<any[]>([])
+const totalItems = ref(0)
 const users = ref<any[]>([])
 
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+// ── Column filters ──
+const colFilter = useColFilterPersisted('procurements')
+// "Available" options — from current page results (shrinks when col filter is active)
+const cfPartOptions = ref<string[]>([])
+// "All" options — from full DB (never shrinks)
+const allPartOptions = ref<string[]>([])
+const cfItemStatusOptions = ref<string[]>([])   // full DB (from loadAllProcurementFilterOptions)
+const cfCustomerOptions = ref<string[]>([])     // full DB (from loadAllProcurementFilterOptions)
+
+// "Available" (current page) for itemStatus + customerName
+const cfItemStatusOptionsPage = computed(() =>
+  [...new Set(allItems.value.map((i: any) => i.itemStatus).filter(Boolean))].sort() as string[]
+)
+const cfCustomerOptionsPage = computed(() =>
+  [...new Set(allItems.value.map((i: any) => i.customerName).filter(Boolean))].sort() as string[]
+)
+
+const cfCondOptions = computed(() => ['AR', 'FN', 'IN', 'NE', 'NS', 'OH', 'RP', 'SV'])
+const cfCondOptionsPage = computed(() => [...new Set(allItems.value.map((i: any) => i.condition).filter(Boolean))].sort() as string[])
+
+const cfProcStatusOptions = computed(() => ['Open', 'Sourcing', 'InProgress', 'Reopened', 'Finalized', 'Cancelled'])
+const cfProcStatusOptionsPage = computed(() => [...new Set(allItems.value.map((i: any) => i.procurementStatus).filter(Boolean))].sort() as string[])
+
+const cfSupplierOptions = computed(() => [...new Set(allItems.value.map((i: any) => i.currentSupplierName).filter(Boolean))].sort() as string[])
+const cfSupplierOptionsPage = computed(() => cfSupplierOptions.value)
+
+const cfUserOptions = computed(() => userOptions.value.map((u: any) => u.name).sort() as string[])
+const cfUserOptionsPage = computed(() => {
+  const names = new Set<string>()
+  for (const item of allItems.value) {
+    for (const u of (item.assignedUsers || [])) {
+      if (u.userName) names.add(u.userName)
+    }
+  }
+  return [...names].sort() as string[]
+})
+
+function collectCfOptions(loadedItems: any[]) {
+  // Part options from current page (the "available" subset)
+  cfPartOptions.value = [...new Set(loadedItems.map((i: any) => i.partNumberName).filter(Boolean))].sort()
+  // Accumulate all-time part options (grows, never shrinks when filter active)
+  const newParts = loadedItems.map((i: any) => i.partNumberName).filter(Boolean) as string[]
+  if (newParts.length) {
+    allPartOptions.value = [...new Set([...allPartOptions.value, ...newParts])].sort()
+  }
+  // itemStatus and customerName full-DB options come from loadAllProcurementFilterOptions()
+}
+
+async function loadAllProcurementFilterOptions() {
+  try {
+    const res = await api.get<any>('/procurements/items/filter-options')
+    cfItemStatusOptions.value = (res.itemStatuses || []).sort()
+    cfCustomerOptions.value = (res.customerNames || []).filter(Boolean).sort()
+  } catch {}
+}
+
+let cfDebounce: any = null
+function debouncedCfLoad() {
+  clearTimeout(cfDebounce)
+  cfDebounce = setTimeout(() => loadServerPage({ ...lastProcOpts.value, page: 1 }), 200)
+}
 
 const showAssignDialog = ref(false)
 const assignTarget = ref<any>(null)
@@ -491,12 +701,11 @@ async function toggleExpand(item: any) {
 
 // Watch expanded array to fetch details for newly expanded items
 watch(expanded, (newVal, oldVal) => {
-  const added = newVal.filter(id => !oldVal.includes(id))
-  added.forEach(id => {
-    // Find item by either number or string ID, checking both casing
-    const item = allItems.value.find(i => String(i.id ?? i.Id) === String(id))
+  const added = newVal.filter((id: any) => !oldVal.includes(id))
+  added.forEach((id: any) => {
+    const item = allItems.value.find((i: any) => String(i.id ?? i.Id) === String(id))
     if (item) {
-      const pid = (item.procurementId || item.ProcurementId) || item.ProcurementId
+      const pid = (item.procurementId || item.ProcurementId)
       if (pid && !procurementDetails.value[pid] && !loadingDetails.value[pid]) {
         fetchProcurementDetail(pid)
       }
@@ -581,6 +790,7 @@ function addSupplierQuote(item: any) {
     tempId: Date.now(),
     supplierName: '',
     price: 0,
+    shippingCost: 0,
     qty: item.qty,
     condition: item.condition || 'NE',
     leadTime: '',
@@ -600,6 +810,7 @@ async function saveSupplierQuote(item: any, sq: any) {
       supplierId: resolvedSupplierId,
       supplierName: sq.supplierName,
       price: sq.price,
+      shippingCost: sq.shippingCost,
       qty: sq.qty,
       condition: sq.condition,
       leadTime: sq.leadTime,
@@ -680,6 +891,25 @@ async function approveSupplierQuote(item: any, sq: any) {
   }
 }
 
+// ── Reopen finalized procurement ──
+const reopeningId = ref<number | null>(null)
+
+async function reopenProcurement(item: any) {
+  const pid = item.procurementId || item.ProcurementId
+  if (!pid || reopeningId.value) return
+  reopeningId.value = pid
+  try {
+    await api.post(`/procurements/${pid}/reopen`, {})
+    showSnack('Procurement reopened — you can now add supplier quotes to cover remaining qty.', 'success')
+    await fetchProcurementDetail(pid)
+    await loadData()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to reopen', 'error')
+  } finally {
+    reopeningId.value = null
+  }
+}
+
 // ── Supplier Autocomplete ──
 const supplierSuggestions = ref<{ id: number; name: string; status: string }[]>([])
 let supplierSearchDebounce: any = null
@@ -730,56 +960,10 @@ function clearFilters() {
   userFilter.value = []
 }
 
-const statusOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach(i => { if (i.itemStatus) set.add(i.itemStatus) })
-  return Array.from(set).sort()
-})
-
-const procStatusOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach(i => { if (i.procurementStatus) set.add(i.procurementStatus) })
-  return Array.from(set).sort()
-})
-
-const customerOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach(i => { if (i.customerName) set.add(i.customerName) })
-  return Array.from(set).sort()
-})
-
-const userOptions = computed(() => {
-  const map = new Map<number, string>()
-  allItems.value.forEach(i =>
-    (i.assignedUsers || []).forEach((u: any) => {
-      if (u.userId && u.userName) map.set(u.userId, u.userName)
-    })
-  )
-  return Array.from(map, ([id, name]) => ({ id, name }))
-})
-
-const filteredItems = computed(() => {
-  let result = allItems.value
-  if (statusFilter.value.length)
-    result = result.filter(i => statusFilter.value.includes(i.itemStatus))
-  if (procStatusFilter.value.length)
-    result = result.filter(i => procStatusFilter.value.includes(i.procurementStatus))
-  if (customerFilter.value.length)
-    result = result.filter(i => customerFilter.value.includes(i.customerName))
-  if (userFilter.value.length)
-    result = result.filter(i =>
-      (i.assignedUsers || []).some((u: any) => userFilter.value.includes(u.userId))
-    )
-  if (search.value.trim()) {
-    const q = search.value.trim().toLowerCase()
-    result = result.filter(i =>
-      (i.partNumberName || '').toLowerCase().includes(q) ||
-      (i.partNumberDescription || '').toLowerCase().includes(q) ||
-      (i.currentSupplierName || '').toLowerCase().includes(q)
-    )
-  }
-  return result
-})
+const statusOptions = ['Open', 'Sourcing', 'Ready', 'Cancelled', 'Returned']
+const procStatusOptions = ['Open', 'Sourcing', 'InProgress', 'Reopened', 'Finalized', 'Cancelled']
+const customerOptions = ref<string[]>([])
+const userOptions = ref<{ id: number; name: string }[]>([])
 
 const headers = computed(() => {
   const h: any[] = [
@@ -806,7 +990,7 @@ function itemStatusColor(status: string) {
 }
 
 function procStatusColor(status: string) {
-  const map: Record<string, string> = { Open: 'grey', Sourcing: 'info', InProgress: 'warning', Finalized: 'success', Cancelled: 'error' }
+  const map: Record<string, string> = { Open: 'grey', Sourcing: 'info', InProgress: 'warning', Reopened: 'orange', Finalized: 'success', Cancelled: 'error' }
   return map[status] || 'grey'
 }
 
@@ -817,11 +1001,44 @@ function showSnack(text: string, color = 'success') {
 }
 
 // ── Data Loading ──
-async function loadData() {
+const lastProcOpts = ref<any>({ page: 1, itemsPerPage: 50 })
+const sort = useServerSort()
+
+async function loadServerPage(opts?: any) {
+  if (opts) { lastProcOpts.value = opts; sort.capture(opts) }
+  const { page, itemsPerPage } = lastProcOpts.value
   loading.value = true
   try {
-    const data = await api.get<any[]>('/procurements/items')
-    allItems.value = Array.isArray(data) ? data : []
+    const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
+    if (search.value?.trim()) params.set('search', search.value.trim())
+    if (statusFilter.value.length) statusFilter.value.forEach((s: string) => params.append('status', s))
+    // When no proc-status filter is active, hide Finalized/Cancelled items but always show Reopened.
+    // Admin can still see Finalized/Cancelled by explicitly selecting them in the filter.
+    const effectiveProcStatuses = procStatusFilter.value.length
+      ? procStatusFilter.value
+      : procStatusOptions.filter((s: string) => s !== 'Finalized' && s !== 'Cancelled')
+    effectiveProcStatuses.forEach((s: string) => params.append('procStatus', s))
+    if (customerFilter.value.length) customerFilter.value.forEach((c: string) => params.append('customerName', c))
+    if (userFilter.value.length) userFilter.value.forEach((id: number) => params.append('userIds', String(id)))
+    // Column header filters
+    if (colFilter.isActive('partNumberName')) colFilter.getSelected('partNumberName').forEach(v => params.append('partNames', v))
+    if (colFilter.isActive('itemStatus')) colFilter.getSelected('itemStatus').forEach(v => params.append('status', v))
+    if (colFilter.isActive('customerName')) colFilter.getSelected('customerName').forEach(v => params.append('customerName', v))
+    if (colFilter.isActive('condition')) colFilter.getSelected('condition').forEach(v => params.append('conditions', v))
+    if (colFilter.isActive('procurementStatus')) colFilter.getSelected('procurementStatus').forEach(v => params.append('procStatus', v))
+    if (colFilter.isActive('currentSupplierName')) colFilter.getSelected('currentSupplierName').forEach(v => params.append('supplierNames', v))
+    if (colFilter.isActive('assignedUsers')) {
+      const nameToId = new Map(userOptions.value.map(u => [u.name, u.id]))
+      colFilter.getSelected('assignedUsers').forEach(name => {
+        const id = nameToId.get(name)
+        if (id) params.append('userIds', String(id))
+      })
+    }
+    sort.appendTo(params)
+    const res = await api.get<any>(`/procurements/items?${params.toString()}`)
+    allItems.value = res.items ?? res.Items ?? (Array.isArray(res) ? res : [])
+    totalItems.value = res.totalCount ?? res.TotalCount ?? allItems.value.length
+    collectCfOptions(allItems.value)
   } catch (e) {
     console.error('[ProcurementItems] Load failed', e)
   } finally {
@@ -829,11 +1046,15 @@ async function loadData() {
   }
 }
 
+async function loadData() {
+  await loadServerPage()
+}
+
 async function loadUsers() {
   if (users.value.length) return
   try {
     const allUsers = await api.get<any[]>('/users')
-    const allowed = ['GHS', 'SNP', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
     users.value = allUsers.filter((u: any) => allowed.includes(u.name) || allowed.includes(u.username))
   } catch {
     users.value = []
@@ -879,10 +1100,39 @@ async function doAssign() {
   }
 }
 
-onMounted(loadData)
+let procDebounce: any = null
+function debouncedProcLoad() {
+  clearTimeout(procDebounce)
+  procDebounce = setTimeout(() => loadServerPage({ ...lastProcOpts.value, page: 1 }), 350)
+}
+watch(search, debouncedProcLoad)
+watch(statusFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
+watch(procStatusFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
+watch(customerFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
+watch(userFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
+
+onMounted(async () => {
+  loadData()
+  loadAllProcurementFilterOptions()
+  try {
+    const all = await api.get<any[]>('/users')
+    userOptions.value = (all || []).filter((u: any) => u.isActive !== false).map((u: any) => ({ id: u.id, name: u.name || u.username }))
+  } catch {}
+  try {
+    const custs = await api.get<any>('/customers?page=1&pageSize=500')
+    const items = custs?.items ?? custs?.Items ?? (Array.isArray(custs) ? custs : [])
+    customerOptions.value = [...new Set(items
+      .map((c: any) => c.customerCode || '-'))]
+      .sort()
+  } catch {}
+})
 </script>
 
 <style scoped>
+.cf-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
+.cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
+
 .cell-pn {
   font-family: 'Roboto Mono', monospace;
   color: rgb(var(--v-theme-primary));

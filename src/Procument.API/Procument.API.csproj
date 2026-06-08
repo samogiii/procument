@@ -20,6 +20,7 @@
     </PackageReference>
     <PackageReference Include="Scalar.AspNetCore" Version="2.12.40" />
     <PackageReference Include="QuestPDF" Version="2026.2.4" />
+    <PackageReference Include="WebPush" Version="1.0.12" />
   </ItemGroup>
 
   <PropertyGroup>

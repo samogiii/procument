@@ -16,6 +16,9 @@ public static class PurchasingModule
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IPaymentRequestService, PaymentRequestService>();
+        services.AddScoped<IWarehouseService, WarehouseService>();
+        services.AddScoped<IShippingService, ShippingService>();
+        services.AddScoped<IShipmentNoteService, ShipmentNoteService>();
         return services;
     }
 }

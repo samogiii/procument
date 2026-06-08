@@ -8,145 +8,118 @@ public static class PaymentRequestDocument
 {
     public static byte[] Generate(PaymentRequestPdfRequest req)
     {
-        var primary = req.PrimaryColor ?? "#312e81";
-        var accent  = req.AccentColor  ?? "#6366f1";
-        var sym     = req.CurrencySymbol ?? "$";
+        var sym = req.CurrencySymbol ?? "$";
+
+        var bankFeeText = req.BankFeeOption switch
+        {
+            "OurCompanyLocal" => "本公司支付本地银行费用，受款人支付海外银行费用。\nOur company pays local bank fees; the recipient pays overseas bank fees.",
+            "RecipientAll"    => "受款公司支付所有的银行费用\nThe recipient company pays all bank fees.",
+            _                 => "本公司支付所有的银行费用\nOur company pays all bank fees.",
+        };
 
         var doc = Document.Create(container =>
         {
             container.Page(page =>
             {
                 page.Size(PageSizes.A4);
-                page.MarginTop(20);
-                page.MarginHorizontal(30);
-                page.MarginBottom(20);
+                page.MarginTop(30);
+                page.MarginHorizontal(40);
+                page.MarginBottom(30);
                 page.DefaultTextStyle(x => x.FontSize(10).FontColor(Colors.Black));
 
+                // ── HEADER ───────────────────────────────────────────────────────────
                 page.Header().Column(col =>
                 {
-                    col.Item().AlignCenter().Text("Payment Request").FontSize(20).Bold().FontColor(primary);
-                    col.Item().PaddingTop(10).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Row(row =>
-                    {
-                        row.RelativeItem().Padding(5).Row(r => {
-                            r.RelativeItem().Text("PR Number:").Bold();
-                            r.RelativeItem().Text(req.PrNumber ?? "—");
-                        });
-                        row.RelativeItem().Padding(5).Row(r => {
-                            r.RelativeItem().Text("Date:").Bold();
-                            r.RelativeItem().Text(req.DocumentDate ?? DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
-                        });
-                    });
+                    col.Item().AlignCenter().Text("PAYMENT REQUEST").FontSize(20).Bold();
+                    col.Item().PaddingTop(6).AlignCenter().Text(req.PrNumber ?? "").FontSize(11);
+                    col.Item().PaddingTop(2).AlignCenter().Text(req.DocumentDate ?? DateTime.Now.ToString("yyyy-MM-dd")).FontSize(10);
+                    col.Item().PaddingTop(10).LineHorizontal(1f).LineColor(Colors.Black);
                 });
 
-                page.Content().PaddingTop(20).Column(col =>
+                page.Content().PaddingTop(16).Column(col =>
                 {
-                    // BANK INFORMATION
-                    col.Item().Text("BANK INFORMATION").FontSize(14).Bold().FontColor(primary);
-                    col.Item().PaddingTop(10).Table(table =>
+                    // ── MUST BE PAID BY ──────────────────────────────────────────────
+                    col.Item().PaddingBottom(14).Text(text =>
                     {
-                        table.ColumnsDefinition(columns =>
-                        {
-                            columns.RelativeColumn(1);
-                            columns.RelativeColumn(2);
-                        });
-
-                        void AddRow(string label, string? value)
-                        {
-                            table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Background(Colors.Grey.Lighten5).Padding(5).Text(label).Bold();
-                            table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text(value ?? "—");
-                        }
-
-                        AddRow("Company Paying From:", req.CompanyPayingFrom);
-                        AddRow("Company Paying To:", req.CompanyPayingTo);
-                        AddRow("Account Number:", req.AccountNumber);
-                        AddRow("Bank Name:", req.BankName);
-                        AddRow("SWIFT Code:", req.SwiftCode);
-                        AddRow("ABA (Routing Number):", req.ABA);
-                        AddRow("Company Address:", req.CompanyAddress);
-                        AddRow("Bank Address:", req.BankAddress);
+                        text.Span("MUST BE PAID BY:  ").Bold().FontSize(11);
+                        text.Span(req.CompanyPayingFrom ?? "—").Bold().FontSize(11);
                     });
 
-                    // PAYMENT DETAILS
-                    col.Item().PaddingTop(20).Text("PAYMENT DETAILS").FontSize(14).Bold().FontColor(primary);
-                    col.Item().PaddingTop(5).Text("Selected Parts:").FontSize(10).Italic();
-
-                    col.Item().PaddingTop(10).Table(table =>
+                    // ── BANK DETAILS (two columns) ────────────────────────────────────
+                    col.Item().Row(row =>
                     {
-                        table.ColumnsDefinition(columns =>
+                        // Left — Our company
+                        row.RelativeItem().Column(inner =>
                         {
-                            columns.RelativeColumn();
-                            columns.RelativeColumn(2);
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
+                            inner.Item().Text("PAYING FROM").Bold().FontSize(9);
+                            inner.Item().PaddingTop(4).Table(table =>
+                            {
+                                table.ColumnsDefinition(c => { c.RelativeColumn(2); c.RelativeColumn(3); });
+
+                                void L(string label, string? value)
+                                {
+                                    table.Cell().BorderBottom(0.3f).BorderColor(Colors.Grey.Lighten1).Padding(3).Text(label).FontSize(9).Bold();
+                                    table.Cell().BorderBottom(0.3f).BorderColor(Colors.Grey.Lighten1).Padding(3).Text(value ?? "—").FontSize(9);
+                                }
+
+                                L("Company:", req.CompanyPayingFrom);
+                                L("Beneficiary:", req.OurBeneficiaryName);
+                                L("Account No:", req.OurAccountNumber);
+                                L("Bank Name:", req.OurBankName);
+                                L("SWIFT:", req.OurSwiftCode);
+                                L("Bank Address:", req.OurBankAddress);
+                            });
                         });
 
-                        table.Header(header =>
+                        row.ConstantItem(20);
+
+                        // Right — Supplier
+                        row.RelativeItem().Column(inner =>
                         {
-                            header.Cell().Background(primary).Padding(5).AlignCenter().Text("Part Number").FontColor(Colors.White).Bold();
-                            header.Cell().Background(primary).Padding(5).AlignCenter().Text("Description").FontColor(Colors.White).Bold();
-                            header.Cell().Background(primary).Padding(5).AlignCenter().Text("Quantity").FontColor(Colors.White).Bold();
-                            header.Cell().Background(primary).Padding(5).AlignCenter().Text("Unit Price").FontColor(Colors.White).Bold();
-                            header.Cell().Background(primary).Padding(5).AlignCenter().Text("Total").FontColor(Colors.White).Bold();
+                            inner.Item().Text("PAYING TO").Bold().FontSize(9);
+                            inner.Item().PaddingTop(4).Table(table =>
+                            {
+                                table.ColumnsDefinition(c => { c.RelativeColumn(2); c.RelativeColumn(3); });
+
+                                void R(string label, string? value)
+                                {
+                                    table.Cell().BorderBottom(0.3f).BorderColor(Colors.Grey.Lighten1).Padding(3).Text(label).FontSize(9).Bold();
+                                    table.Cell().BorderBottom(0.3f).BorderColor(Colors.Grey.Lighten1).Padding(3).Text(value ?? "—").FontSize(9);
+                                }
+
+                                R("Company:", req.CompanyPayingTo);
+                                R("Account No:", req.AccountNumber);
+                                R("Bank Name:", req.BankName);
+                                R("SWIFT:", req.SwiftCode);
+                                R("ABA:", req.ABA);
+                                R("Bank Address:", req.BankAddress);
+                            });
                         });
-
-                        foreach (var item in req.Items ?? new List<PaymentRequestPdfItem>())
-                        {
-                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).AlignCenter().Text(item.PartNumber);
-                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).AlignCenter().Text(item.Description);
-                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).AlignCenter().Text(item.Qty.ToString());
-                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).AlignCenter().Text($"{sym}{item.UnitPrice:N2}");
-                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).AlignCenter().Text($"{sym}{item.TotalPrice:N2}");
-                        }
                     });
 
-                    // Summary block
-                    col.Item().PaddingTop(10).Table(table =>
+                    // ── TOTAL AMOUNT (big, centered) ──────────────────────────────────
+                    col.Item().PaddingTop(40).PaddingBottom(40).AlignCenter().Column(inner =>
                     {
-                        table.ColumnsDefinition(columns =>
-                        {
-                            columns.RelativeColumn(1);
-                            columns.RelativeColumn(2);
-                        });
-
-                        void AddSummaryRow(string label, string? value)
-                        {
-                            table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text(label).Bold();
-                            table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text(value ?? "—");
-                        }
-
-                        AddSummaryRow("Supplier:", req.SupplierName);
-                        AddSummaryRow("Items Total:", $"{sym}{req.ItemsTotal:N2}");
-                        AddSummaryRow("Wire Fee:", $"{sym}{req.WireFee:N2}");
-                        AddSummaryRow("Currency:", req.Currency);
-                        AddSummaryRow("Supplier PO:", req.PoNumber);
+                        inner.Item().AlignCenter().Text("TOTAL AMOUNT").FontSize(13).Bold();
+                        inner.Item().PaddingTop(10).AlignCenter()
+                            .Text($"{sym}{req.GrandTotal:N2}").FontSize(36).Bold();
+                        inner.Item().PaddingTop(6).AlignCenter()
+                            .Text(req.Currency ?? "USD").FontSize(12);
                     });
 
-                    col.Item().PaddingTop(10).Table(table =>
-                    {
-                        table.ColumnsDefinition(columns =>
-                        {
-                            columns.RelativeColumn(1);
-                            columns.RelativeColumn(2);
-                        });
-                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text("Status:").Bold();
-                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text(req.Status ?? "PENDING APPROVAL").Bold();
-                    });
+                    col.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten1);
 
-                    // Final Total
-                    col.Item().PaddingTop(20).Background(primary).Padding(10).Row(row =>
-                    {
-                        row.RelativeItem().Text("TOTAL AMOUNT (Items + Wire Fee):").Bold().FontColor(Colors.White);
-                        row.RelativeItem().AlignRight().Text($"{sym}{req.GrandTotal:N2} ({req.Currency})").Bold().FontColor(Colors.White);
-                    });
+                    // ── BANK CHARGES ──────────────────────────────────────────────────
+                    col.Item().PaddingTop(14).Text(bankFeeText).FontSize(9).LineHeight(1.5f);
                 });
 
+                // ── FOOTER ───────────────────────────────────────────────────────────
                 page.Footer().AlignCenter().Text(x =>
                 {
-                    x.Span("Page ");
-                    x.CurrentPageNumber();
-                    x.Span(" of ");
-                    x.TotalPages();
+                    x.Span("Page ").FontSize(8);
+                    x.CurrentPageNumber().FontSize(8);
+                    x.Span(" of ").FontSize(8);
+                    x.TotalPages().FontSize(8);
                 });
             });
         });

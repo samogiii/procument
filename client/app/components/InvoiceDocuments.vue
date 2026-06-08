@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <v-card class="glass-card mb-6">
     <v-card-title class="d-flex align-center">
       <v-icon icon="mdi-folder-multiple-outline" class="mr-2" size="20" />
@@ -11,7 +11,7 @@
       <div class="mb-4">
         <div class="text-subtitle-2 mb-2 d-flex align-center">
           <v-icon icon="mdi-file-document-outline" size="18" class="mr-1" />
-          SaleS Order Documents
+          Proforma Invoice Documents
         </div>
         <v-row dense>
           <v-col v-for="cat in piCategories" :key="cat.key" cols="12" sm="6" md="3">
@@ -79,7 +79,7 @@
       </div>
 
       <div v-if="!suppliers.length" class="text-caption text-medium-emphasis">
-        No suppliers yet. Suppliers appear after POs are created for this Sales Order.
+        No suppliers yet. Suppliers appear after POs are created for this Proforma Invoice.
       </div>
 
       <v-expansion-panels v-else multiple variant="accordion">
@@ -146,18 +146,44 @@
           Upload Customer POP
         </v-card-title>
         <v-card-text class="pa-4">
+          <v-row dense class="mb-3">
+            <v-col cols="7">
+              <v-text-field
+                v-model.number="popAmount"
+                label="Payment Amount"
+                type="number"
+                min="0"
+                step="0.01"
+                :prefix="currencySymbol(popCurrency)"
+                variant="outlined"
+                density="comfortable"
+                :rules="[v => v > 0 || 'Amount must be greater than 0']"
+                autofocus
+              />
+            </v-col>
+            <v-col cols="5">
+              <v-select
+                v-model="popCurrency"
+                :items="currencies"
+                label="Currency"
+                variant="outlined"
+                density="comfortable"
+                @update:model-value="popExchangeRate = null"
+              />
+            </v-col>
+          </v-row>
           <v-text-field
-            v-model.number="popAmount"
-            label="Payment Amount"
+            v-if="popCurrency !== 'USD'"
+            v-model.number="popExchangeRate"
+            :label="`Exchange Rate (1 ${popCurrency} = ? USD)`"
             type="number"
             min="0"
-            step="0.01"
-            prefix="$"
+            step="0.0001"
             variant="outlined"
             density="comfortable"
-            :rules="[v => v > 0 || 'Amount must be greater than 0']"
             class="mb-3"
-            autofocus
+            hint="Used to record the USD equivalent in the wallet"
+            persistent-hint
           />
           <v-text-field
             v-model="popNotes"
@@ -215,9 +241,10 @@ const suppliers = ref<SupplierSection[]>([])
 const paymentInfo = ref<PaymentInfo | null>(null)
 
 const piCategories = [
-  { key: 'customer_pop', label: 'Customer POP', icon: 'mdi-receipt-text-check', color: 'success' },
+  
   { key: 'customer_po', label: 'Customer PO', icon: 'mdi-file-document', color: 'primary' },
   { key: 'our_pi', label: 'Our PI', icon: 'mdi-file-pdf-box', color: 'error' },
+  { key: 'customer_pop', label: 'Customer POP', icon: 'mdi-receipt-text-check', color: 'success' },
   { key: 'quote', label: 'Quote', icon: 'mdi-file-sign', color: 'warning' },
 ]
 
@@ -238,9 +265,16 @@ const pendingSupplierId = ref<number | null>(null)
 // ── Customer POP dialog state ──
 const showPopDialog = ref(false)
 const popAmount = ref<number | null>(null)
+const popCurrency = ref('USD')
+const popExchangeRate = ref<number | null>(null)
 const popNotes = ref('')
 const popFile = ref<File | null>(null)
 const popFileInputRef = ref<HTMLInputElement | null>(null)
+
+const currencies = ['USD', 'EUR', 'CNY', 'GBP', 'AED', 'RUB']
+function currencySymbol(c: string) {
+  return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[c] ?? c
+}
 const uploadingPop = ref(false)
 
 const paymentProgress = computed(() => {
@@ -285,6 +319,8 @@ async function loadDocuments() {
 
 function openPopDialog() {
   popAmount.value = null
+  popCurrency.value = 'USD'
+  popExchangeRate.value = null
   popNotes.value = ''
   popFile.value = null
   showPopDialog.value = true
@@ -309,9 +345,13 @@ async function submitPopUpload() {
     formData.append('file', popFile.value)
     formData.append('amount', String(popAmount.value))
     if (popNotes.value.trim()) formData.append('notes', popNotes.value.trim())
+    if (popCurrency.value !== 'USD') {
+      formData.append('currency', popCurrency.value)
+      if (popExchangeRate.value) formData.append('exchangeRate', String(popExchangeRate.value))
+    }
 
     const result = await $fetch<any>(
-      `${config.public.apiBase}/documents/proforma-invoice/${props.invoiceId}/customer-pop`,
+      `${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/customer-pop`,
       {
         method: 'POST',
         body: formData,
@@ -365,7 +405,7 @@ async function onFileSelected(e: Event) {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('category', category)
-      await $fetch(`${config.public.apiBase}${url}`, {
+      await $fetch(`${api.baseURL}${url}`, {
         method: 'POST',
         body: formData,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -387,7 +427,7 @@ async function onFileSelected(e: Event) {
 
 async function downloadPI(f: FileInfo) {
   try {
-    const blob = await $fetch<Blob>(`${config.public.apiBase}/documents/proforma-invoice/${props.invoiceId}/file`, {
+    const blob = await $fetch<Blob>(`${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/file`, {
       method: 'GET',
       query: { name: f.name, category: f.category },
       responseType: 'blob',
@@ -399,7 +439,7 @@ async function downloadPI(f: FileInfo) {
 
 async function downloadSupplier(supplierId: number, f: FileInfo) {
   try {
-    const blob = await $fetch<Blob>(`${config.public.apiBase}/documents/proforma-invoice/${props.invoiceId}/supplier/${supplierId}/file`, {
+    const blob = await $fetch<Blob>(`${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/supplier/${supplierId}/file`, {
       method: 'GET',
       query: { name: f.name, category: f.category },
       responseType: 'blob',
@@ -412,7 +452,7 @@ async function downloadSupplier(supplierId: number, f: FileInfo) {
 async function deletePI(f: FileInfo) {
   if (!confirm(`Delete "${f.name}"?`)) return
   try {
-    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${props.invoiceId}/file`, {
+    await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/file`, {
       method: 'DELETE',
       query: { name: f.name, category: f.category },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
@@ -425,7 +465,7 @@ async function deletePI(f: FileInfo) {
 async function deleteSupplier(supplierId: number, f: FileInfo) {
   if (!confirm(`Delete "${f.name}"?`)) return
   try {
-    await $fetch(`${config.public.apiBase}/documents/proforma-invoice/${props.invoiceId}/supplier/${supplierId}/file`, {
+    await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/supplier/${supplierId}/file`, {
       method: 'DELETE',
       query: { name: f.name, category: f.category },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },

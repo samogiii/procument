@@ -45,7 +45,9 @@
           />
           <v-select
             v-model="statusFilter"
-            :items="statusOptions"
+            :items="statusSelectItems"
+            item-title="label"
+            item-value="value"
             label="Status"
             hide-details
             multiple
@@ -53,8 +55,29 @@
             closable-chips
             clearable
             class="mr-2"
-            style="min-width: 120px; max-width: 200px;"
-          />
+            style="min-width: 120px; max-width: 260px;"
+          >
+            <template #item="{ props: iProps, item }">
+              <v-list-item v-bind="iProps" :class="{ 'text-disabled': !item.raw.available }" density="compact">
+                <template #prepend="{ isSelected }">
+                  <v-checkbox-btn :model-value="isSelected" density="compact" class="mr-1" />
+                </template>
+                <template #append>
+                  <v-icon v-if="!item.raw.available" icon="mdi-eye-off-outline" size="14" class="text-disabled ml-1" />
+                </template>
+              </v-list-item>
+            </template>
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllStatuses ? 'Show available only' : 'Show all statuses'"
+                :prepend-icon="showAllStatuses ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllStatuses = !showAllStatuses"
+              />
+            </template>
+          </v-select>
            <v-text-field
             v-model="pnSearch"
             label="Search by P/N"
@@ -68,7 +91,7 @@
           />
           <v-autocomplete
             v-model="userFilter"
-            :items="userOptions"
+            :items="userSelectItems"
             item-title="name"
             item-value="id"
             label="User"
@@ -81,10 +104,21 @@
             variant="outlined"
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllUsers ? 'Show available only' : 'Show all users'"
+                :prepend-icon="showAllUsers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllUsers = !showAllUsers"
+              />
+            </template>
+          </v-autocomplete>
           <v-autocomplete
             v-model="customerFilter"
-            :items="customerOptions"
+            :items="customerSelectItems"
             item-title="title"
             item-value="value"
             label="Customer"
@@ -96,7 +130,18 @@
             density="compact"
             variant="outlined"
             style="min-width: 140px; max-width: 260px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllCustomers ? 'Show available only' : 'Show all customers'"
+                :prepend-icon="showAllCustomers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllCustomers = !showAllCustomers"
+              />
+            </template>
+          </v-autocomplete>
           <v-btn
             :variant="showPendingOnly ? 'flat' : 'tonal'"
             :color="showPendingOnly ? 'warning' : 'grey'"
@@ -120,10 +165,17 @@
           </v-btn>
         </div>
 
-        <v-data-table
+        <!-- Column filter status bar -->
+        <div v-if="procActiveFilterCount > 0" class="d-flex align-center gap-2 mb-2">
+          <v-chip size="small" color="primary" variant="tonal" closable prepend-icon="mdi-filter" @click:close="clearAllProcFilters">
+            {{ procActiveFilterCount }} column filter{{ procActiveFilterCount !== 1 ? 's' : '' }} active
+          </v-chip>
+        </div>
+
+        <v-data-table-server
           :headers="headers"
-          :items="filteredItems"
-          :search="search"
+          :items="allItems"
+          :items-length="totalItems"
           :loading="loading"
           :items-per-page="50"
           hover
@@ -132,8 +184,224 @@
           v-model:expanded="expandedArray"
           show-expand
           :row-props="getRowProps"
+          @update:options="loadServerPage"
           @click:row="(_: any, { item }: any) => toggleExpand(item)"
         >
+          <!-- Column filter: RFQ # -->
+          <template #header.rfqId="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="colRfqId.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="colRfqId.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.rfqId" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox v-for="val in filteredColRfqIdOpts" :key="val" :label="val" :model-value="colRfqId.includes(val)" density="compact" hide-details @update:model-value="toggleCol(colRfqId, val)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCol(colRfqId, filteredColRfqIdOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!colRfqId.length" @click="colRfqId.splice(0)">None</v-btn>
+                  </div>
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+
+          <!-- Column filter: RFQ Name -->
+          <template #header.rfqName="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="colRfqName.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="colRfqName.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.rfqName" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox v-for="val in filteredColRfqNameOpts" :key="val" :label="val" :model-value="colRfqName.includes(val)" density="compact" hide-details @update:model-value="toggleCol(colRfqName, val)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCol(colRfqName, filteredColRfqNameOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!colRfqName.length" @click="colRfqName.splice(0)">None</v-btn>
+                  </div>
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+
+          <!-- Column header filter menus (server-side, persisted via usePageFilters) -->
+          <template #header.partNumberName="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="280">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="colPn.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="colPn.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="240">
+                  <v-text-field v-model="colSearch.pn" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox
+                      v-for="val in filteredColPnOpts"
+                      :key="val"
+                      :label="val"
+                      :model-value="colPn.includes(val)"
+                      density="compact"
+                      hide-details
+                      :class="{ 'opacity-40': showAllPnOpts && !colPnOpts.includes(val) }"
+                      @update:model-value="toggleCol(colPn, val)"
+                    />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCol(colPn, filteredColPnOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!colPn.length" @click="colPn.splice(0)">None</v-btn>
+                  </div>
+                  <v-divider class="mt-1 mb-1" />
+                  <v-list-item
+                    :title="showAllPnOpts ? 'Show available only' : 'Show all part numbers'"
+                    :prepend-icon="showAllPnOpts ? 'mdi-filter' : 'mdi-filter-off'"
+                    density="compact"
+                    class="text-caption text-medium-emphasis"
+                    @click.stop="showAllPnOpts = !showAllPnOpts"
+                  />
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+          <template #header.condition="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="colCond.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="colCond.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.cond" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox v-for="val in filteredColCondOpts" :key="val" :label="val" :model-value="colCond.includes(val)" density="compact" hide-details :class="{ 'opacity-40': showAllCondOpts && !condOptsPage.includes(val) }" @update:model-value="toggleCol(colCond, val)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCol(colCond, filteredColCondOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!colCond.length" @click="colCond.splice(0)">None</v-btn>
+                  </div>
+                  <v-divider class="mt-1 mb-1" />
+                  <v-list-item
+                    :title="showAllCondOpts ? 'Show available only' : 'Show all'"
+                    :prepend-icon="showAllCondOpts ? 'mdi-filter' : 'mdi-filter-off'"
+                    density="compact"
+                    class="text-caption text-medium-emphasis"
+                    @click.stop="showAllCondOpts = !showAllCondOpts"
+                  />
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+          <template #header.customerName="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="customerFilter.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="customerFilter.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.cust" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <!-- opt.title = customer code (display), opt.value = customer name (stored in customerFilter) -->
+                    <v-checkbox v-for="opt in filteredColCustOpts" :key="opt.value" :label="opt.title" :model-value="customerFilter.includes(opt.value)" density="compact" hide-details :class="{ 'opacity-40': showAllCustColOpts && !custColOptsPage.some(p => p.value === opt.value) }" @update:model-value="toggleCol(customerFilter, opt.value)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCust(customerFilter, filteredColCustOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!customerFilter.length" @click="customerFilter.splice(0)">None</v-btn>
+                  </div>
+                  <v-divider class="mt-1 mb-1" />
+                  <v-list-item
+                    :title="showAllCustColOpts ? 'Show available only' : 'Show all'"
+                    :prepend-icon="showAllCustColOpts ? 'mdi-filter' : 'mdi-filter-off'"
+                    density="compact"
+                    class="text-caption text-medium-emphasis"
+                    @click.stop="showAllCustColOpts = !showAllCustColOpts"
+                  />
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+          <template #header.status="{ column, toggleSort, isSorted, sortBy }">
+            <div class="proc-th-inner">
+              <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
+                <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="statusFilter.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="statusFilter.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.status" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox v-for="val in filteredColStatusOpts" :key="val" :label="val" :model-value="statusFilter.includes(val)" density="compact" hide-details :class="{ 'opacity-40': showAllStatusColOpts && !statusColOptsPage.includes(val) }" @update:model-value="toggleCol(statusFilter, val)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllCol(statusFilter, filteredColStatusOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!statusFilter.length" @click="statusFilter.splice(0)">None</v-btn>
+                  </div>
+                  <v-divider class="mt-1 mb-1" />
+                  <v-list-item
+                    :title="showAllStatusColOpts ? 'Show available only' : 'Show all'"
+                    :prepend-icon="showAllStatusColOpts ? 'mdi-filter' : 'mdi-filter-off'"
+                    density="compact"
+                    class="text-caption text-medium-emphasis"
+                    @click.stop="showAllStatusColOpts = !showAllStatusColOpts"
+                  />
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+          <template #header.assignedUsers="{ column }">
+            <div class="proc-th-inner">
+              <span>{{ column.title }}</span>
+              <v-menu :close-on-content-click="false" max-width="260">
+                <template #activator="{ props: mp }">
+                  <v-btn v-bind="mp" :icon="userFilter.length ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="userFilter.length ? 'primary' : undefined" class="proc-filter-btn" @click.stop />
+                </template>
+                <v-card class="pa-2" min-width="220">
+                  <v-text-field v-model="colSearch.users" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                  <div style="max-height:220px;overflow-y:auto;">
+                    <v-checkbox v-for="u in filteredColUserOpts" :key="u.id" :label="u.name" :model-value="userFilter.includes(u.id)" density="compact" hide-details :class="{ 'opacity-40': showAllUserColOpts && !userColOptsPage.some(p => p.id === u.id) }" @update:model-value="toggleColId(userFilter, u.id)" />
+                  </div>
+                  <v-divider class="my-1" />
+                  <div class="d-flex gap-1">
+                    <v-btn size="x-small" variant="text" color="primary" @click="selectAllUsers(userFilter, filteredColUserOpts)">All</v-btn>
+                    <v-btn size="x-small" variant="text" color="error" :disabled="!userFilter.length" @click="userFilter.splice(0)">None</v-btn>
+                  </div>
+                  <v-divider class="mt-1 mb-1" />
+                  <v-list-item
+                    :title="showAllUserColOpts ? 'Show available only' : 'Show all'"
+                    :prepend-icon="showAllUserColOpts ? 'mdi-filter' : 'mdi-filter-off'"
+                    density="compact"
+                    class="text-caption text-medium-emphasis"
+                    @click.stop="showAllUserColOpts = !showAllUserColOpts"
+                  />
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+
           <template #item.rfqId="{ item }">
             <div class="d-flex align-center gap-1">
               <v-icon
@@ -452,7 +720,9 @@
                             <span
                               v-else
                               class="quote-input price-display"
+                              tabindex="0"
                               @click.stop="focusField(`price-${qIdx}-${item.rfqItemId}`)"
+                              @focus="focusField(`price-${qIdx}-${item.rfqItemId}`)"
                             >
                               {{ quote.price ? '$' + formatPrice(quote.price) : '' }}
                             </span>
@@ -487,7 +757,9 @@
                             <span
                               v-else
                               class="quote-input price-display"
+                              tabindex="0"
                               @click.stop="focusField(`ship-${qIdx}-${item.rfqItemId}`)"
+                              @focus="focusField(`ship-${qIdx}-${item.rfqItemId}`)"
                             >
                               {{ quote.shippingCost ? '$' + formatPrice(quote.shippingCost) : '' }}
                             </span>
@@ -675,7 +947,9 @@
                                       <span
                                         v-else
                                         class="quote-input price-display"
+                                        tabindex="0"
                                         @click.stop="focusField(`shop-price-${sIdx}-${quote.id}`)"
+                                        @focus="focusField(`shop-price-${sIdx}-${quote.id}`)"
                                       >
                                         {{ shop.price ? '$' + formatPrice(shop.price) : '' }}
                                       </span>
@@ -697,7 +971,9 @@
                                         v-else
                                         class="quote-input price-display"
                                         style="color: #ff9800;"
+                                        tabindex="0"
                                         @click.stop="focusField(`shop-fix-${sIdx}-${quote.id}`)"
+                                        @focus="focusField(`shop-fix-${sIdx}-${quote.id}`)"
                                       >
                                         {{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}
                                       </span>
@@ -732,7 +1008,9 @@
                                       <span
                                         v-else
                                         class="quote-input price-display"
+                                        tabindex="0"
                                         @click.stop="focusField(`shop-ship-${sIdx}-${quote.id}`)"
+                                        @focus="focusField(`shop-ship-${sIdx}-${quote.id}`)"
                                       >
                                         {{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '' }}
                                       </span>
@@ -790,7 +1068,7 @@
               </td>
             </tr>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -862,10 +1140,156 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procumen
   user: [] as number[],
   customer: [] as string[],
   pnSearch: '',
+  // Column filter selections — persisted across refreshes via localStorage
+  colPn:   [] as string[],   // part number exact matches
+  colCond: [] as string[],   // condition exact matches
+  colRfqId: [] as string[],
+  colRfqName: [] as string[],
 })
 const search = pf.search
 const loading = ref(false)
 const allItems = ref<any[]>([])
+const totalItems = ref(0)
+const sort = useServerSort()
+
+// ── Excel-style column filters (server-side, persisted) ──
+// colPn / colCond live in usePageFilters → auto-persisted to localStorage.
+// Customer, Status, User col filters reuse the toolbar filter refs directly
+// so both controls stay in sync and share persistence for free.
+const colPn   = pf.colPn    // Ref<string[]> — part number exact matches
+const colCond = pf.colCond  // Ref<string[]> — condition exact matches
+const colRfqId = pf.colRfqId
+const colRfqName = pf.colRfqName
+
+// Per-column in-dropdown search text (not persisted — ephemeral UI state)
+const colSearch = reactive<Record<string, string>>({
+  pn: '', cond: '', cust: '', status: '', users: '', rfqId: '', rfqName: ''
+})
+
+// ── Option sources ──
+// Conditions: finite hardcoded set
+const ALL_CONDITIONS = ['AR', 'FN', 'IN', 'NE', 'NS', 'OH', 'RP', 'SV']
+
+// Part numbers: accumulates across ALL fetches so the list never shrinks when a filter is active.
+// colPnOpts = current page results (the "available" subset)
+// allPnOptions = every part number ever seen (grows, never shrinks)
+const allPnOptions = ref<string[]>([])
+const showAllPnOpts = ref(false)
+
+const colPnOpts = computed(() =>
+  [...new Set(allItems.value.map((r: any) => r.partNumberName).filter(Boolean))].sort() as string[]
+)
+
+// Customers: from filter-options (full DB, cascades with toolbar filters)
+// allCustomerOptions is already populated by loadFilterOptions()
+// format: { title: customerCode, value: customerName }
+
+// Users: from filter-options (full DB)
+// allUserOptions is already populated — format: { id, name }
+
+// ── Per-column show-all toggles (false = available only, true = show all DB values) ──
+const showAllCondOpts = ref(false)
+const showAllStatusColOpts = ref(false)
+const showAllCustColOpts = ref(false)
+const showAllUserColOpts = ref(false)
+
+// "Available" sets — values present in the current 50-row page
+const condOptsPage = computed(() =>
+  [...new Set(allItems.value.map((r: any) => r.condition).filter(Boolean))].sort() as string[]
+)
+const statusColOptsPage = computed(() =>
+  [...new Set(allItems.value.map((r: any) => (r.rfqStatus || r.status)).filter(Boolean))].sort() as string[]
+)
+const custColOptsPage = computed(() => {
+  const names = new Set(allItems.value.map((r: any) => r.customerName).filter(Boolean))
+  return allCustomerOptions.value.filter(o => names.has(o.value))
+})
+const userColOptsPage = computed(() => {
+  const ids = new Set<number>()
+  for (const item of allItems.value) {
+    for (const u of (item.assignedUsers || [])) ids.add(u.id)
+  }
+  return allUserOptions.value.filter(u => ids.has(u.id))
+})
+
+// Filtered option lists (applying in-dropdown search + show-all toggle)
+const filteredColPnOpts = computed(() => applySearch(showAllPnOpts.value ? allPnOptions.value : colPnOpts.value, colSearch.pn))
+const filteredColCondOpts = computed(() =>
+  applySearch(showAllCondOpts.value ? ALL_CONDITIONS : condOptsPage.value, colSearch.cond)
+)
+const filteredColCustOpts = computed(() => {
+  const source = showAllCustColOpts.value ? allCustomerOptions.value : custColOptsPage.value
+  const s = colSearch.cust.toLowerCase()
+  return s ? source.filter(o => o.title.toLowerCase().includes(s) || o.value.toLowerCase().includes(s)) : source
+})
+const filteredColStatusOpts = computed(() =>
+  applySearch(showAllStatusColOpts.value ? ALL_PROC_STATUSES : statusColOptsPage.value, colSearch.status)
+)
+const filteredColUserOpts = computed(() => {
+  const source = showAllUserColOpts.value ? allUserOptions.value : userColOptsPage.value
+  const s = colSearch.users.toLowerCase()
+  return s ? source.filter(u => u.name.toLowerCase().includes(s)) : source
+})
+
+const colRfqIdOpts = computed(() =>
+  [...new Set(allItems.value.map((r: any) => String(r.rfqId)).filter(Boolean))].sort((a, b) => Number(b) - Number(a)) as string[]
+)
+const colRfqNameOpts = computed(() =>
+  [...new Set(allItems.value.map((r: any) => r.rfqName).filter(Boolean))].sort() as string[]
+)
+const filteredColRfqIdOpts = computed(() => applySearch(colRfqIdOpts.value, colSearch.rfqId))
+const filteredColRfqNameOpts = computed(() => applySearch(colRfqNameOpts.value, colSearch.rfqName))
+
+function applySearch(opts: string[], s: string): string[] {
+  const q = s.toLowerCase()
+  return q ? opts.filter(v => v.toLowerCase().includes(q)) : opts
+}
+
+// ── Toggle helpers ──
+/** Toggle a value in a reactive string[] (template-safe, passes array by ref). */
+function toggleCol(arr: string[], val: string) {
+  const idx = arr.indexOf(val)
+  if (idx >= 0) arr.splice(idx, 1)
+  else arr.push(val)
+}
+/** Toggle a numeric ID in a reactive number[]. */
+function toggleColId(arr: number[], id: number) {
+  const idx = arr.indexOf(id)
+  if (idx >= 0) arr.splice(idx, 1)
+  else arr.push(id)
+}
+/** Select all provided values into a string[]. */
+function selectAllCol(arr: string[], opts: string[]) {
+  arr.splice(0, arr.length, ...opts)
+}
+/** Select all user IDs from a filtered user list. */
+function selectAllUsers(arr: number[], opts: { id: number; name: string }[]) {
+  arr.splice(0, arr.length, ...opts.map(u => u.id))
+}
+/** Select all customer names from a filtered customer option list. */
+function selectAllCust(arr: string[], opts: { title: string; value: string }[]) {
+  arr.splice(0, arr.length, ...opts.map(o => o.value))
+}
+
+// ── Active count & clear ──
+const procActiveFilterCount = computed(() => [
+  colPn.value?.length,
+  colCond.value?.length,
+  colRfqId.value?.length,
+  colRfqName.value?.length,
+  // Customer, Status, User share toolbar refs — counted by hasActiveFilters already
+].filter(Boolean).length)
+
+function clearAllProcFilters() {
+  colPn.value.splice(0)
+  colCond.value.splice(0)
+  colRfqId.value.splice(0)
+  colRfqName.value.splice(0)
+  // Also clear toolbar filters that double as col filters:
+  ;(statusFilter.value as string[]).splice(0)
+  ;(customerFilter.value as string[]).splice(0)
+  ;(userFilter.value as number[]).splice(0)
+}
 const editableQuotes = ref<Record<number, any[]>>({})
 const expandedArray = ref<any[]>([])
 const focusedField = ref('')
@@ -943,18 +1367,17 @@ const customerFilter = pf.customer
 const pnSearch = pf.pnSearch
 const isAdmin = computed(() => authStore.isAdmin)
 
-// Status options: cascade by customer+user (shows only statuses in the filtered set)
-const statusOptions = computed(() => {
-  const set = new Set<string>()
-  let source = allItems.value
-  if (customerFilter.value?.length)
-    source = source.filter((item: any) => customerFilter.value.includes(item.customerName))
-  if (userFilter.value?.length)
-    source = source.filter((item: any) =>
-      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
-    )
-  source.forEach((item: any) => { if (item.rfqStatus) set.add(item.rfqStatus) })
-  return Array.from(set).sort()
+const ALL_PROC_STATUSES = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
+const statusOptions = ref<string[]>([...ALL_PROC_STATUSES])
+const showAllStatuses = ref(false)
+const statusSelectItems = computed(() => {
+  const available = new Set(statusOptions.value)
+  if (showAllStatuses.value) {
+    return ALL_PROC_STATUSES.map(s => ({ label: s, value: s, available: available.has(s) }))
+  }
+  return ALL_PROC_STATUSES
+    .filter(s => available.has(s) || (statusFilter.value as string[]).includes(s))
+    .map(s => ({ label: s, value: s, available: true }))
 })
 
 const headers = [
@@ -972,80 +1395,63 @@ const headers = [
   { title: 'Received Date', key: 'createdAt' },
 ]
 
-const partNumberOptions = computed(() => {
-  const set = new Set<string>()
-  allItems.value.forEach((item: any) => { if (item.partNumberName) set.add(item.partNumberName) })
-  return Array.from(set).sort()
-})
+const userOptions = ref<{ id: number; name: string }[]>([])
+const customerOptions = ref<{ title: string; value: string }[]>([])
+const allUserOptions = ref<{ id: number; name: string }[]>([])
+const allCustomerOptions = ref<{ title: string; value: string }[]>([])
+const showAllUsers = ref(false)
+const showAllCustomers = ref(false)
 
-// User options: cascade by status+customer
-const userOptions = computed(() => {
-  const map = new Map<number, string>()
-  let source = allItems.value
-  if (statusFilter.value?.length)
-    source = source.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
-  if (customerFilter.value?.length)
-    source = source.filter((item: any) => customerFilter.value.includes(item.customerName))
-  source.forEach((item: any) => {
-    ;(item.assignedUsers || []).forEach((u: any) => {
-      if (u.id && u.name) map.set(u.id, u.name)
-    })
-  })
-  return Array.from(map, ([id, name]) => ({ id, name }))
-})
+const userSelectItems = computed(() => showAllUsers.value ? allUserOptions.value : userOptions.value)
+const customerSelectItems = computed(() => showAllCustomers.value ? allCustomerOptions.value : customerOptions.value)
 
-// Customer options: cascade by status+user
-const customerOptions = computed(() => {
-  const map = new Map<string, string>()
-  let source = allItems.value
-  if (statusFilter.value?.length)
-    source = source.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
-  if (userFilter.value?.length)
-    source = source.filter((item: any) =>
-      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
-    )
-  source.forEach((item: any) => {
-    if (item.customerName && !map.has(item.customerName))
-      map.set(item.customerName, item.customerCode || '')
-  })
-  return Array.from(map.entries())
-    .map(([name, code]) => ({
-      title: code || '—',
-      value: name,
-    }))
-    .sort((a, b) => a.title.localeCompare(b.title))
-})
+// ── Filter-options loading (cascading) ──
+let filterOptsDebounce: any = null
 
-const filteredItems = computed(() => {
-  let result = allItems.value
-  if (statusFilter.value?.length) {
-    result = result.filter((item: any) => statusFilter.value.includes(item.rfqStatus || 'Open'))
-  }
-  if (userFilter.value?.length) {
-    result = result.filter((item: any) =>
-      (item.assignedUsers || []).some((u: any) => userFilter.value.includes(u.id))
-    )
-  }
-  if (customerFilter.value?.length) {
-    result = result.filter((item: any) =>
-      customerFilter.value.includes(item.customerName) ||
-      (item.customerCode && customerFilter.value.includes(item.customerCode))
-    )
-  }
-  if (pnSearch.value?.trim()) {
-    const q = pnSearch.value.trim().toLowerCase()
-    result = result.filter((item: any) =>
-      (item.partNumberName || '').toLowerCase().includes(q) ||
-      (item.altPartNumbers || '').toLowerCase().includes(q)
-    )
-  }
-  if (showPendingOnly.value) {
-    result = result.filter((item: any) =>
-      (item.supplierQuotes || []).some((q: any) => q.supplierStatus === 'Pending' || q.supplierStatus === 'Rejected')
-    )
-  }
-  return result
-})
+async function loadFilterOptions() {
+  try {
+    const params = new URLSearchParams()
+    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach(s => params.append('statuses', s))
+    if (userFilter.value?.length) (userFilter.value as number[]).forEach(id => params.append('userIds', String(id)))
+    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach(c => params.append('customerSearch', c))
+    const res = await api.get<any>(`/procument-page/filter-options?${params}`)
+
+    statusOptions.value = res.statuses?.length
+      ? [...new Set([...ALL_PROC_STATUSES, ...res.statuses])]
+      : [...ALL_PROC_STATUSES]
+
+    userOptions.value = (res.users || [])
+      .map((u: any) => ({ id: u.id, name: u.name }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name))
+
+    customerOptions.value = (res.customers || [])
+      .map((c: any) => ({ title: c.code || '-', value: c.name }))
+      .sort((a: any, b: any) => a.title.localeCompare(b.title))
+
+  } catch {}
+}
+
+/** One-time unconstrained fetch to populate the full "all options" lists for column filters. */
+async function loadAllFilterOptions() {
+  try {
+    const res = await api.get<any>('/procument-page/filter-options')
+    allUserOptions.value = (res.users || [])
+      .map((u: any) => ({ id: u.id, name: u.name }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    allCustomerOptions.value = (res.customers || [])
+      .map((c: any) => ({ title: c.code || '-', value: c.name }))
+      .sort((a: any, b: any) => a.title.localeCompare(b.title))
+  } catch {}
+}
+
+function debouncedFilterOptions() {
+  clearTimeout(filterOptsDebounce)
+  filterOptsDebounce = setTimeout(loadFilterOptions, 200)
+}
+
+watch(statusFilter, debouncedFilterOptions, { deep: true })
+watch(userFilter, debouncedFilterOptions, { deep: true })
+watch(customerFilter, debouncedFilterOptions, { deep: true })
 
 function isLeadTimeUrgent(dateStr: string) {
   if (!dateStr) return false
@@ -1069,22 +1475,32 @@ function getRowProps({ item }: { item: any }) {
 }
 
 // ── Data Loading ──
-onMounted(() => loadData())
+const lastProcumentOpts = ref<any>({ page: 1, itemsPerPage: 50 })
 
-async function loadData() {
+async function loadServerPage(opts?: any) {
+  if (opts) {
+    sort.capture(opts)
+    lastProcumentOpts.value = { page: opts.page ?? lastProcumentOpts.value.page, itemsPerPage: opts.itemsPerPage ?? lastProcumentOpts.value.itemsPerPage }
+  }
+  const { page, itemsPerPage } = lastProcumentOpts.value
   loading.value = true
   try {
-    const accumulated: any[] = []
-    let _page = 1
-    while (true) {
-      const res = await api.get<any>(`/procument-page?page=${_page}&pageSize=200`)
-      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
-      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
-      accumulated.push(...batch)
-      if (batch.length < 200 || accumulated.length >= total) break
-      _page++
-    }
-    allItems.value = accumulated.map((item: any) => ({
+    const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
+    sort.appendTo(params)
+    if (search.value?.trim()) params.set('search', search.value.trim())
+    if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
+    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach((s: string) => params.append('status', s))
+    if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
+    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
+    if (colPn.value?.length) (colPn.value as string[]).forEach((v: string) => params.append('colPartNames', v))
+    if (colCond.value?.length) (colCond.value as string[]).forEach((v: string) => params.append('conditions', v))
+    if (colRfqId.value?.length) (colRfqId.value as string[]).forEach((v: string) => params.append('rfqIds', v))
+    if (colRfqName.value?.length) (colRfqName.value as string[]).forEach((v: string) => params.append('rfqNames', v))
+    if (showPendingOnly.value) params.set('pendingOnly', 'true')
+    const res = await api.get<any>(`/procument-page?${params.toString()}`)
+    const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
+    totalItems.value = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
+    allItems.value = batch.map((item: any) => ({
       ...item,
       altPartNumbers: [
         ...(item.alternatives || []).map((a: any) => a.name),
@@ -1092,7 +1508,14 @@ async function loadData() {
       ].filter(Boolean).join(', '),
     }))
 
-    // Initialize editable quotes from server data (with nested shop records)
+    // Accumulate part numbers — list grows but never shrinks, so the column filter
+    // dropdown always shows all previously seen values even when a filter is active.
+    const newPns = batch.map((item: any) => item.partNumberName).filter(Boolean) as string[]
+    if (newPns.length) {
+      allPnOptions.value = [...new Set([...allPnOptions.value, ...newPns])].sort()
+    }
+
+    // Initialize editable quotes keyed by rfqItemId — order doesn't matter
     const quotesMap: Record<number, any[]> = {}
     for (const item of allItems.value) {
       quotesMap[item.rfqItemId] = (item.supplierQuotes || []).map((q: any) => ({
@@ -1119,6 +1542,32 @@ async function loadData() {
     loading.value = false
   }
 }
+
+async function loadData() {
+  await loadServerPage()
+}
+
+let procumentDebounce: any = null
+function debouncedProcumentLoad() {
+  clearTimeout(procumentDebounce)
+  procumentDebounce = setTimeout(() => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), 350)
+}
+watch(search, debouncedProcumentLoad)
+watch(pnSearch, debouncedProcumentLoad)
+watch(statusFilter, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(userFilter, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(customerFilter, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(colPn, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(colCond, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(colRfqId, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(colRfqName, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
+watch(showPendingOnly, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }))
+
+onMounted(() => {
+  loadData()
+  loadAllFilterOptions()   // always fetch full DB options for col filter dropdowns
+  loadFilterOptions()      // cascading options for toolbar selects
+})
 
 // ── Expand / Collapse ──
 function toggleExpand(item: any) {
@@ -1513,6 +1962,10 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 </script>
 
 <style scoped>
+.proc-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.proc-filter-btn { opacity: 0.5; flex-shrink: 0; }
+.proc-filter-btn:hover, .proc-filter-btn.v-btn--active { opacity: 1; }
+
 :deep(.lead-time-urgent-row) {
   background-color: rgba(255, 193, 7, 0.08) !important;
 }

@@ -18,7 +18,12 @@ namespace Procument.Module.Sales.Services;
 /// </summary>
 public interface ITotalPNService
 {
-    Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin);
+    Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
+        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null);
+    Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases);
+    Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<bool> UpdateAsync(long poItemId, UpdatePOItemTotalPNRequest request);
 }
 
@@ -28,14 +33,19 @@ public class TotalPNService : ITotalPNService
 
     public TotalPNService(DbContext db) { _db = db; }
 
-    public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin)
+    public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
+        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null)
     {
         // ── Base query: start from InvoiceItems (so they show up immediately on PI creation) ──
         // Left-join with ProcurementItem (the worksheet) and POItem (the purchase).
         // Applying Includes to the source sets because they can't be applied to the anonymous type after join.
         var iiSet = _db.Set<InvoiceItem>()
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
-            .Include(i => i.QuoteItem).ThenInclude(qi => qi!.ProcumentRecord).ThenInclude(pr => pr!.Supplier);
+            .Include(i => i.Invoice).ThenInclude(inv => inv.Quote)
+            .Include(i => i.QuoteItem).ThenInclude(qi => qi!.ProcumentRecord).ThenInclude(pr => pr!.Supplier)
+            .Include(i => i.QuoteItem).ThenInclude(qi => qi!.PartNumber);
 
         var piSet = _db.Set<ProcurementItem>()
             .Include(p => p.CurrentSupplier);
@@ -43,32 +53,43 @@ public class TotalPNService : ITotalPNService
         var poiSet = _db.Set<POItem>().Where(x => x.ReturnedAt == null)
             .Include(p => p.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(p => p.PartNumber)
-            .Include(p => p.TrackNumbers);
+            .Include(p => p.TrackNumbers)
+                .ThenInclude(t => t.ShipmentNotes)
+                .ThenInclude(snt => snt.ShipmentNote);
 
         var baseQuery = from ii in iiSet
                         join pi in piSet on ii.Id equals pi.SourceInvoiceItemId into pij
                         from pi in pij.DefaultIfEmpty()
-                        join poi in poiSet on ii.Id equals poi.InvoiceItemId into poij
+                        join poi in poiSet on pi.Id equals poi.SourceProcurementItemId into poij
                         from poi in poij.DefaultIfEmpty()
                         select new { ii, pi, poi };
 
-        // ── Permission filter for non-admins ──
-        if (!isAdmin)
+        // ── Permission / base filter ──
+        if (!isSuperAdmin)
         {
             var perms = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
                 .Select(p => new { p.EntityName, p.EntityId })
                 .ToListAsync();
 
-            var invIds = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var invIds  = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var procIds = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
-            var poIds = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var poIds   = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
 
             baseQuery = baseQuery.Where(x =>
+                (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
                 invIds.Contains(x.ii.InvoiceId) ||
                 (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
-                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)));
+                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
+                (isAdmin && x.ii.Invoice.Quote.UserId == userId)); // Admins see their own invoices even if outside base
         }
+
+        // Keep only rows that have at least one valid part number (not null, empty, or literally "-")
+        baseQuery = baseQuery.Where(x =>
+            (x.poi != null && x.poi.PartNumber != null && x.poi.PartNumber.Name != "-" && x.poi.PartNumber.Name != "") ||
+            (x.pi  != null && x.pi.PartNumberName  != null && x.pi.PartNumberName  != "-" && x.pi.PartNumberName  != "") ||
+            (x.ii.QuoteItem != null && x.ii.QuoteItem.PartNumber != null &&
+             x.ii.QuoteItem.PartNumber.Name != "-" && x.ii.QuoteItem.PartNumber.Name != ""));
 
         // Search filtering (Invoice Number or Part Number)
         if (!string.IsNullOrWhiteSpace(page.Search))
@@ -80,13 +101,59 @@ public class TotalPNService : ITotalPNService
                 (x.poi != null && x.poi.PartNumber != null && x.poi.PartNumber.Name.ToLower().Contains(s)));
         }
 
+        // ── Column filters (server-side) ─────────────────────────────────────
+        if (customers?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                x.ii.Invoice.Customer != null && customers.Contains(x.ii.Invoice.Customer.CustomerCode ?? ""));
+
+        if (invoiceNumbers?.Count > 0)
+            baseQuery = baseQuery.Where(x => invoiceNumbers.Contains(x.ii.Invoice.InvoiceNumber));
+
+        if (partNumbers?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                (x.poi != null && x.poi.PartNumber != null && partNumbers.Contains(x.poi.PartNumber.Name)) ||
+                (x.pi  != null && x.pi.PartNumberName  != null && partNumbers.Contains(x.pi.PartNumberName)));
+
+        if (conditions?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                (x.poi != null && x.poi.Condition != null && conditions.Contains(x.poi.Condition)) ||
+                (x.pi  != null && x.pi.Condition  != null && conditions.Contains(x.pi.Condition)));
+
+        if (poNumbers?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                x.poi != null && x.poi.PurchaseOrder != null && poNumbers.Contains(x.poi.PurchaseOrder.PONumber));
+
+        if (suppliers?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                (x.poi != null && x.poi.PurchaseOrder != null && x.poi.PurchaseOrder.Supplier != null && suppliers.Contains(x.poi.PurchaseOrder.Supplier.Name)) ||
+                (x.pi  != null && x.pi.SupplierName  != null && suppliers.Contains(x.pi.SupplierName)));
+
+        if (paymentTerms?.Count > 0)
+            baseQuery = baseQuery.Where(x => paymentTerms.Contains(x.ii.Invoice.Status));
+
+        if (poStatuses?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                x.poi != null && x.poi.Status != null && poStatuses.Contains(x.poi.Status));
+
+        if (shippingStatuses?.Count > 0)
+            baseQuery = baseQuery.Where(x =>
+                x.poi != null && x.poi.TrackNumbers.Any(t => shippingStatuses.Contains(t.Status)));
+        // ─────────────────────────────────────────────────────────────────────
+
         var totalCount = await baseQuery.CountAsync();
 
-        var pageItems = await baseQuery
-            .OrderByDescending(x => x.ii.Invoice.CreatedAt)
-            .ThenBy(x => x.ii.Id)
-            .Skip((page.Page - 1) * page.PageSize)
-            .Take(page.PageSize)
+        var orderedQuery = sortBy switch
+        {
+            "customer"   => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.Customer.Name)        : baseQuery.OrderBy(x => x.ii.Invoice.Customer.Name),
+            "partNumber" => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : ""),
+            "qty"        => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Qty : 0)    : baseQuery.OrderBy(x => x.poi != null ? x.poi.Qty : 0),
+            "status"     => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Status : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.Status : ""),
+            "invDate"    => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt)            : baseQuery.OrderBy(x => x.ii.Invoice.CreatedAt),
+            _            => baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id),
+        };
+
+        var pageItems = await orderedQuery
+            .ApplyPaging(page)
             .ToListAsync();
 
         // ── Batch-load helpers for creators/experts ──
@@ -165,14 +232,33 @@ public class TotalPNService : ITotalPNService
             string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
             string? pExpert = pi != null && procMap.TryGetValue(pi.ProcurementId, out var ph) && ph.CreatedByUserId.HasValue && userMap.TryGetValue(ph.CreatedByUserId.Value, out var pun) ? pun : null;
 
-            // Purchasing Price & Supplier Sync (prioritize Procurement layer edits)
-            decimal purchUnit = pi?.UnitPrice ?? poi?.UnitPrice ?? 0m;
-            decimal purchTotal = (poi?.Qty ?? ii.Qty) * purchUnit;
+            // Purchasing Price & Supplier Sync (prioritize the Purchase Order — it's the source of truth
+            // for what was actually ordered/paid, and is what SuperAdmin overrides via the PO price-edit feature.
+            // Fall back to the Procurement worksheet snapshot only when no POItem price exists yet.)
+            // purchTotal uses POItem qty because that's what was actually ordered from the supplier.
+            decimal purchUnit  = poi?.UnitPrice ?? pi?.UnitPrice ?? 0m;
+            int     purchQty   = poi?.Qty ?? ii.Qty;
+            decimal purchTotal = purchQty * purchUnit;
             string? supplierName = pi?.SupplierName ?? poi?.PurchaseOrder?.Supplier?.Name ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
-            // Selling Price
-            decimal sellUnit = ii.QuoteItem?.UnitPrice ?? ii.UnitPrice;
-            decimal sellTotal = (poi?.Qty ?? ii.Qty) * sellUnit;
+            // Selling Price — InvoiceItem is the authoritative source.
+            // Two update paths exist in UpdateItemsAsync:
+            //   New path  : UnitPrice + Qty edited directly → TotalPrice = Qty × UnitPrice (final),
+            //               Discount = (origUnitPrice - newUnitPrice) × Qty  (informational only, NOT a deduction).
+            //   Legacy path: FinalPrice edited → TotalPrice stays at original quote total,
+            //               Discount = TotalPrice - FinalPrice (IS a real deduction).
+            // Distinguish by checking whether UnitPrice was changed from the original quote price.
+            int     sellQty = ii.Qty;
+            var     origQuoteUnitPrice = ii.QuoteItem?.UnitPrice;
+            bool    usedNewPath    = origQuoteUnitPrice == null || ii.UnitPrice != origQuoteUnitPrice.Value;
+            bool    usedLegacyPath = !usedNewPath && (ii.Discount ?? 0m) != 0m;
+            decimal effectiveSellTotal = usedLegacyPath
+                ? ii.TotalPrice - (ii.Discount ?? 0m)   // legacy: TotalPrice is original, subtract discount
+                : ii.TotalPrice;                         // new path / no edit: TotalPrice is already final
+            decimal sellUnit  = usedNewPath
+                ? ii.UnitPrice                           // new path: UnitPrice was set directly
+                : (sellQty > 0 ? effectiveSellTotal / sellQty : ii.UnitPrice);
+            decimal sellTotal = effectiveSellTotal;
             decimal rate = (customer?.CurrencyType == "Yuan" || customer?.CurrencyType == "Both") ? 7m : 1m;
 
             // Status derivation logic
@@ -203,6 +289,7 @@ public class TotalPNService : ITotalPNService
             return new TotalPNRowResponse
             {
                 Id = poi?.Id ?? -ii.Id, // Use negative InvoiceItemID as stable ID for unassigned rows
+                PurchaseOrderId = po?.Id,
                 PONumber = po?.PONumber,
                 PORef = poi?.PORef,
                 QuotationExpert = qExpert,
@@ -211,11 +298,23 @@ public class TotalPNService : ITotalPNService
                 Supplier = supplierName,
                 PartNumber = poi?.PartNumber?.Name ?? pi?.PartNumberName ?? ii.QuoteItem?.PartNumber?.Name,
                 Description = poi?.PartNumber?.Description ?? pi?.PartNumberDescription ?? ii.QuoteItem?.PartNumber?.Description,
-                Qty = poi?.Qty ?? ii.Qty,
+                Qty = sellQty,       // invoice qty — authoritative for the selling side
                 Condition = poi?.Condition ?? pi?.Condition ?? ii.QuoteItem?.Condition,
                 Priority = pi?.RfqPriority,
-                Warehouse = (ii.QuoteItem?.RFQItem?.RFQ?.ExType ?? pi?.RfqExType) switch { 0 => "Warehouse", 1 => "Vendor", 2 => "Customer", _ => null },
-                SerialNumber = null,
+                Warehouse = (ii.QuoteItem?.RFQItem?.RFQ?.ExType ?? pi?.RfqExType) switch { 0 => "Warehouse", 1 => "Vendor/Customer", 2 => "Vendor/Customer", _ => null },
+                SerialNumber = poi?.TrackNumbers != null && poi.TrackNumbers.Any()
+                    ? string.Join(", ", poi.TrackNumbers
+                        .SelectMany(t => t.ShipmentNotes)
+                        .Select(snt => snt.ShipmentNote.SNNumber)
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .Distinct()) is string sns && sns.Length > 0 ? sns : null
+                    : null,
+                ShippingStatus = poi?.TrackNumbers != null && poi.TrackNumbers.Any()
+                    ? string.Join(", ", poi.TrackNumbers
+                        .Select(t => t.Status)
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .Distinct())
+                    : null,
                 CustomerInvoiceNumber = invoice.InvoiceNumber,
                 PurchasingUnitPriceUsd = purchUnit,
                 PurchasingTotalPriceUsd = purchTotal,
@@ -241,12 +340,223 @@ public class TotalPNService : ITotalPNService
             };
         }).ToList();
 
+        // Final safety filter: strip any rows whose effective part number is still null/empty/"-"
+        rows = rows.Where(r => !string.IsNullOrWhiteSpace(r.PartNumber) && r.PartNumber != "-").ToList();
+
         return new PagedResult<TotalPNRowResponse>
         {
             Items = rows,
             TotalCount = totalCount,
             Page = page.Page,
             PageSize = page.PageSize,
+        };
+    }
+
+    public async Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
+    {
+        var iiSet = _db.Set<InvoiceItem>()
+            .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
+            .Include(i => i.Invoice).ThenInclude(inv => inv.Quote)
+            .Include(i => i.QuoteItem).ThenInclude(qi => qi!.ProcumentRecord).ThenInclude(pr => pr!.Supplier)
+            .Include(i => i.QuoteItem).ThenInclude(qi => qi!.RFQItem).ThenInclude(ri => ri!.RFQ);
+
+        var piSet = _db.Set<ProcurementItem>().Include(p => p.CurrentSupplier);
+
+        // Only POItems that have at least one track number
+        var poiSet = _db.Set<POItem>()
+            .Where(x => x.ReturnedAt == null && x.TrackNumbers.Any())
+            .Include(p => p.PurchaseOrder).ThenInclude(po => po!.Supplier)
+            .Include(p => p.PartNumber)
+            .Include(p => p.TrackNumbers).ThenInclude(t => t.Warehouse)
+            .Include(p => p.TrackNumbers).ThenInclude(t => t.ShipmentNotes).ThenInclude(snt => snt.ShipmentNote);
+
+        var baseQuery = from ii in iiSet
+                        join pi in piSet on ii.Id equals pi.SourceInvoiceItemId into pij
+                        from pi in pij.DefaultIfEmpty()
+                        join poi in poiSet on pi.Id equals poi.SourceProcurementItemId
+                        select new { ii, pi, poi };
+
+        if (!isSuperAdmin)
+        {
+            var perms = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Select(p => new { p.EntityName, p.EntityId })
+                .ToListAsync();
+
+            var invIds  = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var procIds = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var poIds   = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+
+            baseQuery = baseQuery.Where(x =>
+                (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
+                invIds.Contains(x.ii.InvoiceId) ||
+                (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
+                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
+                (isAdmin && x.ii.Invoice.Quote.UserId == userId));
+        }
+
+        // Keep only rows that have at least one valid part number (not null, empty, or literally "-")
+        baseQuery = baseQuery.Where(x =>
+            (x.poi.PartNumber != null || x.poi.PartNumber.Name != "-" || x.poi.PartNumber.Name != "") ||
+            (x.pi != null || x.pi.PartNumberName != null || x.pi.PartNumberName != "-" || x.pi.PartNumberName != ""));
+
+        if (!string.IsNullOrWhiteSpace(page.Search))
+        {
+            var s = page.Search.Trim().ToLower();
+            baseQuery = baseQuery.Where(x =>
+                x.ii.Invoice.InvoiceNumber.Contains(s) ||
+                (x.poi.PartNumber != null && x.poi.PartNumber.Name.ToLower().Contains(s)) ||
+                x.poi.PurchaseOrder!.PONumber.Contains(s) ||
+                x.poi.TrackNumbers.Any(t => t.TrackNumber.Contains(s)));
+        }
+
+        var totalCount = await baseQuery.CountAsync();
+
+        var pageItems = await baseQuery
+            .OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id)
+            .ApplyPaging(page)
+            .ToListAsync();
+
+        // Batch-load experts
+        var procIdsInPage = pageItems.Where(x => x.pi != null).Select(x => x.pi!.ProcurementId).Distinct().ToList();
+        var procMap = procIdsInPage.Count > 0
+            ? await _db.Set<Procurement>().Where(p => procIdsInPage.Contains(p.Id)).ToDictionaryAsync(p => p.Id)
+            : new Dictionary<long, Procurement>();
+
+        var quoteIdsInPage = pageItems.Select(x => x.ii.Invoice.QuoteId).Distinct().ToList();
+        var quoteMap = quoteIdsInPage.Count > 0
+            ? await _db.Set<Quote>().Where(q => quoteIdsInPage.Contains(q.Id)).ToDictionaryAsync(q => q.Id)
+            : new Dictionary<long, Quote>();
+
+        var allUserIds = procMap.Values.Where(p => p.CreatedByUserId.HasValue).Select(p => p.CreatedByUserId!.Value)
+            .Concat(quoteMap.Values.Select(q => q.UserId))
+            .Distinct().ToList();
+        var userMap = allUserIds.Count > 0
+            ? await _db.Set<User>().Where(u => allUserIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Name)
+            : new Dictionary<long, string>();
+
+        var rows = pageItems.Select(x =>
+        {
+            var ii = x.ii;
+            var invoice = ii.Invoice;
+            var customer = invoice.Customer;
+            var pi = x.pi;
+            var poi = x.poi;
+            var po = poi.PurchaseOrder;
+
+            string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
+            string? supplierName = pi?.SupplierName ?? po?.Supplier?.Name ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
+
+            // Collect SN data from linked ShipmentNotes
+            var sns = poi.TrackNumbers
+                .SelectMany(t => t.ShipmentNotes.Select(snt => snt.ShipmentNote))
+                .Where(sn => sn != null)
+                .ToList();
+
+            return new TotalPNRowResponse
+            {
+                Id = poi.Id,
+                PurchaseOrderId = po?.Id,
+                PONumber = po?.PONumber,
+                PORef = poi.PORef,
+                QuotationExpert = qExpert,
+                Customer = customer?.CustomerCode,
+                CustomerInvoiceNumber = invoice.InvoiceNumber,
+                Supplier = supplierName,
+
+                PurchasingUnitPriceUsd = poi.UnitPrice,
+                PurchasingTotalPriceUsd = poi.TotalPrice,
+                POAmount = po?.TotalAmount,
+
+                PartNumber = poi.PartNumber?.Name ?? pi?.PartNumberName,
+                Description = poi.PartNumber?.Description ?? pi?.PartNumberDescription,
+                Qty = poi.Qty,
+                Condition = poi.Condition ?? pi?.Condition,
+                Priority = pi?.RfqPriority,
+                Warehouse = poi.TrackNumbers.Select(t => t.Warehouse != null ? t.Warehouse.Name : null).FirstOrDefault(w => w != null),
+                SerialNumber = sns.Select(sn => sn.SNNumber).Where(s => !string.IsNullOrEmpty(s)).Distinct() is var snNums
+                    ? string.Join(", ", snNums) is string joined && joined.Length > 0 ? joined : null
+                    : null,
+                ShippingStatus = poi.TrackNumbers.Any()
+                    ? string.Join(", ", poi.TrackNumbers.Select(t => t.Status).Where(s => !string.IsNullOrEmpty(s)).Distinct())
+                    : null,
+                TrackNumbers = string.Join(", ", poi.TrackNumbers.Select(t => t.TrackNumber)),
+                TId = sns.Select(sn => sn.TId).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
+                SONumber = sns.Select(sn => sn.SONumber).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
+                AwbNumber = sns.Select(sn => sn.AWBNumber).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
+            };
+        }).Where(r => !string.IsNullOrWhiteSpace(r.PartNumber) && r.PartNumber != "-").ToList();
+
+        return new PagedResult<TotalPNRowResponse>
+        {
+            Items = rows,
+            TotalCount = totalCount,
+            Page = page.Page,
+            PageSize = page.PageSize,
+        };
+    }
+
+    public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases)
+    {
+        var iiSet = _db.Set<InvoiceItem>()
+            .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
+            .Include(i => i.Invoice).ThenInclude(inv => inv.Quote);
+
+        var piSet = _db.Set<ProcurementItem>();
+
+        var poiSet = _db.Set<POItem>().Where(x => x.ReturnedAt == null)
+            .Include(p => p.PurchaseOrder).ThenInclude(po => po!.Supplier)
+            .Include(p => p.PartNumber)
+            .Include(p => p.TrackNumbers);
+
+        var baseQuery = from ii in iiSet
+                        join pi in piSet on ii.Id equals pi.SourceInvoiceItemId into pij
+                        from pi in pij.DefaultIfEmpty()
+                        join poi in poiSet on pi.Id equals poi.SourceProcurementItemId into poij
+                        from poi in poij.DefaultIfEmpty()
+                        select new { ii, pi, poi };
+
+        if (!isSuperAdmin)
+        {
+            var perms = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Select(p => new { p.EntityName, p.EntityId }).ToListAsync();
+            var invIds   = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var procIds  = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var poIds    = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            
+            baseQuery = baseQuery.Where(x =>
+                (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
+                invIds.Contains(x.ii.InvoiceId) ||
+                (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
+                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
+                (isAdmin && x.ii.Invoice.Quote.UserId == userId));
+        }
+
+        // Keep only rows that have at least one valid part number (not null, empty, or literally "-")
+        baseQuery = baseQuery.Where(x =>
+            (x.poi != null && x.poi.PartNumber != null && x.poi.PartNumber.Name != "-" && x.poi.PartNumber.Name != "") ||
+            (x.pi  != null && x.pi.PartNumberName  != null && x.pi.PartNumberName  != "-" && x.pi.PartNumberName  != "") ||
+            (x.ii.QuoteItem != null && x.ii.QuoteItem.PartNumber != null &&
+             x.ii.QuoteItem.PartNumber.Name != "-" && x.ii.QuoteItem.PartNumber.Name != ""));
+
+        var rows = await baseQuery.ToListAsync();
+
+        static string Sort(IEnumerable<string> src) => string.Empty; // placeholder
+        List<string> Sorted(IEnumerable<string?> src) =>
+            src.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct().OrderBy(s => s).ToList();
+
+        return new TotalPNFilterOptions
+        {
+            Customers      = Sorted(rows.Select(x => x.ii.Invoice.Customer?.CustomerCode)),
+            InvoiceNumbers = Sorted(rows.Select(x => x.ii.Invoice.InvoiceNumber)),
+            PartNumbers    = Sorted(rows.Select(x => x.poi?.PartNumber?.Name ?? x.pi?.PartNumberName)),
+            Conditions     = Sorted(rows.Select(x => x.poi?.Condition ?? x.pi?.Condition)),
+            PoNumbers      = Sorted(rows.Where(x => x.poi?.PurchaseOrder != null).Select(x => x.poi!.PurchaseOrder!.PONumber)),
+            Suppliers      = Sorted(rows.Select(x => x.poi?.PurchaseOrder?.Supplier?.Name ?? x.pi?.SupplierName)),
+            PaymentTerms   = Sorted(rows.Select(x => x.ii.Invoice.Status)),
+            Statuses       = Sorted(rows.Where(x => x.poi?.Status != null).Select(x => x.poi!.Status)),
+            ShippingStatuses = Sorted(rows.SelectMany(x => x.poi?.TrackNumbers?.Select(t => t.Status) ?? Enumerable.Empty<string?>())),
         };
     }
 

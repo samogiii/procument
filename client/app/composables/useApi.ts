@@ -1,6 +1,14 @@
 export function useApi() {
     const config = useRuntimeConfig()
     const authStore = useAuthStore()
+    
+    // 1. Get the current request URL to determine the frontend host
+    const requestUrl = useRequestURL()
+    const hostWithPort = requestUrl.host
+    
+    // 2. Resolve the correct base URL from your apiMap (with default fallback)
+    const apiMap = config.public.apiMap as Record<string, string>
+    const baseURL = apiMap[hostWithPort] || apiMap['default']
 
     async function apiFetch<T>(path: string, options: any = {}): Promise<T> {
         // Pre-check: if token is expired, logout immediately
@@ -20,7 +28,9 @@ export function useApi() {
         }
 
         try {
-            return await $fetch<T>(`${config.public.apiBase}${path}`, {
+            // 3. Use the native 'baseURL' option in $fetch
+            return await $fetch<T>(path, {
+                baseURL: baseURL,
                 ...options,
                 headers,
             })
@@ -36,6 +46,7 @@ export function useApi() {
     }
 
     return {
+        baseURL,
         get: <T>(path: string, options: any = {}) => apiFetch<T>(path, options),
         post: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'POST', body }),
         put: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'PUT', body }),

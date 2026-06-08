@@ -1,6 +1,6 @@
-<template>
+﻿<template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
-    <v-card class="d-flex flex-column" color="background">
+    <v-card class="d-flex flex-column" color="background" style="overflow:hidden;">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">Purchase Order PDF — {{ pdfData.poNumber || '' }}</v-toolbar-title>
@@ -8,161 +8,157 @@
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
-      <!-- Controls -->
-      <v-container fluid class="flex-shrink-0 py-4">
-        <!-- Company Info -->
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
-          <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="4"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="4"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-
-        <!-- PDF Totals (Processing Fee / Shipping / Tax / Other) — pre-filled from the PO row,
-             editable here for per-print tweaks. "Save to PO" persists them back. -->
-        <div class="d-flex align-center mt-3 mb-2 gap-2">
-          <span class="text-caption font-weight-bold text-medium-emphasis">PDF TOTALS</span>
-          <v-spacer />
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            color="primary"
-            prepend-icon="mdi-content-save"
-            :loading="savingTotals"
-            @click="saveTotalsToPo"
-          >Save to PO</v-btn>
-        </div>
-        <v-row dense align="center">
-          <v-col cols="12" md="3">
-            <v-text-field v-model.number="processingFeeAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-cog-outline" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-truck-outline" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-percent-outline" />
-          </v-col>
-          <!-- <v-col cols="12" md="3">
-            <v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" prefix="$" />
-          </v-col> -->
-        </v-row>
-
-        <v-divider class="my-3" />
-
-        <!-- Purchase From (Supplier) -->
-        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">PURCHASE FROM (Supplier)</div>
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="purchaseFromAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="purchaseFromEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-
-        <v-divider class="my-3" />
-
-        <!-- Vendor -->
-        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">BILL TO</div>
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-text-field v-model="vendorName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="vendorAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="vendorPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="vendorEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-
-        <v-divider class="my-3" />
-
-        <!-- Deliver To -->
-        <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SHIP TO</div>
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-text-field v-model="deliverToName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-textarea v-model="deliverToAddress" label="Address" variant="outlined" rows="1" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="deliverToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="deliverToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-
-        <v-divider class="my-3" />
-
-        <!-- Shipping & Account (FedEx, courier, incoterms) — editable per-print override.
-             Initialised from the PO's saved Import Details, but the user can tweak before generating.
-             The "Save to PO" button persists the change back to /import-detail so the PO record matches. -->
-        <div class="d-flex align-center mb-2 gap-2">
-          <span class="text-caption font-weight-bold text-medium-emphasis">SHIPPING &amp; ACCOUNT</span>
-          <v-spacer />
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            color="primary"
-            prepend-icon="mdi-content-save"
-            :loading="savingShipping"
-            @click="saveShippingToPo"
-          >Save to PO</v-btn>
-        </div>
-        <v-row dense align="center">
-          <v-col cols="12" md="3">
-            <v-text-field
-              v-model="fedExAccount"
-              label="FedEx Account"
-              variant="outlined"
-              density="compact"
-              hide-details
-              prepend-inner-icon="mdi-truck-fast"
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field
-              v-model="servicePriority"
-              label="Service Priority"
-              variant="outlined"
-              density="compact"
-              hide-details
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="shippingMethod"
-              :items="['Air', 'Sea', 'Ground', 'Express']"
-              label="Shipping Method"
-              variant="outlined"
-              density="compact"
-              hide-details
-              clearable
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="incoterms"
-              :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']"
-              label="Incoterms"
-              variant="outlined"
-              density="compact"
-              hide-details
-              clearable
-            />
-          </v-col>
-        </v-row>
-
-        <v-divider class="my-3" />
-
-        <!-- Comments, Terms, Footer -->
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
-          <v-col cols="12" md="4"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="4"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-      </v-container>
-
-      <v-divider />
-
-      <div v-if="loadingData" class="flex-grow-1 d-flex justify-center align-center">
-        <v-progress-circular indeterminate color="primary" size="48" />
+      <!-- Section toggle chips -->
+      <div class="d-flex flex-wrap gap-2 px-4 py-2" style="border-bottom:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+        <v-chip
+          v-for="s in sections"
+          :key="s.key"
+          :color="s.open ? 'primary' : 'default'"
+          :variant="s.open ? 'tonal' : 'outlined'"
+          size="small"
+          :prepend-icon="s.open ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+          class="cursor-pointer"
+          @click="s.open = !s.open"
+        >{{ s.label }}</v-chip>
       </div>
-      <div v-else class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
-        <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+
+      <!-- Side-by-side layout: controls (left) + PDF preview (right) -->
+      <div class="d-flex flex-grow-1" style="overflow:hidden; min-height:0;">
+
+        <!-- ── Left panel: collapsible form sections ── -->
+        <div class="overflow-y-auto flex-shrink-0 pa-4" style="width:480px; border-right:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+
+          <!-- COMPANY -->
+          <template v-if="sections[0].open">
+            <div class="section-label">Company</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company Preset" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
+              <v-col cols="12">
+                <div class="d-flex align-center gap-2">
+                  <v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" class="flex-grow-1" @update:model-value="onLogoUpload" />
+                  <v-btn v-if="logoDataUrl" icon="mdi-image-remove" size="small" variant="tonal" color="error" density="compact" title="Remove Logo" @click="logoDataUrl = ''" />
+                </div>
+              </v-col>
+              <v-col cols="12"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="12"><v-textarea v-model="companyLocation" label="Company Address" variant="outlined" density="compact" hide-details rows="2" :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="12"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="12"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD']" label="Currency" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- VENDOR -->
+          <template v-if="sections[1].open">
+            <div class="section-label">Vendor (Supplier)</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="purchaseFromName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="purchaseFromAddress" label="Address" variant="outlined" rows="2" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="purchaseFromPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="purchaseFromEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- SHIP TO / BILL TO -->
+          <template v-if="sections[2].open">
+            <!-- Warehouse auto-fill -->
+            <v-row dense align="center" class="mb-2">
+              <v-col cols="12">
+                <v-autocomplete
+                  v-model="selectedWarehouseId"
+                  :items="presetWarehouses"
+                  :item-title="item => item.displayName ? `${item.name} (${item.displayName})` : item.name"
+                  item-value="id"
+                  label="Warehouse (auto-fills both)"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-home-city-outline"
+                  @update:model-value="onWarehouseSelected"
+                />
+              </v-col>
+            </v-row>
+
+            <!-- Bill To -->
+            <div class="d-flex align-center mb-1 gap-2">
+              <span class="section-label mb-0">Bill To</span>
+              <v-btn size="x-small" variant="text" color="primary" prepend-icon="mdi-content-copy" @click="syncBillToFromShipTo">Copy from Ship To</v-btn>
+            </div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="billToName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="billToAddress" label="Address" variant="outlined" rows="2" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+
+            <v-divider class="my-3" />
+
+            <!-- Ship To -->
+            <div class="section-label">Ship To</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="deliverToName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="deliverToAddress" label="Address" variant="outlined" rows="2" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="deliverToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="deliverToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- TOTALS -->
+          <template v-if="sections[3].open">
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">PDF Totals</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-content-save" :loading="savingTotals" @click="saveTotalsToPo">Save to PO</v-btn>
+            </div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="poDate" label="PO Date" variant="outlined" density="compact" hide-details type="date" prepend-inner-icon="mdi-calendar" /></v-col>
+              <v-col cols="12"><v-text-field v-model.number="processingFeeAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-cog-outline" /></v-col>
+              <v-col cols="12"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-truck-outline" /></v-col>
+              <v-col cols="12"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" prefix="$" prepend-inner-icon="mdi-percent-outline" /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- SHIPPING & ACCOUNT -->
+          <template v-if="sections[4].open">
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">Shipping &amp; Account</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-content-save" :loading="savingShipping" @click="saveShippingToPo">Save to PO</v-btn>
+            </div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="fedExAccount" label="FedEx Account" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-truck-fast" /></v-col>
+              <v-col cols="12"><v-text-field v-model="servicePriority" label="Service Priority" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-select v-model="shippingMethod" :items="['Air', 'Sea', 'Ground', 'Express']" label="Shipping Method" variant="outlined" density="compact" hide-details clearable /></v-col>
+              <v-col cols="6"><v-select v-model="incoterms" :items="['FOB', 'CIF', 'EXW', 'DDP', 'FCA', 'CPT', 'DAP']" label="Incoterms" variant="outlined" density="compact" hide-details clearable /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- COMMENTS / TERMS -->
+          <template v-if="sections[5].open">
+            <div class="section-label">Comments &amp; Terms</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="3" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+          </template>
+
+        </div>
+
+        <!-- ── Right panel: PDF preview ── -->
+        <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
+          <div v-if="loadingData" class="d-flex align-center justify-center" style="width:210mm;">
+            <v-progress-circular indeterminate color="primary" size="48" />
+          </div>
+          <div v-else ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+        </div>
+
       </div>
     </v-card>
   </v-dialog>
@@ -174,6 +170,16 @@ const model = defineModel<boolean>({ default: false })
 const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
+
+// ── Section visibility toggles ──
+const sections = reactive([
+  { key: 'company',  label: 'Company',           open: true  },
+  { key: 'vendor',   label: 'Vendor',             open: false },
+  { key: 'shipto',   label: 'Bill To / Ship To',  open: false },
+  { key: 'totals',   label: 'Totals',             open: false },
+  { key: 'shipping', label: 'Shipping & Account', open: false },
+  { key: 'comments', label: 'Comments & Terms',   open: false },
+])
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -237,6 +243,8 @@ watch(selectedPreset, (val) => {
       }
       if (preset.shipToPhone) deliverToPhone.value = preset.shipToPhone
     }
+    // Load warehouses linked to this preset for the Ship To picker
+    loadPresetWarehouses(val)
   }
 })
 
@@ -260,6 +268,7 @@ const savingTotals = ref(false)
 const currency = ref('Dollar (USD)')
 const comments = ref('No Comments')
 const companyTerms = ref('')
+const poDate = ref(new Date().toISOString().substring(0, 10))
 
 // Purchase From (Supplier)
 const purchaseFromName = ref('')
@@ -278,6 +287,58 @@ const deliverToName = ref('')
 const deliverToAddress = ref('')
 const deliverToPhone = ref('')
 const deliverToEmail = ref('')
+const selectedWarehouseId = ref<number | null>(null)
+const presetWarehouses = ref<any[]>([])
+
+// Bill To — starts same as Ship To but user can edit independently
+const billToName = ref('')
+const billToAddress = ref('')
+const billToPhone = ref('')
+const billToEmail = ref('')
+
+/** Sync Bill To from Ship To fields (called on initial load and warehouse select) */
+function syncBillToFromShipTo() {
+  billToName.value = deliverToName.value
+  billToAddress.value = deliverToAddress.value
+  billToPhone.value = deliverToPhone.value
+  billToEmail.value = deliverToEmail.value
+}
+
+async function loadPresetWarehouses(presetName: string) {
+  const preset = apiPresets.value.find((p: any) => p.name === presetName)
+  if (!preset) { presetWarehouses.value = []; return }
+  try {
+    presetWarehouses.value = await api.get(`/companypresets/${preset.id}/warehouses`)
+  } catch { presetWarehouses.value = [] }
+  selectedWarehouseId.value = null
+}
+
+function onWarehouseSelected(warehouseId: number | null) {
+  if (!warehouseId) return
+  const wh = presetWarehouses.value.find((w: any) => w.id === warehouseId)
+  if (wh) {
+    deliverToName.value = wh.displayName || wh.name || ''
+    deliverToAddress.value = wh.address || ''
+    deliverToPhone.value = wh.phone || ''
+    deliverToEmail.value = wh.email || ''
+    // Sync Bill To to match the newly selected warehouse
+    syncBillToFromShipTo()
+  }
+}
+
+async function saveTotalsToPo() {
+  savingTotals.value = true
+  try {
+    const payload = {
+      processingFee: processingFeeAmount.value,
+      shipping:      shippingAmount.value,
+      tax:           taxAmount.value,
+      poDate:        poDate.value,
+    }
+    await api.patch(`/purchase-orders/${props.poId}/totals`, payload)
+  } catch (e) { console.error('[PoPdf] Failed to save totals to PO', e) }
+  finally { savingTotals.value = false }
+}
 
 // Shipping & Account — editable per-print overrides for the FedEx / courier block on the PDF.
 // Initialised from the PO's saved Import Detail, used by both the live preview and the
@@ -320,12 +381,14 @@ watch(model, async (open) => {
         vendorPhone.value = vendor.phone || ''
         vendorEmail.value = vendor.email || ''
 
-        // Initialize Deliver To
+        // Initialize Deliver To (Ship To)
         const deliver = data.deliverTo || {}
         deliverToName.value = deliver.name || ''
         deliverToAddress.value = deliver.address || ''
         deliverToPhone.value = deliver.phone || ''
         deliverToEmail.value = deliver.email || ''
+        // Bill To starts identical to Ship To — user can then edit each independently
+        syncBillToFromShipTo()
 
         // Initialize Shipping & Account from the PO's saved Import Detail.
         // For Customer-ExWork POs, the deliverTo block already carries a fedexAccount that comes
@@ -341,6 +404,11 @@ watch(model, async (open) => {
         processingFeeAmount.value = Number(data.processingFee) || 0
         shippingAmount.value = Number(data.shipping) || 0
         taxAmount.value = Number(data.tax) || 0
+        if (data.poDate) {
+          poDate.value = new Date(data.poDate).toISOString().substring(0, 10)
+        } else {
+          poDate.value = new Date().toISOString().substring(0, 10)
+        }
       } catch (e) { console.error('[PoPdf] Failed to load PDF data', e) }
       finally { loadingData.value = false }
     }
@@ -356,13 +424,15 @@ const renderedHtml = computed(() => {
   const items: any[] = d.items || []
   // FedEx / shipping/incoterms now come from the editable refs (fedExAccount, shippingMethod, etc.)
   // so we don't need to deref data.importDetail here anymore.
+  const primary = theme.value.primary
+  const accent = theme.value.accent
   const logo = logoDataUrl.value
 
   const logoImg = logo
     ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />`
     : ''
 
-  const poDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'
+  const poDateVal = poDate.value || '—'
   const subtotal = Number(d.totalAmount) || 0
   // Shipping is the flat PO-level value the user typed — never the sum of item shippingCost.
   const totalShipping = shippingAmount.value || 0
@@ -376,64 +446,64 @@ const renderedHtml = computed(() => {
     return `
     <tr style="background:${bg};">
       <td style="padding:9px 12px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
-      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
+      <td style="padding:9px 12px; font-size:11px; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
       <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3; max-width:120px;">${it.description || '—'}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.qty}</td>
-      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; border-bottom:1px solid #eef0f3;">${it.qty}</td>
+      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
       <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.certification || '—'}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
-      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.unitPrice))}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; border-bottom:1px solid #eef0f3;">$${fmt(Number(it.totalPrice))}</td>
       <td style="padding:9px 12px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.note || ''}</td>
     </tr>`
   }).join('')
 
   return `
-    <div style="font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:#1a2744; display:flex; flex-direction:column; min-height:297mm;">
+    <div style="font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:${primary}; display:flex; flex-direction:column; min-height:297mm;">
 
       <!-- ═══ Header ═══ -->
       <div style="padding:28px 40px 20px 40px; display:flex; justify-content:space-between; align-items:flex-start;">
         <div style="display:flex; align-items:center; gap:16px;">
           ${logoImg}
           <div>
-            <div style="font-size:20px; font-weight:700; color:#1a2744; letter-spacing:0.3px;">${companyName.value}</div>
+            <div style="font-size:20px; font-weight:700; color:${primary}; letter-spacing:0.3px;">${companyName.value}</div>
             <div style="font-size:9.5px; color:#6b7280; margin-top:3px; line-height:1.6;">${companyLocation.value}<br/>Tel: ${companyPhone.value} &nbsp;|&nbsp; ${companyWebsite.value}</div>
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-size:24px; font-weight:700; color:#1a2744; letter-spacing:1px;">PURCHASE ORDER</div>
+          <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">PURCHASE ORDER</div>
           <div style="font-size:11px; color:#6b7280; margin-top:4px;">${d.poNumber}</div>
         </div>
       </div>
 
       <!-- Accent line -->
-      <div style="height:3px; background:linear-gradient(90deg,#1a2744 0%,#2563eb 40%,#e5e7eb 100%); margin:0 40px;"></div>
+      <div style="height:3px; background:linear-gradient(90deg,${primary} 0%,${accent} 40%,#e5e7eb 100%); margin:0 40px;"></div>
 
       <!-- ═══ Meta Row ═══ -->
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
-        <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${poDate}</div>
-        
-        <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
+        <div><span style="font-weight:600; color:${primary};">Date:</span> ${poDateVal}</div>
+
+        <div><span style="font-weight:600; color:${primary};">Currency:</span> ${currency.value}</div>
       </div>
 
-      <!-- ═══ Purchase From / BILL TO / Deliver To ═══ -->
+      <!-- ═══ Vendor / Bill To / Ship To ═══ -->
       <div style="display:flex; gap:0; margin:0 40px 20px 40px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Purchase From</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${purchaseFromName.value || '—'}</div>
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Vendor</div>
+          <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${purchaseFromName.value || '—'}</div>
           ${purchaseFromAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${purchaseFromAddress.value}</div>` : ''}
           ${purchaseFromPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${purchaseFromPhone.value}</div>` : ''}
           ${purchaseFromEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${purchaseFromEmail.value}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">BIll TO</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${vendorName.value || '—'}</div>
-          ${vendorAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${vendorAddress.value}</div>` : ''}
-          ${vendorPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${vendorPhone.value}</div>` : ''}
-          ${vendorEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${vendorEmail.value}</div>` : ''}
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Bill To</div>
+          <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${billToName.value || '—'}</div>
+          ${billToAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${billToAddress.value}</div>` : ''}
+          ${billToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${billToPhone.value}</div>` : ''}
+          ${billToEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${billToEmail.value}</div>` : ''}
         </div>
         <div style="flex:1; padding:16px 20px;">
-          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Deliver To</div>
-          <div style="font-size:12px; font-weight:700; color:#1a2744; margin-bottom:3px;">${deliverToName.value || '—'}</div>
+          <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:8px;">Ship To</div>
+          <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${deliverToName.value || '—'}</div>
           ${deliverToAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${deliverToAddress.value}</div>` : ''}
           ${deliverToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${deliverToPhone.value}</div>` : ''}
           ${deliverToEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${deliverToEmail.value}</div>` : ''}
@@ -444,7 +514,7 @@ const renderedHtml = computed(() => {
       <div style="margin:0 40px 16px 40px;">
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
-            <tr style="background:#1a2744;">
+            <tr style="background:${primary};">
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">#</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part No.</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
@@ -466,15 +536,15 @@ const renderedHtml = computed(() => {
           ${fedExAccount.value ? `
             <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px; margin-bottom:8px;">
               <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">FedEx Account Information</div>
-              <div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Account Number:</span> ${fedExAccount.value}</div>
-              ${servicePriority.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Service Priority:</span> ${servicePriority.value}</div>` : ''}
+              <div style="color:${primary}; margin-top:2px;"><span style="font-weight:600;">Account Number:</span> ${fedExAccount.value}</div>
+              ${servicePriority.value ? `<div style="color:${primary}; margin-top:2px;"><span style="font-weight:600;">Service Priority:</span> ${servicePriority.value}</div>` : ''}
             </div>
           ` : ''}
           ${shippingMethod.value || incoterms.value ? `
             <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
               <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;">Shipping Information</div>
-              ${shippingMethod.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Shipping Method:</span> ${shippingMethod.value}</div>` : ''}
-              ${incoterms.value ? `<div style="color:#1a2744; margin-top:2px;"><span style="font-weight:600;">Incoterms:</span> ${incoterms.value}</div>` : ''}
+              ${shippingMethod.value ? `<div style="color:${primary}; margin-top:2px;"><span style="font-weight:600;">Shipping Method:</span> ${shippingMethod.value}</div>` : ''}
+              ${incoterms.value ? `<div style="color:${primary}; margin-top:2px;"><span style="font-weight:600;">Incoterms:</span> ${incoterms.value}</div>` : ''}
             </div>
           ` : ''}
         </div>
@@ -484,7 +554,7 @@ const renderedHtml = computed(() => {
             ${processingFee > 0 ? `<tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Processing Fee</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(processingFee)}</td></tr>` : ''}
             <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(tax)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">$${fmt(totalShipping)}</td></tr>
-            <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(grandTotal)}</td></tr>
+            <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">$${fmt(grandTotal)}</td></tr>
           </table>
         </div>
       </div>
@@ -503,9 +573,9 @@ const renderedHtml = computed(() => {
       </div>` : ''}
 
       <!-- ═══ Footer ═══ -->
-      <div style="margin-top:auto; padding:16px 40px; border-top:2px solid #1a2744; display:flex; justify-content:space-between; align-items:center;">
+      <div style="margin-top:auto; padding:16px 40px; border-top:2px solid ${primary}; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:10px; color:#6b7280;">${footerText.value}</span>
-        <span style="font-size:10px; font-weight:600; color:#1a2744;">${companyEmail.value}</span>
+        <span style="font-size:10px; font-weight:600; color:${primary};">${companyEmail.value}</span>
       </div>
     </div>
   `
@@ -570,7 +640,7 @@ async function downloadPdf() {
       primaryColor: theme.value.primary,
       accentColor: theme.value.accent,
       poNumber: d.poNumber || '',
-      poDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
+      poDate: poDate.value || '—',
       orderedBy: d.orderedBy || '—',
       status: d.status || '—',
       currency: currency.value,
@@ -580,12 +650,12 @@ async function downloadPdf() {
       purchaseFromAddress: purchaseFromAddress.value || null,
       purchaseFromPhone: purchaseFromPhone.value || null,
       purchaseFromEmail: purchaseFromEmail.value || null,
-      // Vendor
-      vendorName: vendorName.value || null,
-      vendorAddress: vendorAddress.value || null,
-      vendorPhone: vendorPhone.value || null,
-      vendorEmail: vendorEmail.value || null,
-      // Deliver To
+      // Vendor (Bill To box in the PDF — backend uses VendorName/Address/Phone/Email for "Bill To")
+      vendorName: billToName.value || null,
+      vendorAddress: billToAddress.value || null,
+      vendorPhone: billToPhone.value || null,
+      vendorEmail: billToEmail.value || null,
+      // Deliver To / Ship To
       deliverToName: deliverToName.value || null,
       deliverToAddress: deliverToAddress.value || null,
       deliverToPhone: deliverToPhone.value || null,
@@ -615,7 +685,7 @@ async function downloadPdf() {
       footerText: footerText.value || null,
     }
 
-    const response = await $fetch<Blob>(`${config.public.apiBase}/pdf/po`, {
+    const response = await $fetch<Blob>(`${api.baseURL}/pdf/po`, {
       method: 'POST',
       body: payload,
       responseType: 'blob',
@@ -642,5 +712,14 @@ async function downloadPdf() {
   box-shadow: 0 4px 40px rgba(0,0,0,0.2);
   border-radius: 4px;
   overflow: hidden;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  margin-bottom: 10px;
 }
 </style>

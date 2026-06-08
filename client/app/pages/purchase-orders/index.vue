@@ -42,21 +42,16 @@
           Warehouse
           <v-chip v-if="warehouseItemCount" size="x-small" color="success" variant="tonal" class="ml-2">{{ warehouseItemCount }}</v-chip>
         </v-tab>
-        <v-tab value="vendor">
-          <v-icon start size="18">mdi-truck-outline</v-icon>
-          Vendor
-          <v-chip v-if="vendorItemCount" size="x-small" color="info" variant="tonal" class="ml-2">{{ vendorItemCount }}</v-chip>
+        <v-tab value="vendor-customer">
+          <v-icon start size="18">mdi-truck-delivery-outline</v-icon>
+          Vendor/Customer
+          <v-chip v-if="vendorCustomerItemCount" size="x-small" color="info" variant="tonal" class="ml-2">{{ vendorCustomerItemCount }}</v-chip>
         </v-tab>
-        <v-tab value="customer">
-          <v-icon start size="18">mdi-account-group</v-icon>
-          Customer
-          <v-chip v-if="customerItemCount" size="x-small" color="error" variant="tonal" class="ml-2">{{ customerItemCount }}</v-chip>
-        </v-tab>
-        <v-tab v-if="isAdmin" value="edit">
+        <!-- <v-tab v-if="isAdmin" value="edit">
           <v-icon start size="18">mdi-pencil</v-icon>
           Edit
           <v-chip v-if="allItems.length" size="x-small" color="primary" variant="tonal" class="ml-2">{{ allItems.length }}</v-chip>
-        </v-tab>
+        </v-tab> -->
       </v-tabs>
 
       <v-divider />
@@ -74,24 +69,133 @@
               <p class="text-body-2 text-medium-emphasis">No purchase orders yet.</p>
             </div>
 
-            <div class="excel-container" v-else>
+            <!-- Filter bar -->
+            <div class="d-flex align-center gap-2 mb-3 flex-wrap">
+              <v-text-field
+                v-model="poSearch"
+                label="Search PO# / Supplier / PI"
+                variant="outlined"
+                density="compact"
+                hide-details
+                clearable
+                prepend-inner-icon="mdi-magnify"
+                style="min-width:200px;max-width:280px;"
+              />
+              <v-chip
+                v-if="poActiveFilterCount > 0"
+                size="small"
+                color="primary"
+                variant="tonal"
+                closable
+                prepend-icon="mdi-filter"
+                @click:close="clearAllPoFilters"
+              >
+                {{ poActiveFilterCount }} filter{{ poActiveFilterCount !== 1 ? 's' : '' }} active
+              </v-chip>
+              <span v-if="filteredPOs.length !== purchaseOrders.length" class="text-caption text-medium-emphasis">
+                {{ filteredPOs.length }} of {{ purchaseOrders.length }} shown
+              </span>
+            </div>
+
+            <div class="excel-container" v-if="purchaseOrders.length > 0">
               <table class="po-table" v-if="pageLoading">
                 <thead>
                   <tr>
                     <th style="width: 60px;">#</th>
-                    <th>Supplier PO#</th>
-                    <th v-if="isAdmin" style="width: 120px;">PI</th>
-                    <th>Supplier</th>
+                    <th>
+                      <div class="po-th-inner">
+                        <span>Supplier PO#</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['poNumber']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['poNumber']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['poNumber']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueValues('poNumber')" :key="val" :label="val" :model-value="poColFilters['poNumber']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('poNumber', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['poNumber']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['poNumber'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
+                    <th v-if="isAdmin" style="width: 120px;">
+                      <div class="po-th-inner">
+                        <span>PI</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['invoiceNumber']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['invoiceNumber']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['invoiceNumber']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueValues('invoiceNumber')" :key="val" :label="val" :model-value="poColFilters['invoiceNumber']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('invoiceNumber', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['invoiceNumber']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['invoiceNumber'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
+                    <th>
+                      <div class="po-th-inner">
+                        <span>Supplier</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['supplierName']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['supplierName']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['supplierName']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueValues('supplierName')" :key="val" :label="val" :model-value="poColFilters['supplierName']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('supplierName', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['supplierName']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['supplierName'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
                     <th style="width: 120px;">Total Amount</th>
-                    <th style="width: 180px;">Status</th>
+                    <th style="width: 180px;">
+                      <div class="po-th-inner">
+                        <span>Status</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['status']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['status']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['status']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueValues('status')" :key="val" :label="val" :model-value="poColFilters['status']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('status', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['status']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['status'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
                     <th style="width: 100px;">Items</th>
-                    <th v-if="isAdmin" style="width: 200px;">Assigned Users</th>
+                    <th style="width: 110px;">Track Status</th>
+                    <th v-if="isAdmin" style="width: 200px;">
+                      <div class="po-th-inner">
+                        <span>Assigned Users</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['assignedUsers']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['assignedUsers']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['assignedUsers']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueAssignedUsers" :key="val" :label="val" :model-value="poColFilters['assignedUsers']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('assignedUsers', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['assignedUsers']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['assignedUsers'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
                     <th style="width: 140px;">Created</th>
                     <th style="width: 80px;"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(po, idx) in purchaseOrders" :key="po.id" class="cursor-pointer" @click="$router.push(`/purchase-orders/${po.id}`)">
+                  <tr v-for="(po, idx) in filteredPOs" :key="po.id" class="cursor-pointer" @click="$router.push(`/purchase-orders/${po.id}`)">
                     <td class="text-center text-medium-emphasis">{{ idx + 1 }}</td>
                     <td class="cell-pn">{{ po.poNumber }}</td>
                     <td v-if="isAdmin" class="text-medium-emphasis">{{ po.invoiceNumber || '—' }}</td>
@@ -127,6 +231,19 @@
                       </div>
                     </td>
                     <td class="text-center">{{ po.items?.length || 0 }}</td>
+                    <td class="text-center" @click.stop>
+                      <template v-if="po.totalTrackItems > 0">
+                        <v-chip
+                          size="x-small"
+                          :color="po.acceptedTrackItems === po.totalTrackItems ? 'success' : po.acceptedTrackItems > 0 ? 'warning' : 'default'"
+                          variant="tonal"
+                          :title="`${po.acceptedTrackItems} accepted / ${po.totalTrackItems} total track items`"
+                        >
+                          {{ po.acceptedTrackItems }}/{{ po.totalTrackItems }}
+                        </v-chip>
+                      </template>
+                      <span v-else class="text-medium-emphasis" style="font-size:11px;">—</span>
+                    </td>
                     <td v-if="isAdmin" @click.stop>
                       <div v-if="po._assignedUsers && po._assignedUsers.length" class="d-flex flex-wrap gap-1">
                         <v-chip
@@ -217,19 +334,19 @@
           </div>
         </v-tabs-window-item>
 
-        <!-- ═══════════ VENDOR TAB ═══════════ -->
-        <v-tabs-window-item value="vendor">
+        <!-- ═══════════ VENDOR/CUSTOMER TAB ═══════════ -->
+        <v-tabs-window-item value="vendor-customer">
           <div class="pa-4">
             <p class="text-body-2 text-medium-emphasis mb-4">
-              All <strong>Ex Vendor</strong> items grouped by customer, then by supplier.
+              All <strong>Vendor/Customer</strong> items grouped by customer, then by supplier.
             </p>
 
-            <div v-if="Object.keys(vendorGroups).length === 0" class="text-center pa-8">
-              <v-icon icon="mdi-truck-outline" size="48" color="grey" class="mb-2" />
-              <p class="text-body-2 text-medium-emphasis">No vendor items found.</p>
+            <div v-if="Object.keys(vendorCustomerGroups).length === 0" class="text-center pa-8">
+              <v-icon icon="mdi-truck-delivery-outline" size="48" color="grey" class="mb-2" />
+              <p class="text-body-2 text-medium-emphasis">No vendor/customer items found.</p>
             </div>
 
-            <div v-for="(supplierMap, customerName) in vendorGroups" :key="customerName" class="mb-6">
+            <div v-for="(supplierMap, customerName) in vendorCustomerGroups" :key="customerName" class="mb-6">
               <div class="d-flex align-center gap-2 mb-3">
                 <v-icon icon="mdi-account" size="20" color="info" />
                 <h3 class="text-subtitle-1 font-weight-bold">{{ customerName }}</h3>
@@ -266,6 +383,7 @@
                         <th style="width: 80px;">Qty</th>
                         <th style="width: 110px;">Unit Price</th>
                         <th style="width: 110px;">Total</th>
+                        <th style="width: 100px;">Type</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -279,77 +397,11 @@
                         <td class="text-center">{{ item.qty }}</td>
                         <td class="text-right cell-price">${{ formatPrice(item.unitPrice) }}</td>
                         <td class="text-right cell-price">${{ formatPrice(item.totalPrice) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </v-tabs-window-item>
-
-        <!-- ═══════════ CUSTOMER TAB ═══════════ -->
-        <v-tabs-window-item value="customer">
-          <div class="pa-4">
-            <p class="text-body-2 text-medium-emphasis mb-4">
-              All <strong>Ex Customer</strong> items grouped by customer, then by supplier.
-            </p>
-
-            <div v-if="Object.keys(customerGroups).length === 0" class="text-center pa-8">
-              <v-icon icon="mdi-account-group" size="48" color="grey" class="mb-2" />
-              <p class="text-body-2 text-medium-emphasis">No customer items found.</p>
-            </div>
-
-            <div v-for="(supplierMap, customerName) in customerGroups" :key="customerName" class="mb-6">
-              <div class="d-flex align-center gap-2 mb-3">
-                <v-icon icon="mdi-account" size="20" color="info" />
-                <h3 class="text-subtitle-1 font-weight-bold">{{ customerName }}</h3>
-              </div>
-
-              <div v-for="(items, supplierName) in supplierMap" :key="supplierName" class="ml-4 mb-4">
-                <div class="d-flex flex-wrap align-center gap-2 mb-2">
-                  <v-icon icon="mdi-truck-delivery" size="18" color="warning" />
-                  <span class="text-body-2 font-weight-medium">{{ supplierName }}</span>
-                  <v-chip size="x-small" color="warning" variant="tonal">{{ items.length }} item(s)</v-chip>
-                  <v-spacer />
-                  <v-btn
-                    size="small"
-                    color="success"
-                    variant="tonal"
-                    prepend-icon="mdi-plus"
-                    :disabled="getSelectedFromGroup(items).length === 0"
-                    @click="createPOFromGroup(supplierName as string, items)"
-                  >
-                    Create PO ({{ getSelectedFromGroup(items).length }})
-                  </v-btn>
-                </div>
-
-                <div class="excel-container">
-                  <table class="po-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 40px;">
-                          <input type="checkbox" class="po-checkbox" :checked="isGroupAllSelected(items)" @change="toggleGroupAll(items)" />
-                        </th>
-                        <th>Part Number</th>
-                        <th>Alt P/N</th>
-                        <th>Condition</th>
-                        <th style="width: 80px;">Qty</th>
-                        <th style="width: 110px;">Unit Price</th>
-                        <th style="width: 110px;">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="item in items" :key="item.id" :class="{ 'selected-row': selections[item.id] }">
                         <td class="text-center">
-                          <input type="checkbox" class="po-checkbox" :checked="selections[item.id]" @change="toggleSelect(item.id)" />
+                          <v-chip size="x-small" :color="item.exType === 1 ? 'info' : 'warning'" variant="tonal">
+                            {{ item.exType === 1 ? 'Vendor' : 'Customer' }}
+                          </v-chip>
                         </td>
-                        <td class="cell-pn">{{ item.partNumberName }}</td>
-                        <td style="color: #fbbf24;">{{ item.alt || '—' }}</td>
-                        <td>{{ item.condition || '—' }}</td>
-                        <td class="text-center">{{ item.qty }}</td>
-                        <td class="text-right cell-price">${{ formatPrice(item.unitPrice) }}</td>
-                        <td class="text-right cell-price">${{ formatPrice(item.totalPrice) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -433,6 +485,57 @@
       </v-tabs-window>
     </v-card>
 
+    <!-- ══ Wallet picker dialog (shown before creating a PO) ══ -->
+    <v-dialog v-model="showWalletPickerDialog" max-width="500" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4 gap-2">
+          <v-icon icon="mdi-wallet-outline" color="primary" />
+          Select Payment Wallet
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <p class="text-body-2 text-medium-emphasis mb-1">
+            Supplier: <strong>{{ pendingCreate?.supplierName }}</strong>
+          </p>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Which wallet should be used to pay this supplier?
+          </p>
+          <v-select
+            v-model="pendingCreate.walletId"
+            :items="walletOptions"
+            item-title="label"
+            item-value="id"
+            label="Pay with Wallet *"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-bank-outline"
+            clearable
+          >
+            <template #item="{ item, props: itemProps }">
+              <v-list-item v-bind="itemProps">
+                <template #subtitle>
+                  <span class="text-caption text-medium-emphasis">{{ item.raw.company }}</span>
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-btn variant="text" @click="cancelCreate">Cancel</v-btn>
+          <v-spacer />
+          <v-btn
+            color="success"
+            variant="flat"
+            prepend-icon="mdi-plus"
+            :loading="creatingPo"
+            @click="confirmCreate"
+          >
+            Create PO
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
@@ -454,6 +557,26 @@ const selections = ref<Record<number, boolean>>({})
 const activeTab = ref('orders')
 const purchaseOrders = ref<any[]>([])
 const saving = ref(false)
+
+// ── Wallet picker (before creating PO) ───────────────────────────────────────
+const walletOptions = ref<{ id: number; label: string; company: string; currency: string }[]>([])
+const showWalletPickerDialog = ref(false)
+const creatingPo = ref(false)
+const pendingCreate = reactive<{ supplierName: string; group: any[]; walletId: number | null }>({
+  supplierName: '', group: [], walletId: null,
+})
+
+async function loadWallets() {
+  try {
+    const list = await api.get<any[]>('/payment-boxes/simple-list')
+    walletOptions.value = list.map((w: any) => ({
+      id: w.id,
+      label: `${w.companyName} — ${w.name} (${w.currency})`,
+      company: w.companyName,
+      currency: w.currency,
+    }))
+  } catch { /* silent */ }
+}
 
 const poStatusColorMap: Record<string, string> = {
   'Waiting For Admin Approval': 'warning',
@@ -527,29 +650,13 @@ const warehouseGroups = computed(() => {
   return groups
 })
 
-// ── Vendor tab: ExType=1, grouped by customer → supplier ──
-const vendorItems = computed(() => allItems.value.filter(i => i.exType === 1))
-const vendorItemCount = computed(() => vendorItems.value.length)
+// ── Vendor/Customer tab: ExType=1 or 2, grouped by customer → supplier ──
+const vendorCustomerItems = computed(() => allItems.value.filter(i => i.exType === 1 || i.exType === 2))
+const vendorCustomerItemCount = computed(() => vendorCustomerItems.value.length)
 
-const vendorGroups = computed(() => {
+const vendorCustomerGroups = computed(() => {
   const groups: Record<string, Record<string, any[]>> = {}
-  for (const item of vendorItems.value) {
-    const customer = item.customerName || 'Unknown Customer'
-    const supplier = item.supplierName || 'Unknown Supplier'
-    if (!groups[customer]) groups[customer] = {}
-    if (!groups[customer][supplier]) groups[customer][supplier] = []
-    groups[customer][supplier].push(item)
-  }
-  return groups
-})
-
-// ── Customer tab: ExType=2, grouped by customer → supplier ──
-const customerItems = computed(() => allItems.value.filter(i => i.exType === 2))
-const customerItemCount = computed(() => customerItems.value.length)
-
-const customerGroups = computed(() => {
-  const groups: Record<string, Record<string, any[]>> = {}
-  for (const item of customerItems.value) {
+  for (const item of vendorCustomerItems.value) {
     const customer = item.customerName || 'Unknown Customer'
     const supplier = item.supplierName || 'Unknown Supplier'
     if (!groups[customer]) groups[customer] = {}
@@ -583,6 +690,7 @@ function toggleGroupAll(group: any[]) {
 onMounted(() => {
   loadPurchaseOrders()
   loadItems()
+  loadWallets()
   
 })
 
@@ -613,18 +721,9 @@ async function loadItems() {
 
 async function loadPurchaseOrders() {
   // try {
-  
-    const accumulated: any[] = []
-    let page = 1
-    while (true) {
-      const res = await api.get<any>(`/purchase-orders?page=${page}&pageSize=200`)
-      const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
-      const total: number = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
-      accumulated.push(...batch)
-      if (batch.length < 200 || accumulated.length >= total) break
-      page++
-    }
-    const pos = accumulated
+
+    const res = await api.get<any>('/purchase-orders?page=1&pageSize=1000')
+    const pos: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
     purchaseOrders.value = pos
 
     await Promise.all(pos.map(async (po: any) => {
@@ -664,26 +763,41 @@ async function loadPurchaseOrders() {
   // }
 }
 
-// ── Create PO from selected items in a supplier group ──
-async function createPOFromGroup(supplierName: string, group: any[]) {
+// ── Create PO from selected items — opens wallet picker first ──
+function createPOFromGroup(supplierName: string, group: any[]) {
   const selected = getSelectedFromGroup(group)
   if (selected.length === 0) return
+  // Store pending create details and open wallet picker
+  pendingCreate.supplierName = supplierName
+  pendingCreate.group = group
+  pendingCreate.walletId = null
+  showWalletPickerDialog.value = true
+}
 
+function cancelCreate() {
+  showWalletPickerDialog.value = false
+}
+
+async function confirmCreate() {
+  const selected = getSelectedFromGroup(pendingCreate.group)
+  if (selected.length === 0) return
+  creatingPo.value = true
   try {
     const payload = {
       supplierId: selected[0].supplierId || 0,
       invoiceId: selected[0].invoiceId || null,
       poItemIds: selected.map((item: any) => item.id),
+      preferredWalletId: pendingCreate.walletId || null,
     }
-
     const result = await api.post<any>('/purchase-orders', payload)
-    showSnack(`PO ${result.poNumber} created for ${supplierName}!`, 'success')
-
-    // Reload items (created items are now assigned to a PO and won't appear)
+    showSnack(`PO ${result.poNumber} created for ${pendingCreate.supplierName}!`, 'success')
+    showWalletPickerDialog.value = false
     await loadItems()
     await loadPurchaseOrders()
   } catch (e: any) {
     showSnack(e?.data?.message || 'Failed to create PO', 'error')
+  } finally {
+    creatingPo.value = false
   }
 }
 
@@ -713,6 +827,83 @@ function showSnack(text: string, color: string) {
   snackbarColor.value = color
   snackbar.value = true
 }
+
+// ── Excel-style column filters for Purchase Orders tab ──
+const poSearch = ref('')
+const poColFilters = reactive<Record<string, Set<string>>>({})
+const poFilterSearch = reactive<Record<string, string>>({})
+
+const PO_FILTER_COLS = [
+  { key: 'poNumber',      field: (r: any) => r.poNumber },
+  { key: 'invoiceNumber', field: (r: any) => r.invoiceNumber || '—' },
+  { key: 'supplierName',  field: (r: any) => r.supplierName || '—' },
+  { key: 'status',        field: (r: any) => r.status },
+]
+
+function poUniqueValues(key: string) {
+  const col = PO_FILTER_COLS.find(c => c.key === key)!
+  const search = (poFilterSearch[key] || '').toLowerCase()
+  const vals = [...new Set(purchaseOrders.value.map(col.field).filter(Boolean))] as string[]
+  return vals.filter(v => v.toLowerCase().includes(search)).sort()
+}
+
+const poUniqueAssignedUsers = computed(() => {
+  const search = (poFilterSearch['assignedUsers'] || '').toLowerCase()
+  const names = new Set<string>()
+  for (const po of purchaseOrders.value) {
+    for (const p of po._assignedUsers || []) {
+      if (p.user?.name) names.add(p.user.name)
+    }
+  }
+  return [...names].filter(n => n.toLowerCase().includes(search)).sort()
+})
+
+function togglePoFilter(key: string, val: string) {
+  if (!poColFilters[key]) poColFilters[key] = new Set()
+  if (poColFilters[key].has(val)) poColFilters[key].delete(val)
+  else poColFilters[key].add(val)
+}
+
+const poActiveFilterCount = computed(() =>
+  Object.values(poColFilters).filter(s => s && s.size > 0).length
+)
+
+function clearAllPoFilters() {
+  for (const key of Object.keys(poColFilters)) poColFilters[key] = new Set()
+  poSearch.value = ''
+}
+
+const filteredPOs = computed(() => {
+  let rows = purchaseOrders.value
+  const q = poSearch.value.trim().toLowerCase()
+  if (q) {
+    rows = rows.filter(r =>
+      (r.poNumber || '').toLowerCase().includes(q) ||
+      (r.supplierName || '').toLowerCase().includes(q) ||
+      (r.invoiceNumber || '').toLowerCase().includes(q)
+    )
+  }
+  // Apply column filters (status, supplier, etc.)
+  for (const col of PO_FILTER_COLS) {
+    const active = poColFilters[col.key]
+    if (active && active.size > 0) {
+      rows = rows.filter(r => active.has(col.field(r)))
+    }
+  }
+  // Hide Cancelled POs by default unless the user has explicitly filtered for Cancelled
+  const statusFilter = poColFilters['status']
+  if (!statusFilter || statusFilter.size === 0) {
+    rows = rows.filter(r => r.status !== 'Cancelled')
+  }
+  // Assigned users is multi-value: keep row if it has ANY selected user
+  const activeUsers = poColFilters['assignedUsers']
+  if (activeUsers && activeUsers.size > 0) {
+    rows = rows.filter(r =>
+      (r._assignedUsers || []).some((p: any) => activeUsers.has(p.user?.name))
+    )
+  }
+  return rows
+})
 </script>
 
 <style scoped>
@@ -805,4 +996,19 @@ function showSnack(text: string, color: string) {
 
 .text-center { text-align: center; }
 .text-right { text-align: right; }
+
+.po-th-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.po-filter-btn {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.po-filter-btn:hover,
+.po-filter-btn.v-btn--active {
+  opacity: 1;
+}
 </style>

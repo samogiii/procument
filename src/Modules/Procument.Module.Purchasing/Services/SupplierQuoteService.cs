@@ -207,13 +207,23 @@ public class SupplierQuoteService : ISupplierQuoteService
 
                 if (!alreadyLinked)
                 {
-                    _db.Set<PartNumberSupplier>().Add(new PartNumberSupplier
+                    try
                     {
-                        PartNumberId = rfqItemForLink.PartNumberId,
-                        SupplierId = supplier.Id,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                    await _db.SaveChangesAsync();
+                        _db.Set<PartNumberSupplier>().Add(new PartNumberSupplier
+                        {
+                            PartNumberId = rfqItemForLink.PartNumberId,
+                            SupplierId = supplier.Id,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                        await _db.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException ex)
+                        when (ex.InnerException?.Message.Contains("duplicate key") == true ||
+                              ex.InnerException?.Message.Contains("Cannot insert duplicate") == true)
+                    {
+                        // Concurrent request already inserted the same link — safe to ignore
+                        _db.ChangeTracker.Clear();
+                    }
                 }
             }
         }

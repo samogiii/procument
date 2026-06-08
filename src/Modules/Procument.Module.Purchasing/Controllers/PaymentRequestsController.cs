@@ -4,6 +4,11 @@ using Procument.Module.Purchasing.Services;
 
 namespace Procument.Module.Purchasing.Controllers;
 
+public class CreatePaymentRequestBody
+{
+    public long? CompanyPresetId { get; set; }
+}
+
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -44,10 +49,11 @@ public class PaymentRequestsController : ControllerBase
     }
 
     [HttpPost("po/{poId}")]
-    public async Task<ActionResult<PaymentRequestResponse>> Create(long poId)
+    public async Task<ActionResult<PaymentRequestResponse>> Create(long poId, [FromBody] CreatePaymentRequestBody? body = null)
     {
-        return await _service.CreateAsync(poId);
+        return await _service.CreateAsync(poId, body?.CompanyPresetId);
     }
+
 
     [HttpPatch("{id}/status")]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] string status)

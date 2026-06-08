@@ -9,9 +9,9 @@ namespace Procument.API.Controllers;
 [Authorize]
 public class NotificationsController : ControllerBase
 {
-    private readonly INotificationService _notificationService;
+    private readonly NotificationService _notificationService;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(NotificationService notificationService)
     {
         _notificationService = notificationService;
     }
@@ -20,47 +20,70 @@ public class NotificationsController : ControllerBase
     public async Task<ActionResult<List<NotificationDto>>> GetAll()
     {
         var userId = GetUserId();
-        var notifications = await _notificationService.GetForUserAsync(userId);
-        return Ok(notifications);
+        return Ok(await _notificationService.GetForUserAsync(userId));
     }
 
     [HttpGet("unread-count")]
     public async Task<ActionResult<int>> GetUnreadCount()
     {
-        var userId = GetUserId();
-        var count = await _notificationService.GetUnreadCountAsync(userId);
-        return Ok(count);
+        return Ok(await _notificationService.GetUnreadCountAsync(GetUserId()));
     }
 
     [HttpGet("rejections")]
     public async Task<ActionResult<List<NotificationDto>>> GetUndismissedRejections()
     {
-        var userId = GetUserId();
-        var rejections = await _notificationService.GetUndismissedRejectionsAsync(userId);
-        return Ok(rejections);
+        return Ok(await _notificationService.GetUndismissedRejectionsAsync(GetUserId()));
     }
 
     [HttpPatch("{id:long}/read")]
     public async Task<IActionResult> MarkRead(long id)
     {
-        var userId = GetUserId();
-        await _notificationService.MarkReadAsync(userId, id);
+        await _notificationService.MarkReadAsync(GetUserId(), id);
+        return Ok();
+    }
+
+    [HttpPatch("read-all")]
+    public async Task<IActionResult> MarkAllRead()
+    {
+        await _notificationService.MarkAllReadAsync(GetUserId());
         return Ok();
     }
 
     [HttpPatch("{id:long}/dismiss")]
     public async Task<IActionResult> Dismiss(long id)
     {
-        var userId = GetUserId();
-        await _notificationService.DismissAsync(userId, id);
+        await _notificationService.DismissAsync(GetUserId(), id);
         return Ok();
     }
 
     [HttpPost("dismiss-rejections")]
     public async Task<IActionResult> DismissAllRejections()
     {
-        var userId = GetUserId();
-        await _notificationService.DismissAllRejectionsAsync(userId);
+        await _notificationService.DismissAllRejectionsAsync(GetUserId());
+        return Ok();
+    }
+
+    // ── Browser Push ──────────────────────────────────────────────────────────
+
+    [HttpGet("vapid-public-key")]
+    public IActionResult GetVapidPublicKey()
+    {
+        var key = _notificationService.GetVapidPublicKey();
+        if (key == null) return NotFound("VAPID not configured");
+        return Ok(new { publicKey = key });
+    }
+
+    [HttpPost("push-subscribe")]
+    public async Task<IActionResult> Subscribe([FromBody] PushSubscribeRequest req)
+    {
+        await _notificationService.SubscribePushAsync(GetUserId(), req.Endpoint, req.P256dh, req.Auth);
+        return Ok();
+    }
+
+    [HttpPost("push-unsubscribe")]
+    public async Task<IActionResult> Unsubscribe([FromBody] PushUnsubscribeRequest req)
+    {
+        await _notificationService.UnsubscribePushAsync(GetUserId(), req.Endpoint);
         return Ok();
     }
 
@@ -70,3 +93,6 @@ public class NotificationsController : ControllerBase
         return idClaim != null && long.TryParse(idClaim.Value, out var id) ? id : 0;
     }
 }
+
+public record PushSubscribeRequest(string Endpoint, string P256dh, string Auth);
+public record PushUnsubscribeRequest(string Endpoint);

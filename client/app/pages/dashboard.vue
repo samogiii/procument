@@ -430,7 +430,7 @@ const statCards = computed(() => {
     { title: 'POs', value: v.totalPOs ?? 0, icon: 'mdi-package-variant-closed', color: 'secondary', borderColor: c.secondary, to: '/purchase-orders' },
     { title: 'Pending RFQs', value: v.pendingRfqs ?? 0, icon: 'mdi-file-clock-outline', color: 'error', borderColor: c.error, to: '/rfqs?status=Open' },
   ]
-  if (isAdmin.value) base.push({ title: 'Users', value: v.totalUsers ?? 0, icon: 'mdi-account-group', color: 'success', borderColor: c.success, to: '/users' })
+  // if (isAdmin.value) base.push({ title: 'Users', value: v.totalUsers ?? 0, icon: 'mdi-account-group', color: 'success', borderColor: c.success, to: '/users' })
   return base
 })
 

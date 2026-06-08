@@ -39,7 +39,7 @@ public static class PackingListDocument
                     // Accent line
                     col.Item().Element(c => PdfHelpers.DrawAccentLine(c, primary, accent));
 
-                    // Meta row: Date | Customer PO
+                    // Meta row: Date | Customer PO | Proforma Ref
                     col.Item().PaddingBottom(10).Row(row =>
                     {
                         void Meta(string label, string? val)
@@ -50,6 +50,7 @@ public static class PackingListDocument
                             });
                         Meta("Date", req.InvoiceDate);
                         Meta("Customer PO", req.CustomerPONumber);
+                        Meta("PI Ref", req.ProformaRef);
                     });
 
                     // Bill To / Ship To
@@ -71,7 +72,7 @@ public static class PackingListDocument
                                             t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
                                         });
                                     }
-                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                    bc.Item().Text(req.CustomerBillToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
                                     if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
                                         bc.Item().Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                     Field("Contact Person", req.CustomerBillToContactPerson);
@@ -96,7 +97,7 @@ public static class PackingListDocument
                                             t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
                                         });
                                     }
-                                    bc.Item().Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                    bc.Item().Text(req.CustomerShipToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
                                     if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
                                         bc.Item().Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                     Field("Contact Person", req.CustomerShipToContactPerson);
@@ -109,6 +110,10 @@ public static class PackingListDocument
 
                     // Items table
                     col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary));
+
+                    // Packages / shipping dimensions
+                    if (req.Packages != null && req.Packages.Count > 0)
+                        col.Item().PaddingBottom(10).Element(c => ComposePackagesSection(c, req.Packages, primary, accent));
                 });
 
                 // Footer with contact email
@@ -167,6 +172,45 @@ public static class PackingListDocument
                     Cell(r.ConstantItem(40), it.Qty.ToString(), primary, bold: true);
                     Cell(r.ConstantItem(40), it.Condition ?? "—", primary);
                     Cell(r.ConstantItem(60), it.Certification ?? "—", Colors.Grey.Darken1);
+                });
+            }
+        });
+    }
+
+    private static void ComposePackagesSection(IContainer container, List<PackingListPackage> packages, string primary, string accent)
+    {
+        container.Column(col =>
+        {
+            // Section label
+            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIPPING DETAILS", accent));
+
+            // Header row
+            col.Item().PaddingTop(6).Row(hr =>
+            {
+                hr.ConstantItem(30).Background(primary).Padding(6)
+                    .AlignCenter().Text(t => t.Span("Pkg").FontSize(7f).Bold().FontColor(Colors.White));
+                hr.RelativeItem().Background(primary).Padding(6)
+                    .AlignCenter().Text(t => t.Span("Weight").FontSize(7f).Bold().FontColor(Colors.White));
+                hr.RelativeItem().Background(primary).Padding(6)
+                    .AlignCenter().Text(t => t.Span("Dimensions").FontSize(7f).Bold().FontColor(Colors.White));
+            });
+
+            // Data rows
+            for (int i = 0; i < packages.Count; i++)
+            {
+                var pkg = packages[i];
+                var bg = i % 2 == 0 ? Colors.White : Colors.Grey.Lighten5;
+
+                col.Item().Row(r =>
+                {
+                    void Cell(IContainer c, string text)
+                        => c.Background(bg).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
+                            .Padding(6).AlignCenter().AlignMiddle()
+                            .Text(t => t.Span(text).FontSize(9f).FontColor(primary));
+
+                    Cell(r.ConstantItem(30), (i + 1).ToString());
+                    Cell(r.RelativeItem(), pkg.Weight ?? "—");
+                    Cell(r.RelativeItem(), pkg.Dimensions ?? "—");
                 });
             }
         });

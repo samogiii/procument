@@ -4,6 +4,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
+using Procument.Module.RFQ.Entities;
 using Procument.Shared.DTOs;
 using Procument.Shared.Services;
 
@@ -11,18 +12,20 @@ namespace Procument.Module.Purchasing.Services;
 
 public interface IPurchaseOrderService
 {
-    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin);
+    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<POResponse?> GetByIdAsync(long id);
-    Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin);
+    Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     /// <summary>
     /// Get all unassigned POItems (POId is null, not returned). Admins see every live item;
     /// non-admins only see items whose SourceProcurementItem is assigned to them via
     /// EntityPermission(EntityName="Procurement").
     /// </summary>
-    Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin);
+    Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<POResponse> CreateAsync(CreatePORequest request);
     Task<bool> UpdateStatusAsync(long id, string newStatus, bool isAdmin, bool isSuperAdmin, string? rejectionNote = null);
     Task<bool> UpdateItemAsync(UpdatePOItemRequest request);
+    /// <summary>SuperAdmin-only: override the UnitPrice of a POItem and recalculate TotalPrice + PO.TotalAmount.</summary>
+    Task<bool> UpdateItemPriceAsync(long poItemId, decimal unitPrice);
     Task<bool> DeleteAsync(long id);
 
     /// <summary>
@@ -47,31 +50,38 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     /// <summary>Get all unassigned POItems (POId is null) — enriched with ExType, supplier, customer.</summary>
-    public async Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin)
+    public async Task<List<UnassignedPOItemResponse>> GetUnassignedItemsAsync(long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
     {
         IQueryable<POItem> q = _db.Set<POItem>()
             .Where(i => i.POId == null && i.ReturnedAt == null);
 
-        // Non-admins only see items that trace back to a ProcurementItem they're assigned to.
-        // The Procurement→PO loop preserves SourceProcurementItemId on every finalized POItem,
-        // so this is the canonical link between a user's Procurement assignment and the
-        // resulting unassigned PO line.
-        if (!isAdmin)
+        if (!isSuperAdmin)
         {
-            var permittedIdStrings = await _db.Set<EntityPermission>()
-                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
-                .Select(p => p.EntityId)
+            // 1. Resolve all explicit permissions for this user
+            var perms = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Select(p => new { p.EntityName, p.EntityId })
                 .ToListAsync();
-            var permittedProcItemIds = permittedIdStrings
-                .Select(s => long.TryParse(s, out var l) ? l : -1L)
-                .Where(l => l > 0)
-                .ToHashSet();
 
-            if (permittedProcItemIds.Count == 0)
-                return new List<UnassignedPOItemResponse>();
+            var invIds   = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var procIds  = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var poIds    = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
 
-            q = q.Where(i => i.SourceProcurementItemId.HasValue
-                             && permittedProcItemIds.Contains(i.SourceProcurementItemId.Value));
+            // 2. Resolve allowed InvoiceItem IDs by base
+            List<long> allowedInvoiceItemIds = [];
+            if (userBases != null && userBases.Length > 0)
+            {
+                allowedInvoiceItemIds = await ResolveInvoiceItemIdsByBase(userBases);
+            }
+
+            // 3. Apply Filter: (In Base) OR (Assigned via Procurement) OR (Assigned via Invoice)
+            q = q.Where(i =>
+                (userBases != null && userBases.Length > 0 && i.InvoiceItemId != null && allowedInvoiceItemIds.Contains(i.InvoiceItemId.Value)) ||
+                (i.SourceProcurementItem != null && procIds.Contains(i.SourceProcurementItem.ProcurementId)) ||
+                (i.InvoiceItemId != null && invIds.Contains(i.InvoiceItemId.Value)) ||
+                (i.POId != null && poIds.Contains(i.POId.Value)) ||
+                (isAdmin && i.InvoiceItemId == null) || // Admins see internal items
+                (isAdmin && i.InvoiceItemId != null && i.ProcumentRecord != null && i.ProcumentRecord.RFQItem != null && i.ProcumentRecord.RFQItem.RFQ.UserId == userId)); // Admins see items from their own RFQs
         }
 
         var items = await q
@@ -149,13 +159,13 @@ public class PurchaseOrderService : IPurchaseOrderService
         }).ToList();
     }
 
-    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin)
+    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
     {
-        IQueryable<PurchaseOrder> baseQ = _db.Set<PurchaseOrder>();
+        IQueryable<PurchaseOrder> baseQ = _db.Set<PurchaseOrder>().AsNoTracking();
 
-        // Permission filter — non-admins see only POs they have an EntityPermission for
-        if (!isAdmin)
+        if (!isSuperAdmin)
         {
+            // 1. Resolve assigned PO IDs
             var permittedIdStrings = await _db.Set<EntityPermission>()
                 .Where(p => p.UserId == userId && p.EntityName == "PO")
                 .Select(p => p.EntityId)
@@ -164,15 +174,34 @@ public class PurchaseOrderService : IPurchaseOrderService
                 .Select(s => long.TryParse(s, out var l) ? l : -1L)
                 .Where(l => l > 0)
                 .ToList();
-            baseQ = baseQ.Where(po => permittedIds.Contains(po.Id));
+
+            // 2. Resolve allowed Invoice IDs by base
+            List<long> allowedInvoiceIds = [];
+            if (userBases != null && userBases.Length > 0)
+            {
+                allowedInvoiceIds = await ResolveInvoiceIdsByBase(userBases);
+            }
+
+            // 3. Apply Filter: (Assigned) OR (In Base)
+            if (allowedInvoiceIds.Count > 0)
+            {
+                baseQ = baseQ.Where(po =>
+                    permittedIds.Contains(po.Id) ||
+                    (po.InvoiceId != null && allowedInvoiceIds.Contains(po.InvoiceId.Value)) ||
+                    (po.InvoiceId == null && isAdmin)); // Admins see internal POs (no invoice) if they have bases
+            }
+            else
+            {
+                // If user has no bases, they ONLY see explicitly assigned POs
+                baseQ = baseQ.Where(po => permittedIds.Contains(po.Id));
+            }
         }
 
         var query = baseQ.OrderByDescending(po => po.CreatedAt);
 
         var total = await query.CountAsync();
         var pos = await query
-            .Skip((page.Page - 1) * page.PageSize)
-            .Take(page.PageSize)
+            .ApplyPaging(page)
             .Include(po => po.Supplier)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.PartNumber)
@@ -181,6 +210,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                     .ThenInclude(pr => pr!.Supplier)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.TrackNumbers)
+                    .ThenInclude(t => t.Items)
             .ToListAsync();
 
         var invoiceMap = await ResolveInvoiceNumbers(pos.Where(p => p.InvoiceId.HasValue).Select(p => p.InvoiceId!.Value).Distinct().ToList());
@@ -200,11 +230,44 @@ public class PurchaseOrderService : IPurchaseOrderService
         return new PagedResult<POResponse> { Items = items, TotalCount = total, Page = page.Page, PageSize = page.PageSize };
     }
 
-    public async Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin)
+    public async Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
     {
-        if (isAdmin) return true;
-        return await _db.Set<EntityPermission>()
+        if (isSuperAdmin) return true;
+
+        // 1. Check explicit assignment
+        var assigned = await _db.Set<EntityPermission>()
             .AnyAsync(p => p.UserId == userId && p.EntityName == "PO" && p.EntityId == poId.ToString());
+        if (assigned) return true;
+
+        // 2. Check base
+        if (userBases != null && userBases.Length > 0)
+        {
+            var po = await _db.Set<PurchaseOrder>().FindAsync(poId);
+            if (po == null) return false;
+            
+            if (po.InvoiceId == null) return isAdmin; // Admins see internal POs if they have bases
+
+            return await CheckInvoiceBase(po.InvoiceId.Value, userBases);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> CheckInvoiceBase(long invoiceId, int[] userBases)
+    {
+        if (userBases == null || userBases.Length == 0) return false;
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        var baseList = string.Join(",", userBases);
+        cmd.CommandText = $"SELECT COUNT(1) FROM Invoices i JOIN Customers c ON c.Id = i.CustomerId WHERE i.Id = @invId AND (c.[Base] IS NULL OR c.[Base] IN ({baseList}))";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@invId";
+        p.Value = invoiceId;
+        cmd.Parameters.Add(p);
+
+        return (int)(await cmd.ExecuteScalarAsync() ?? 0) > 0;
     }
 
     public async Task<POResponse?> GetByIdAsync(long id)
@@ -252,6 +315,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             InvoiceId = request.InvoiceId,
             Status = "Waiting For Admin Approval",
             CreatedAt = DateTime.UtcNow,
+            PreferredWalletId = request.PreferredWalletId,
         };
 
         _db.Set<PurchaseOrder>().Add(po);
@@ -285,6 +349,73 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         po.TotalAmount = totalAmount;
         await _db.SaveChangesAsync();
+
+        // ── Auto-assign users from source RFQs/Procurements to this new PO ──
+        try
+        {
+            var sourceRfqIds = orderedItems
+                .Select(i => i.ProcumentRecord?.RFQItem?.RFQId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var sourceProcItemIds = orderedItems
+                .Select(i => i.SourceProcurementItemId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var usersToAssign = new Dictionary<long, string>(); // userId -> permission (Edit wins over View)
+
+            // 1. Gather from RFQs
+            foreach (var rfqId in sourceRfqIds)
+            {
+                var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+                if (rfq?.UserId != null) usersToAssign[rfq.UserId.Value] = "Edit";
+
+                var rfqPerms = await _db.Set<EntityPermission>()
+                    .Where(p => p.EntityName == "RFQ" && p.EntityId == rfqId.ToString())
+                    .ToListAsync();
+                foreach (var p in rfqPerms)
+                {
+                    if (!usersToAssign.ContainsKey(p.UserId) || p.Permission == "Edit")
+                        usersToAssign[p.UserId] = p.Permission;
+                }
+            }
+
+            // 2. Gather from Procurement items
+            foreach (var procItemId in sourceProcItemIds)
+            {
+                var procPerms = await _db.Set<EntityPermission>()
+                    .Where(p => p.EntityName == "Procurement" && p.EntityId == procItemId.ToString())
+                    .ToListAsync();
+                foreach (var p in procPerms)
+                {
+                    if (!usersToAssign.ContainsKey(p.UserId) || p.Permission == "Edit")
+                        usersToAssign[p.UserId] = p.Permission;
+                }
+            }
+
+            // 3. Apply to PO
+            foreach (var kv in usersToAssign)
+            {
+                var already = await _db.Set<EntityPermission>()
+                    .AnyAsync(p => p.UserId == kv.Key && p.EntityName == "PO" && p.EntityId == po.Id.ToString());
+                if (!already)
+                {
+                    _db.Set<EntityPermission>().Add(new EntityPermission
+                    {
+                        UserId = kv.Key,
+                        EntityName = "PO",
+                        EntityId = po.Id.ToString(),
+                        Permission = kv.Value,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            await _db.SaveChangesAsync();
+        }
+        catch { /* auto-assignment is best-effort */ }
 
         // Create supplier subfolders inside each related Proforma Invoice folder
         try { await CreateSupplierFoldersForPoAsync(po, poItems); }
@@ -340,7 +471,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             "Draft", "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment",
             "PO Sent", "Document Added", "Payment Done", "Waiting For Shipment",
             "Ship To Warehouse 1", "Ship To Warehouse 2",
-            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled"
+            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled", "Issue"
         };
         if (!allowed.Contains(newStatus)) return false;
 
@@ -491,6 +622,54 @@ public class PurchaseOrderService : IPurchaseOrderService
             }
         }
 
+        // ── SYNC: Propagate price back to ProcurementItem ──
+        if (item.SourceProcurementItemId.HasValue)
+        {
+            var pi = await _db.Set<ProcurementItem>().FindAsync(item.SourceProcurementItemId.Value);
+            if (pi != null)
+            {
+                pi.UnitPrice = item.UnitPrice;
+                pi.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        return true;
+    }
+
+    public async Task<bool> UpdateItemPriceAsync(long poItemId, decimal unitPrice)
+    {
+        var item = await _db.Set<POItem>().FindAsync(poItemId);
+        if (item == null) return false;
+
+        item.UnitPrice = unitPrice;
+        item.TotalPrice = item.Qty * unitPrice;
+        await _db.SaveChangesAsync();
+
+        // Recalculate PO total
+        if (item.POId.HasValue)
+        {
+            var poItems = await _db.Set<POItem>().Where(i => i.POId == item.POId).ToListAsync();
+            var po = await _db.Set<PurchaseOrder>().FindAsync(item.POId.Value);
+            if (po != null)
+            {
+                po.TotalAmount = poItems.Sum(i => i.TotalPrice);
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        // ── SYNC: Propagate price back to ProcurementItem ──
+        if (item.SourceProcurementItemId.HasValue)
+        {
+            var pi = await _db.Set<ProcurementItem>().FindAsync(item.SourceProcurementItemId.Value);
+            if (pi != null)
+            {
+                pi.UnitPrice = item.UnitPrice;
+                pi.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+
         return true;
     }
 
@@ -538,6 +717,36 @@ public class PurchaseOrderService : IPurchaseOrderService
     }
 
     /// <summary>Resolve InvoiceNumber from InvoiceIds via ADO.NET.</summary>
+    private async Task<List<long>> ResolveInvoiceIdsByBase(int[] userBases)
+    {
+        if (userBases.Length == 0) return [];
+        var result = new List<long>();
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        var baseList = string.Join(",", userBases);
+        cmd.CommandText = $"SELECT i.Id FROM Invoices i JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) result.Add(reader.GetInt64(0));
+        return result;
+    }
+
+    private async Task<List<long>> ResolveInvoiceItemIdsByBase(int[] userBases)
+    {
+        if (userBases.Length == 0) return [];
+        var result = new List<long>();
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+
+        using var cmd = conn.CreateCommand();
+        var baseList = string.Join(",", userBases);
+        cmd.CommandText = $"SELECT ii.Id FROM InvoiceItems ii JOIN Invoices i ON i.Id = ii.InvoiceId JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) result.Add(reader.GetInt64(0));
+        return result;
+    }
+
     private async Task<Dictionary<long, string>> ResolveInvoiceNumbers(List<long> invoiceIds)
     {
         if (invoiceIds.Count == 0) return new();
@@ -563,6 +772,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         Id = po.Id,
         PONumber = po.PONumber,
+        PODate = po.PODate,
         TotalAmount = po.TotalAmount,
         Status = po.Status,
         CreatedAt = po.CreatedAt,
@@ -586,7 +796,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             string? sName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))
                 sName = name;
-            
+
             sName ??= i.ProcumentRecord?.Supplier?.Name;
             sName ??= po.Supplier?.Name;
 
@@ -614,7 +824,15 @@ public class PurchaseOrderService : IPurchaseOrderService
                     CreatedAt = t.CreatedAt,
                 }).ToList(),
             };
-        }).ToList()
+        }).ToList(),
+        AcceptedTrackItems = po.POItems
+            .SelectMany(i => i.TrackNumbers ?? [])
+            .SelectMany(t => t.Items ?? [])
+            .Count(item => item.Status == "Accepted"),
+        TotalTrackItems = po.POItems
+            .SelectMany(i => i.TrackNumbers ?? [])
+            .SelectMany(t => t.Items ?? [])
+            .Count(),
     };
 }
 

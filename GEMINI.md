@@ -251,6 +251,63 @@ For **every** user request, follow this loop:
 > **Follow-ups:** open questions / TODOs.
 > ```
 
+### 2026-05-25 — Invoice Details Deposit Wallet Selection Box
+**Files:**
+- Backend: `src/Modules/Procument.Module.Sales/DTOs/InvoiceDTOs.cs`, `src/Modules/Procument.Module.Sales/Services/InvoiceService.cs`
+- Frontend: `client/app/pages/invoices/[id].vue`
+**Summary:** Added a "Deposit Wallet" dropdown selector inside the "Invoice Details" card on the Sales Order detail page. Exposed `DefaultDepositWalletId` in the `InvoiceResponse` DTO and mapped it from the `Invoice` entity in `InvoiceService.MapToResponse`. On the frontend, loaded the list of wallets belonging to the customer and displayed a standard Vuetify `v-select` dropdown displaying each wallet's custom name (with currency) when editing details. When saved, the frontend calls the existing `PATCH /invoices/{id}/default-wallet` endpoint to persist the selection.
+**Follow-ups:** none.
+
+### 2026-05-25 — Multi-Wallet System per Company Preset
+**Files:**
+- Backend: `src/Modules/Procument.Module.Sales/Entities/PaymentBox.cs`, `src/Modules/Procument.Module.Sales/Entities/Invoice.cs`, `src/Modules/Procument.Module.Sales/DTOs/PaymentBoxDTOs.cs`, `src/Modules/Procument.Module.Sales/DTOs/InvoiceDTOs.cs`, `src/Modules/Procument.Module.Sales/Services/IPaymentBoxService.cs`, `src/Procument.Shared/Services/IPaymentLedgerService.cs`, `src/Modules/Procument.Module.Sales/Services/PaymentBoxService.cs`, `src/Modules/Procument.Module.Sales/Controllers/PaymentBoxesController.cs`, `src/Modules/Procument.Module.Sales/Controllers/InvoicesController.cs`, `src/Modules/Procument.Module.Sales/Controllers/DocumentsController.cs`, `src/Modules/Procument.Module.Purchasing/DTOs/PurchaseOrderDTOs.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/PurchaseOrdersController.cs`
+- Migration: `AddWalletNameAndInvoiceDefaultWallet` (applied)
+- Frontend: `client/app/pages/payment-control/index.vue`, `client/app/pages/quotes/[id]/create-invoice/index.vue`, `client/app/pages/payment/index.vue`
+**Summary:** Implemented N-wallets per Company Preset. Added `Name` field to `PaymentBox` (EF migration applied). Added `DefaultDepositWalletId` FK on `Invoice` so each PI remembers which wallet its customer POPs deposit into. Updated `TryAutoDepositAsync` and `TryAutoWithdrawAsync` to accept an optional `explicitBoxId` override, falling back to preset-lookup when absent. Added new endpoints: `PATCH /payment-boxes/{id}/rename`, `GET /payment-boxes?presetId=`, `GET /payment-boxes/for-customer/{customerId}`, and `PATCH /invoices/{id}/default-wallet`. On PO acceptance, the `WalletId` travels from the frontend wallet picker through `UpdatePaymentApprovalRequest` to `TryAutoWithdrawAsync`. Frontend: wallet Name is displayed on cards with an inline rename button; the Add Wallet dialog now includes a Name field; a wallet picker dialog appears after PI creation (if >1 wallet) to set the default deposit wallet; and a wallet picker dialog appears before PO payment acceptance (if >1 wallet) to choose the deduction wallet.
+**Follow-ups:** The payment-control/[id].vue (individual wallet detail page) still shows `companyPresetName` as the title — should be updated to show `box.name` once the name feature is in use. Consider adding wallet display to the payment/index.vue wallet transfer creation dialog.
+
+### 2026-05-25 — Customer Code Fallback Excel Filter Alignment
+**Files:**
+- Backend: `src/Modules/Procument.Module.RFQ/Services/RFQService.cs`, `src/Modules/Procument.Module.RFQ/Controllers/RFQController.cs`, `src/Modules/Procument.Module.Purchasing/Services/ProcumentPageService.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/ProcumentPageController.cs`, `src/Modules/Procument.Module.Sales/Services/QuoteService.cs`, `src/Modules/Procument.Module.Sales/Services/InvoiceService.cs`
+- Frontend: `client/app/pages/rfqs/index.vue`
+**Summary:** Resolved a critical cross-cutting UX issue where Customer Names were being leaked in the Excel-style column filters for Customer on the RFQs page, in violation of rule 6.3. Aligned the `cfCustomerOptionsPage` computed property in Nuxt to map to `customerCode` (falling back to `'-'`), completely hiding names. Re-engineered all backend query parsing and `customerSearch` filters across the RFQ, Purchasing, Sales, Invoices, and Quotes modules to support exact matching against both Customer Name and Customer Code, fully restoring complete data privacy for non-admin users.
+**Follow-ups:** none.
+
+### 2026-05-25 — Customer Catalog Enhancements (PI Terms, Company Type, Country, & Multiple Emails)
+**Files:**
+- Backend: `src/Modules/Procument.Module.Catalog/Entities/Customer.cs`, `src/Modules/Procument.Module.Catalog/Controllers/CatalogControllers.cs`, `src/Modules/Procument.Module.Sales/Services/InvoiceService.cs`
+- Frontend: `client/app/pages/catalog/customers.vue`
+**Summary:** Enhanced the Customer Catalog by adding columns for PITermsAndConditions, CompanyType, Country, and multiple email addresses. Designed PITermsAndConditions to automatically override the Proforma Invoice (PI) PDF terms. Implemented CompanyType as a colored category chip (Airline, MRO, Supplier) in the customers table, and modeled multiple email addresses cleanly using a serialized comma-separated string in the database and a premium combobox with closable chips on the edit/create form. Executed and successfully applied EF Core database migrations.
+**Follow-ups:** none.
+
+### 2026-05-25 — Persistent Column Visibility Toggle and Dynamic CSV Export for Total Project
+**Files:** `client/app/pages/total-pn/index.vue`
+**Summary:** Implemented persistent column visibility toggling on the Total Project (`/total-pn`) page, enabling users to hide/show any of the 36 columns interactively using a premium dropdown panel containing a search box and reset option. Column preferences are saved and loaded automatically using browser `localStorage` under a dedicated key (`total-pn-column-visibility`). Re-engineered the CSV exporter (`exportCsv`) to dynamically filter headers and map cell values so that only currently unhidden columns are present in the downloaded spreadsheet. Additionally, conducted a clean sweep of the file to fix all corrupted Unicode characters (mojibake) like `â€”`, `â€¦`, and `Â·`, replacing them with standard dashes, dots, and ellipses.
+**Follow-ups:** none.
+
+### 2026-05-25 — Multi-page Excel Column Dropdown Checkbox Filters expansion
+**Files:**
+- Backend: `src/Modules/Procument.Module.RFQ/Services/RFQService.cs`, `src/Modules/Procument.Module.RFQ/Controllers/RFQController.cs`, `src/Modules/Procument.Module.Purchasing/Services/ProcumentPageService.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/ProcumentPageController.cs`, `src/Modules/Procument.Module.Sales/Services/QuoteService.cs`, `src/Modules/Procument.Module.Sales/Controllers/QuotesController.cs`, `src/Modules/Procument.Module.Sales/Services/IInvoiceService.cs`, `src/Modules/Procument.Module.Sales/Services/InvoiceService.cs`, `src/Modules/Procument.Module.Sales/Controllers/InvoicesController.cs`, `src/Modules/Procument.Module.Purchasing/Services/IProcurementService.cs`, `src/Modules/Procument.Module.Sales/Services/ProcurementService.cs`, `src/Modules/Procument.Module.Purchasing/Controllers/ProcurementsController.cs`
+- Frontend: `client/app/pages/rfqs/index.vue`, `client/app/pages/procument/index.vue`, `client/app/pages/quotes/index.vue`, `client/app/pages/invoices/index.vue`, `client/app/pages/procurements/index.vue`
+**Summary:** Expanded Excel-style column header dropdown checkbox multi-select filters across five key pages: `/RFQs` (added ID and Name filters with state persistence), `/procument` (added RFQ# and RFQ Name filters), `/quotes` (added Quote# filter), `/invoices` (added Sales Order# filter), and `/procurements` (added Condition, Proc Status, Supplier, and Assigned Users filters). Implemented matching SQL `IQueryable` array/list exact-match criteria in C# service layers and controller endpoints, added distinct list queries in backend filter-options endpoints, updated cascading computed options inside Vue templates, and successfully mapped array selections in page query parameters with saved filter state persistence.
+**Follow-ups:** none.
+
+### 2026-05-25 — RFQ Excel filter, dynamic cascading multi-select, and customer code fallback
+**Files:** `src/Modules/Procument.Module.Sales/Controllers/QuotesController.cs`, `src/Modules/Procument.Module.Sales/Services/QuoteService.cs`, `client/app/pages/quotes/index.vue`, `client/app/pages/invoices/index.vue`, `client/app/pages/procurements/index.vue`
+**Summary:** Added an Excel-style filter for the "RFQ Name" column on the `/quotes` list page. Updated the backend `QuotesController` and `QuoteService` to support receiving, parsing, and filtering by an array of RFQ names (including falling back to parsing the RFQ ID if the name is not custom). Redesigned the frontend column filtering options logic on the Quotes page to be dynamic and cascading using a custom non-self-filtering helper. Additionally, enforced a strict customer code fallback policy: if a customer code is missing, we display exactly `'-'` (instead of falling back to leaking the customer's full name) in all tables' customer filters (Quotes, Invoices, Procurements, and RFQs).
+**Follow-ups:** none.
+
+### 2026-05-17 — Restricted inventoryOnly nav items to Inventory role only
+**Files:** `client/app/layouts/default.vue`
+**Summary:** Modified the `navItems` filtering logic to hide `inventoryOnly` items from Admin and SuperAdmin users. These items are now strictly visible only to users with the `Inventory` role, satisfying the request to keep the `/shipping` page exclusive to inventory users.
+**Follow-ups:** none.
+
+### 2026-05-10 — Tab navigation fix (RFQ + RFQ Items) + Shipping Cost added to Procurement
+**Files:**
+- Frontend: `client/app/pages/rfqs/[id]/index.vue`, `client/app/pages/procument/index.vue`, `client/app/pages/procurements/[id].vue`, `client/app/pages/procurements/index.vue`
+**Summary:** Fixed a UX issue where "Cost Price" and "Shipping Cost" fields were skipped during tab navigation on both the RFQ detail page (`/rfqs/[id]`) and the RFQ Items page (`/procument`). This was caused by a `v-if/v-else` pattern swapping `span` for `input`; added `tabindex="0"` and `@focus` to the spans to allow them to be focused via tabbing. Also added a "Shipping" column to the supplier quotes tables on the Procurement detail and Procurement items list pages (`/procurements`), as the field was supported by the backend but missing from the UI. Updated `addSupplierQuote` and `saveSupplierQuote` to handle `shippingCost`.
+**Follow-ups:** none.
+
 ### 2026-04-22 — Base-3 Yuan price double-markup fix
 **Files:** `client/app/components/InvoicePdfGenerator.vue`, `client/app/components/QuotePdfGenerator.vue`
 **Summary:** When `customerBase === 3` and `customerCurrencyType === 'Both'`, the Yuan PDF was using `rate: 1.22 * 7`. The `1.22` markup is already baked into stored `totalAmount` / `unitPrice` / `totalPrice`, so multiplying again squared the factor (yielded ~72.93× instead of 7×). Changed to `rate: 7` on both. `FinalInvoicePdfGenerator.vue` already had the correct value.

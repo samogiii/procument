@@ -1,14 +1,16 @@
 <template>
   <DataListPage
-    title="SaleS Order"
+    title="Sales Order"
     :headers="headers"
     api-url="/invoices"
     detail-route="/invoices"
     show-select
     v-model="selectedInvoices"
-    :custom-filter="applyFilters"
+    :server-side="true"
+    :extra-params="extraParams"
     page-key="invoices"
-    :status-items="['All', 'Draft', 'Pending', 'Running', 'Waiting For PrePayment', 'Delivered', 'Finish']"
+    :status-options="['Draft', 'Pending', 'Running', 'Waiting For PrePayment', 'Delivered', 'Finish', 'Cancelled']"
+    :custom-filter="invoiceCustomFilter"
   >
     <template #filters>
       <v-text-field
@@ -21,12 +23,72 @@
       />
     </template>
 
+    <!-- Column filter: Sales Order # -->
+    <template #header.invoiceNumber="{ column, toggleSort, isSorted, sortBy }">
+      <ColFilterMenu
+        col-key="invoiceNumber"
+        :label="column.title"
+        :options="cfInvoiceNumberOptions"
+        :selected="colFilter.selected['invoiceNumber'] || new Set()"
+        :search="colFilter.search['invoiceNumber'] || ''"
+        @toggle="(v) => colFilter.toggle('invoiceNumber', v)"
+        @select-all="() => colFilter.selectAll('invoiceNumber', cfInvoiceNumberOptions)"
+        @clear-all="() => colFilter.clearAll('invoiceNumber')"
+        @update:search="(v) => colFilter.search['invoiceNumber'] = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
+    <!-- Column filter: Customer -->
+    <template #header.customerCode="{ column, toggleSort, isSorted, sortBy }">
+      <ColFilterMenu
+        col-key="customerCode"
+        :label="column.title"
+        :options="cfCustomerOptions"
+        :selected="colFilter.selected['customerCode'] || new Set()"
+        :search="colFilter.search['customerCode'] || ''"
+        @toggle="(v) => colFilter.toggle('customerCode', v)"
+        @select-all="() => colFilter.selectAll('customerCode', cfCustomerOptions)"
+        @clear-all="() => colFilter.clearAll('customerCode')"
+        @update:search="(v) => colFilter.search['customerCode'] = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
+    <!-- Column filter: Status -->
+    <template #header.status="{ column, toggleSort, isSorted, sortBy }">
+      <ColFilterMenu
+        col-key="status"
+        :label="column.title"
+        :options="cfStatusOptions"
+        :selected="colFilter.selected['status'] || new Set()"
+        :search="colFilter.search['status'] || ''"
+        @toggle="(v) => colFilter.toggle('status', v)"
+        @select-all="() => colFilter.selectAll('status', cfStatusOptions)"
+        @clear-all="() => colFilter.clearAll('status')"
+        @update:search="(v) => colFilter.search['status'] = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />
     </template>
 
+    <template #before-table="{ totalAmountSum }">
+      <div v-if="totalAmountSum != null" class="d-flex justify-end mb-2">
+        <v-chip color="success" variant="tonal" size="small" prepend-icon="mdi-sigma">
+          Total: ${{ formatPrice(totalAmountSum) }}
+        </v-chip>
+      </div>
+    </template>
+
     <template #item.totalAmount="{ item }">
       ${{ formatPrice(item.totalAmount) }}
+    </template>
+
+    <template #item.deadlineDate="{ item }">
+      {{ item.deadlineDate ? new Date(item.deadlineDate).toLocaleDateString() : '-' }}
     </template>
 
     <template #item.actions="{ item }">
@@ -122,25 +184,59 @@ const selectedInvoices = ref<number[]>([])
 
 const customerSearch = ref('')
 
+// ── Column filters ──
+const colFilter = useColFilterPersisted('invoices')
+const cfCustomerOptions = ref<string[]>([])
+const cfStatusOptions = ref<string[]>([])
+const cfInvoiceNumberOptions = ref<string[]>([])
+
+const extraParams = computed<Record<string, string | string[]>>(() => {
+  const p: Record<string, string | string[]> = {}
+  if (customerSearch.value?.trim()) p.customer = customerSearch.value.trim()
+  if (colFilter.isActive('customerCode')) p.customerCodes = colFilter.getSelected('customerCode')
+  if (colFilter.isActive('status')) p.statuses = colFilter.getSelected('status')
+  if (colFilter.isActive('invoiceNumber')) p.invoiceNumbers = colFilter.getSelected('invoiceNumber')
+  return p
+})
+
+// Load all filter options from the dedicated endpoint (full DB, not current page only)
+async function loadAllInvoiceFilterOptions() {
+  try {
+    const res = await api.get<any>('/invoices/filter-options')
+    cfStatusOptions.value = (res.statuses || []).sort()
+    cfCustomerOptions.value = [...new Set((res.customers || [])
+      .map((c: any) => c.code || '-'))]
+      .sort()
+    cfInvoiceNumberOptions.value = (res.invoiceNumbers || []).sort()
+  } catch {}
+}
+
+// Keep customFilter to satisfy DataListPage prop but stop using it for col filter options
+function invoiceCustomFilter(items: any[]): any[] {
+  return items
+}
+
+onMounted(() => {
+  loadAllInvoiceFilterOptions()
+})
+
+// formatPrice helper
+function formatPrice(v: number | null | undefined) {
+  if (v == null) return '0.00'
+  return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 const filteredQuotes = computed(() => {
   if (selectedQuotes.value.length === 0) return availableQuotes.value
   const targetCustomer = selectedQuotes.value[0].customerName
   return availableQuotes.value.filter(q => q.customerName === targetCustomer)
 })
 
-function applyFilters(items: any[]) {
-  if (!customerSearch.value?.trim()) return items
-  const q = customerSearch.value.trim().toLowerCase()
-  return items.filter((item: any) =>
-    item.customerName?.toLowerCase().includes(q) ||
-    item.customerCode?.toLowerCase().includes(q)
-  )
-}
-
 const headers = [
   { title: 'Sales Order #', key: 'invoiceNumber' },
   { title: 'Customer', key: 'customerCode' },
   { title: 'Subject', key: 'subject' },
+  { title: 'Deadline', key: 'deadlineDate' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
   { title: '', key: 'actions', sortable: false, width: '60px' },
@@ -149,30 +245,23 @@ const headers = [
 async function fetchQuotes(search: string) {
   loadingQuotes.value = true
   try {
-    // Ideally we filter by search term AND status 'Sent' or 'Accepted'
-    // For now, let's fetch recent Sent/Accepted quotes. 
-    // Since we added status filter to getAll, we can use it.
-    // However, our backend GetAllAsync takes a single status. We might need to fetch twice or update backend to accept list.
-    // For simplicity, let's just fetch "Accepted" for now as prime candidate, or maybe allow user to toggle?
-    // User request: "said for witch quote do you want create".
-    // Let's fetch both if possible, or just fetch all and filter client side if the list is small?
-    // Or better, let's fetch "Accepted" quotes as default.
-    
-    // Better approach: Backend support or separate calls. 
-    // Let's call twice: Accepted and Sent.
-    
-    const [sent, accepted] = await Promise.all([
-      api.get<any>('/quotes', { query: { status: 'Sent', pageSize: 5000 }, params: { status: 'Sent', pageSize: 5000 } }), // Try both or check nuxt $fetch. $fetch uses 'query' or 'params'.
-      api.get<any>('/quotes', { query: { status: 'Accepted', pageSize: 5000 } })
-    ])
-    
-    availableQuotes.value = [...(sent.items || []), ...(accepted.items || [])]
-      .filter(q => !search || 
-        q.quoteNumber.toLowerCase().includes(search.toLowerCase()) || 
-        q.customerName.toLowerCase().includes(search.toLowerCase()) ||
+    // Single call — backend accepts List<string> status so we pass both statuses at once.
+    // The backend also applies the user's base/assigned-customer filter automatically.
+    const result = await api.get<any>('/quotes', {
+      query: {
+        status: ['Sent', 'Accepted'],
+        pageSize: 5000,
+        page: 1,
+        ...(search ? { search } : {}),
+      },
+    })
+
+    availableQuotes.value = (result.items || [])
+      .filter((q: any) => !search ||
+        q.quoteNumber?.toLowerCase().includes(search.toLowerCase()) ||
+        q.customerName?.toLowerCase().includes(search.toLowerCase()) ||
         q.customerCode?.toLowerCase().includes(search.toLowerCase())
       )
-      
   } catch (e) {
     console.error(e)
   } finally {

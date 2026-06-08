@@ -13,6 +13,7 @@ export default defineVuetifyConfiguration({
                     background: '#0D1117',
                     surface: '#161B22',
                     'surface-variant': '#1C2333',
+                    'on-surface-variant': '#C9D1D9',
                     primary: '#1565C0',
                     'primary-darken-1': '#0D47A1',
                     secondary: '#00BCD4',
@@ -34,6 +35,7 @@ export default defineVuetifyConfiguration({
                     background: '#F5F7FA',
                     surface: '#FFFFFF',
                     'surface-variant': '#EEF2F6',
+                    'on-surface-variant': '#1A2332',
                     primary: '#1565C0',
                     'primary-darken-1': '#0D47A1',
                     secondary: '#0097A7',
@@ -47,6 +49,28 @@ export default defineVuetifyConfiguration({
                     'on-surface': '#1A2332',
                     tooltip: '#FFCDD2',
                     'on-tooltip': '#000000',
+                },
+            },
+            procumentFrost: {
+                dark: false,
+                colors: {
+                    background: '#B8D4E3',   // medium ice-blue page bg — no white
+                    surface: '#CADED9',      // blue-tinted surface for cards/dialogs
+                    'surface-variant': '#A8C8DA', // darker blue-gray variant
+                    'on-surface-variant': '#0A1E2E',
+                    primary: '#155F87',      // strong dark teal-blue
+                    'primary-darken-1': '#0E4669',
+                    secondary: '#4AAEC8',
+                    'secondary-darken-1': '#2D95B0',
+                    accent: '#7CC5DC',
+                    error: '#C0392B',
+                    warning: '#D4700A',
+                    info: '#4AAEC8',
+                    success: '#1E6E3A',
+                    'on-background': '#071525', // very dark navy for body text
+                    'on-surface': '#071525',
+                    tooltip: '#155F87',
+                    'on-tooltip': '#E8F4FA',
                 },
             },
         },

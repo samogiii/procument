@@ -1,6 +1,6 @@
 <template>
   <div>
-    <PageHeader title="Part Numbers" back-to="/catalog" :count="items.length">
+    <PageHeader title="Part Numbers" back-to="/catalog" :count="totalItems">
       <template #actions>
         <v-btn color="secondary" variant="tonal" prepend-icon="mdi-upload" @click="showBulk = true" class="mr-2">Bulk Upload</v-btn>
         <v-btn color="primary" prepend-icon="mdi-plus" @click="openDialog()">Add Part</v-btn>
@@ -16,8 +16,18 @@
           single-line
           hide-details
           class="mb-4"
+          clearable
         />
-        <v-data-table :headers="headers" :items="filteredItems" :loading="loading" :items-per-page="50" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="serverItems"
+          :items-length="totalItems"
+          :loading="loading"
+          :search="debouncedSearch"
+          :items-per-page="50"
+          hover
+          @update:options="onTableOptions"
+        >
           <template #item.name="{ item }">
             <div class="d-flex align-center">
               <v-btn
@@ -45,7 +55,7 @@
             <v-btn icon="mdi-pencil" variant="text" size="x-small" @click="openDialog(item)" class="mr-1" />
             <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="confirmDelete(item.id)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -151,22 +161,39 @@
 <script setup lang="ts">
 const api = useApi()
 
-const {
-  items, loading, saving, search, showDialog,
-  isEditing, filteredItems, form,
-  loadItems, openDialog, save, deleteItem,
-} = useCrud('/partnumbers', {
-  defaultForm: () => ({ name: '', description: '', fleet: '', remark: '', isFavorite: false }),
-  searchFields: ['name', 'description', 'fleet'],
+// ─── Server-side table state ───
+const serverItems = ref<any[]>([])
+const totalItems = ref(0)
+const loading = ref(false)
+const search = ref('')
+const debouncedSearch = ref('')
+const currentOptions = ref({ page: 1, itemsPerPage: 50 })
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(search, (val) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { debouncedSearch.value = val }, 350)
 })
 
-async function toggleFavorite(item: any) {
+async function onTableOptions(opts: { page: number; itemsPerPage: number }) {
+  currentOptions.value = { page: opts.page, itemsPerPage: opts.itemsPerPage }
+  loading.value = true
   try {
-    await api.post(`/partnumbers/${item.id}/toggle-favorite`)
-    item.isFavorite = !item.isFavorite
-  } catch (e) {
-    console.error('Failed to toggle favorite:', e)
+    const params = new URLSearchParams({
+      page: String(opts.page),
+      pageSize: String(opts.itemsPerPage),
+    })
+    if (debouncedSearch.value) params.set('search', debouncedSearch.value)
+    const res = await api.get<any>(`/partnumbers?${params}`)
+    serverItems.value = res.items ?? res
+    totalItems.value = res.totalCount ?? serverItems.value.length
+  } finally {
+    loading.value = false
   }
+}
+
+async function refreshPage() {
+  await onTableOptions(currentOptions.value)
 }
 
 const headers = [
@@ -177,7 +204,51 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '100px' },
 ]
 
-// ─── Delete with confirmation ───
+async function toggleFavorite(item: any) {
+  try {
+    await api.post(`/partnumbers/${item.id}/toggle-favorite`)
+    item.isFavorite = !item.isFavorite
+  } catch (e) {
+    console.error('Failed to toggle favorite:', e)
+  }
+}
+
+// ─── Add / Edit ───
+const showDialog = ref(false)
+const isEditing = ref(false)
+const saving = ref(false)
+const editingId = ref<number | null>(null)
+const form = ref({ name: '', description: '', fleet: '', remark: '', isFavorite: false })
+
+function openDialog(item?: any) {
+  if (item) {
+    isEditing.value = true
+    editingId.value = item.id
+    form.value = { name: item.name, description: item.description ?? '', fleet: item.fleet ?? '', remark: item.remark ?? '', isFavorite: item.isFavorite }
+  } else {
+    isEditing.value = false
+    editingId.value = null
+    form.value = { name: '', description: '', fleet: '', remark: '', isFavorite: false }
+  }
+  showDialog.value = true
+}
+
+async function save() {
+  saving.value = true
+  try {
+    if (isEditing.value && editingId.value) {
+      await api.put(`/partnumbers/${editingId.value}`, form.value)
+    } else {
+      await api.post('/partnumbers', form.value)
+    }
+    showDialog.value = false
+    await refreshPage()
+  } finally {
+    saving.value = false
+  }
+}
+
+// ─── Delete ───
 const showConfirm = ref(false)
 const deleteTarget = ref<number | null>(null)
 
@@ -187,8 +258,10 @@ function confirmDelete(id: number) {
 }
 
 async function doDelete() {
-  if (deleteTarget.value) await deleteItem(deleteTarget.value)
+  if (!deleteTarget.value) return
+  await api.del(`/partnumbers/${deleteTarget.value}`)
   deleteTarget.value = null
+  await refreshPage()
 }
 
 // ─── Bulk Upload ───
@@ -198,30 +271,17 @@ const bulkRows = ref<{ name: string; description: string; fleet: string; alterna
 const bulkSaving = ref(false)
 const bulkResult = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 
-function onBulkPaste() {
-  nextTick(() => parseBulkPaste())
-}
+function onBulkPaste() { nextTick(() => parseBulkPaste()) }
 
 function parseBulkPaste() {
   const text = bulkPasteText.value.trim()
   if (!text) return
-
-  const lines = text.split('\n').filter(l => l.trim())
-  const parsed: typeof bulkRows.value = []
-
-  for (const line of lines) {
+  bulkRows.value = text.split('\n').filter(l => l.trim()).reduce((acc, line) => {
     const cols = line.split('\t')
     const name = (cols[0] || '').trim()
-    if (!name) continue
-    parsed.push({
-      name,
-      description: (cols[1] || '').trim(),
-      fleet: (cols[2] || '').trim(),
-      alternatives: (cols[3] || '').trim(),
-    })
-  }
-
-  bulkRows.value = parsed
+    if (name) acc.push({ name, description: (cols[1] || '').trim(), fleet: (cols[2] || '').trim(), alternatives: (cols[3] || '').trim() })
+    return acc
+  }, [] as typeof bulkRows.value)
   bulkResult.value = null
 }
 
@@ -236,17 +296,11 @@ async function submitBulk() {
         description: r.description || null,
         fleet: r.fleet || null,
         remark: null,
-        alternatives: r.alternatives
-          ? r.alternatives.split(',').map(a => a.trim()).filter(Boolean)
-          : [],
+        alternatives: r.alternatives ? r.alternatives.split(',').map(a => a.trim()).filter(Boolean) : [],
       }))
-
     const res = await api.post<{ created: number; skipped: number; total: number }>('/partnumbers/bulk', { parts })
-    bulkResult.value = {
-      type: 'success',
-      message: `Done! ${res.created} created, ${res.skipped} updated/skipped out of ${res.total} total.`,
-    }
-    await loadItems()
+    bulkResult.value = { type: 'success', message: `Done! ${res.created} created, ${res.skipped} updated/skipped out of ${res.total} total.` }
+    await refreshPage()
   } catch (e: any) {
     bulkResult.value = { type: 'error', message: e?.data?.message || 'Bulk upload failed.' }
   } finally {
@@ -260,39 +314,12 @@ function closeBulk() {
   bulkRows.value = []
   bulkResult.value = null
 }
-
-onMounted(() => loadItems())
 </script>
 
 <style scoped>
-.bulk-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.bulk-table th,
-.bulk-table td {
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--card-border);
-  font-size: 0.82rem;
-}
-.bulk-table th {
-  text-align: left;
-  opacity: 0.6;
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-}
-.bulk-input {
-  width: 100%;
-  background: var(--row-hover);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  color: inherit;
-  font-size: 0.82rem;
-}
-.bulk-input:focus {
-  outline: none;
-  border-color: rgb(var(--v-theme-primary));
-}
+.bulk-table { width: 100%; border-collapse: collapse; }
+.bulk-table th, .bulk-table td { padding: 4px 6px; border-bottom: 1px solid var(--card-border); font-size: 0.82rem; }
+.bulk-table th { text-align: left; opacity: 0.6; font-weight: 600; font-size: 0.72rem; text-transform: uppercase; }
+.bulk-input { width: 100%; background: var(--row-hover); border: 1px solid var(--card-border); border-radius: 4px; padding: 4px 8px; color: inherit; font-size: 0.82rem; }
+.bulk-input:focus { outline: none; border-color: rgb(var(--v-theme-primary)); }
 </style>

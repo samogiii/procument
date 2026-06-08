@@ -20,6 +20,12 @@ public interface IAuthService
     Task<bool> ToggleUserActiveAsync(long id);
     Task<bool> UpdateUserAsync(long id, UpdateUserRequest request);
     Task<bool> ChangePasswordAsync(long id, string newPassword);
+    Task<List<int>> GetUserBasesAsync(long id);
+    Task AddUserBaseAsync(long id, int baseValue);
+    Task RemoveUserBaseAsync(long id, int baseValue);
+    Task<List<long>> GetUserCustomerIdsAsync(long userId);
+    Task AddUserCustomerAsync(long userId, long customerId);
+    Task RemoveUserCustomerAsync(long userId, long customerId);
 }
 
 public class AuthService : IAuthService
@@ -47,13 +53,15 @@ public class AuthService : IAuthService
         {
             throw new UnauthorizedAccessException("Account Deactivated !");
         }
+        var bases = await GetUserBasesAsync(user.Id);
         return new AuthResponse
         {
             Id = user.Id,
             Name = user.Name,
             Email = user.Email,
             Role = user.Role,
-            Token = GenerateJwtToken(user)
+            Token = await GenerateJwtTokenAsync(user, bases),
+            Bases = bases
         };
     }
 
@@ -74,13 +82,15 @@ public class AuthService : IAuthService
         _db.Set<User>().Add(user);
         await _db.SaveChangesAsync();
 
+        var bases = new List<int>(); // newly registered users have no bases
         return new AuthResponse
         {
             Id = user.Id,
             Name = user.Name,
             Email = user.Email,
             Role = user.Role,
-            Token = GenerateJwtToken(user)
+            Token = await GenerateJwtTokenAsync(user, bases),
+            Bases = bases
         };
     }
 
@@ -89,7 +99,7 @@ public class AuthService : IAuthService
         await EnsureEmailUnique(request.Email);
 
         // Validate role
-        var allowedRoles = new[] { UserRoles.Admin, UserRoles.Expert, UserRoles.SuperAdmin, UserRoles.Payment };
+        var allowedRoles = new[] { UserRoles.Admin, UserRoles.Expert, UserRoles.SuperAdmin, UserRoles.Payment, UserRoles.AHM };
         if (!allowedRoles.Contains(request.Role))
             throw new ArgumentException($"Invalid role. Must be one of: {string.Join(", ", allowedRoles)}.");
 
@@ -112,6 +122,7 @@ public class AuthService : IAuthService
     public async Task<List<UserResponse>> GetAllUsersAsync()
     {
         return await _db.Set<User>()
+            .Include(u => u.UserBases)
             .OrderByDescending(u => u.CreatedAt)
             .Select(u => new UserResponse
             {
@@ -120,7 +131,8 @@ public class AuthService : IAuthService
                 Email = u.Email,
                 Role = u.Role,
                 IsActive = u.IsActive,
-                CreatedAt = u.CreatedAt
+                CreatedAt = u.CreatedAt,
+                Bases = u.UserBases.Select(ub => ub.Base).OrderBy(b => b).ToList()
             })
             .ToListAsync();
     }
@@ -174,6 +186,24 @@ public class AuthService : IAuthService
         return true;
     }
 
+    public async Task AddUserBaseAsync(long id, int baseValue)
+    {
+        var exists = await _db.Set<UserBase>()
+            .AnyAsync(ub => ub.UserId == id && ub.Base == baseValue);
+        if (exists) return;
+        _db.Set<UserBase>().Add(new UserBase { UserId = id, Base = baseValue });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RemoveUserBaseAsync(long id, int baseValue)
+    {
+        var entry = await _db.Set<UserBase>()
+            .FirstOrDefaultAsync(ub => ub.UserId == id && ub.Base == baseValue);
+        if (entry == null) return;
+        _db.Set<UserBase>().Remove(entry);
+        await _db.SaveChangesAsync();
+    }
+
     // ────── Private Helpers ──────
 
     private async Task EnsureEmailUnique(string email)
@@ -192,18 +222,21 @@ public class AuthService : IAuthService
         CreatedAt = user.CreatedAt
     };
 
-    private string GenerateJwtToken(User user)
+    private async Task<string> GenerateJwtTokenAsync(User user, List<int>? bases = null)
     {
+        bases ??= await GetUserBasesAsync(user.Id);
+
         var jwtSettings = _config.GetSection("JwtSettings");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Secret"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Name),
             new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
+            new Claim(ClaimTypes.Role, user.Role),
+            new Claim("bases", string.Join(",", bases))
         };
 
         var expMinutes = int.Parse(jwtSettings["ExpirationInMinutes"] ?? "480");
@@ -217,6 +250,41 @@ public class AuthService : IAuthService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    public async Task<List<int>> GetUserBasesAsync(long userId)
+    {
+        return await _db.Set<UserBase>()
+            .Where(ub => ub.UserId == userId)
+            .OrderBy(ub => ub.Base)
+            .Select(ub => ub.Base)
+            .ToListAsync();
+    }
+
+    public async Task<List<long>> GetUserCustomerIdsAsync(long userId)
+    {
+        return await _db.Set<UserCustomer>()
+            .Where(uc => uc.UserId == userId)
+            .Select(uc => uc.CustomerId)
+            .ToListAsync();
+    }
+
+    public async Task AddUserCustomerAsync(long userId, long customerId)
+    {
+        var exists = await _db.Set<UserCustomer>()
+            .AnyAsync(uc => uc.UserId == userId && uc.CustomerId == customerId);
+        if (exists) return;
+        _db.Set<UserCustomer>().Add(new UserCustomer { UserId = userId, CustomerId = customerId });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RemoveUserCustomerAsync(long userId, long customerId)
+    {
+        var entry = await _db.Set<UserCustomer>()
+            .FirstOrDefaultAsync(uc => uc.UserId == userId && uc.CustomerId == customerId);
+        if (entry == null) return;
+        _db.Set<UserCustomer>().Remove(entry);
+        await _db.SaveChangesAsync();
     }
 
     private static string HashPassword(string password)

@@ -6,6 +6,7 @@ namespace Procument.Module.Purchasing.Entities;
 public class PurchaseOrder : BaseEntity
 {
     public string PONumber { get; set; } = string.Empty;
+    public DateTime? PODate { get; set; }
     public decimal? TotalAmount { get; set; }
     /// <summary>
     /// Draft | Waiting For Admin Approval | Waiting For Payment | Payment Done | Ship To Warehouse 1..3 |
@@ -50,6 +51,10 @@ public class PurchaseOrder : BaseEntity
     public decimal? Tax { get; set; }
 
     
+
+    // ─── Payment Wallet Preference ───
+    /// <summary>Wallet selected at PO creation time — used as the default debit wallet on payment acceptance.</summary>
+    public long? PreferredWalletId { get; set; }
 
     // Foreign keys
     public long SupplierId { get; set; }

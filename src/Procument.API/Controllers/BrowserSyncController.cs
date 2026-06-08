@@ -185,8 +185,14 @@ public class BrowserSyncController : ControllerBase
         {
             var satelliteUrl = _config["BrowserSync:SatelliteUrl"]?.TrimEnd('/');
             if (!string.IsNullOrEmpty(satelliteUrl))
-                node = await _db.SatelliteNodes.FirstOrDefaultAsync(n =>
-                    n.EndpointUrl != null && n.EndpointUrl.TrimEnd('/').StartsWith(satelliteUrl));
+            {
+                // TrimEnd isn't translatable to SQL — evaluate client-side
+                var candidates = await _db.SatelliteNodes
+                    .Where(n => n.EndpointUrl != null)
+                    .ToListAsync();
+                node = candidates.FirstOrDefault(n =>
+                    n.EndpointUrl!.TrimEnd('/').StartsWith(satelliteUrl));
+            }
         }
 
         bool trackRegistry = node != null;

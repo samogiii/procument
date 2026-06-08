@@ -101,7 +101,7 @@
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click.stop="openEditDialog(item)" />
             <v-btn
-              v-if="isAdmin"
+              v-if="isSydOrAdmin"
               icon="mdi-delete"
               size="x-small"
               variant="text"
@@ -473,6 +473,7 @@ import * as XLSX from 'xlsx'
 const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
+const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
 
 interface InventoryForm {
   partNumber: { id: number; name: string; description?: string } | string | null

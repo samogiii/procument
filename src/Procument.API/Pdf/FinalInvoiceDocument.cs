@@ -73,7 +73,7 @@ public static class FinalInvoiceDocument
                                     });
                                 }
                                 bc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
-                                bc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                bc.Item().PaddingTop(6).Text(req.CustomerBillToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
                                     bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 Field("Contact Person", req.CustomerBillToContactPerson);
@@ -95,7 +95,7 @@ public static class FinalInvoiceDocument
                                     });
                                 }
                                 sc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
-                                sc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(10).FontColor(primary);
+                                sc.Item().PaddingTop(6).Text(req.CustomerShipToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
                                     sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 Field("Contact Person", req.CustomerShipToContactPerson);

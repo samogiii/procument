@@ -46,10 +46,16 @@ public class FinalInvoicesController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetAll(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 200)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null, [FromQuery] string? customerSearch = null)
     {
-        var pq = new PageQuery { Page = page, PageSize = pageSize };
-        var result = await _service.GetAllAsync(pq);
+        var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
+        bool isSuperAdmin = User.IsInRole("SuperAdmin");
+        var basesClaim = User.FindFirst("bases")?.Value ?? "";
+        int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s, out var b) ? b : -1)
+            .Where(b => b > 0).ToArray();
+        var result = await _service.GetAllAsync(pq, customerSearch, isSuperAdmin, userBases);
         return Ok(result);
     }
 
@@ -58,7 +64,7 @@ public class FinalInvoicesController : ControllerBase
     /// <summary>Check if an entity is locked by a Final Invoice. entityType: rfq, quote, invoice, po</summary>
 
     [HttpGet("is-locked")]
-
+    [Authorize(Roles = "Admin,SuperAdmin,Expert,Payment,Inventory")]
     public async Task<IActionResult> IsLocked([FromQuery] string entityType, [FromQuery] long entityId)
 
     {
@@ -260,6 +266,12 @@ public class FinalInvoicesController : ControllerBase
             customerTermsAndConditions = fi.CustomerTermsAndConditions,
 
             customerCurrencyType = fi.CustomerCurrencyType,
+
+            defaultDepositWalletId = fi.DefaultDepositWalletId,
+
+            coefYuan = fi.QuoteCoefYuan,
+
+            exchangeRateYuan = fi.QuoteExchangeRateYuan,
 
             items = fi.Items.Select(i => new
 
