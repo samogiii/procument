@@ -195,6 +195,20 @@ public class ProcurementsController : ControllerBase
         return ok ? Ok() : BadRequest(new { message = "Procurement is not finalized or does not exist." });
     }
 
+    /// <summary>
+    /// Admin manually force-finalizes a procurement regardless of qty satisfaction.
+    /// Useful when the admin decides the procurement is complete as-is.
+    /// </summary>
+    [HttpPost("{id:long}/force-finalize")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Auditable("Procurement", "ForceFinalize")]
+    public async Task<IActionResult> ForceFinalize(long id)
+    {
+        var (userId, _, _, _) = GetCurrentUser();
+        var ok = await _service.ForceFinalizeAsync(id, userId);
+        return ok ? Ok() : BadRequest(new { message = "Procurement not found or already finalized/cancelled." });
+    }
+
     /// <summary>Distinct filter options for the Procurement Items list.</summary>
     [HttpGet("items/filter-options")]
     public async Task<ActionResult> GetItemsFilterOptions()

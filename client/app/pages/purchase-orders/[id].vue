@@ -46,6 +46,16 @@
       >
         Return
       </v-btn>
+      <v-btn
+        prepend-icon="mdi-cancel"
+        size="small"
+        variant="tonal"
+        color="error"
+        :disabled="isTerminalState"
+        @click="showCancelDialog = true"
+      >
+        Cancel PO
+      </v-btn>
     </div>
 
     <v-row class="mb-6">
@@ -1053,6 +1063,28 @@
 
     <PoPdfGenerator v-model="showPdf" :po-id="String(route.params.id)" />
     <PaymentRequestPdfGenerator v-model="showPrDialog" :po-id="String(route.params.id)" :po="po" :import-detail="importForm" :enriched="enriched" />
+
+    <!-- ── Cancel PO Confirmation ── -->
+    <v-dialog v-model="showCancelDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center gap-2 pa-4">
+          <v-icon icon="mdi-cancel" color="error" />
+          Cancel Purchase Order
+        </v-card-title>
+        <v-card-text class="px-4 pb-2">
+          <v-alert type="warning" variant="tonal" class="mb-3">
+            This will cancel <strong>{{ po.poNumber }}</strong> and release all items back to Order Items so a new PO can be created.
+            The linked invoice will be marked <strong>PO Cancelled</strong>.
+          </v-alert>
+          <p class="text-body-2 text-medium-emphasis">This action cannot be undone. Are you sure you want to cancel this PO?</p>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showCancelDialog = false">Go Back</v-btn>
+          <v-btn color="error" variant="flat" :loading="cancelling" @click="cancelPo">Confirm Cancel</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -1113,6 +1145,24 @@ async function savePriceOverride(item: any) {
     snackbar.value = { show: true, message: e?.data?.message || 'Failed to update price', color: 'error' }
   } finally {
     savingPrice.value = false
+  }
+}
+
+// ── Cancel PO Workflow ──
+const showCancelDialog = ref(false)
+const cancelling = ref(false)
+
+async function cancelPo() {
+  cancelling.value = true
+  try {
+    await api.patch(`/purchase-orders/${po.value.id}/status`, { status: 'Cancelled' })
+    showCancelDialog.value = false
+    await loadPo()
+    showSnack('Purchase Order cancelled. Items are back in Order Items.', 'success')
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to cancel PO', 'error')
+  } finally {
+    cancelling.value = false
   }
 }
 

@@ -145,6 +145,7 @@ public class ProcumentPageService : IProcumentPageService
             : itemQuery.Skip((page.Page - 1) * page.PageSize).Take(page.PageSize).ToListAsync());
 
         // 5. Batch-load supplier quotes for this page's items only
+        var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-14));
         var allRfqItemIds = pageItems.Select(i => i.Id).ToList();
         var allSupplierQuotes = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
@@ -188,7 +189,8 @@ public class ProcumentPageService : IProcumentPageService
                         SupplierStatus = q.Supplier.Status ?? "Approved",
                         SupplierDependency = q.Supplier.Dependency,
                         Qty = q.Qty,
-                        Price = q.Price,
+                        Price = (q.TagDate == null || q.TagDate >= cutoff) ? q.Price : 0m,
+                        PriceHidden = q.TagDate != null && q.TagDate < cutoff,
                         Condition = q.Condition,
                         Alt = q.Alt,
                         Unit = q.Unit,
@@ -220,7 +222,8 @@ public class ProcumentPageService : IProcumentPageService
                                 SupplierStatus = s.Supplier.Status ?? "Approved",
                                 SupplierDependency = s.Supplier.Dependency,
                                 Qty = s.Qty,
-                                Price = s.Price,
+                                Price = (s.TagDate == null || s.TagDate >= cutoff) ? s.Price : 0m,
+                                PriceHidden = s.TagDate != null && s.TagDate < cutoff,
                                 Condition = s.Condition,
                                 Alt = s.Alt,
                                 Unit = s.Unit,
@@ -372,7 +375,9 @@ public class ProcumentPageService : IProcumentPageService
                 SupplierName = r.Supplier.Name,
                 SupplierDependency = r.Supplier.Dependency,
                 Qty = r.Qty,
-                Price = r.Price,
+                // Hide price when the import/tag date is older than 14 days
+                Price       = (r.TagDate == null || r.TagDate >= DateOnly.FromDateTime(cutoff)) ? r.Price : 0m,
+                PriceHidden = r.TagDate != null && r.TagDate < DateOnly.FromDateTime(cutoff),
                 Condition = r.Condition,
                 Alt = r.Alt,
                 Unit = r.Unit,

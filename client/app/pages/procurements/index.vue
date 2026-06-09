@@ -371,6 +371,18 @@
                       >
                         Reopen
                       </v-btn>
+                      <!-- Finalize button — shown for non-finalized, non-cancelled procurements (admin only) -->
+                      <v-btn
+                        v-if="isAdmin && item.procurementStatus !== 'Finalized' && item.procurementStatus !== 'Cancelled'"
+                        size="x-small"
+                        color="success"
+                        variant="tonal"
+                        prepend-icon="mdi-check-circle-outline"
+                        :loading="finalizingId === (item.procurementId || item.ProcurementId)"
+                        @click.stop="finalizeProcurement(item)"
+                      >
+                        Finalize
+                      </v-btn>
                       <v-btn
                         v-if="!isFinalizedOrCancelled(item)"
                         size="x-small"
@@ -702,11 +714,22 @@ async function toggleExpand(item: any) {
 // Watch expanded array to fetch details for newly expanded items
 watch(expanded, (newVal, oldVal) => {
   const added = newVal.filter((id: any) => !oldVal.includes(id))
+  const removed = oldVal.filter((id: any) => !newVal.includes(id))
+
+  // Clear cache for collapsed rows so next expand always fetches fresh data
+  removed.forEach((id: any) => {
+    const item = allItems.value.find((i: any) => String(i.id ?? i.Id) === String(id))
+    if (item) {
+      const pid = (item.procurementId || item.ProcurementId)
+      if (pid) delete procurementDetails.value[pid]
+    }
+  })
+
   added.forEach((id: any) => {
     const item = allItems.value.find((i: any) => String(i.id ?? i.Id) === String(id))
     if (item) {
       const pid = (item.procurementId || item.ProcurementId)
-      if (pid && !procurementDetails.value[pid] && !loadingDetails.value[pid]) {
+      if (pid && !loadingDetails.value[pid]) {
         fetchProcurementDetail(pid)
       }
     }
@@ -910,6 +933,25 @@ async function reopenProcurement(item: any) {
   }
 }
 
+// ── Force-finalize procurement (admin manual) ──
+const finalizingId = ref<number | null>(null)
+
+async function finalizeProcurement(item: any) {
+  const pid = item.procurementId || item.ProcurementId
+  if (!pid || finalizingId.value) return
+  finalizingId.value = pid
+  try {
+    await api.post(`/procurements/${pid}/force-finalize`, {})
+    showSnack('Procurement finalized.', 'success')
+    await fetchProcurementDetail(pid)
+    await loadData()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to finalize', 'error')
+  } finally {
+    finalizingId.value = null
+  }
+}
+
 // ── Supplier Autocomplete ──
 const supplierSuggestions = ref<{ id: number; name: string; status: string }[]>([])
 let supplierSearchDebounce: any = null
@@ -1039,6 +1081,8 @@ async function loadServerPage(opts?: any) {
     allItems.value = res.items ?? res.Items ?? (Array.isArray(res) ? res : [])
     totalItems.value = res.totalCount ?? res.TotalCount ?? allItems.value.length
     collectCfOptions(allItems.value)
+    // Clear detail cache so re-expanding any row fetches fresh data (e.g. after PO cancellation)
+    procurementDetails.value = {}
   } catch (e) {
     console.error('[ProcurementItems] Load failed', e)
   } finally {

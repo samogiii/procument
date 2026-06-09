@@ -615,7 +615,8 @@
                         >
                           {{ s.supplierName }}
                           <span class="text-caption ml-1 text-medium-emphasis">{{ s.condition || 'NE' }}</span>
-                          <span class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
+                          <span v-if="s.priceHidden" class="text-caption ml-1" style="color:#ef5350;" title="Price expired (older than 14 days)">Expired</span>
+                          <span v-else class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
                         </v-chip>
                         <v-btn
                           v-if="getSuggestions(item.id).recentQuotes.length > 0"
@@ -660,9 +661,9 @@
                             size="small"
                             class="avail-chip avail-chip--inventory cursor-pointer"
                             prepend-icon="mdi-archive-outline"
-                            :title="`Inventory · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
+                            :title="`Inventory · ${rec.label}${rec.condition ? ' · ' + rec.condition : ''}`"
                             @click="applyAvailability(item, rec)"
-                          >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                          >{{ rec.label }}</v-chip>
                           <v-chip
                             v-for="rec in partAvailability[item.partNumberId].capListRecords"
                             :key="'cap-' + rec.label"
@@ -678,20 +679,20 @@
                             size="small"
                             class="avail-chip avail-chip--ils cursor-pointer"
                             prepend-icon="mdi-warehouse"
-                            :title="`ILS${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}${rec.certName ? ' · ' + rec.certName : ''}`"
+                            :title="`ILS${rec.condition ? ' · ' + rec.condition : ''}${rec.certName ? ' · ' + rec.certName : ''}`"
                             @click="applyAvailability(item, rec)"
-                          >ILS<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                          >ILS</v-chip>
                           <v-chip
                             v-for="rec in partAvailability[item.partNumberId].fastImportRecords"
                             :key="'fast-' + rec.label"
                             size="small"
                             class="avail-chip avail-chip--fast cursor-pointer"
                             prepend-icon="mdi-flash"
-                            :title="`Past record · ${rec.label}${rec.price ? ' · $' + rec.price : ''}${rec.condition ? ' · ' + rec.condition : ''}`"
-                            @click="applyAvailability(item, rec)"
-                          >{{ rec.label }}<span v-if="rec.price" class="text-caption ml-1" style="opacity:0.75">${{ formatPrice(rec.price) }}</span></v-chip>
+                            :title="`Past record · ${rec.label}${rec.condition ? ' · ' + rec.condition : ''}`"
+                            @click="applyAvailability(item, rec, true)"
+                          >{{ rec.label }}</v-chip>
                           <v-chip
-                            v-for="rec in partAvailability[item.partNumberId].knownSupplierRecords"
+                            v-for="rec in partAvailability[item.partNumberId].knownSupplierRecords.filter((k: any) => !partAvailability[item.partNumberId].fastImportRecords.some((f: any) => f.label === k.label))"
                             :key="'sup-' + rec.label"
                             size="small"
                             class="avail-chip avail-chip--supplier cursor-pointer"
@@ -816,7 +817,8 @@
                                 @click="focusField(`price-${qIdx}-${item.id}`)"
                                 @focus="focusField(`price-${qIdx}-${item.id}`)"
                               >
-                                {{ quote.price ? '$' + formatPrice(quote.price) : '' }}
+                                <template v-if="quote.price">{{ '$' + formatPrice(quote.price) }}</template>
+                                <template v-else-if="quote.priceHidden"><span style="color:#ef5350; font-size:10px;" title="Price expired (older than 14 days)">Expired</span></template>
                               </span>
                             </td>
                             <td>
@@ -1861,7 +1863,7 @@ function applySuggestion(item: any, suggestion: any) {
     rfqItemId: item.id,
     supplierName: suggestion.supplierName,
     qty: suggestion.qty || item.qty || 1,
-    price: suggestion.price || 0,
+    price: suggestion.priceHidden ? 0 : (suggestion.price || 0),
     condition: suggestion.condition || 'NE',
     alt: suggestion.alt || '',
     certName: suggestion.certName || '',
@@ -1876,7 +1878,7 @@ function applySuggestion(item: any, suggestion: any) {
 }
 
 // Apply an availability record (Inventory / CapList / ILS / FastImport / KnownSupplier) as a new quote row
-function applyAvailability(item: any, rec: any) {
+function applyAvailability(item: any, rec: any, skipPrice = false) {
   // Expand the row so the user sees the new entry
   if (!expandedRows.value.has(item.id)) expandedRows.value.add(item.id)
 
@@ -1885,7 +1887,7 @@ function applyAvailability(item: any, rec: any) {
     rfqItemId: item.id,
     supplierName: rec.label || '',
     qty: rec.qty || item.qty || 1,
-    price: rec.price || 0,
+    price: skipPrice ? 0 : (rec.price || 0),
     condition: rec.condition || item.condition || 'NE',
     alt: rec.altPartNumber || '',
     certName: rec.certName || '',

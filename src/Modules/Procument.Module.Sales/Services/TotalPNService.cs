@@ -232,14 +232,15 @@ public class TotalPNService : ITotalPNService
             string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
             string? pExpert = pi != null && procMap.TryGetValue(pi.ProcurementId, out var ph) && ph.CreatedByUserId.HasValue && userMap.TryGetValue(ph.CreatedByUserId.Value, out var pun) ? pun : null;
 
-            // Purchasing Price & Supplier Sync (prioritize the Purchase Order — it's the source of truth
-            // for what was actually ordered/paid, and is what SuperAdmin overrides via the PO price-edit feature.
-            // Fall back to the Procurement worksheet snapshot only when no POItem price exists yet.)
-            // purchTotal uses POItem qty because that's what was actually ordered from the supplier.
-            decimal purchUnit  = poi?.UnitPrice ?? pi?.UnitPrice ?? 0m;
-            int     purchQty   = poi?.Qty ?? ii.Qty;
-            decimal purchTotal = purchQty * purchUnit;
-            string? supplierName = pi?.SupplierName ?? poi?.PurchaseOrder?.Supplier?.Name ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
+            // Purchasing Price, Qty & Supplier Sync
+            // Prioritize the Purchase Order (POItem) — it represents the final business commitment.
+            // Edits made at the PO level (even if the Edit tab is now restricted) must be the authoritative 
+            // source for reporting to ensure consistency with what was actually ordered/paid.
+            // Fall back to the Procurement worksheet snapshot only when no POItem exists yet.
+            decimal purchUnit    = poi?.UnitPrice ?? pi?.UnitPrice ?? 0m;
+            int     purchQty     = poi?.Qty ?? pi?.Qty ?? ii.Qty;
+            decimal purchTotal   = purchQty * purchUnit;
+            string? supplierName = poi?.PurchaseOrder?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
             // Selling Price — InvoiceItem is the authoritative source.
             // Two update paths exist in UpdateItemsAsync:
@@ -298,7 +299,7 @@ public class TotalPNService : ITotalPNService
                 Supplier = supplierName,
                 PartNumber = poi?.PartNumber?.Name ?? pi?.PartNumberName ?? ii.QuoteItem?.PartNumber?.Name,
                 Description = poi?.PartNumber?.Description ?? pi?.PartNumberDescription ?? ii.QuoteItem?.PartNumber?.Description,
-                Qty = sellQty,       // invoice qty — authoritative for the selling side
+                Qty = purchQty,      // Prioritize PO qty over Invoice qty for consistent purchasing vs selling tracking
                 Condition = poi?.Condition ?? pi?.Condition ?? ii.QuoteItem?.Condition,
                 Priority = pi?.RfqPriority,
                 Warehouse = (ii.QuoteItem?.RFQItem?.RFQ?.ExType ?? pi?.RfqExType) switch { 0 => "Warehouse", 1 => "Vendor/Customer", 2 => "Vendor/Customer", _ => null },
@@ -445,7 +446,7 @@ public class TotalPNService : ITotalPNService
             var po = poi.PurchaseOrder;
 
             string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
-            string? supplierName = pi?.SupplierName ?? po?.Supplier?.Name ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
+            string? supplierName = po?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
             // Collect SN data from linked ShipmentNotes
             var sns = poi.TrackNumbers

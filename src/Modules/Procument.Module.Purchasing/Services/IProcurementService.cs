@@ -47,6 +47,11 @@ public interface IProcurementService
     Task<bool> ReopenAsync(long procurementId, long userId);
 
     /// <summary>
+    /// Admin force-finalizes a procurement regardless of qty satisfaction.
+    /// </summary>
+    Task<bool> ForceFinalizeAsync(long procurementId, long userId);
+
+    /// <summary>
     /// Recycle the given POItems back into the Procurement layer. For each POItem:
     /// soft-delete it (POId=null, ReturnedAt=now), flip its source ProcurementItem's ItemStatus to Open,
     /// increment LoopCount (capped at 5), stamp LastReturnReason / LastReturnedAt, and transition the

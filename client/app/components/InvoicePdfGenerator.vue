@@ -1,90 +1,152 @@
-﻿<template>
+<template>
   <v-dialog v-model="model" fullscreen transition="dialog-bottom-transition">
-    <v-card class="d-flex flex-column" color="background">
+    <v-card class="d-flex flex-column" color="background" style="overflow:hidden;">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF PINV — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="secondary" prepend-icon="mdi-content-save" class="mr-2" :loading="savingTotals" @click="saveTotalsToPi">Save to PI</v-btn>
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
-      <!-- Controls -->
-      <v-container fluid class="flex-shrink-0 py-4">
-        <v-row dense align="center">
-          <v-col cols="12" md="3"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
-          <v-col cols="12" md="3"><v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" @update:model-value="onLogoUpload" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col v-if="canSelect" cols="12" md="3"><v-text-field v-model="overrideCustomerName" label="Override Customer Name" variant="outlined" density="compact" hide-details placeholder="Leave blank to use original" /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
-          <v-col cols="12" md="3"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="2"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model.number="otherAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" /></v-col>
-          <v-col cols="12" md="2"><v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" /></v-col>
-          <v-col v-if="currency === 'China Yuan (CNY)'" cols="12" md="2"><v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" /></v-col>
-          <v-col cols="12" :md="currency === 'China Yuan (CNY)' ? 2 : 4"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="1" auto-grow /></v-col>
-        </v-row>
+      <!-- Section toggle chips -->
+      <div class="d-flex flex-wrap gap-2 px-4 py-2" style="border-bottom:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+        <v-chip
+          v-for="s in sections"
+          :key="s.key"
+          :color="s.open ? 'primary' : 'default'"
+          :variant="s.open ? 'tonal' : 'outlined'"
+          size="small"
+          :prepend-icon="s.open ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+          class="cursor-pointer"
+          @click="s.open = !s.open"
+        >{{ s.label }}</v-chip>
+      </div>
 
-        <!-- PDF Row Selection -->
-        <div v-if="canSelect" class="mt-4 border rounded pa-3 bg-surface">
-          <div class="d-flex align-center justify-space-between mb-2">
-            <span class="text-caption font-weight-bold uppercase text-medium-emphasis">Select items to include in PDF</span>
-            <div class="d-flex gap-2">
-              <v-btn size="x-small" variant="tonal" @click="selectAllItems">Select All</v-btn>
-              <v-btn size="x-small" variant="tonal" @click="selectedItems = []">Clear</v-btn>
+      <!-- Side-by-side layout: controls (left) + PDF preview (right) -->
+      <div class="d-flex flex-grow-1" style="overflow:hidden; min-height:0;">
+
+        <!-- ── Left panel: collapsible form sections ── -->
+        <div class="overflow-y-auto flex-shrink-0 pa-4" style="width:480px; border-right:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
+
+          <!-- COMPANY -->
+          <template v-if="sections[0].open">
+            <div class="section-label">Company</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company Preset" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
+              <v-col cols="12">
+                <div class="d-flex align-center gap-2">
+                  <v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" class="flex-grow-1" @update:model-value="onLogoUpload" />
+                </div>
+              </v-col>
+              <v-col cols="12"><v-text-field v-model="companyName" label="Company Name" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyPhone" label="Phone" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="6"><v-text-field v-model="companyWebsite" label="Website" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="12"><v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" /></v-col>
+              <v-col cols="12"><v-text-field v-model="footerText" label="Footer Text" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12">
+                <v-select v-model="currency" :items="['Dollar (USD)', 'Euro (EUR)', 'GBP', 'MYR', 'HKD', 'China Yuan (CNY)']" label="Currency" variant="outlined" density="compact" hide-details :disabled="currencyLocked" />
+              </v-col>
+              <v-col v-if="currency === 'China Yuan (CNY)'" cols="12">
+                <v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" />
+              </v-col>
+              <v-col v-if="canSelect" cols="12">
+                <v-text-field v-model="overrideCustomerName" label="Override Customer Name" variant="outlined" density="compact" hide-details placeholder="Leave blank to use original" />
+              </v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- CUSTOMER (Bill To / Ship To) -->
+          <template v-if="sections[1].open">
+            <div class="section-label">Bill To</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-textarea v-model="billTo" label="Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="billToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+
+            <v-divider class="my-3" />
+
+            <div class="section-label">Ship To</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-textarea v-model="shipTo" label="Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-text-field v-model="shipToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="shipToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="shipToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="12"><v-textarea v-model="shipToAccount" label="Ship To Account" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- BANK -->
+          <template v-if="sections[2].open">
+            <div class="section-label">Bank Information</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="bankAccount" label="Account Number" variant="outlined" density="compact" hide-details /></v-col>
+              <v-col cols="6"><v-text-field v-model="swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- TOTALS -->
+          <template v-if="sections[3].open">
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">Totals</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-content-save" :loading="savingTotals" @click="saveTotalsToPi">Save to PI</v-btn>
             </div>
-          </div>
-          <div class="d-flex flex-wrap gap-x-6 gap-y-1">
-            <v-checkbox
-              v-for="it in invoice.items"
-              :key="it.id"
-              v-model="selectedItems"
-              :value="it.id"
-              :label="`${it.partNumberName} (${it.qty})`"
-              density="compact"
-              hide-details
-              color="primary"
-              class="flex-shrink-0"
-            />
-          </div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" prepend-inner-icon="mdi-percent-outline" /></v-col>
+              <v-col cols="12"><v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" prepend-inner-icon="mdi-truck-outline" /></v-col>
+              <v-col cols="12"><v-text-field v-model.number="otherAmount" label="Processing Fee" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" prepend-inner-icon="mdi-cog-outline" /></v-col>
+            </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- COMMENTS & TERMS -->
+          <template v-if="sections[4].open">
+            <div class="section-label">Comments &amp; Terms</div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+              <v-col cols="12"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="3" auto-grow /></v-col>
+            </v-row>
+          </template>
+
+          <!-- ITEMS (hide / unhide from PDF) -->
+          <template v-if="sections[5].open">
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">Items</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" @click="selectAllItems">Select All</v-btn>
+              <v-btn size="x-small" variant="tonal" color="error" @click="selectedItems = []">Clear</v-btn>
+            </div>
+            <div class="d-flex flex-column gap-1">
+              <v-checkbox
+                v-for="it in invoice.items"
+                :key="it.id"
+                v-model="selectedItems"
+                :value="it.id"
+                :label="`${it.partNumberName} × ${it.qty}`"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+            <v-divider class="my-3" />
+          </template>
+
         </div>
 
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="2"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="billToEmail" label="Bill To Email" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="billToPhone" label="Bill To Phone" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="shipToContactPerson" label="Ship To Contact" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="shipToEmail" label="Ship To Email" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="shipToPhone" label="Ship To Phone" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="4"><v-textarea v-model="billTo" label="Bill To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="4"><v-textarea v-model="shipTo" label="Ship To (address)" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-          <v-col cols="12" md="4"><v-textarea v-model="shipToAccount" label="Ship To Account" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="3"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
-        </v-row>
-        <v-row dense align="center" class="mt-1">
-          <v-col cols="12" md="2"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="bankAccount" label="Account Number" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="2"><v-text-field v-model="swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details /></v-col>
-          <v-col cols="12" md="4"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
-        </v-row>
-      </v-container>
+        <!-- ── Right panel: PDF preview ── -->
+        <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
+          <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+        </div>
 
-      <v-divider />
-
-      <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
-        <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
       </div>
     </v-card>
   </v-dialog>
@@ -98,7 +160,16 @@ const model = defineModel<boolean>({ default: false })
 const api = useApi()
 const authStore = useAuthStore()
 const canSelect = computed(() => authStore.isPDFSelection)
-console.log(canSelect.value)
+
+// ── Section visibility toggles ──
+const sections = reactive([
+  { key: 'company',  label: 'Company',           open: true  },
+  { key: 'customer', label: 'Bill To / Ship To',  open: false },
+  { key: 'bank',     label: 'Bank',               open: false },
+  { key: 'totals',   label: 'Totals',             open: false },
+  { key: 'comments', label: 'Comments & Terms',   open: false },
+  { key: 'items',    label: 'Items',              open: true  },
+])
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -188,7 +259,7 @@ watch(model, (open) => {
     shipToEmail.value = props.invoice?.customerEmail || ''
     shipToPhone.value = props.invoice?.customerPhone || ''
     shipToAccount.value = props.invoice?.customerShippingAccount || ''
-    
+
     taxAmount.value = Number(props.invoice?.tax) || 0
     shippingAmount.value = Number(props.invoice?.shipping) || 0
     otherAmount.value = Number(props.invoice?.processingFee) || 0
@@ -205,7 +276,6 @@ watch(model, (open) => {
       } else if (currencyType === 'Both') {
         currency.value = 'Dollar (USD)'
         exchangeRate.value = storedRate
-        // For Both, default to Dollar but allow user to switch
       }
     }
   }
@@ -472,7 +542,6 @@ const pdfContent = ref<HTMLElement | null>(null)
 async function downloadPdf() {
   generating.value = true
   try {
-    const config = useRuntimeConfig()
     const authStore = useAuthStore()
     const inv = props.invoice
     const allItems: any[] = inv.items || []
@@ -554,20 +623,6 @@ async function downloadPdf() {
         comments: comments.value || null,
         terms: companyTerms.value || null,
         footerText: footerText.value || null,
-        customerBillTo: billTo.value || null,
-        customerBillToEmail: billToEmail.value || null,
-        customerBillToPhone: billToPhone.value || null,
-        customerShipTo: shipTo.value || null,
-        customerShipToContactPerson: shipToContactPerson.value || null,
-        customerShipToEmail: shipToEmail.value || null,
-        customerShipToPhone: shipToPhone.value || null,
-        customerShipToAccount: shipToAccount.value || null,
-        beneficiaryName: beneficiaryName.value || null,
-        beneficiaryAddress: beneficiaryAddress.value || null,
-        bankName: bankName.value || null,
-        bankAddress: bankAddress.value || null,
-        bankAccount: bankAccount.value || null,
-        swiftCode: swiftCode.value || null,
       }
 
       const response = await $fetch<Blob>(`${api.baseURL}/pdf/invoice`, {
@@ -617,5 +672,14 @@ async function downloadPdf() {
   box-shadow: 0 4px 40px rgba(0,0,0,0.2);
   border-radius: 4px;
   overflow: hidden;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  margin-bottom: 10px;
 }
 </style>

@@ -58,6 +58,8 @@ public class RecentSupplierQuoteDto
     public string SupplierDependency { get; set; } = "Normal";
     public double Qty { get; set; }
     public decimal Price { get; set; }
+    /// <summary>True when TagDate is older than 14 days — Price is 0 and should not be displayed.</summary>
+    public bool PriceHidden { get; set; }
     public string? Condition { get; set; }
     public string? Alt { get; set; }
     public string? Unit { get; set; }

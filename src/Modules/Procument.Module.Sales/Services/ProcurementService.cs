@@ -24,14 +24,16 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     public async Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false)
     {
-        // Idempotent: return existing Procurement if already created for this invoice
+        // Idempotent: return existing active Procurement if already created for this invoice.
+        // Cancelled procurements are ignored — a PO cancellation resets the cycle, so a new
+        // Procurement must be created from scratch when the invoice restarts.
         var existing = await _db.Set<Procurement>()
             .Include(p => p.Items).ThenInclude(i => i.SupplierQuotes)
-            .FirstOrDefaultAsync(p => p.InvoiceId == invoiceId);
+            .FirstOrDefaultAsync(p => p.InvoiceId == invoiceId && p.Status != "Cancelled");
 
         if (existing != null)
         {
-            if (autoFinalize && existing.Status != "Finalized" && existing.Status != "Cancelled")
+            if (autoFinalize && existing.Status != "Finalized")
             {
                 await AutoFinalizeInternalAsync(existing, userId);
             }
@@ -371,20 +373,45 @@ public class ProcurementService : IProcurementService
             .Select(kv => kv.Key)
             .ToHashSet();
 
+        // For non-SuperAdmin users (both admins with a base and regular users):
+        // explicitly assigned items must bypass the base filter so they are always visible
+        // regardless of which base the customer belongs to.
+        HashSet<long>? permittedItemIds = null;
+        if (!isSuperAdmin)
+        {
+            var permittedEntityIds = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
+                .Select(p => p.EntityId).ToListAsync();
+            permittedItemIds = permittedEntityIds
+                .Select(s => long.TryParse(s, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+
+            if (!isAdmin && permittedItemIds.Count == 0)
+                return new PagedResult<ProcurementItemFlatResponse> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+
+            // Expand allowedProcIds with the procurements of every assigned item so they
+            // pass the base gate even when the customer is in a different base.
+            if (permittedItemIds.Count > 0)
+            {
+                var assignedProcIds = await _db.Set<ProcurementItem>()
+                    .AsNoTracking()
+                    .Where(i => permittedItemIds.Contains(i.Id))
+                    .Select(i => i.ProcurementId)
+                    .Distinct()
+                    .ToListAsync();
+                foreach (var pid in assignedProcIds) allowedProcIds.Add(pid);
+            }
+        }
+
         IQueryable<ProcurementItem> query = _db.Set<ProcurementItem>()
             .Include(i => i.CurrentSupplier)
             .AsNoTracking()
             .Where(i => allowedProcIds.Contains(i.ProcurementId));
 
+        // Non-admin users: restrict to their explicitly assigned items only.
+        // Admin users with a base: see all items in their base procurements (no per-item restriction).
         if (!isAdmin)
         {
-            var permittedEntityIds = await _db.Set<EntityPermission>()
-                .Where(p => p.UserId == userId && p.EntityName == "Procurement")
-                .Select(p => p.EntityId).ToListAsync();
-            var permittedItemIds = permittedEntityIds
-                .Select(s => long.TryParse(s, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
-            if (permittedItemIds.Count == 0) return new PagedResult<ProcurementItemFlatResponse> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
-            query = query.Where(i => permittedItemIds.Contains(i.Id));
+            query = query.Where(i => permittedItemIds!.Contains(i.Id));
         }
 
         if (!string.IsNullOrEmpty(search))
@@ -1292,8 +1319,8 @@ public class ProcurementService : IProcurementService
 
         var supplierId = sq.SupplierId ?? pi.CurrentSupplierId;
 
-        // Guard: don't create a duplicate for this specific supplier quote (use quote ID as key,
-        // not supplier ID — the same supplier can appear on multiple quotes with different conditions)
+        // Guard: don't create a duplicate POItem for this supplier quote.
+        // ReturnedAt == null is the only check needed — cancelled-PO items are soft-deleted (ReturnedAt=now).
         var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
             p.SourceProcurementItemId == pi.Id &&
             p.SourceSupplierQuoteId == sq.Id &&
@@ -1336,7 +1363,7 @@ public class ProcurementService : IProcurementService
 
             if (quoteList.Count == 0)
             {
-                // No quotes selected — check for any active POItem (legacy / single-supplier)
+                // No quotes selected — check for any active POItem (legacy / single-supplier).
                 var has = await _db.Set<POItem>().AnyAsync(p =>
                     p.SourceProcurementItemId == item.Id && p.ReturnedAt == null);
                 if (!has) { allDone = false; break; }
@@ -1345,7 +1372,7 @@ public class ProcurementService : IProcurementService
             {
                 foreach (var q in quoteList)
                 {
-                    // Check by SourceSupplierQuoteId first (new rows); fall back to SupplierId for legacy
+                    // Check by SourceSupplierQuoteId first (new rows); fall back to SupplierId for legacy.
                     var has = await _db.Set<POItem>().AnyAsync(p =>
                         p.SourceProcurementItemId == item.Id &&
                         p.ReturnedAt == null &&
@@ -1401,6 +1428,19 @@ public class ProcurementService : IProcurementService
         proc.Status = "Sourcing";
         proc.FinalizedAt = null;
         proc.FinalizedByUserId = null;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> ForceFinalizeAsync(long procurementId, long userId)
+    {
+        var proc = await _db.Set<Procurement>().FindAsync(procurementId);
+        if (proc == null) return false;
+        if (proc.Status is "Finalized" or "Cancelled") return false;
+
+        proc.Status = "Finalized";
+        proc.FinalizedAt = DateTime.UtcNow;
+        proc.FinalizedByUserId = userId > 0 ? userId : null;
         await _db.SaveChangesAsync();
         return true;
     }

@@ -466,6 +466,9 @@ public class PurchaseOrderService : IPurchaseOrderService
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return false;
 
+        // Already in a terminal state — no further transitions allowed
+        if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return false;
+
         // Allowed Statuses
         var allowed = new[] {
             "Draft", "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment",
@@ -474,6 +477,60 @@ public class PurchaseOrderService : IPurchaseOrderService
             "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled", "Issue"
         };
         if (!allowed.Contains(newStatus)) return false;
+
+        // ── Cancellation: always allowed regardless of current state or role ──
+        if (newStatus == "Cancelled")
+        {
+            po.Status = "Cancelled";
+
+            // 1. Soft-delete all live POItems on this PO so they disappear from Order Items entirely.
+            //    Setting ReturnedAt removes them cleanly — no ghost items floating in Order Items.
+            //    When the user re-approves from a new procurement, fresh POItems are created with no duplicates.
+            var liveItems = await _db.Set<POItem>()
+                .Where(i => i.POId == po.Id && i.ReturnedAt == null)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            foreach (var item in liveItems)
+                item.ReturnedAt = now;
+
+            await _db.SaveChangesAsync();
+
+            // 3. Cancel all Procurements linked to this Invoice so users can start fresh.
+            //    A cancelled PO means the procurement cycle needs to restart completely.
+            if (po.InvoiceId.HasValue)
+            {
+                try
+                {
+                    var linkedProcurements = await _db.Set<Procurement>()
+                        .Where(pr => pr.InvoiceId == po.InvoiceId.Value)
+                        .ToListAsync();
+                    foreach (var pr in linkedProcurements)
+                        pr.Status = "Open";
+                    if (linkedProcurements.Count > 0)
+                        await _db.SaveChangesAsync();
+                }
+                catch { /* non-fatal */ }
+            }
+
+            // 4. Flip the linked Invoice status to "PO Cancelled" (raw SQL — avoids circular module dep)
+            if (po.InvoiceId.HasValue)
+            {
+                try
+                {
+                    var conn = _db.Database.GetDbConnection();
+                    if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "UPDATE Invoices SET Status = 'PO Cancelled' WHERE Id = @id";
+                    var p = cmd.CreateParameter(); p.ParameterName = "@id"; p.Value = po.InvoiceId.Value;
+                    cmd.Parameters.Add(p);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch { /* non-fatal — invoice update is cosmetic */ }
+            }
+
+            return true;
+        }
 
         // Restriction: Only Admin or SuperAdmin can manually set back to "Waiting For Admin Approval"
         if (!isAdmin && newStatus == "Waiting For Admin Approval")
@@ -488,7 +545,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             // Only Admin or SuperAdmin can override or correct status at this stage
             if (!isAdmin) return false;
         }
-        
+
         // 2. If waiting for Documents
         if (po.Status == "Waiting For Documents" && newStatus != "Waiting For Payment" && newStatus != "Cancelled")
         {
