@@ -107,13 +107,19 @@
               />
             </v-col>
             <v-col cols="12">
-              <v-text-field v-model="form.address" label="Address" variant="outlined" density="compact" />
+              <v-textarea v-model="form.address" label="Bill To Address" variant="outlined" density="compact" rows="2" hide-details auto-grow />
+            </v-col>
+            <v-col cols="12">
+              <v-textarea v-model="form.shipToAddress" label="Ship To Address" placeholder="Leave empty to use Bill To Address" variant="outlined" density="compact" rows="2" hide-details auto-grow />
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field v-model="form.phone" label="Phone" variant="outlined" density="compact" />
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field v-model="form.email" label="Email" variant="outlined" density="compact" />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field v-model="form.fedexAccount" label="FedEx Account" variant="outlined" density="compact" prepend-inner-icon="mdi-truck-fast" />
             </v-col>
           </v-row>
         </v-card-text>
@@ -214,8 +220,10 @@ const form = reactive({
   displayName: '',
   type: 'OurWarehouse',
   address: '',
+  shipToAddress: '',
   phone: '',
   email: '',
+  fedexAccount: '',
 })
 
 const snack = ref(false)
@@ -265,7 +273,7 @@ function onExpandedChange(newExpanded: any[]) {
 
 function openCreate() {
   editingId.value = null
-  Object.assign(form, { name: '', displayName: '', type: 'OurWarehouse', address: '', phone: '', email: '' })
+  Object.assign(form, { name: '', displayName: '', type: 'OurWarehouse', address: '', shipToAddress: '', phone: '', email: '', fedexAccount: '' })
   dialog.value = true
 }
 
@@ -276,8 +284,10 @@ function openEdit(item: any) {
     displayName: item.displayName ?? '',
     type: item.type,
     address: item.address ?? '',
+    shipToAddress: item.shipToAddress ?? '',
     phone: item.phone ?? '',
     email: item.email ?? '',
+    fedexAccount: item.fedexAccount ?? '',
   })
   dialog.value = true
 }

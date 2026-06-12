@@ -61,6 +61,21 @@
           <template v-if="sections[1].open">
             <div class="section-label">Bill To</div>
             <v-row dense align="center">
+              <v-col v-if="customerContacts.length" cols="12">
+                <v-select
+                  v-model="selectedCustomerContact"
+                  :items="customerContacts"
+                  item-title="name"
+                  item-value="email"
+                  label="Select Contact Person"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-account-outline"
+                  @update:model-value="applyCustomerContact"
+                />
+              </v-col>
               <v-col cols="12"><v-textarea v-model="billTo" label="Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
@@ -229,18 +244,12 @@ watch(selectedPreset, async (val) => {
     swiftCode.value = preset.swiftCode || ''
     // Prefer customer's terms & conditions over preset's
     companyTerms.value = props.invoice?.customerTermsAndConditions || preset.termsAndConditions || ''
-    // Override bank details with wallet-specific values when available
-    const walletId = props.invoice?.defaultDepositWalletId
-    if (walletId) {
-      try {
-        const wallet = await api.get<any>(`/payment-boxes/${walletId}`)
-        if (wallet.bankName) bankName.value = wallet.bankName
-        if (wallet.bankAddress) bankAddress.value = wallet.bankAddress
-        if (wallet.accountNumber) bankAccount.value = wallet.accountNumber
-        if (wallet.beneficiaryName) beneficiaryName.value = wallet.beneficiaryName
-        if (wallet.swiftCode) swiftCode.value = wallet.swiftCode
-      } catch { /* non-critical — wallet details unavailable */ }
-    }
+    // Override bank details with wallet-specific values (pre-resolved on the invoice DTO — no extra API call needed)
+    if (props.invoice?.walletBankName) bankName.value = props.invoice.walletBankName
+    if (props.invoice?.walletBankAddress) bankAddress.value = props.invoice.walletBankAddress
+    if (props.invoice?.walletAccountNumber) bankAccount.value = props.invoice.walletAccountNumber
+    if (props.invoice?.walletBeneficiaryName) beneficiaryName.value = props.invoice.walletBeneficiaryName
+    if (props.invoice?.walletSwiftCode) swiftCode.value = props.invoice.walletSwiftCode
   }
 })
 
@@ -249,6 +258,12 @@ watch(model, (open) => {
     loadPresets()
     selectAllItems()
     overrideCustomerName.value = ''
+    // Parse customer contacts
+    customerContacts.value = []
+    selectedCustomerContact.value = null
+    if (props.invoice?.customerContacts) {
+      try { customerContacts.value = JSON.parse(props.invoice.customerContacts) } catch {}
+    }
     // Pre-fill address fields from invoice data
     contactPerson.value = props.invoice?.customerContactPerson || ''
     billTo.value = props.invoice?.customerBillTo || ''
@@ -314,6 +329,22 @@ const contactPerson = ref('')
 const billTo = ref('')
 const billToEmail = ref('')
 const billToPhone = ref('')
+
+// Customer contact persons (parsed from customer.contacts JSON on the invoice)
+const customerContacts = ref<{name: string, email: string, phone?: string, title?: string}[]>([])
+const selectedCustomerContact = ref<string | null>(null)
+
+function applyCustomerContact(email: string | null) {
+  if (!email) return
+  const c = customerContacts.value.find(x => x.email === email)
+  if (c) {
+    contactPerson.value = c.name
+    shipToContactPerson.value = c.name
+    billToEmail.value = c.email
+    shipToEmail.value = c.email
+    if (c.phone) { billToPhone.value = c.phone; shipToPhone.value = c.phone }
+  }
+}
 const shipTo = ref('')
 const shipToContactPerson = ref('')
 const shipToEmail = ref('')

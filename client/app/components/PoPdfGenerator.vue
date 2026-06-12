@@ -53,6 +53,21 @@
           <template v-if="sections[1].open">
             <div class="section-label">Vendor (Supplier)</div>
             <v-row dense align="center">
+              <v-col v-if="supplierContacts.length" cols="12">
+                <v-select
+                  v-model="selectedSupplierContact"
+                  :items="supplierContacts"
+                  item-title="name"
+                  item-value="email"
+                  label="Select Contact Person"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-account-outline"
+                  @update:model-value="applySupplierContact"
+                />
+              </v-col>
               <v-col cols="12"><v-text-field v-model="purchaseFromName" label="Name" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="12"><v-textarea v-model="purchaseFromAddress" label="Address" variant="outlined" rows="2" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="purchaseFromPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
@@ -276,6 +291,20 @@ const purchaseFromAddress = ref('')
 const purchaseFromPhone = ref('')
 const purchaseFromEmail = ref('')
 
+// Supplier contact persons (parsed from supplier.contacts JSON)
+const supplierContacts = ref<{name: string, email: string, phone?: string, title?: string}[]>([])
+const selectedSupplierContact = ref<string | null>(null)
+
+function applySupplierContact(email: string | null) {
+  if (!email) return
+  const c = supplierContacts.value.find(x => x.email === email)
+  if (c) {
+    purchaseFromName.value = c.name
+    purchaseFromEmail.value = c.email
+    if (c.phone) purchaseFromPhone.value = c.phone
+  }
+}
+
 // Vendor
 const vendorName = ref('')
 const vendorAddress = ref('')
@@ -318,11 +347,15 @@ function onWarehouseSelected(warehouseId: number | null) {
   const wh = presetWarehouses.value.find((w: any) => w.id === warehouseId)
   if (wh) {
     deliverToName.value = wh.displayName || wh.name || ''
-    deliverToAddress.value = wh.address || ''
+    deliverToAddress.value = wh.shipToAddress || wh.address || ''
     deliverToPhone.value = wh.phone || ''
     deliverToEmail.value = wh.email || ''
-    // Sync Bill To to match the newly selected warehouse
-    syncBillToFromShipTo()
+    if (wh.fedexAccount) fedExAccount.value = wh.fedexAccount
+    // Bill To uses the billing Address; Ship To uses ShipToAddress (falls back to Address if not set)
+    billToName.value = wh.displayName || wh.name || ''
+    billToAddress.value = wh.address || ''
+    billToPhone.value = wh.phone || ''
+    billToEmail.value = wh.email || ''
   }
 }
 
@@ -373,6 +406,11 @@ watch(model, async (open) => {
         purchaseFromAddress.value = supplier.address || ''
         purchaseFromPhone.value = supplier.phone || ''
         purchaseFromEmail.value = supplier.email || ''
+        supplierContacts.value = []
+        selectedSupplierContact.value = null
+        if (supplier.contacts) {
+          try { supplierContacts.value = JSON.parse(supplier.contacts) } catch {}
+        }
 
         // Initialize Vendor
         const vendor = data.vendor || {}

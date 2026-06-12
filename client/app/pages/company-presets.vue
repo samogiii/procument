@@ -410,6 +410,8 @@
 </template>
 
 <script setup lang="ts">
+import { consoleError } from 'vuetify/lib/util/console.mjs'
+
 const api = useApi()
 const authStore = useAuthStore()
 
@@ -566,12 +568,13 @@ async function savePreset() {
       const toRemove = originalWarehouseIds.value.filter(id => !selectedWarehouseIds.value.includes(id))
       await Promise.all([
         ...toAdd.map(wid => api.post(`/companypresets/${presetId}/warehouses/${wid}`, {})),
-        ...toRemove.map(wid => api.delete(`/companypresets/${presetId}/warehouses/${wid}`)),
+        ...toRemove.map(wid => api.del(`/companypresets/${presetId}/warehouses/${wid}`)),
       ])
     }
     showDialog.value = false
     await loadPresets()
-  } catch {
+  } catch(e) {
+    console.log(e)
     showSnack('Failed to save preset', 'error')
   } finally {
     saving.value = false

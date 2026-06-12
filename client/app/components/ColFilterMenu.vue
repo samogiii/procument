@@ -1,6 +1,10 @@
 <template>
   <div class="cf-th-inner">
-    <span class="cursor-pointer" @click="$emit('sortClick')">{{ label }}</span>
+    <span class="cursor-pointer d-flex align-center gap-1" @click="$emit('sortClick')">
+      {{ label }}
+      <v-icon v-if="isSorted" :icon="sortDesc ? 'mdi-arrow-down' : 'mdi-arrow-up'" size="13" color="primary" />
+      <v-icon v-else icon="mdi-unfold-more-horizontal" size="13" class="cf-sort-hint" />
+    </span>
     <v-menu :close-on-content-click="false" max-width="280">
       <template #activator="{ props: mp }">
         <v-btn
@@ -66,6 +70,8 @@ const props = defineProps<{
   selected: Set<string>
   search: string
   sortable?: boolean
+  isSorted?: boolean
+  sortDesc?: boolean
 }>()
 
 defineEmits<{
@@ -100,4 +106,6 @@ function isUnavailable(val: string): boolean {
 .cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
 .cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
 .cursor-pointer { cursor: pointer; }
+.cf-sort-hint { opacity: 0.25; }
+.cf-th-inner:hover .cf-sort-hint { opacity: 0.6; }
 </style>

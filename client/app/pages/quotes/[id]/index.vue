@@ -257,6 +257,35 @@
       </v-card-text>
     </v-card>
 
+    <!-- Linked Invoices (Sales Orders) -->
+    <v-card v-if="linkedInvoices.length" class="glass-card mb-6">
+      <v-card-title class="d-flex align-center gap-2 pa-4 pb-2">
+        <v-icon icon="mdi-receipt-text-outline" color="success" size="20" />
+        <span class="text-body-1 font-weight-bold">Sales Orders</span>
+        <v-chip size="x-small" color="success" variant="tonal">{{ linkedInvoices.length }}</v-chip>
+      </v-card-title>
+      <v-card-text class="pa-2">
+        <div class="d-flex flex-wrap gap-2">
+          <NuxtLink
+            v-for="inv in linkedInvoices"
+            :key="inv.id"
+            :to="`/invoices/${inv.id}`"
+            class="text-decoration-none"
+          >
+            <v-card variant="outlined" class="pa-3 d-flex align-center gap-3" style="min-width: 220px; cursor: pointer;">
+              <v-icon icon="mdi-receipt-text-outline" color="success" size="18" />
+              <div>
+                <div class="text-body-2 font-weight-bold">{{ inv.invoiceNumber || `Invoice #${inv.id}` }}</div>
+                <div class="text-caption text-medium-emphasis">${{ (inv.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</div>
+              </div>
+              <v-spacer />
+              <v-chip :color="statusColor(inv.status)" size="x-small" variant="flat" class="ml-2">{{ inv.status }}</v-chip>
+            </v-card>
+          </NuxtLink>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <!-- All RFQ Items + Procurement Records -->
     <v-card class="glass-card">
       <v-card-title class="d-flex align-center gap-2">
@@ -528,6 +557,7 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
+const linkedInvoices = ref<any[]>([])
 const apiPresets = ref<any[]>([])
 const allRfqItems = ref<any[]>([])
 
@@ -678,6 +708,13 @@ async function loadQuote() {
     // Init Yuan settings from loaded data
     yuanCoef.value = q.coefYuan ?? null
     yuanExchangeRate.value = q.exchangeRateYuan ?? null
+
+    // Load linked invoices (Sales Orders) for this quote
+    try {
+      linkedInvoices.value = await api.get<any[]>(`/invoices/by-quote/${q.id}`)
+    } catch {
+      linkedInvoices.value = []
+    }
   } catch {
     showSnack('Failed to load quote', 'error')
   } finally {

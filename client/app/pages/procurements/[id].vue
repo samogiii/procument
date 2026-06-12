@@ -143,7 +143,8 @@
                 variant="tonal"
                 color="primary"
                 class="px-1"
-                style="height: 16px; font-size: 9px;"
+                closable
+                @click:close="deletePermission(item.id, p.id)"
               >
                 {{ p.userName }}
               </v-chip>
@@ -760,6 +761,7 @@ async function saveSupplierQuote(item: any, sq: any) {
       shippingCost: sq.shippingCost,
       qty: sq.qty,
       condition: sq.condition,
+      alt: sq.alt,
       leadTime: sq.leadTime,
       note: sq.note
     }
@@ -866,8 +868,13 @@ async function doItemAssign() {
 async function deletePermission(targetId: number, permId: number, isHeader = false) {
   try {
     await api.del(`/permissions/${permId}`)
-    if (isHeader) await loadHeaderPermissions()
-    else await loadItemPermissions(targetId)
+    if (isHeader) {
+      headerPermissions.value = headerPermissions.value.filter((p: any) => p.id !== permId)
+    } else {
+      if (itemPermissions.value[targetId]) {
+        itemPermissions.value[targetId] = itemPermissions.value[targetId].filter((p: any) => p.id !== permId)
+      }
+    }
     showSnack('Permission removed')
   } catch {
     showSnack('Removal failed', 'error')

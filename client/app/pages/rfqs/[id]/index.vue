@@ -206,6 +206,35 @@
       </v-col>
     </v-row>
 
+    <!-- Linked Quotes -->
+    <v-card v-if="linkedQuotes.length" class="glass-card mb-5">
+      <v-card-title class="d-flex align-center gap-2 pa-4 pb-2">
+        <v-icon icon="mdi-file-document-multiple-outline" color="info" size="20" />
+        <span class="text-body-1 font-weight-bold">Quotes</span>
+        <v-chip size="x-small" color="info" variant="tonal">{{ linkedQuotes.length }}</v-chip>
+      </v-card-title>
+      <v-card-text class="pa-2">
+        <div class="d-flex flex-wrap gap-2">
+          <NuxtLink
+            v-for="q in linkedQuotes"
+            :key="q.id"
+            :to="`/quotes/${q.id}`"
+            class="text-decoration-none"
+          >
+            <v-card variant="outlined" class="pa-3 d-flex align-center gap-3" style="min-width: 220px; cursor: pointer;">
+              <v-icon icon="mdi-file-document-outline" color="info" size="18" />
+              <div>
+                <div class="text-body-2 font-weight-bold">{{ q.quoteNumber || `Quote #${q.id}` }}</div>
+                <div class="text-caption text-medium-emphasis">${{ (q.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</div>
+              </div>
+              <v-spacer />
+              <v-chip :color="getStatusColor(q.status)" size="x-small" variant="flat" class="ml-2">{{ q.status }}</v-chip>
+            </v-card>
+          </NuxtLink>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <!-- Excel-Style Quoting Table -->
     <v-card class="excel-card">
       <div class="excel-toolbar d-flex flex-wrap align-center justify-space-between pa-3 gap-2">
@@ -1476,6 +1505,7 @@ function isLeadTimeUrgent(dateStr: string) {
 // State
 const rfq = ref<any>({})
 const existingQuoteId = ref<number | null>(null)
+const linkedQuotes = ref<any[]>([])
 const editableItems = ref<any[]>([])
 const supplierQuotes = ref<any[]>([])
 const linkedSuppliers = ref<Record<number, { id: number; name: string }[]>>({})
@@ -1574,14 +1604,13 @@ async function loadData() {
     ])
     rfq.value = rfqData
 
-    // Load existing quote ID if RFQ is Quoted
-    if (rfqData.status === 'Quoted') {
-      try {
-        const quotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
-        if (quotes && quotes.length > 0) {
-          existingQuoteId.value = quotes[0].id
-        }
-      } catch {}
+    // Load linked quotes (always, not just when Quoted)
+    try {
+      const quotes = await api.get<any[]>(`/quotes/by-rfq/${route.params.id}`)
+      linkedQuotes.value = quotes || []
+      if (quotes && quotes.length > 0) existingQuoteId.value = quotes[0].id
+    } catch {
+      linkedQuotes.value = []
     }
 
     // Create editable copies of items

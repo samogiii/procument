@@ -148,6 +148,16 @@
         hint="Overrides terms in Proforma Invoice PDFs"
         persistent-hint
       />
+      <!-- Contact Persons -->
+      <div class="text-caption font-weight-bold text-medium-emphasis text-uppercase mt-2 mb-1">Contact Persons</div>
+      <div v-for="(c, i) in contactsList" :key="i" class="d-flex gap-2 align-center mb-1">
+        <v-text-field v-model="c.name" label="Name" variant="outlined" density="compact" hide-details class="flex-grow-1" />
+        <v-text-field v-model="c.email" label="Email" variant="outlined" density="compact" hide-details class="flex-grow-1" />
+        <v-text-field v-model="c.phone" label="Phone" variant="outlined" density="compact" hide-details style="max-width:130px;" />
+        <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="contactsList.splice(i, 1)" />
+      </div>
+      <v-btn size="small" variant="tonal" prepend-icon="mdi-plus" class="mb-3 mt-1" @click="contactsList.push({ name: '', email: '', phone: '' })">Add Contact</v-btn>
+
       <v-select
         v-model="form.exWork"
         :items="exWorkSelectOptions"
@@ -259,6 +269,7 @@ const defaultForm = () => ({
   website: '',
 })
 const form = ref(defaultForm())
+const contactsList = ref<{name: string, email: string, phone: string}[]>([])
 
 // ─── Auto-suggest customer code by base ───
 const suggestedCode = ref('')
@@ -288,9 +299,11 @@ function openDialog(item?: any) {
     form.value.emails = item.emails
       ? item.emails.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
       : []
+    try { contactsList.value = item.contacts ? JSON.parse(item.contacts) : [] } catch { contactsList.value = [] }
   } else {
     editingId.value = null
     form.value = defaultForm()
+    contactsList.value = []
   }
   showDialog.value = true
 }
@@ -299,15 +312,18 @@ function closeDialog() {
   showDialog.value = false
   editingId.value = null
   form.value = defaultForm()
+  contactsList.value = []
   suggestedCode.value = ''
 }
 
 async function save() {
   saving.value = true
   try {
+    const validContacts = contactsList.value.filter(c => c.name.trim())
     const payload = {
       ...form.value,
       emails: form.value.emails && form.value.emails.length > 0 ? form.value.emails.join(', ') : '',
+      contacts: validContacts.length ? JSON.stringify(validContacts) : null,
     }
     if (editingId.value) {
       await api.put(`/customers/${editingId.value}`, payload)

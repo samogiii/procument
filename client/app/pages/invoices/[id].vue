@@ -101,6 +101,19 @@
       It cannot be edited or used to create a Final Invoice.
     </v-alert>
 
+    <!-- Source Quote Banner -->
+    <v-card v-if="invoice.quoteId" class="glass-card mb-4 border-s-lg" :style="{ borderColor: 'rgb(var(--v-theme-info))' }">
+      <v-card-text class="pa-3">
+        <div class="d-flex align-center gap-2">
+          <v-icon icon="mdi-file-document-outline" color="info" size="18" />
+          <span class="text-caption text-medium-emphasis">Created from</span>
+          <NuxtLink :to="`/quotes/${invoice.quoteId}`" class="text-body-2 font-weight-bold text-primary text-decoration-none hover-underline">
+            Quote #{{ invoice.quoteId }}
+          </NuxtLink>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <v-row class="mb-6">
       <v-col cols="12" md="3">
         <StatCard icon="mdi-account-outline" color="primary" label="Customer" :value="invoice.customerCode" />

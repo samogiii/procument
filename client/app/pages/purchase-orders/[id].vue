@@ -614,9 +614,9 @@
                 <td class="font-weight-medium">{{ item.partNumberName || '—' }}</td>
                 <td>{{ item.qty }}</td>
 
-                <!-- Unit Price — SuperAdmin can click pencil to edit inline -->
+                <!-- Unit Price — Admin/SuperAdmin can click pencil to edit inline -->
                 <td>
-                  <div v-if="isSuperAdmin && editingPriceItemId === item.id" class="d-flex align-center gap-1" style="min-width:160px">
+                  <div v-if="isAdmin && editingPriceItemId === item.id" class="d-flex align-center gap-1" style="min-width:160px">
                     <v-text-field
                       v-model.number="editPriceValue"
                       type="number"
@@ -638,7 +638,7 @@
                   </div>
                   <div v-else class="d-flex align-center gap-1">
                     <span>${{ formatPrice(item.unitPrice) }}</span>
-                    <v-btn v-if="isSuperAdmin" icon size="x-small" variant="text" color="secondary" @click="openPriceEdit(item)" title="Override price">
+                    <v-btn v-if="isAdmin" icon size="x-small" variant="text" color="secondary" @click="openPriceEdit(item)" title="Override price">
                       <v-icon size="14">mdi-pencil</v-icon>
                     </v-btn>
                   </div>
@@ -1008,7 +1008,7 @@
     />
 
     <!-- Return Items to Procurement Dialog -->
-    <v-dialog v-model="showReturnDialog" max-width="550" persistent>
+    <v-dialog v-model="showReturnDialog" max-width="560" persistent>
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center pa-4">
           <v-icon icon="mdi-keyboard-return" class="mr-2" color="warning" />
@@ -1016,10 +1016,10 @@
         </v-card-title>
         <v-card-text class="pa-4">
           <p class="text-body-2 text-medium-emphasis mb-4">
-            Items selected below will be recycled back into the **Procurement layer** for re-sourcing.
-            This action soft-deletes the current PO line items.
+            Enter how many units of each item to return. Items with 0 are skipped.
+            Partial quantities reduce the PO line; the returned units go back to the procurement pool.
           </p>
-          
+
           <v-textarea
             v-model="returnForm.reason"
             label="Reason for Return"
@@ -1031,21 +1031,35 @@
             required
           />
 
-          <div class="text-caption font-weight-bold uppercase mb-2">Select Items to Return</div>
-          <v-list density="compact" class="bg-transparent border rounded">
-            <v-list-item v-for="item in po.items" :key="item.id">
-              <template #prepend>
-                <v-checkbox
-                  v-model="returnForm.itemIds"
-                  :value="item.id"
-                  density="compact"
-                  hide-details
-                />
-              </template>
-              <v-list-item-title class="text-body-2 font-weight-medium">{{ item.partNumberName }}</v-list-item-title>
-              <v-list-item-subtitle class="text-caption">Qty: {{ item.qty }} @ ${{ formatPrice(item.unitPrice) }}</v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
+          <div class="text-caption font-weight-bold text-uppercase mb-2">Return Quantities</div>
+          <v-table density="compact" class="border rounded">
+            <thead>
+              <tr>
+                <th class="text-left text-caption">Part Number</th>
+                <th class="text-center text-caption" style="width:90px">In PO</th>
+                <th class="text-center text-caption" style="width:120px">Return Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in po.items" :key="item.id">
+                <td class="text-body-2">{{ item.partNumberName }}</td>
+                <td class="text-center text-body-2">{{ item.qty }}</td>
+                <td class="text-center py-1">
+                  <v-text-field
+                    v-model.number="returnForm.itemQtys[item.id]"
+                    type="number"
+                    :min="0"
+                    :max="item.qty"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    style="max-width:90px"
+                    class="mx-auto"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
@@ -1054,7 +1068,7 @@
             color="warning"
             variant="flat"
             :loading="returning"
-            :disabled="!returnForm.reason.trim() || !returnForm.itemIds.length"
+            :disabled="!returnForm.reason.trim() || !hasAnyReturnQty"
             @click="returnPo"
           >Confirm Return</v-btn>
         </v-card-actions>
@@ -1180,14 +1194,17 @@ const showReturnDialog = ref(false)
 const returning = ref(false)
 const returnForm = ref({
   reason: '',
-  itemIds: [] as number[]
+  itemQtys: {} as Record<number, number>
 })
 
+const hasAnyReturnQty = computed(() =>
+  Object.values(returnForm.value.itemQtys).some(q => q > 0)
+)
+
 function openReturnDialog() {
-  returnForm.value = {
-    reason: '',
-    itemIds: []
-  }
+  const qtys: Record<number, number> = {}
+  for (const item of (po.value?.items ?? [])) qtys[item.id] = 0
+  returnForm.value = { reason: '', itemQtys: qtys }
   showReturnDialog.value = true
 }
 
@@ -1196,20 +1213,31 @@ async function returnPo() {
     showSnack('Please provide a reason for return', 'warning')
     return
   }
+  // Build itemQtys, clamping to [1, item.qty] and skipping zeros
+  const itemQtys: Record<number, number> = {}
+  for (const item of (po.value?.items ?? [])) {
+    const raw = returnForm.value.itemQtys[item.id] ?? 0
+    const qty = Math.min(Math.max(Math.floor(raw), 0), item.qty)
+    if (qty > 0) itemQtys[item.id] = qty
+  }
+  if (Object.keys(itemQtys).length === 0) {
+    showSnack('Enter at least one return quantity', 'warning')
+    return
+  }
   returning.value = true
   try {
     const res = await api.post<ReturnPOResponse>(`/purchase-orders/${route.params.id}/return`, {
       reason: returnForm.value.reason,
-      itemIds: returnForm.value.itemIds
+      itemQtys
     })
-    
+
     if (res.warnings?.length) {
       console.warn('Return completed with warnings:', res.warnings)
     }
 
     showSnack(res.fullReturn ? 'PO returned to Procurement' : 'Items returned to Procurement', 'success')
     showReturnDialog.value = false
-    
+
     // Reload everything to reflect recycled state
     await Promise.all([loadPo(), loadEnriched(), loadSupplierDocs()])
   } catch (e: any) {

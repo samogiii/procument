@@ -74,6 +74,16 @@
         style="min-width: 140px; max-width: 260px;"
       />
       <v-btn
+        :color="showRejected ? 'error' : 'default'"
+        :variant="showRejected ? 'tonal' : 'outlined'"
+        size="small"
+        :prepend-icon="showRejected ? 'mdi-eye' : 'mdi-eye-off-outline'"
+        class="align-self-center"
+        @click="showRejected = !showRejected"
+      >
+        Rejected
+      </v-btn>
+      <v-btn
             v-if="hasActiveFilters"
             variant="tonal"
             color="error"
@@ -634,6 +644,8 @@ const quoteNumberColOptions = computed(() => {
 const userOptions = computed(() => userColOptions.value);
 const customerOptions = computed(() => customerColOptions.value);
 
+const showRejected = ref(false)
+
 const extraParams = computed<Record<string, string | string[]>>(() => {
   const p: Record<string, string | string[]> = {}
   if (pnSearch.value) p.pnSearch = pnSearch.value
@@ -641,6 +653,7 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (customerFilter.value?.length) p.customerNames = customerFilter.value
   if (rfqFilter.value?.length) p.rfqNames = rfqFilter.value
   if (quoteNumberFilter.value?.length) p.quoteNumbers = quoteNumberFilter.value
+  if (showRejected.value) p.includeRejected = 'true'
   return p
 })
 

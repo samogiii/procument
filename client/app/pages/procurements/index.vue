@@ -73,6 +73,17 @@
             style="min-width: 140px; max-width: 240px;"
           />
           <v-btn
+            :color="showCancelled ? 'warning' : 'default'"
+            :variant="showCancelled ? 'tonal' : 'outlined'"
+            size="small"
+            :prepend-icon="showCancelled ? 'mdi-eye' : 'mdi-eye-off-outline'"
+            class="align-self-center"
+            @click="showCancelled = !showCancelled"
+          >
+            Cancelled
+          </v-btn>
+
+          <v-btn
             v-if="hasActiveFilters"
             variant="tonal"
             color="error"
@@ -294,6 +305,8 @@
                 variant="tonal"
                 color="primary"
                 class="px-1"
+                closable
+                @click:close.stop="deleteAssignment(item, u)"
               >
                 {{ u.userName }}
               </v-chip>
@@ -836,6 +849,7 @@ async function saveSupplierQuote(item: any, sq: any) {
       shippingCost: sq.shippingCost,
       qty: sq.qty,
       condition: sq.condition,
+      alt: sq.alt,
       leadTime: sq.leadTime,
       note: sq.note
     }
@@ -985,6 +999,7 @@ const statusFilter = ref<string[]>([])
 const procStatusFilter = ref<string[]>([])
 const customerFilter = ref<string[]>([])
 const userFilter = ref<number[]>([])
+const showCancelled = ref(false)
 
 const hasActiveFilters = computed(() =>
   search.value.trim() !== '' ||
@@ -1053,7 +1068,9 @@ async function loadServerPage(opts?: any) {
   try {
     const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
     if (search.value?.trim()) params.set('search', search.value.trim())
-    if (statusFilter.value.length) statusFilter.value.forEach((s: string) => params.append('status', s))
+    if (statusFilter.value.length)
+      statusFilter.value.forEach((s: string) => params.append('status', s))
+    if (showCancelled.value) params.set('includeCancelled', 'true')
     // When no proc-status filter is active, hide Finalized/Cancelled items but always show Reopened.
     // Admin can still see Finalized/Cancelled by explicitly selecting them in the filter.
     const effectiveProcStatuses = procStatusFilter.value.length
@@ -1125,22 +1142,32 @@ async function doAssign() {
     })
     showSnack('User assigned')
     showAssignDialog.value = false
-    // Update local state to reflect the new assignment
-    const user = users.value.find(u => u.id === assignUserId.value)
-    if (user) {
-      const item = allItems.value.find(i => i.id === assignTarget.value.id)
-      if (item) {
-        item.assignedUsers = item.assignedUsers || []
-        const alreadyAssigned = item.assignedUsers.some((u: any) => u.userId === user.id)
-        if (!alreadyAssigned) {
-          item.assignedUsers.push({ userId: user.id, userName: user.name })
-        }
-      }
+    // Reload permissions for this item so chips have proper EntityPermission IDs for deletion
+    const itemId = assignTarget.value.id
+    const perms = await api.get<any[]>(`/permissions/Procurement/${itemId}`)
+    const item = allItems.value.find((i: any) => i.id === itemId)
+    if (item) {
+      item.assignedUsers = perms.map((p: any) => ({
+        id: p.id,
+        userId: p.userId,
+        userName: userOptions.value.find((u: any) => u.id === p.userId)?.name ?? ''
+      }))
     }
   } catch {
     showSnack('Assignment failed', 'error')
   } finally {
     assigning.value = false
+  }
+}
+
+async function deleteAssignment(item: any, u: any) {
+  if (!u.id) return
+  try {
+    await api.del(`/permissions/${u.id}`)
+    item.assignedUsers = item.assignedUsers.filter((a: any) => a.id !== u.id)
+    showSnack('User removed')
+  } catch {
+    showSnack('Remove failed', 'error')
   }
 }
 
@@ -1153,6 +1180,7 @@ watch(search, debouncedProcLoad)
 watch(statusFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
 watch(procStatusFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
 watch(customerFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
+watch(showCancelled, () => loadServerPage({ ...lastProcOpts.value, page: 1 }))
 watch(userFilter, () => loadServerPage({ ...lastProcOpts.value, page: 1 }), { deep: true })
 
 onMounted(async () => {

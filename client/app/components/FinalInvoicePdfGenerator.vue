@@ -78,6 +78,21 @@
           <template v-if="sections[2].open">
             <div class="section-label">Bill To</div>
             <v-row dense align="center">
+              <v-col v-if="customerContacts.length" cols="12">
+                <v-select
+                  v-model="selectedCustomerContact"
+                  :items="customerContacts"
+                  item-title="name"
+                  item-value="email"
+                  label="Select Contact Person"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-account-outline"
+                  @update:model-value="applyCustomerContact"
+                />
+              </v-col>
               <v-col cols="12"><v-text-field v-model="billToName" label="Bill To Name" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="12"><v-textarea v-model="billTo" label="Bill To Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-text-field v-model="billToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
@@ -292,6 +307,22 @@ const billToPhone         = ref('')
 const shipToContactPerson = ref('')
 const shipToEmail         = ref('')
 const shipToPhone         = ref('')
+
+// Customer contact persons (parsed from customerContacts JSON from API)
+const customerContacts = ref<{name: string, email: string, phone?: string, title?: string}[]>([])
+const selectedCustomerContact = ref<string | null>(null)
+
+function applyCustomerContact(email: string | null) {
+  if (!email) return
+  const c = customerContacts.value.find(x => x.email === email)
+  if (c) {
+    billToContactPerson.value = c.name
+    shipToContactPerson.value = c.name
+    billToEmail.value = c.email
+    shipToEmail.value = c.email
+    if (c.phone) { billToPhone.value = c.phone; shipToPhone.value = c.phone }
+  }
+}
 const beneficiaryName     = ref('')
 const beneficiaryAddress  = ref('')
 const bankName            = ref('')
@@ -340,6 +371,11 @@ watch(model, async (open) => {
             currency.value = 'Dollar (USD)'
             exchangeRate.value = storedRate
           }
+        }
+        customerContacts.value = []
+        selectedCustomerContact.value = null
+        if (data.customerContacts) {
+          try { customerContacts.value = JSON.parse(data.customerContacts) } catch {}
         }
         billToName.value           = data.customerName || ''
         shipToName.value           = data.customerName || ''

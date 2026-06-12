@@ -153,6 +153,16 @@
             Pending Suppliers
           </v-btn>
           <v-btn
+            :color="showNoQuote ? 'warning' : 'default'"
+            :variant="showNoQuote ? 'tonal' : 'outlined'"
+            size="small"
+            :prepend-icon="showNoQuote ? 'mdi-eye' : 'mdi-eye-off-outline'"
+            class="align-self-center"
+            @click="showNoQuote = !showNoQuote"
+          >
+            No Quote
+          </v-btn>
+          <v-btn
             v-if="hasActiveFilters"
             variant="tonal"
             color="error"
@@ -483,11 +493,19 @@
             </div>
           </template>
           <template #item.leadTime="{ item }">
-            <span :class="{ 'text-error font-weight-bold': ['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus) && isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
-              {{ new Date(item.leadTime).toLocaleDateString() }}
-              <v-icon v-if="['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus) && isLeadTimeUrgent(item.leadTime)" icon="mdi-alert" size="14" color="warning" class="ml-1" title="Lead time expires within 3 days" />
-              <v-icon v-else-if="['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus) && isLeadTimeExpired(item.leadTime)" icon="mdi-alert-circle" size="14" color="error" class="ml-1" title="Lead time has expired" />
-            </span>
+            <div class="d-flex flex-column align-start gap-1">
+              <span :class="{ 'text-error font-weight-bold': ['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus) && isLeadTimeExpired(item.leadTime) }" :style="isLeadTimeUrgent(item.leadTime) ? 'font-weight: 600;' : ''">
+                {{ new Date(item.leadTime).toLocaleDateString() }}
+              </span>
+              <v-chip
+                v-if="['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus)"
+                :color="remainingDaysColor(item.leadTime)"
+                size="x-small"
+                variant="tonal"
+              >
+                {{ remainingDaysLabel(item.leadTime) }}
+              </v-chip>
+            </div>
           </template>
           <template #item.customerName="{ item }">
             <template v-if="isAdmin">{{ item.customerCode }}</template>
@@ -1302,6 +1320,7 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 const showPendingOnly = ref(false)
+const showNoQuote = ref(false)
 
 // Delete Confirmations
 const showConfirmQuote = ref(false)
@@ -1466,6 +1485,28 @@ function isLeadTimeExpired(dateStr: string) {
   return new Date(dateStr).getTime() < Date.now()
 }
 
+function getRemainingDays(dateStr: string): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const d = new Date(dateStr); d.setHours(0, 0, 0, 0)
+  return Math.round((d.getTime() - today.getTime()) / 86400000)
+}
+
+function remainingDaysLabel(dateStr: string): string {
+  const days = getRemainingDays(dateStr)
+  if (days === 0) return 'Today'
+  if (days < 0) return `${Math.abs(days)}d overdue`
+  if (days === 1) return '1 day left'
+  return `${days}d left`
+}
+
+function remainingDaysColor(dateStr: string): string {
+  const days = getRemainingDays(dateStr)
+  if (days < 0) return 'error'
+  if (days <= 3) return 'warning'
+  if (days <= 7) return 'orange'
+  return 'info'
+}
+
 function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
   if (['Open', 'In Progress', 'Waiting For Admin'].includes(item.rfqStatus) && isLeadTimeUrgent(item.leadTime)) classes.push('lead-time-urgent-row')
@@ -1498,6 +1539,7 @@ async function loadServerPage(opts?: any) {
     if (colRfqId.value?.length) (colRfqId.value as string[]).forEach((v: string) => params.append('rfqIds', v))
     if (colRfqName.value?.length) (colRfqName.value as string[]).forEach((v: string) => params.append('rfqNames', v))
     if (showPendingOnly.value) params.set('pendingOnly', 'true')
+    if (showNoQuote.value) params.set('includeNoQuote', 'true')
     const res = await api.get<any>(`/procument-page?${params.toString()}`)
     const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
     totalItems.value = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
@@ -1563,6 +1605,7 @@ watch(colCond, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { 
 watch(colRfqId, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
 watch(colRfqName, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
 watch(showPendingOnly, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }))
+watch(showNoQuote, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }))
 
 onMounted(() => {
   loadData()

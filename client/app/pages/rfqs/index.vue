@@ -133,7 +133,18 @@
               />
             </template>
           </v-autocomplete>
-          
+
+          <v-btn
+            :color="showNoQuote ? 'warning' : 'default'"
+            :variant="showNoQuote ? 'tonal' : 'outlined'"
+            size="small"
+            :prepend-icon="showNoQuote ? 'mdi-eye' : 'mdi-eye-off-outline'"
+            class="align-self-center"
+            @click="showNoQuote = !showNoQuote"
+          >
+            No Quote
+          </v-btn>
+
           <v-btn
             v-if="hasActiveFilters"
             variant="tonal"
@@ -225,6 +236,25 @@
             />
           </template>
 
+          <!-- Column filter: Deadline -->
+          <template #header.leadTime="{ column, toggleSort, sortBy }">
+            <ColFilterMenu
+              col-key="leadTime"
+              :label="column.title"
+              :options="cfDeadlineOptionsPage"
+              :all-options="cfDeadlineOptions"
+              :selected="colFilter.selected['leadTime'] || new Set()"
+              :search="colFilter.search['leadTime'] || ''"
+              :is-sorted="sortBy?.some((s: any) => s.key === 'leadTime')"
+              :sort-desc="sortBy?.find((s: any) => s.key === 'leadTime')?.order === 'desc'"
+              @toggle="(v) => { colFilter.toggle('leadTime', v); debouncedCfLoad() }"
+              @select-all="() => { colFilter.selectAll('leadTime', cfDeadlineOptions); debouncedCfLoad() }"
+              @clear-all="() => { colFilter.clearAll('leadTime'); debouncedCfLoad() }"
+              @update:search="(v) => colFilter.search['leadTime'] = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
           <!-- Column filter: Assigned Users -->
           <template #header.assignedUsers="{ column }">
             <ColFilterMenu
@@ -266,6 +296,63 @@
               <v-icon v-if="isLeadTimeUrgent(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')" icon="mdi-alert" size="16" color="warning" class="ml-1" title="Lead time expires within 3 days" />
               <v-icon v-else-if="isLeadTimeExpired(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')" icon="mdi-alert-circle" size="16" color="error" class="ml-1" title="Lead time has expired" />
             </span>
+          </template>
+
+          <template #header.daysRemaining="{ column, toggleSort, sortBy }">
+            <div class="d-flex align-center gap-1" style="white-space: nowrap;">
+              <span class="cursor-pointer d-flex align-center gap-1" @click="toggleSort(column)">
+                {{ column.title }}
+                <v-icon
+                  v-if="sortBy?.some((s: any) => s.key === 'daysRemaining' || s.key === 'leadTime')"
+                  :icon="sortBy?.find((s: any) => s.key === 'daysRemaining' || s.key === 'leadTime')?.order === 'desc' ? 'mdi-arrow-down' : 'mdi-arrow-up'"
+                  size="13" color="primary"
+                />
+                <v-icon v-else icon="mdi-unfold-more-horizontal" size="13" style="opacity:0.3" />
+              </span>
+              <v-menu :close-on-content-click="false" max-width="180">
+                <template #activator="{ props: mp }">
+                  <v-btn
+                    v-bind="mp"
+                    :icon="daysFilter !== null ? 'mdi-filter' : 'mdi-filter-outline'"
+                    size="x-small"
+                    variant="text"
+                    :color="daysFilter !== null ? 'primary' : undefined"
+                    @click.stop
+                  />
+                </template>
+                <v-card class="pa-2" min-width="160">
+                  <div class="text-caption text-medium-emphasis mb-2 px-1">Filter by days left</div>
+                  <div class="d-flex flex-column gap-1">
+                    <v-chip
+                      v-for="p in daysFilterPresets"
+                      :key="p.value"
+                      size="small"
+                      :color="daysFilter === p.value ? 'primary' : 'default'"
+                      :variant="daysFilter === p.value ? 'flat' : 'outlined'"
+                      class="cursor-pointer"
+                      @click="daysFilter = daysFilter === p.value ? null : p.value"
+                    >
+                      {{ p.label }}
+                    </v-chip>
+                  </div>
+                  <v-btn v-if="daysFilter !== null" size="x-small" variant="text" color="error" class="mt-2" @click="daysFilter = null">
+                    Clear
+                  </v-btn>
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
+
+          <template #item.daysRemaining="{ item }">
+            <v-chip
+              v-if="item.leadTime && ['Open', 'In Progress', 'Waiting For Admin'].includes(item.status)"
+              :color="remainingDaysColor(item.leadTime)"
+              size="x-small"
+              variant="tonal"
+            >
+              {{ remainingDaysLabel(item.leadTime) }}
+            </v-chip>
+            <span v-else class="text-medium-emphasis">—</span>
           </template>
           <!-- <template #item.priority="{ item }">
             <v-chip
@@ -1026,6 +1113,28 @@ function isLeadTimeExpired(dateStr: string) {
   return new Date(dateStr).getTime() < Date.now()
 }
 
+function getRemainingDays(dateStr: string): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const d = new Date(dateStr); d.setHours(0, 0, 0, 0)
+  return Math.round((d.getTime() - today.getTime()) / 86400000)
+}
+
+function remainingDaysLabel(dateStr: string): string {
+  const days = getRemainingDays(dateStr)
+  if (days === 0) return 'Today'
+  if (days < 0) return `${Math.abs(days)}d overdue`
+  if (days === 1) return '1 day left'
+  return `${days}d left`
+}
+
+function remainingDaysColor(dateStr: string): string {
+  const days = getRemainingDays(dateStr)
+  if (days < 0) return 'error'
+  if (days <= 3) return 'warning'
+  if (days <= 7) return 'orange'
+  return 'info'
+}
+
 function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
   if (item.isUnread) classes.push('unread-rfq-row')
@@ -1044,6 +1153,17 @@ const loading = ref(false)
 const items = ref<any[]>([])
 const totalItems = ref(0)
 const sort = useServerSort()
+const showNoQuote = ref(false)
+const daysFilter = ref<number | null>(null)
+
+const daysFilterPresets = [
+  { label: 'Overdue', value: 0 },
+  { label: '≤ 1 day', value: 1 },
+  { label: '≤ 3 days', value: 3 },
+  { label: '≤ 7 days', value: 7 },
+  { label: '≤ 14 days', value: 14 },
+  { label: '≤ 30 days', value: 30 },
+]
 const statusFilter = pf.status
 const userFilter = pf.user
 const pnSearch = pf.pnSearch
@@ -1102,6 +1222,12 @@ const cfUserOptionsPage = computed(() =>
 )
 const cfIdOptionsPage = computed(() => cfIdOptions.value)
 const cfNameOptionsPage = computed(() => cfNameOptions.value)
+
+// Deadline (leadTime) column filter — ISO date part (YYYY-MM-DD) as option value
+const cfDeadlineOptions = computed(() =>
+  [...new Set(items.value.map((i: any) => i.leadTime ? new Date(i.leadTime).toISOString().substring(0, 10) : null).filter(Boolean))].sort() as string[]
+)
+const cfDeadlineOptionsPage = computed(() => cfDeadlineOptions.value)
 
 function collectCfOptions(_loadedItems: any[]) {
   // No-op: page-level options are computed reactively from items.value
@@ -1177,6 +1303,7 @@ const headers = [
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },
   // { title: 'Priority', key: 'priority', width: '100px' },
   { title: 'Deadline', key: 'leadTime' },
+  { title: 'Days', key: 'daysRemaining', sortable: true, width: '110px' },
   { title: 'Parts', key: 'itemCount', sortable: false },
   { title: 'Received Date', key: 'receivedDate' },
 ]
@@ -1186,6 +1313,8 @@ const lastServerOpts = ref<any>({ page: 1, itemsPerPage: 50 })
 async function loadServerPage(opts?: any) {
   if (opts) {
     sort.capture(opts)
+    // daysRemaining is a virtual column — sort it as leadTime on the backend
+    if (sort.sortKey.value === 'daysRemaining') sort.sortKey.value = 'leadTime'
     lastServerOpts.value = { page: opts.page ?? lastServerOpts.value.page, itemsPerPage: opts.itemsPerPage ?? lastServerOpts.value.itemsPerPage }
   }
   const { page, itemsPerPage } = lastServerOpts.value
@@ -1195,7 +1324,9 @@ async function loadServerPage(opts?: any) {
     sort.appendTo(params)
     if (search.value?.trim()) params.set('search', search.value.trim())
     if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
-    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach((s: string) => params.append('statuses', s))
+    if (statusFilter.value?.length)
+      (statusFilter.value as string[]).forEach((s: string) => params.append('statuses', s))
+    if (showNoQuote.value) params.set('includeNoQuote', 'true')
     if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
     if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
     // Column header filters
@@ -1211,6 +1342,8 @@ async function loadServerPage(opts?: any) {
     }
     if (colFilter.isActive('id')) colFilter.getSelected('id').forEach(v => params.append('rfqIds', v))
     if (colFilter.isActive('name')) colFilter.getSelected('name').forEach(v => params.append('rfqNames', v))
+    if (colFilter.isActive('leadTime')) colFilter.getSelected('leadTime').forEach(v => params.append('deadlines', v))
+    if (daysFilter.value !== null) params.set('maxDays', String(daysFilter.value))
     const res = await api.get<any>(`/rfqs?${params.toString()}`)
     items.value = res.items ?? res.Items ?? []
     totalItems.value = res.totalCount ?? res.TotalCount ?? items.value.length
@@ -1230,6 +1363,8 @@ watch(pnSearch, debouncedLoad)
 watch(statusFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
 watch(userFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
 watch(customerFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
+watch(showNoQuote, () => loadServerPage({ ...lastServerOpts.value, page: 1 }))
+watch(daysFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }))
 
 function goToRfq(pointerEvent: Event, rowData: { item: any }) {
   if (rowData && rowData.item && rowData.item.id) {

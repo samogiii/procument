@@ -59,7 +59,16 @@
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
       <v-text-field v-model="form.address" label="Address" class="mb-2" />
-      <v-textarea v-model="form.description" label="Description" rows="3" />
+      <v-textarea v-model="form.description" label="Description" rows="3" class="mb-2" />
+      <!-- Contact Persons -->
+      <div class="text-caption font-weight-bold text-medium-emphasis text-uppercase mt-2 mb-1">Contact Persons</div>
+      <div v-for="(c, i) in contactsList" :key="i" class="d-flex gap-2 align-center mb-1">
+        <v-text-field v-model="c.name" label="Name" variant="outlined" density="compact" hide-details class="flex-grow-1" />
+        <v-text-field v-model="c.email" label="Email" variant="outlined" density="compact" hide-details class="flex-grow-1" />
+        <v-text-field v-model="c.phone" label="Phone" variant="outlined" density="compact" hide-details style="max-width:130px;" />
+        <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="contactsList.splice(i, 1)" />
+      </div>
+      <v-btn size="small" variant="tonal" prepend-icon="mdi-plus" class="mt-1" @click="contactsList.push({ name: '', email: '', phone: '' })">Add Contact</v-btn>
     </CrudDialog>
 
     <ConfirmDialog
@@ -119,15 +128,18 @@ const isEditing = computed(() => editingId.value !== null)
 
 const defaultForm = () => ({ name: '', username: '', dependency: '', description: '', email: '', phone: '', address: '' })
 const form = ref(defaultForm())
+const contactsList = ref<{name: string, email: string, phone: string}[]>([])
 
 function openDialog(item?: any) {
   if (item) {
     editingId.value = item.id
     const d = defaultForm()
     form.value = { ...d, ...Object.fromEntries(Object.keys(d).map(k => [k, item[k] ?? (d as any)[k]])) }
+    try { contactsList.value = item.contacts ? JSON.parse(item.contacts) : [] } catch { contactsList.value = [] }
   } else {
     editingId.value = null
     form.value = defaultForm()
+    contactsList.value = []
   }
   showDialog.value = true
 }
@@ -136,16 +148,22 @@ function closeDialog() {
   showDialog.value = false
   editingId.value = null
   form.value = defaultForm()
+  contactsList.value = []
 }
 
 async function save() {
   if (!dependencyOptions.includes(form.value.dependency)) return
   saving.value = true
   try {
+    const validContacts = contactsList.value.filter(c => c.name.trim())
+    const payload = {
+      ...form.value,
+      contacts: validContacts.length ? JSON.stringify(validContacts) : null,
+    }
     if (editingId.value) {
-      await api.put(`/suppliers/${editingId.value}`, form.value)
+      await api.put(`/suppliers/${editingId.value}`, payload)
     } else {
-      await api.post('/suppliers', form.value)
+      await api.post('/suppliers', payload)
     }
     closeDialog()
     await refreshPage()
