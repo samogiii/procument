@@ -306,9 +306,9 @@ public class PurchaseOrdersController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
-    /// <summary>SuperAdmin: override the unit price of a POItem. Recalculates TotalPrice and PO.TotalAmount. Reflected immediately in Total P/N.</summary>
+    /// <summary>Admin/SuperAdmin: override the unit price of a POItem. Recalculates TotalPrice and PO.TotalAmount. Reflected immediately in Total P/N.</summary>
     [HttpPatch("items/{id:long}/price")]
-    [Authorize(Roles = "SuperAdmin")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     [Auditable("POItem", "PriceOverride", CaptureBody = true)]
     public async Task<IActionResult> UpdateItemPrice(long id, [FromBody] UpdatePOItemPriceRequest request)
     {
@@ -407,6 +407,7 @@ public class PurchaseOrdersController : ControllerBase
                 address = po.Supplier?.Address ?? "",
                 phone = po.Supplier?.Phone ?? "",
                 email = po.Supplier?.Email ?? "",
+                contacts = po.Supplier?.Contacts ?? "",
             },
             vendor = new
             {
@@ -894,7 +895,9 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<ActionResult<List<POResponse>>> GetPaymentQueue()
     {
         var pos = await _db.Set<PurchaseOrder>()
-            .Where(p => p.AdminApproval == "Approved")
+            .Where(p => p.AdminApproval == "Approved"
+                     && p.Status != "Cancelled"
+                     && p.Status != "Returned")
             .OrderByDescending(p => p.AdminApprovalAt)
             .Include(p => p.Supplier)
             .ToListAsync();

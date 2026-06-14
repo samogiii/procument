@@ -171,7 +171,20 @@ public class InvoiceService : IInvoiceService
             if (!hasPermission) return null;
         }
 
-        return MapToResponse(invoice);
+        PaymentBox? wallet = invoice.DefaultDepositWalletId.HasValue
+            ? await _db.Set<PaymentBox>().AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoice.DefaultDepositWalletId.Value)
+            : null;
+
+        var response = MapToResponse(invoice);
+        if (wallet != null)
+        {
+            response.WalletBankName = wallet.BankName;
+            response.WalletBankAddress = wallet.BankAddress;
+            response.WalletAccountNumber = wallet.AccountNumber;
+            response.WalletBeneficiaryName = wallet.BeneficiaryName;
+            response.WalletSwiftCode = wallet.SwiftCode;
+        }
+        return response;
     }
 
     public async Task<InvoiceResponse> CreateAsync(CreateInvoiceRequest request, long userId)
@@ -549,6 +562,7 @@ public class InvoiceService : IInvoiceService
                 : i.Customer?.TermsAndConditions,
             CustomerCurrencyType = i.Customer?.CurrencyType,
             CustomerBase = i.Customer?.Base,
+            CustomerContacts = i.Customer?.Contacts,
             RfqExType = i.InvoiceItems?
                 .Select(ii => ii.QuoteItem?.RFQItem?.RFQ?.ExType)
                 .FirstOrDefault(x => x.HasValue),

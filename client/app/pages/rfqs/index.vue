@@ -162,7 +162,9 @@
           :items="items"
           :items-length="totalItems"
           :loading="loading"
-          :items-per-page="50"
+          v-model:page="currentPage"
+          v-model:items-per-page="currentItemsPerPage"
+          :items-per-page-options="pageOptions"
           hover
           :row-props="getRowProps"
           @update:options="loadServerPage"
@@ -1082,6 +1084,18 @@
 <script setup lang="ts">
 import { VTextField } from 'vuetify/components'
 
+const pageOptions = [
+  { value: 50, title: '50' },
+  { value: 75, title: '75' },
+  { value: 100, title: '100' },
+  { value: 150, title: '150' },
+  { value: 200, title: '200' },
+  { value: 300, title: '300' },
+  { value: 500, title: '500' },
+  { value: 1000, title: '1000' },
+  { value: -1, title: 'All' },
+]
+
 const api = useApi()
 const authStore = useAuthStore()
 const router = useRouter()
@@ -1095,6 +1109,8 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   user: [] as number[],
   pnSearch: '',
   customer: [] as string[],
+  page: 1,
+  itemsPerPage: 50,
 })
 // If URL has ?status=X, apply it once on load
 if (route.query.status && pf.status.value.length === 0) {
@@ -1149,6 +1165,8 @@ const showBulkPerms = ref(false)
 
 // ── List state ──
 const search = pf.search
+const currentPage = pf.page           // top-level ref so Vue auto-unwraps in template
+const currentItemsPerPage = pf.itemsPerPage
 const loading = ref(false)
 const items = ref<any[]>([])
 const totalItems = ref(0)
@@ -1308,7 +1326,7 @@ const headers = [
   { title: 'Received Date', key: 'receivedDate' },
 ]
 
-const lastServerOpts = ref<any>({ page: 1, itemsPerPage: 50 })
+const lastServerOpts = ref<any>({ page: pf.page.value, itemsPerPage: pf.itemsPerPage.value })
 
 async function loadServerPage(opts?: any) {
   if (opts) {
@@ -1316,6 +1334,8 @@ async function loadServerPage(opts?: any) {
     // daysRemaining is a virtual column — sort it as leadTime on the backend
     if (sort.sortKey.value === 'daysRemaining') sort.sortKey.value = 'leadTime'
     lastServerOpts.value = { page: opts.page ?? lastServerOpts.value.page, itemsPerPage: opts.itemsPerPage ?? lastServerOpts.value.itemsPerPage }
+    pf.page.value = lastServerOpts.value.page
+    currentItemsPerPage.value = lastServerOpts.value.itemsPerPage
   }
   const { page, itemsPerPage } = lastServerOpts.value
   loading.value = true

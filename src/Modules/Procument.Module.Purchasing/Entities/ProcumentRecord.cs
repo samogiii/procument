@@ -27,6 +27,12 @@ public class ProcumentRecord : BaseEntity
     public bool IsCertificated { get; set; }
     public int SortOrder { get; set; }
 
+    // Price-age tracking — independent of the part's TagDate and the RFQ's CreatedAt.
+    // CreatedAt = when this supplier cost was first recorded; UpdatedAt = last time it was edited.
+    // Used to decide whether a price is "expired" (older than 14 days).
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+
     // Shop fields
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }

@@ -7,8 +7,10 @@ public class SaveWarehouseRequest
     public string? DisplayName { get; set; }
     public string? Type { get; set; }       // "OurWarehouse" | "Forwarded"
     public string? Address { get; set; }
+    public string? ShipToAddress { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
+    public string? FedexAccount { get; set; }
     public bool? IsActive { get; set; }
 }
 
@@ -19,8 +21,10 @@ public class WarehouseResponse
     public string? DisplayName { get; set; }
     public string Type { get; set; } = "OurWarehouse";
     public string? Address { get; set; }
+    public string? ShipToAddress { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
+    public string? FedexAccount { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
 }

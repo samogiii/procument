@@ -335,8 +335,11 @@ public class FinalInvoiceService : IFinalInvoiceService
             CustomerBillTo = fi.Customer?.BillTo,
             CustomerBillToEmail = fi.Customer?.Email,
             CustomerBillToPhone = fi.Customer?.Phone,
-            CustomerTermsAndConditions = fi.Customer?.TermsAndConditions,
+            CustomerTermsAndConditions = !string.IsNullOrWhiteSpace(fi.Customer?.PITermsAndConditions)
+                ? fi.Customer.PITermsAndConditions
+                : fi.Customer?.TermsAndConditions,
             CustomerCurrencyType = fi.Customer?.CurrencyType,
+            CustomerContacts = fi.Customer?.Contacts,
             DefaultDepositWalletId = fi.ProformaInvoice?.DefaultDepositWalletId,
             QuoteCoefYuan = fi.ProformaInvoice?.Quote?.CoefYuan,
             QuoteExchangeRateYuan = fi.ProformaInvoice?.Quote?.ExchangeRateYuan,

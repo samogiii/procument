@@ -77,7 +77,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             // 3. Apply Filter: (In Base) OR (Assigned via Procurement) OR (Assigned via Invoice)
             q = q.Where(i =>
                 (userBases != null && userBases.Length > 0 && i.InvoiceItemId != null && allowedInvoiceItemIds.Contains(i.InvoiceItemId.Value)) ||
-                (i.SourceProcurementItem != null && procIds.Contains(i.SourceProcurementItem.ProcurementId)) ||
+                (i.SourceProcurementItem != null && procIds.Contains(i.SourceProcurementItem.Id)) ||
                 (i.InvoiceItemId != null && invIds.Contains(i.InvoiceItemId.Value)) ||
                 (i.POId != null && poIds.Contains(i.POId.Value)) ||
                 (isAdmin && i.InvoiceItemId == null) || // Admins see internal items
@@ -486,8 +486,13 @@ public class PurchaseOrderService : IPurchaseOrderService
             // 1. Soft-delete all live POItems on this PO so they disappear from Order Items entirely.
             //    Setting ReturnedAt removes them cleanly — no ghost items floating in Order Items.
             //    When the user re-approves from a new procurement, fresh POItems are created with no duplicates.
+            //    Also sweep loose partial-return fragments that originated from this PO (POId == null,
+            //    ReturnedFromPOId == this PO) — otherwise they survive the reset and collide with the
+            //    fresh re-approved POItem, producing duplicates in the Vendor/Customer, Warehouse and Total P/N views.
             var liveItems = await _db.Set<POItem>()
-                .Where(i => i.POId == po.Id && i.ReturnedAt == null)
+                .Where(i => i.ReturnedAt == null &&
+                            (i.POId == po.Id ||
+                             (i.POId == null && i.ReturnedFromPOId == po.Id)))
                 .ToListAsync();
 
             var now = DateTime.UtcNow;
@@ -576,6 +581,8 @@ public class PurchaseOrderService : IPurchaseOrderService
     /// <summary>
     /// Return a PO (or a subset of its items) back into Procurement. Full return (empty ItemIds)
     /// sets PO.Status = "Returned"; partial returns leave the PO open with its surviving items.
+    /// ItemQtys (POItemId → qty) enables partial-quantity returns: the original item shrinks and
+    /// a new unassigned POItem for the returned qty surfaces in the procurement pool.
     /// </summary>
     public async Task<ReturnPOResponse?> ReturnAsync(long poId, ReturnPORequest request, long userId)
     {
@@ -591,17 +598,91 @@ public class PurchaseOrderService : IPurchaseOrderService
         var liveItems = po.POItems.Where(i => i.ReturnedAt == null).ToList();
         if (liveItems.Count == 0) return null;
 
-        // Determine target set: null/empty → full return
-        var targetIds = (request.ItemIds == null || request.ItemIds.Count == 0)
-            ? liveItems.Select(i => i.Id).ToList()
-            : liveItems.Where(i => request.ItemIds.Contains(i.Id)).Select(i => i.Id).ToList();
-
-        if (targetIds.Count == 0) return null;
-
         var reason = string.IsNullOrWhiteSpace(request.Reason) ? "(no reason provided)" : request.Reason.Trim();
-        bool fullReturn = targetIds.Count == liveItems.Count;
+        var now = DateTime.UtcNow;
 
-        var (reopened, skipped, warnings) = await _procurementService.RecyclePOItemsAsync(targetIds, po.Id, reason, userId);
+        List<long> fullReturnIds;
+        bool fullReturn;
+
+        if (request.ItemQtys != null && request.ItemQtys.Count > 0)
+        {
+            // ── Qty-based path ──────────────────────────────────────────────────
+            // Build a map of live item → clamped return qty (1..item.Qty)
+            var itemQtysMap = liveItems
+                .Where(i => request.ItemQtys.ContainsKey(i.Id) && request.ItemQtys[i.Id] > 0)
+                .Select(i => new { Item = i, ReturnQty = Math.Min(request.ItemQtys[i.Id], i.Qty) })
+                .ToList();
+
+            if (itemQtysMap.Count == 0) return null;
+
+            // Split: partial qty returns vs. full item returns
+            var partials = itemQtysMap.Where(x => x.ReturnQty < x.Item.Qty).ToList();
+            fullReturnIds = itemQtysMap.Where(x => x.ReturnQty >= x.Item.Qty).Select(x => x.Item.Id).ToList();
+
+            // Handle partial-qty returns: the line stays on the PO at reduced qty, and the returned
+            // units go BACK INTO the Procurement layer (re-sourceable) — not straight into the PO pool.
+            foreach (var p in partials)
+            {
+                var poItem = p.Item;
+                var returnQty = p.ReturnQty;
+
+                // Shrink the line that stays on the PO
+                poItem.Qty -= returnQty;
+                poItem.TotalPrice = poItem.Qty * poItem.UnitPrice;
+
+                // Send the returned units back into Procurement as a new "Open" item so the user can
+                // change supplier / qty and re-approve. (This also gives the returned qty its OWN
+                // ProcurementItem id, so a later re-approval can never collide with the source line.)
+                bool split = false;
+                if (poItem.SourceProcurementItemId.HasValue)
+                    split = await _procurementService.SplitReturnedQtyToProcurementAsync(
+                        poItem.SourceProcurementItemId.Value, returnQty, reason, userId);
+
+                // Fallback for legacy / untraceable items (no Procurement source): keep the returned
+                // qty as an unassigned POItem so it is never lost. These rare strays are swept on
+                // PO cancel / full return.
+                if (!split)
+                {
+                    var newItem = new POItem
+                    {
+                        Qty             = returnQty,
+                        UnitPrice       = poItem.UnitPrice,
+                        TotalPrice      = returnQty * poItem.UnitPrice,
+                        Condition       = poItem.Condition,
+                        SupplierId      = poItem.SupplierId,
+                        PartNumberId    = poItem.PartNumberId,
+                        SourceProcurementItemId = poItem.SourceProcurementItemId,
+                        ProcumentId     = poItem.ProcumentId,
+                        InvoiceItemId   = poItem.InvoiceItemId,
+                        Note            = poItem.Note,
+                        ReturnedFromPOId = poId,
+                        ReturnReason     = reason,
+                    };
+                    _db.Set<POItem>().Add(newItem);
+                }
+            }
+
+            // Full return = every live item is being fully returned (no partials, all full)
+            fullReturn = partials.Count == 0 && fullReturnIds.Count == liveItems.Count;
+        }
+        else
+        {
+            // ── Legacy ItemIds path (all-or-nothing per item) ───────────────────
+            fullReturnIds = (request.ItemIds == null || request.ItemIds.Count == 0)
+                ? liveItems.Select(i => i.Id).ToList()
+                : liveItems.Where(i => request.ItemIds.Contains(i.Id)).Select(i => i.Id).ToList();
+
+            if (fullReturnIds.Count == 0) return null;
+
+            fullReturn = fullReturnIds.Count == liveItems.Count;
+        }
+
+        // Recycle full-return items through procurement (soft-delete + reopen ProcurementItem)
+        List<long> reopened = [];
+        List<long> skipped = [];
+        List<string> warnings = [];
+        if (fullReturnIds.Count > 0)
+            (reopened, skipped, warnings) = await _procurementService.RecyclePOItemsAsync(fullReturnIds, po.Id, reason, userId);
 
         // Recompute PO total from whatever remains live
         var remaining = await _db.Set<POItem>()
@@ -610,9 +691,16 @@ public class PurchaseOrderService : IPurchaseOrderService
         po.TotalAmount = remaining.Sum(i => i.TotalPrice);
 
         // Flip PO status on full return (partial returns keep the PO in its current workflow state)
-        var now = DateTime.UtcNow;
         if (fullReturn)
         {
+            // Sweep leftover partial-return fragments from PRIOR partial returns on this PO.
+            // fullReturn implies no new partials were created in this same call, so this never
+            // deletes a clone being created right now — only stale strays from earlier actions.
+            var strays = await _db.Set<POItem>()
+                .Where(i => i.POId == null && i.ReturnedAt == null && i.ReturnedFromPOId == po.Id)
+                .ToListAsync();
+            foreach (var s in strays) s.ReturnedAt = now;
+
             po.Status = "Returned";
             po.ReturnReason = reason;
             po.ReturnedAt = now;
@@ -633,7 +721,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             POId = po.Id,
             FullReturn = fullReturn,
             POStatus = po.Status,
-            ReturnedPOItemIds = targetIds.Except(skipped).ToList(),
+            ReturnedPOItemIds = fullReturnIds.Except(skipped).ToList(),
             ReopenedProcurementIds = reopened,
             SkippedPOItemIds = skipped,
             Warnings = warnings,

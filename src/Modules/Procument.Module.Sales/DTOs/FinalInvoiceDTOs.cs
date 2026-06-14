@@ -30,6 +30,7 @@ public class FinalInvoiceResponse
     public string? CustomerShipToAccount { get; set; }
     public string? CustomerTermsAndConditions { get; set; }
     public string? CustomerCurrencyType { get; set; }
+    public string? CustomerContacts { get; set; }
     public long? DefaultDepositWalletId { get; set; }
     // Yuan pricing settings from the source Quote
     public decimal? QuoteCoefYuan { get; set; }

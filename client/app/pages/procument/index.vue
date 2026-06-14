@@ -187,7 +187,9 @@
           :items="allItems"
           :items-length="totalItems"
           :loading="loading"
-          :items-per-page="50"
+          v-model:page="currentPage"
+          v-model:items-per-page="currentItemsPerPage"
+          :items-per-page-options="pageOptions"
           hover
           density="comfortable"
           item-value="rfqItemId"
@@ -1151,6 +1153,18 @@ const api = useApi()
 const authStore = useAuthStore()
 const { statusColor: rfqStatusColor } = useStatusColor()
 
+const pageOptions = [
+  { value: 50, title: '50' },
+  { value: 75, title: '75' },
+  { value: 100, title: '100' },
+  { value: 150, title: '150' },
+  { value: 200, title: '200' },
+  { value: 300, title: '300' },
+  { value: 500, title: '500' },
+  { value: 1000, title: '1000' },
+  { value: -1, title: 'All' },
+]
+
 const today = new Date().toISOString().split('T')[0]
 
 const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procument', {
@@ -1164,8 +1178,12 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procumen
   colCond: [] as string[],   // condition exact matches
   colRfqId: [] as string[],
   colRfqName: [] as string[],
+  page: 1,
+  itemsPerPage: 50,
 })
 const search = pf.search
+const currentPage = pf.page           // top-level ref so Vue auto-unwraps in template
+const currentItemsPerPage = pf.itemsPerPage
 const loading = ref(false)
 const allItems = ref<any[]>([])
 const totalItems = ref(0)
@@ -1517,12 +1535,14 @@ function getRowProps({ item }: { item: any }) {
 }
 
 // ── Data Loading ──
-const lastProcumentOpts = ref<any>({ page: 1, itemsPerPage: 50 })
+const lastProcumentOpts = ref<any>({ page: pf.page.value, itemsPerPage: pf.itemsPerPage.value })
 
 async function loadServerPage(opts?: any) {
   if (opts) {
     sort.capture(opts)
     lastProcumentOpts.value = { page: opts.page ?? lastProcumentOpts.value.page, itemsPerPage: opts.itemsPerPage ?? lastProcumentOpts.value.itemsPerPage }
+    pf.page.value = lastProcumentOpts.value.page
+    currentItemsPerPage.value = lastProcumentOpts.value.itemsPerPage
   }
   const { page, itemsPerPage } = lastProcumentOpts.value
   loading.value = true

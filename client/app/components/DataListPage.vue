@@ -88,7 +88,9 @@
           :items="filteredClientItems"
           :items-length="totalItems"
           :loading="loading"
-          :items-per-page="itemsPerPage"
+          v-model:page="currentPage"
+          v-model:items-per-page="currentItemsPerPage"
+          :items-per-page-options="pageOptions"
           hover
           @update:options="loadServerItems"
           @click:row="onRowClick"
@@ -112,7 +114,9 @@
           :items="filteredClientItems"
           :search="search"
           :loading="loading"
-          :items-per-page="itemsPerPage"
+          v-model:page="currentPage"
+          v-model:items-per-page="currentItemsPerPage"
+          :items-per-page-options="pageOptions"
           hover
           @click:row="onRowClick"
           :class="{ 'clickable-rows': !!detailRoute }"
@@ -140,6 +144,18 @@
 <script setup lang="ts">
 const api = useApi()
 const route = useRoute()
+
+const pageOptions = [
+  { value: 50, title: '50' },
+  { value: 75, title: '75' },
+  { value: 100, title: '100' },
+  { value: 150, title: '150' },
+  { value: 200, title: '200' },
+  { value: 300, title: '300' },
+  { value: 500, title: '500' },
+  { value: 1000, title: '1000' },
+  { value: -1, title: 'All' },
+]
 
 const props = withDefaults(defineProps<{
   /** Page title */
@@ -185,13 +201,15 @@ const selected = computed({
   set: (val) => emit('update:modelValue', val)
 })
 
-// If pageKey is provided, persist search + status to localStorage
+// If pageKey is provided, persist search + status + page to localStorage
 const _pf = props.pageKey
-  ? usePageFilters(props.pageKey, { search: '', status: [] as string[] })
+  ? usePageFilters(props.pageKey, { search: '', status: [] as string[], page: 1, itemsPerPage: props.itemsPerPage })
   : null
 
 const search = _pf ? _pf.filters.search : ref('')
 const statusFilter = _pf ? _pf.filters.status : ref<string[]>([])
+const currentPage = _pf ? _pf.filters.page : ref(1)
+const currentItemsPerPage = _pf ? _pf.filters.itemsPerPage : ref(props.itemsPerPage)
 const clearDlpFilters = _pf ? _pf.clearFilters : () => {}
 const hasDlpActiveFilters = _pf ? _pf.hasActiveFilters : computed(() => false)
 
@@ -269,6 +287,8 @@ const sort = useServerSort()
 // ─── Server-side loading ───
 async function loadServerItems(options: any) {
   lastServerOptions.value = options
+  currentPage.value = options.page
+  currentItemsPerPage.value = options.itemsPerPage
   sort.capture(options)
   loading.value = true
   try {
@@ -342,13 +362,16 @@ if (props.serverSide) {
   watch(search, () => {
     clearTimeout(searchDebounce)
     searchDebounce = setTimeout(() => {
+      currentPage.value = 1
       loadServerItems({ ...lastServerOptions.value, page: 1 })
     }, 350)
   })
   watch(statusFilter, () => {
+    currentPage.value = 1
     loadServerItems({ ...lastServerOptions.value, page: 1 })
   })
   watch(() => props.extraParams, () => {
+    currentPage.value = 1
     loadServerItems({ ...lastServerOptions.value, page: 1 })
   }, { deep: true })
 }

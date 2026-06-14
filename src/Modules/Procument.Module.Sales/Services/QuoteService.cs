@@ -16,7 +16,7 @@ public interface IQuoteService
     Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
@@ -195,7 +195,7 @@ public class QuoteService : IQuoteService
             ?? throw new Exception("Failed to load created quote.");
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null)
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .AsNoTracking()
@@ -214,6 +214,8 @@ public class QuoteService : IQuoteService
 
         if (statuses?.Count > 0)
             query = query.Where(q => statuses.Contains(q.Status));
+        else if (!includeRejected)
+            query = query.Where(q => q.Status != "Rejected");
 
         if (!string.IsNullOrEmpty(search))
             query = query.Where(q => q.QuoteNumber.Contains(search) || (q.Customer != null && q.Customer.Name.Contains(search)));

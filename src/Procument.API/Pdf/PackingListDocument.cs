@@ -53,58 +53,56 @@ public static class PackingListDocument
                         Meta("PI Ref", req.ProformaRef);
                     });
 
-                    // Bill To / Ship To
+                    // Bill To / Ship To — labels row then bordered-content row so both boxes share the same height
+                    col.Item().PaddingBottom(4).Row(row =>
+                    {
+                        row.RelativeItem().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
+                        row.ConstantItem(8);
+                        row.RelativeItem().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
+                    });
                     col.Item().PaddingBottom(12).Row(row =>
                     {
-                        // Bill To
-                        row.RelativeItem().Column(col =>
+                        // Bill To — border is direct RelativeItem child so QuestPDF stretches it to row height
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(bc =>
                         {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(bc =>
+                            void BillField(string label, string? val)
+                            {
+                                if (string.IsNullOrWhiteSpace(val)) return;
+                                bc.Item().Text(t =>
                                 {
-                                    void Field(string label, string? val)
-                                    {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        bc.Item().Text(t =>
-                                        {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    bc.Item().Text(req.CustomerBillToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
-                                        bc.Item().Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    Field("Contact Person", req.CustomerBillToContactPerson);
-                                    Field("Email", req.CustomerBillToEmail);
-                                    Field("Phone", req.CustomerBillToPhone);
+                                    t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                    t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 });
+                            }
+                            bc.Item().Text(req.CustomerBillToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
+                            if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
+                                bc.Item().Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                            BillField("Contact Person", req.CustomerBillToContactPerson);
+                            BillField("Email", req.CustomerBillToEmail);
+                            BillField("Phone", req.CustomerBillToPhone);
                         });
 
+                        row.ConstantItem(8);
+
                         // Ship To
-                        row.RelativeItem().Column(col =>
+                        row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(bc =>
                         {
-                            col.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
-                            col.Item().PaddingTop(6).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                .Padding(10).Column(bc =>
+                            void ShipField(string label, string? val)
+                            {
+                                if (string.IsNullOrWhiteSpace(val)) return;
+                                bc.Item().Text(t =>
                                 {
-                                    void Field(string label, string? val)
-                                    {
-                                        if (string.IsNullOrWhiteSpace(val)) return;
-                                        bc.Item().Text(t =>
-                                        {
-                                            t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                            t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                        });
-                                    }
-                                    bc.Item().Text(req.CustomerShipToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
-                                    if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
-                                        bc.Item().Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    Field("Contact Person", req.CustomerShipToContactPerson);
-                                    Field("Email", req.CustomerShipToEmail);
-                                    Field("Phone", req.CustomerShipToPhone);
-                                    Field("Account", req.CustomerShipToAccount);
+                                    t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
+                                    t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 });
+                            }
+                            bc.Item().Text(req.CustomerShipToName ?? req.CustomerName ?? "—").Bold().FontSize(10).FontColor(primary);
+                            if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
+                                bc.Item().Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
+                            ShipField("Contact Person", req.CustomerShipToContactPerson);
+                            ShipField("Email", req.CustomerShipToEmail);
+                            ShipField("Phone", req.CustomerShipToPhone);
+                            ShipField("Account", req.CustomerShipToAccount);
                         });
                     });
 

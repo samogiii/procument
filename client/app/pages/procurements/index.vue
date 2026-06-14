@@ -101,7 +101,9 @@
           :items="allItems"
           :items-length="totalItems"
           :loading="loading"
-          :items-per-page="50"
+          v-model:page="currentPage"
+          v-model:items-per-page="currentItemsPerPage"
+          :items-per-page-options="pageOptions"
           hover
           density="comfortable"
           :item-value="item => (item.id ?? item.Id)"
@@ -627,6 +629,18 @@ const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
+const pageOptions = [
+  { value: 50, title: '50' },
+  { value: 75, title: '75' },
+  { value: 100, title: '100' },
+  { value: 150, title: '150' },
+  { value: 200, title: '200' },
+  { value: 300, title: '300' },
+  { value: 500, title: '500' },
+  { value: 1000, title: '1000' },
+  { value: -1, title: 'All' },
+]
+
 const loading = ref(false)
 const allItems = ref<any[]>([])
 const totalItems = ref(0)
@@ -1058,11 +1072,14 @@ function showSnack(text: string, color = 'success') {
 }
 
 // ── Data Loading ──
-const lastProcOpts = ref<any>({ page: 1, itemsPerPage: 50 })
+const { filters: procPf } = usePageFilters('procurements', { page: 1, itemsPerPage: 50 })
+const currentPage = procPf.page        // top-level ref so Vue auto-unwraps in template
+const currentItemsPerPage = procPf.itemsPerPage
+const lastProcOpts = ref<any>({ page: procPf.page.value, itemsPerPage: procPf.itemsPerPage.value })
 const sort = useServerSort()
 
 async function loadServerPage(opts?: any) {
-  if (opts) { lastProcOpts.value = opts; sort.capture(opts) }
+  if (opts) { lastProcOpts.value = opts; sort.capture(opts); procPf.page.value = opts.page ?? lastProcOpts.value.page; currentItemsPerPage.value = opts.itemsPerPage ?? lastProcOpts.value.itemsPerPage }
   const { page, itemsPerPage } = lastProcOpts.value
   loading.value = true
   try {

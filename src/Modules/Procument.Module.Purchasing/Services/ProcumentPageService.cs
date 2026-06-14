@@ -12,7 +12,7 @@ namespace Procument.Module.Purchasing.Services;
 
 public interface IProcumentPageService
 {
-    Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null);
+    Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null, bool includeNoQuote = false);
     Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId);
 }
 
@@ -27,7 +27,7 @@ public class ProcumentPageService : IProcumentPageService
         _permissionService = permissionService;
     }
 
-    public async Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null)
+    public async Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null, bool includeNoQuote = false)
     {
         // 1. Build base RFQ item query
         IQueryable<RFQItem> itemQuery = _db.Set<RFQItem>()
@@ -77,6 +77,8 @@ public class ProcumentPageService : IProcumentPageService
 
         if (statuses?.Count > 0)
             itemQuery = itemQuery.Where(i => statuses.Contains(i.RFQ.Status ?? "Open"));
+        else if (!includeNoQuote)
+            itemQuery = itemQuery.Where(i => i.RFQ.Status != "No Quote");
 
         if (customerSearch?.Count > 0)
         {
@@ -144,8 +146,11 @@ public class ProcumentPageService : IProcumentPageService
             ? itemQuery.ToListAsync()
             : itemQuery.Skip((page.Page - 1) * page.PageSize).Take(page.PageSize).ToListAsync());
 
-        // 5. Batch-load supplier quotes for this page's items only
-        var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-14));
+        // 5. Batch-load supplier quotes for this page's items only.
+        // A price is "expired" when the cost record itself was last touched more than 14 days ago.
+        // This is independent of the part's Tag Date (can be years old) and the RFQ's CreatedAt
+        // (a cost may be added today to a month-old RFQ).
+        var cutoff = DateTime.UtcNow.AddDays(-14);
         var allRfqItemIds = pageItems.Select(i => i.Id).ToList();
         var allSupplierQuotes = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
@@ -189,8 +194,8 @@ public class ProcumentPageService : IProcumentPageService
                         SupplierStatus = q.Supplier.Status ?? "Approved",
                         SupplierDependency = q.Supplier.Dependency,
                         Qty = q.Qty,
-                        Price = (q.TagDate == null || q.TagDate >= cutoff) ? q.Price : 0m,
-                        PriceHidden = q.TagDate != null && q.TagDate < cutoff,
+                        Price = q.Price,
+                        PriceHidden = (q.UpdatedAt ?? q.CreatedAt) < cutoff,
                         Condition = q.Condition,
                         Alt = q.Alt,
                         Unit = q.Unit,
@@ -222,8 +227,8 @@ public class ProcumentPageService : IProcumentPageService
                                 SupplierStatus = s.Supplier.Status ?? "Approved",
                                 SupplierDependency = s.Supplier.Dependency,
                                 Qty = s.Qty,
-                                Price = (s.TagDate == null || s.TagDate >= cutoff) ? s.Price : 0m,
-                                PriceHidden = s.TagDate != null && s.TagDate < cutoff,
+                                Price = s.Price,
+                                PriceHidden = (s.UpdatedAt ?? s.CreatedAt) < cutoff,
                                 Condition = s.Condition,
                                 Alt = s.Alt,
                                 Unit = s.Unit,
@@ -348,12 +353,13 @@ public class ProcumentPageService : IProcumentPageService
             .Select(g => g.First())
             .ToList();
 
-        // 3. Recent procurement records for same/related part numbers from RFQs created within 14 days
+        // 3. Recent procurement records for same/related part numbers.
+        // "Recent" is judged by the cost record's own age (UpdatedAt/CreatedAt), NOT the RFQ's date —
+        // a fresh cost can be added today to an older RFQ and is still a current, useful price.
         var relatedRfqItemIds = await _db.Set<RFQItem>()
-            .Include(i => i.RFQ)
             .Where(i => relatedPnIds.Contains(i.PartNumberId)
                      && i.RFQId != excludeRfqId
-                     && i.RFQ.CreatedAt >= cutoff && (i.RFQ.Status == "Open" || i.RFQ.Status == "In Progress"))
+                     && (i.RFQ.Status == "Open" || i.RFQ.Status == "In Progress"))
             .Select(i => i.Id)
             .ToListAsync();
 
@@ -361,7 +367,9 @@ public class ProcumentPageService : IProcumentPageService
             .Include(r => r.Supplier)
             .Include(r => r.RFQItem)
                 .ThenInclude(ri => ri.RFQ)
-            .Where(r => relatedRfqItemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
+            .Where(r => relatedRfqItemIds.Contains(r.RFQItemId)
+                     && (r.Type ?? "Procument") != "Shop"
+                     && (r.UpdatedAt ?? r.CreatedAt) >= cutoff)
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 
@@ -375,9 +383,10 @@ public class ProcumentPageService : IProcumentPageService
                 SupplierName = r.Supplier.Name,
                 SupplierDependency = r.Supplier.Dependency,
                 Qty = r.Qty,
-                // Hide price when the import/tag date is older than 14 days
-                Price       = (r.TagDate == null || r.TagDate >= DateOnly.FromDateTime(cutoff)) ? r.Price : 0m,
-                PriceHidden = r.TagDate != null && r.TagDate < DateOnly.FromDateTime(cutoff),
+                // Hide the price when the cost record itself was last touched more than 14 days ago.
+                // Based on the cost's own age — NOT the part's Tag Date and NOT the RFQ's CreatedAt.
+                Price       = (r.UpdatedAt ?? r.CreatedAt) >= cutoff ? r.Price : 0m,
+                PriceHidden = (r.UpdatedAt ?? r.CreatedAt) < cutoff,
                 Condition = r.Condition,
                 Alt = r.Alt,
                 Unit = r.Unit,

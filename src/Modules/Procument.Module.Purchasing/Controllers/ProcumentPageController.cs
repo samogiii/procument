@@ -36,11 +36,12 @@ public class ProcumentPageController : ControllerBase
         [FromQuery] List<string>? colPartNames = null,
         [FromQuery] List<string>? customerCodes = null,
         [FromQuery] List<long>? rfqIds = null,
-        [FromQuery] List<string>? rfqNames = null)
+        [FromQuery] List<string>? rfqNames = null,
+        [FromQuery] bool includeNoQuote = false)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _service.GetAllItemsAsync(userId, isSuperAdmin, userBases, pq, status, customerSearch, userIds, pnSearch, pendingOnly, sortBy, sortDesc, conditions, colPartNames, customerCodes, rfqIds, rfqNames);
+        var result = await _service.GetAllItemsAsync(userId, isSuperAdmin, userBases, pq, status, customerSearch, userIds, pnSearch, pendingOnly, sortBy, sortDesc, conditions, colPartNames, customerCodes, rfqIds, rfqNames, includeNoQuote);
         return Ok(result);
     }
 

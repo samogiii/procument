@@ -43,7 +43,9 @@ public class SupplierQuoteResponse
     public string SupplierDependency { get; set; } = "Normal";
     public double Qty { get; set; }
     public decimal Price { get; set; }
-    /// <summary>True when TagDate is older than 14 days — Price is 0 and should not be displayed.</summary>
+    /// <summary>True when the cost is stale — i.e. the RFQ it was gathered for is older than
+    /// 14 days. When true, Price is 0 and should not be displayed. This is based on cost age,
+    /// not the part's Tag Date (which can legitimately be old on a freshly-quoted part).</summary>
     public bool PriceHidden { get; set; }
     public string? Condition { get; set; }
     public string? Alt { get; set; }

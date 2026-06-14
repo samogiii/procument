@@ -147,6 +147,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.FixPrice = request.FixPrice;
             record.ParentProcumentId = request.ParentProcumentId;
             record.UserId = userId;
+            record.UpdatedAt = DateTime.UtcNow; // editing the cost refreshes its price age
         }
         else
         {

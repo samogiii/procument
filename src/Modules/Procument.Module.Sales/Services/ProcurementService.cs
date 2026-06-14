@@ -340,7 +340,7 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     // Query methods
     // ────────────────────────────────────────────────────────────────
-    public async Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null)
+    public async Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null, bool includeCancelled = false)
     {
         // Build procurement info map first (for customer/procStatus filtering)
         // When no explicit procStatus filter is given, exclude Cancelled procurements by default
@@ -422,6 +422,8 @@ public class ProcurementService : IProcurementService
 
         if (statuses?.Count > 0)
             query = query.Where(i => statuses.Contains(i.ItemStatus));
+        else if (!includeCancelled)
+            query = query.Where(i => i.ItemStatus != "Cancelled");
 
         if (userIds?.Count > 0)
         {
@@ -1632,6 +1634,163 @@ public class ProcurementService : IProcurementService
         await _db.SaveChangesAsync();
 
         return (reopened.ToList(), skipped, warnings);
+    }
+
+    /// <summary>
+    /// Partial-return path: split the returned units of a POItem back into the Procurement layer.
+    /// The source ProcurementItem stays as the portion still on the PO (its Qty/AcceptedQty shrink
+    /// by returnQty); a NEW sibling ProcurementItem carrying the returned qty is created as "Open"
+    /// (supplier quotes cloned) so the user can re-source supplier/qty and re-approve. The parent
+    /// Procurement is re-opened (Finalized → Reopened) so the new item is editable.
+    /// Returns false when the source ProcurementItem can't be resolved or the loop cap is hit —
+    /// the caller falls back to the legacy floating-POItem clone so the qty is never lost.
+    /// </summary>
+    public async Task<bool> SplitReturnedQtyToProcurementAsync(long sourceProcurementItemId, int returnQty, string reason, long userId)
+    {
+        if (returnQty <= 0) return false;
+
+        var src = await _db.Set<ProcurementItem>()
+            .Include(i => i.SupplierQuotes)
+            .FirstOrDefaultAsync(i => i.Id == sourceProcurementItemId);
+        if (src == null) return false;
+
+        // Loop cap — same guard as RecyclePOItemsAsync to prevent runaway return loops.
+        if (src.LoopCount >= 50) return false;
+
+        var now = DateTime.UtcNow;
+
+        // Shrink the source line so its qty/accepted-qty match the units still on the PO.
+        src.Qty = Math.Max(0, src.Qty - returnQty);
+        src.AcceptedQty = Math.Max(0, src.AcceptedQty - returnQty);
+        src.UpdatedAt = now;
+
+        var maxSort = await _db.Set<ProcurementItem>()
+            .Where(i => i.ProcurementId == src.ProcurementId)
+            .Select(i => (int?)i.SortOrder).MaxAsync() ?? src.SortOrder;
+
+        // New sibling item carrying the returned units — Open for re-sourcing.
+        var returned = new ProcurementItem
+        {
+            ProcurementId = src.ProcurementId,
+            SortOrder = maxSort + 1,
+            CreatedAt = now,
+
+            // RFQ snapshot
+            SourceRfqId = src.SourceRfqId,
+            SourceRfqItemId = src.SourceRfqItemId,
+            RfqName = src.RfqName,
+            RfqExType = src.RfqExType,
+            PartNumberId = src.PartNumberId,
+            PartNumberName = src.PartNumberName,
+            PartNumberDescription = src.PartNumberDescription,
+            RfqQty = src.RfqQty,
+            RfqCondition = src.RfqCondition,
+            RfqUnit = src.RfqUnit,
+            RfqPriority = src.RfqPriority,
+            RfqAlt = src.RfqAlt,
+            RfqNote = src.RfqNote,
+
+            // Quote snapshot
+            SourceQuoteId = src.SourceQuoteId,
+            SourceQuoteItemId = src.SourceQuoteItemId,
+            QuoteNumber = src.QuoteNumber,
+            QuoteUnitPrice = src.QuoteUnitPrice,
+            QuoteQty = src.QuoteQty,
+            QuoteCondition = src.QuoteCondition,
+            QuoteAlt = src.QuoteAlt,
+            QuoteLeadTimeDays = src.QuoteLeadTimeDays,
+
+            // Selected-supplier snapshot
+            SourceProcumentRecordId = src.SourceProcumentRecordId,
+            SourceSupplierId = src.SourceSupplierId,
+            SupplierName = src.SupplierName,
+            SupplierPrice = src.SupplierPrice,
+            SupplierLeadTime = src.SupplierLeadTime,
+            SupplierCondition = src.SupplierCondition,
+            SupplierCertName = src.SupplierCertName,
+            ShippingCost = src.ShippingCost,
+
+            // Invoice snapshot — same invoice item, carrying the returned qty
+            SourceInvoiceItemId = src.SourceInvoiceItemId,
+            AcceptedQty = returnQty,
+            AcceptedUnitPrice = src.AcceptedUnitPrice,
+
+            // Editable fields seeded from the source so the user has a starting point
+            Qty = returnQty,
+            UnitPrice = src.UnitPrice,
+            CurrentSupplierId = src.CurrentSupplierId,
+            LeadTime = src.LeadTime,
+            Condition = src.Condition,
+            ExpectedDeliveryDate = src.ExpectedDeliveryDate,
+            Alt = src.Alt,
+            Note = src.Note,
+            ItemStatus = "Open",
+
+            // Loop / recycle tracking
+            LoopCount = src.LoopCount + 1,
+            LastReturnReason = reason,
+            LastReturnedAt = now,
+        };
+        _db.Set<ProcurementItem>().Add(returned);
+        await _db.SaveChangesAsync(); // materialize returned.Id for quote cloning
+
+        // Clone supplier quotes so the user keeps prior sourcing context (and can swap supplier/price).
+        int sqOrder = 0;
+        foreach (var sq in src.SupplierQuotes.OrderBy(q => q.SortOrder).ThenBy(q => q.Id))
+        {
+            sqOrder++;
+            _db.Set<ProcurementSupplierQuote>().Add(new ProcurementSupplierQuote
+            {
+                ProcurementItemId = returned.Id,
+                SupplierId = sq.SupplierId,
+                SupplierName = sq.SupplierName,
+                Price = sq.Price,
+                Qty = sq.Qty,
+                Condition = sq.Condition,
+                Unit = sq.Unit,
+                Alt = sq.Alt,
+                LeadTime = sq.LeadTime,
+                CertName = sq.CertName,
+                ShippingCost = sq.ShippingCost,
+                Note = sq.Note,
+                TagDate = sq.TagDate,
+                ShippingPoint = sq.ShippingPoint,
+                IsSelected = sq.IsSelected,
+                SourceProcumentRecordId = sq.SourceProcumentRecordId,
+                SortOrder = sqOrder,
+                CreatedAt = now,
+                AddedByUserId = userId > 0 ? userId : null,
+            });
+        }
+
+        // Re-open the parent procurement so the new Open item can be sourced/approved.
+        var parent = await _db.Set<Procurement>().FindAsync(src.ProcurementId);
+        if (parent != null && parent.Status == "Finalized")
+        {
+            parent.Status = "Reopened";
+            parent.FinalizedAt = null;
+            parent.FinalizedByUserId = null;
+        }
+
+        // Carry over any item-level user assignments from the source so the same people see the
+        // re-sourcing row in their procurement worksheet.
+        var srcPerms = await _db.Set<EntityPermission>()
+            .Where(p => p.EntityName == "Procurement" && p.EntityId == src.Id.ToString())
+            .ToListAsync();
+        foreach (var p in srcPerms)
+        {
+            _db.Set<EntityPermission>().Add(new EntityPermission
+            {
+                UserId = p.UserId,
+                EntityName = "Procurement",
+                EntityId = returned.Id.ToString(),
+                Permission = p.Permission,
+                CreatedAt = now,
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     /// <summary>

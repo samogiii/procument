@@ -52,6 +52,23 @@ public class InvoicesController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    [HttpGet("by-quote/{quoteId:long}")]
+    public async Task<ActionResult<List<InvoiceResponse>>> GetByQuote(long quoteId)
+    {
+        var (userId, isAdmin, _, _) = GetUserContext();
+        var ids = await _db.Set<Invoice>()
+            .Where(i => i.QuoteId == quoteId)
+            .Select(i => i.Id)
+            .ToListAsync();
+        var results = new List<InvoiceResponse>();
+        foreach (var id in ids)
+        {
+            var inv = await _invoiceService.GetByIdAsync(id, userId, isAdmin);
+            if (inv != null) results.Add(inv);
+        }
+        return Ok(results);
+    }
+
     [HttpPost]
     [Auditable("Invoice", "Create", CaptureBody = true)]
     public async Task<ActionResult<InvoiceResponse>> Create([FromBody] CreateInvoiceRequest request)

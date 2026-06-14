@@ -267,6 +267,8 @@ public class FinalInvoicesController : ControllerBase
 
             customerCurrencyType = fi.CustomerCurrencyType,
 
+            customerContacts = fi.CustomerContacts ?? "",
+
             defaultDepositWalletId = fi.DefaultDepositWalletId,
 
             coefYuan = fi.QuoteCoefYuan,

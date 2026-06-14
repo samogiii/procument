@@ -60,10 +60,11 @@ public class ProcurementsController : ControllerBase
         [FromQuery] bool sortDesc = false,
         [FromQuery] List<string>? partNames = null,
         [FromQuery] List<string>? conditions = null,
-        [FromQuery] List<string>? supplierNames = null)
+        [FromQuery] List<string>? supplierNames = null,
+        [FromQuery] bool includeCancelled = false)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
-        var result = await _service.GetAllItemsFlatAsync(userId, isAdmin, page, pageSize, search, status, procStatus, customerName, userIds, sortBy, sortDesc, partNames, conditions, supplierNames, isSuperAdmin, userBases);
+        var result = await _service.GetAllItemsFlatAsync(userId, isAdmin, page, pageSize, search, status, procStatus, customerName, userIds, sortBy, sortDesc, partNames, conditions, supplierNames, isSuperAdmin, userBases, includeCancelled);
         return Ok(result);
     }
 

@@ -13,6 +13,8 @@ public class Supplier : AuditableEntity
     public string? Address { get; set; }
     public string Status { get; set; } = "Approved"; // "Approved", "Pending", "Rejected"
     public long? RequestedByUserId { get; set; }
+    /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
+    public string? Contacts { get; set; }
 
     // Navigation
     public ICollection<PartNumber> PartNumbers { get; set; } = new List<PartNumber>();

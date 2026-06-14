@@ -86,6 +86,7 @@ public class CustomersController : ControllerBase
                 c.CompanyType,
                 c.Country,
                 c.Emails,
+                c.Contacts,
                 c.IsActive,
                 c.CreatedAt
             })
@@ -188,6 +189,7 @@ public class CustomersController : ControllerBase
             Country = dto.Country,
             Emails = dto.Emails,
             Website = dto.Website,
+            Contacts = dto.Contacts,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -220,6 +222,7 @@ public class CustomersController : ControllerBase
         entity.Country = dto.Country;
         entity.Emails = dto.Emails;
         entity.Website = dto.Website;
+        entity.Contacts = dto.Contacts;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -291,6 +294,8 @@ public class CustomerDto
     public string? Country { get; set; }
     public string? Emails { get; set; }
     public string? Website { get; set; }
+    /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
+    public string? Contacts { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -331,6 +336,7 @@ public class SuppliersController : ControllerBase
                 s.Email,
                 s.Phone,
                 s.Address,
+                s.Contacts,
                 s.IsActive,
                 s.CreatedAt,
                 s.Status,
@@ -458,6 +464,7 @@ public class SuppliersController : ControllerBase
             Email = dto.Email,
             Phone = dto.Phone,
             Address = dto.Address,
+            Contacts = dto.Contacts,
             CreatedAt = DateTime.UtcNow,
             IsActive = true,
             Status = "Approved" // Admin creates via catalog = always approved
@@ -480,6 +487,7 @@ public class SuppliersController : ControllerBase
         entity.Email = dto.Email;
         entity.Phone = dto.Phone;
         entity.Address = dto.Address;
+        entity.Contacts = dto.Contacts;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -509,6 +517,8 @@ public class SupplierDto
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? Address { get; set; }
+    /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
+    public string? Contacts { get; set; }
 }
 
 public class ResubmitSupplierDto

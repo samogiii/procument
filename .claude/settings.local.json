@@ -51,7 +51,8 @@
       "Bash(graphify --version)",
       "Bash(graphify install *)",
       "Bash(awk '{print $5, $9}')",
-      "Bash(python3 -W ignore -c ' *)"
+      "Bash(python3 -W ignore -c ' *)",
+      "Bash(grep -v \"//\\\\|DTO\\\\|Response\\\\|Request\\\\|Migration\")"
     ]
   }
 }

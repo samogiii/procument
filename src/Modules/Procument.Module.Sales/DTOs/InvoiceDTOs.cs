@@ -105,9 +105,16 @@ public class InvoiceResponse
     public string? CustomerTermsAndConditions { get; set; }
     public string? CustomerCurrencyType { get; set; }
     public int? CustomerBase { get; set; }
+    public string? CustomerContacts { get; set; }
     // Pulled from the linked RFQ (via Quote → RFQItem → RFQ). 0 = Ex Warehouse, 1 or 2 = Vendor/Customer.
     public int? RfqExType { get; set; }
     public long? DefaultDepositWalletId { get; set; }
+    // Bank details from the selected deposit wallet (pre-resolved so the PDF generator doesn't need a separate API call)
+    public string? WalletBankName { get; set; }
+    public string? WalletBankAddress { get; set; }
+    public string? WalletAccountNumber { get; set; }
+    public string? WalletBeneficiaryName { get; set; }
+    public string? WalletSwiftCode { get; set; }
     // Yuan pricing settings inherited from the source Quote
     public decimal? QuoteCoefYuan { get; set; }
     public decimal? QuoteExchangeRateYuan { get; set; }

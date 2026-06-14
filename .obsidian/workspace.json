@@ -1,0 +1,215 @@
+{
+  "main": {
+    "id": "971b2ee9bb9d92d8",
+    "type": "split",
+    "children": [
+      {
+        "id": "f0e17518b1bbba2b",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4a6cf9ea415fd651",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "46b3d316d36f3411",
+    "type": "split",
+    "children": [
+      {
+        "id": "c488a97f54f67b5d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "db627b1bdf9b4257",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "6eab33abaefcd7cc",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "9590c7ce1878d65d",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "68fcd027a7806e91",
+    "type": "split",
+    "children": [
+      {
+        "id": "f66fbf373eda8fe1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "addefa34083a34b8",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "UPGRADE-GUIDE.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for UPGRADE-GUIDE"
+            }
+          },
+          {
+            "id": "8f591ec5c8a5d4b5",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "UPGRADE-GUIDE.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from UPGRADE-GUIDE"
+            }
+          },
+          {
+            "id": "778ed85925246028",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "a5b14a0a5017eb66",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "3330e0a0aaf670c8",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "UPGRADE-GUIDE.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of UPGRADE-GUIDE"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "4a6cf9ea415fd651",
+  "lastOpenFiles": [
+    "UPGRADE-GUIDE.md",
+    "graphify-out/obsidian/_COMMUNITY_appearance.json.md",
+    "graphify-out/obsidian/_COMMUNITY_app.json.md",
+    "graphify-out/obsidian/_COMMUNITY_downloadExcel().md",
+    "graphify-out/obsidian/_COMMUNITY_Shipment Note PDF - Shipment 7.md",
+    "graphify-out/obsidian/_COMMUNITY_CustomsShipment Document - Aviation Industry Logo (Airplane.md",
+    "graphify-out/obsidian/_COMMUNITY_SyncRegistry.md",
+    "graphify-out/obsidian/_COMMUNITY_ShipmentNoteBox.md",
+    "graphify-out/obsidian/_COMMUNITY_ShipmentNote.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_RFQUserRead.md",
+    "graphify-out/obsidian/_COMMUNITY_ProcumentRecord.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_AssignPermissionRequest.md",
+    "graphify-out/obsidian/_COMMUNITY_useServerSort().md",
+    "graphify-out/obsidian/_COMMUNITY_usePageFilters.ts.md",
+    "graphify-out/obsidian/_COMMUNITY_useColFilterPersisted.ts.md",
+    "graphify-out/obsidian/_COMMUNITY_useColFilter().md",
+    "graphify-out/obsidian/_COMMUNITY_BusinessAuditViewer.vue.md",
+    "graphify-out/obsidian/_COMMUNITY_Procument.Shared Shared Library.md",
+    "graphify-out/obsidian/_COMMUNITY_20260610060758_AddFedexAccountToWarehouse.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260610051740_AddContactsToCustomerSupplier.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260603061851_AddSourceSupplierQuoteIdToPOItem.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260510114055_AddInventoryWarehouseShipping.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260428040110_ShipToAddress.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260420054822_PaymentApproval.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260416074134_AddPerformanceIndexes.Designer.cs.md",
+    "graphify-out/obsidian/_COMMUNITY_20260405082215_AddCompanyPresets.Designer.cs.md",
+    "graphify-out/cache/semantic/6a4eba84eaa3ec43cbc3936938daff067a8f6367163e1cab454a3ce3185be140.json",
+    "graphify-out/cache/semantic/f7e933aa3558518e61f16c660c673356feaa28579ada1b7a97350fa5f6a90a5a.json",
+    "graphify-out/cache/semantic/c9d983f384254f03fce90a758548aa4cc3c39941462b8aed6b2f4580118f9f3d.json",
+    "graphify-out/cache/ast/4e82606a692a5fea60f32da13d79dbf2cc5d87bd3aa1530be0fb062af577d577.json"
+  ]
+}

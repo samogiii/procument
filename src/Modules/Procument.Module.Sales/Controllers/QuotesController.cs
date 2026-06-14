@@ -42,10 +42,11 @@ public class QuotesController : ControllerBase
         [FromQuery] List<string>? rfqNames = null,
         [FromQuery] string? sortBy = null,
         [FromQuery] bool sortDesc = false,
-        [FromQuery] List<string>? quoteNumbers = null)
+        [FromQuery] List<string>? quoteNumbers = null,
+        [FromQuery] bool includeRejected = false)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers);
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected);
         return Ok(result);
     }
 

@@ -125,11 +125,14 @@ public class RFQsController : ControllerBase
         [FromQuery] string? sortBy = null,
         [FromQuery] bool sortDesc = false,
         [FromQuery] long[]? rfqIds = null,
-        [FromQuery] string[]? rfqNames = null)
+        [FromQuery] string[]? rfqNames = null,
+        [FromQuery] string[]? deadlines = null,
+        [FromQuery] bool includeNoQuote = false,
+        [FromQuery] int? maxDays = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _rfqService.GetAllAsync(userId, isSuperAdmin, userBases, pq, statuses, pnSearch, userIds, customerSearch, sortBy, sortDesc, rfqIds, rfqNames);
+        var result = await _rfqService.GetAllAsync(userId, isSuperAdmin, userBases, pq, statuses, pnSearch, userIds, customerSearch, sortBy, sortDesc, rfqIds, rfqNames, deadlines, includeNoQuote, maxDays);
         return Ok(result);
     }
 

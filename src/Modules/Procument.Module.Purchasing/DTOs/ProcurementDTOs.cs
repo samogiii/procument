@@ -42,11 +42,13 @@ public class FinalizeProcurementRequest
 /// <summary>
 /// Request to return a PO (or a subset of its items) back into the Procurement layer.
 /// Empty ItemIds means "return ALL items on this PO" (full return).
+/// ItemQtys (POItemId → qty to return) takes precedence when present and enables partial-qty returns.
 /// </summary>
 public class ReturnPORequest
 {
     public string Reason { get; set; } = string.Empty;
     public List<long>? ItemIds { get; set; }
+    public Dictionary<long, int>? ItemQtys { get; set; }
 }
 
 public class ReturnPOResponse

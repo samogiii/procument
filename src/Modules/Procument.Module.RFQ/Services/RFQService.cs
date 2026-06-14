@@ -16,7 +16,7 @@ public interface IRFQService
 {
     Task<RFQResponse> CreateAsync(CreateRFQRequest request);
     Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isSuperAdmin, int[] userBases);
-    Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null);
+    Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
@@ -186,7 +186,7 @@ public class RFQService : IRFQService
         return response;
     }
 
-    public async Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null)
+    public async Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null)
     {
         IQueryable<RFQHeader> query = _db.Set<RFQHeader>().AsNoTracking();
         List<string> rfqIdStrings  = new List<string>();
@@ -238,6 +238,8 @@ public class RFQService : IRFQService
 
         if (statuses != null && statuses.Length > 0)
             query = query.Where(r => statuses.Contains(r.Status));
+        else if (!includeNoQuote)
+            query = query.Where(r => r.Status != "No Quote");
 
         if (userIds != null && userIds.Length > 0)
         {
@@ -274,6 +276,23 @@ public class RFQService : IRFQService
         if (rfqNames != null && rfqNames.Length > 0)
         {
             query = query.Where(r => rfqNames.Contains(r.Name));
+        }
+
+        if (deadlines != null && deadlines.Length > 0)
+        {
+            var dates = deadlines
+                .Select(d => DateOnly.TryParse(d, out var v) ? v : (DateOnly?)null)
+                .Where(d => d.HasValue)
+                .Select(d => d!.Value)
+                .ToList();
+            if (dates.Count > 0)
+                query = query.Where(r => dates.Contains(DateOnly.FromDateTime(r.LeadTime)));
+        }
+
+        if (maxDays.HasValue)
+        {
+            var cutoff = DateTime.UtcNow.Date.AddDays(maxDays.Value);
+            query = query.Where(r => r.LeadTime.Date <= cutoff);
         }
 
         // ── 3. Sort + paginate (flat projection — no Alternatives loaded) ──

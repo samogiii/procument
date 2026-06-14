@@ -55,7 +55,6 @@ public class PurchaseOrder : BaseEntity
     // ─── Payment Wallet Preference ───
     /// <summary>Wallet selected at PO creation time — used as the default debit wallet on payment acceptance.</summary>
     public long? PreferredWalletId { get; set; }
-
     // Foreign keys
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }

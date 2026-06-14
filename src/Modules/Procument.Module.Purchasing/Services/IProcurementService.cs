@@ -13,7 +13,7 @@ public interface IProcurementService
     Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false);
 
     Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
-    Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null);
+    Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null, bool includeCancelled = false);
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<bool> UserCanAccessAsync(long procurementId, long userId, bool isAdmin);
     Task<bool> UserCanAccessItemAsync(long procurementId, long itemId, long userId, bool isAdmin);
@@ -60,6 +60,16 @@ public interface IProcurementService
     /// </summary>
     Task<(List<long> reopenedProcurementIds, List<long> skippedPOItemIds, List<string> warnings)> RecyclePOItemsAsync(
         IEnumerable<long> poItemIds, long poId, string reason, long userId);
+
+    /// <summary>
+    /// Partial-return path: send the returned units of a POItem BACK INTO the Procurement layer
+    /// (re-sourceable) instead of straight into the unassigned PO pool. Shrinks the source
+    /// ProcurementItem's Qty/AcceptedQty by <paramref name="returnQty"/> and creates a new sibling
+    /// ProcurementItem (ItemStatus = Open, supplier quotes cloned) so the user can change supplier/qty
+    /// and re-approve. Re-opens the parent Procurement (Finalized → Reopened). Returns false when the
+    /// source can't be resolved — the caller should then fall back to the legacy floating-POItem clone.
+    /// </summary>
+    Task<bool> SplitReturnedQtyToProcurementAsync(long sourceProcurementItemId, int returnQty, string reason, long userId);
 
     /// <summary>
     /// Called when a PO is marked Completed — stamps FulfilledByPOItemId on the source ProcurementItems,

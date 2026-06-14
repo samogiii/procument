@@ -22,4 +22,6 @@ public class Customer : AuditableEntity
     public string? Country { get; set; }
     public string? Emails { get; set; }
     public string? Website { get; set; }
+    /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
+    public string? Contacts { get; set; }
 }
