@@ -115,7 +115,8 @@ public class DocumentsController : ControllerBase
         _db.Set<CustomerPayment>().Add(payment);
         await _db.SaveChangesAsync();
 
-        await _paymentBoxService.TryAutoDepositAsync(invoiceId, amount, invoice.CustomerId, currency, exchangeRate, invoice.DefaultDepositWalletId);
+        // DISABLED: auto-deposit paused per business decision
+        // await _paymentBoxService.TryAutoDepositAsync(invoiceId, amount, invoice.CustomerId, currency, exchangeRate, invoice.DefaultDepositWalletId);
 
         var totalPaid = await _db.Set<CustomerPayment>()
             .Where(p => p.InvoiceId == invoiceId)

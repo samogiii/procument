@@ -133,7 +133,7 @@
               <v-icon icon="mdi-tag-outline" size="20" />
             </v-avatar>
             <div>
-              <p class="text-caption text-medium-emphasis mb-0">Exworks</p>
+              <p class="text-caption text-medium-emphasis mb-0">Ship To</p>
               <v-menu>
                 <template #activator="{ props: menuProps }">
                   <v-chip
@@ -147,7 +147,7 @@
                   </v-chip>
                 </template>
                 <v-list density="compact" style="min-width: 180px">
-                  <v-list-subheader>Change Exworks</v-list-subheader>
+                  <v-list-subheader>Change Ship To</v-list-subheader>
                   <v-list-item
                     v-for="opt in exTypeMenuOptions"
                     :key="opt.value"
@@ -263,6 +263,7 @@
           <VBtn prepend-icon="mdi-history" @click="showAudit = true" size="small" variant="tonal" color="secondary" v-if="isAdmin">Audit</VBtn>
           <VBtn v-if="isAdmin" prepend-icon="mdi-shield-account" @click="showPermissions = true" size="small" variant="tonal" color="secondary">Perms</VBtn>
           <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
+          <v-btn v-if="isAdmin" prepend-icon="mdi-file-excel" size="small" color="success" @click="exportToExcel">Excel</v-btn>
           <v-btn
             size="small"
             variant="tonal"
@@ -1490,6 +1491,8 @@
 </template>
 
 <script setup lang="ts">
+import * as XLSX from 'xlsx'
+
 const route = useRoute()
 const api = useApi()
 
@@ -1533,6 +1536,84 @@ const showPermissions = ref(false)
 const showAudit = ref(false)
 const showPdf = ref(false)
 
+function exportToExcel() {
+  try {
+    const r = rfq.value
+    const safeName = (s: string) => (s || '').replace(/[/\\?%*:|"<>]/g, '_')
+
+    // ── Sheet 1: RFQ Items ──
+    const itemsData: any[][] = [
+      [`RFQ: ${r.name || `#${route.params.id}`}`],
+      [`Customer: ${r.customerName || r.customerCode || '—'}`, '', `Status: ${r.status || '—'}`, '', `Deadline: ${r.leadTime ? new Date(r.leadTime).toLocaleDateString() : '—'}`],
+      [],
+      ['#', 'Part Number', 'Alt', 'Qty', 'Unit', 'Condition', 'Priority', 'Remark', 'Note', 'Alternatives']
+    ]
+    editableItems.value.forEach((it: any, idx: number) => {
+      itemsData.push([
+        idx + 1,
+        it.partNumberName || '—',
+        it.alt || '',
+        it.qty,
+        it.unit || '',
+        it.condition || '',
+        it.priority || '',
+        it.remark || '',
+        it.note || '',
+        (it.alternatives || []).map((a: any) => a.name).join(', ')
+      ])
+    })
+
+    // ── Sheet 2: Supplier Quotes ──
+    const suppData: any[][] = [
+      [`RFQ: ${r.name || `#${route.params.id}`} — Supplier Quotes`],
+      [],
+      ['Part Number', 'Supplier', 'Condition', 'Alt P/N', 'Qty', 'Cost Price ($)', 'Cert', 'Tag Date', 'Shipping Cost', 'Shipping Point', 'Lead Time', 'Note', 'My Notes']
+    ]
+    editableItems.value.forEach((item: any) => {
+      const quotes = supplierQuotes.value.filter((q: any) => q.rfqItemId === item.id)
+      quotes.forEach((q: any) => {
+        suppData.push([
+          item.partNumberName || '—',
+          q.supplierName || '—',
+          q.condition || '',
+          q.alt || '',
+          q.qty || 0,
+          q.priceHidden ? 'Expired' : (Number(q.price) || 0),
+          q.certName || '',
+          q.tagDate ? String(q.tagDate) : '',
+          q.shippingCost != null ? Number(q.shippingCost) : '',
+          q.shippingPoint || '',
+          q.leadTime || '',
+          q.note || '',
+          q.myNotes || ''
+        ])
+      })
+    })
+
+    const wb = XLSX.utils.book_new()
+
+    const wsItems = XLSX.utils.aoa_to_sheet(itemsData)
+    wsItems['!cols'] = [
+      { wch: 4 }, { wch: 22 }, { wch: 15 }, { wch: 6 }, { wch: 6 },
+      { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 25 }, { wch: 25 }
+    ]
+
+    const wsSupp = XLSX.utils.aoa_to_sheet(suppData)
+    wsSupp['!cols'] = [
+      { wch: 22 }, { wch: 22 }, { wch: 10 }, { wch: 15 }, { wch: 6 },
+      { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 14 },
+      { wch: 12 }, { wch: 22 }, { wch: 22 }
+    ]
+
+    XLSX.utils.book_append_sheet(wb, wsItems, 'RFQ Items')
+    XLSX.utils.book_append_sheet(wb, wsSupp, 'Supplier Quotes')
+
+    XLSX.writeFile(wb, `${safeName(r.name || String(route.params.id))}.xlsx`)
+  } catch (err) {
+    console.error('Excel export failed:', err)
+  }
+}
+
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
@@ -1541,13 +1622,13 @@ const { isLocked, checkLock } = useFinalInvoiceLock('rfq', entityId)
 
 // value 1 and 2 are both treated as Vendor/Customer; keep value 2 for display of legacy data
 const exTypeOptions = [
-  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 0, label: 'Warehouse', icon: 'mdi-warehouse', color: 'success' },
   { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
   { value: 2, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 // Only offer 2 choices in the change menu (Warehouse and Vendor/Customer)
 const exTypeMenuOptions = [
-  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 0, label: 'Warehouse', icon: 'mdi-warehouse', color: 'success' },
   { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 

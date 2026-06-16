@@ -70,7 +70,7 @@
               <v-icon :icon="exTypeOptions.find(e => e.value === quote.rfqExType)?.icon || 'mdi-tag-outline'" size="20" />
             </v-avatar>
             <div>
-              <p class="text-caption text-medium-emphasis mb-0">Exwork</p>
+              <p class="text-caption text-medium-emphasis mb-0">Ship To</p>
               <v-menu v-if="isAdmin">
                 <template #activator="{ props: menuProps }">
                   <v-chip
@@ -84,7 +84,7 @@
                   </v-chip>
                 </template>
                 <v-list density="compact" style="min-width: 180px">
-                  <v-list-subheader>Change Exworks</v-list-subheader>
+                  <v-list-subheader>Change Ship To</v-list-subheader>
                   <v-list-item
                     v-for="opt in exTypeMenuOptions"
                     :key="opt.value"
@@ -589,12 +589,12 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 // value 2 kept for legacy display; both 1 and 2 show as Vendor/Customer
 const exTypeOptions = [
-  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 0, label: 'Warehouse', icon: 'mdi-warehouse', color: 'success' },
   { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
   { value: 2, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 const exTypeMenuOptions = [
-  { value: 0, label: 'Ex Warehouse', icon: 'mdi-warehouse', color: 'success' },
+  { value: 0, label: 'Warehouse', icon: 'mdi-warehouse', color: 'success' },
   { value: 1, label: 'Vendor/Customer', icon: 'mdi-truck-delivery-outline', color: 'info' },
 ]
 
@@ -602,9 +602,9 @@ async function updateExType(newExType: number) {
   try {
     await api.patch(`/quotes/${route.params.id}/rfq-ex-type`, newExType)
     quote.value.rfqExType = newExType
-    showSnack('Exwork updated', 'success')
+    showSnack('Ship To updated', 'success')
   } catch {
-    showSnack('Failed to update Exwork', 'error')
+    showSnack('Failed to update Ship To', 'error')
   }
 }
 
@@ -1018,15 +1018,16 @@ async function exportToExcel() {
       return 0
     })
 
-    // 3. Build rows
+    // 3. Build rows — same layout as the PDF quote
+    const safeName = (s: string) => s.replace(/[/\\?%*:|"<>]/g, '_')
     const data: any[][] = [
-      [companyName], // Top Row: Company Preset Name
+      [companyName],
       ['QUOTATION'],
-      [], // Spacer
+      [],
       ['Quote Number:', q.quoteNumber || '—', '', 'Date:', q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'],
       ['Customer:', q.customerName || '—', '', 'RFQ:', q.rfqName || '—'],
-      [], // Spacer
-      ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Description', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
+      [],
+      ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Supplier', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
     ]
 
     sortedItems.forEach((it: any, idx: number) => {
@@ -1034,8 +1035,8 @@ async function exportToExcel() {
         idx + 1,
         it.rfqReference || '—',
         it.partNumberName || '—',
-        it.alt || '—',
-        it.description || '—',
+        it.alt || '',
+        it.supplierName || '',
         it.qty,
         it.condition || '—',
         it.leadTime || '—',
@@ -1044,40 +1045,34 @@ async function exportToExcel() {
       ])
     })
 
-    data.push([]) // Spacer
+    data.push([])
     data.push(['', '', '', '', '', '', '', '', 'Subtotal:', Number(q.totalAmount || 0)])
     data.push(['', '', '', '', '', '', '', '', 'Grand Total:', Number(q.totalAmount || 0)])
 
-    // 4. Add Comments and Terms & Conditions
-    if (q.comments) {
-      data.push([], ['Comments:'], [q.comments])
-    }
     if (q.customerTermsAndConditions) {
       data.push([], ['Terms & Conditions:'], [q.customerTermsAndConditions])
     }
 
     // 5. Create Workbook
     const ws = XLSX.utils.aoa_to_sheet(data)
-    
-    // Set column widths
     ws['!cols'] = [
       { wch: 5 },  // #
       { wch: 10 }, // Ref
       { wch: 22 }, // Part Number
       { wch: 22 }, // Alt Part Number
-      { wch: 40 }, // Description
+      { wch: 22 }, // Supplier
       { wch: 8 },  // Qty
       { wch: 8 },  // Cond
       { wch: 15 }, // Lead Time
-      { wch: 12 }, // Unit Price
-      { wch: 12 }  // Total Price
+      { wch: 14 }, // Unit Price
+      { wch: 14 }, // Total Price
     ]
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Quotation')
 
-    // 6. Download
-    const fileName = `Quote_${q.quoteNumber || 'export'}.xlsx`
+    // 6. Download — same filename pattern as PDF quote
+    const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}.xlsx`
     XLSX.writeFile(wb, fileName)
     showSnack('Excel exported successfully', 'success')
   } catch (err) {

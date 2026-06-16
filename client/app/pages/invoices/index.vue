@@ -14,13 +14,59 @@
   >
     <template #filters>
       <v-text-field
-        v-model="customerSearch"
-        label="Customer Code"
-        prepend-inner-icon="mdi-domain"
+        v-model="pnSearch"
+        label="Search by P/N"
+        prepend-inner-icon="mdi-cog-outline"
         hide-details
         clearable
+        density="compact"
+        variant="outlined"
         style="min-width: 160px; max-width: 260px;"
       />
+      <v-autocomplete
+        v-model="customerCodesDropdown"
+        :items="cfCustomerOptions"
+        label="Customer Code"
+        hide-details
+        multiple
+        chips
+        closable-chips
+        clearable
+        density="compact"
+        variant="outlined"
+        style="min-width: 140px; max-width: 260px;"
+      />
+      <v-text-field
+        v-model="createdFrom"
+        label="Created From"
+        type="date"
+        hide-details
+        clearable
+        density="compact"
+        variant="outlined"
+        style="min-width: 160px; max-width: 200px;"
+      />
+      <v-text-field
+        v-model="createdTo"
+        label="Created To"
+        type="date"
+        hide-details
+        clearable
+        density="compact"
+        variant="outlined"
+        style="min-width: 160px; max-width: 200px;"
+      />
+      <v-btn
+        v-if="hasActiveFilters"
+        variant="tonal"
+        color="error"
+        size="small"
+        prepend-icon="mdi-filter-off"
+        class="align-self-center"
+        @click="clearFilters"
+      >
+        Clear
+      </v-btn>
     </template>
 
     <!-- Column filter: Sales Order # -->
@@ -87,6 +133,14 @@
       ${{ formatPrice(item.totalAmount) }}
     </template>
 
+    <template #item.customerPODate="{ item }">
+      {{ item.customerPODate ? new Date(item.customerPODate).toLocaleDateString() : '-' }}
+    </template>
+
+    <template #item.createdAt="{ item }">
+      {{ item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '-' }}
+    </template>
+
     <template #item.deadlineDate="{ item }">
       {{ item.deadlineDate ? new Date(item.deadlineDate).toLocaleDateString() : '-' }}
     </template>
@@ -120,7 +174,7 @@
         </v-card-title>
         <v-card-text>
           <p class="mb-4 text-grey-lighten-1">Select one or more Quotes to create a Sales Order from.</p>
-          
+
           <v-autocomplete
             v-model="selectedQuotes"
             :items="filteredQuotes"
@@ -182,7 +236,17 @@ const availableQuotes = ref<any[]>([])
 const selectedQuotes = ref<any[]>([])
 const selectedInvoices = ref<number[]>([])
 
-const customerSearch = ref('')
+// ── Top-bar filters (persisted) ──
+const { filters: pf, clearFilters: clearPageFilters, hasActiveFilters: hasPageFilters } = usePageFilters('invoices-filters', {
+  customerCodesDropdown: [] as string[],
+  pnSearch: '',
+  createdFrom: '',
+  createdTo: '',
+})
+const customerCodesDropdown = pf.customerCodesDropdown
+const pnSearch = pf.pnSearch
+const createdFrom = pf.createdFrom
+const createdTo = pf.createdTo
 
 // ── Column filters ──
 const colFilter = useColFilterPersisted('invoices')
@@ -190,28 +254,46 @@ const cfCustomerOptions = ref<string[]>([])
 const cfStatusOptions = ref<string[]>([])
 const cfInvoiceNumberOptions = ref<string[]>([])
 
+const hasActiveFilters = computed(() =>
+  hasPageFilters.value || colFilter.isActive('customerCode') || colFilter.isActive('status') || colFilter.isActive('invoiceNumber')
+)
+
+function clearFilters() {
+  clearPageFilters()
+  colFilter.clearAll('customerCode')
+  colFilter.clearAll('status')
+  colFilter.clearAll('invoiceNumber')
+}
+
 const extraParams = computed<Record<string, string | string[]>>(() => {
   const p: Record<string, string | string[]> = {}
-  if (customerSearch.value?.trim()) p.customer = customerSearch.value.trim()
-  if (colFilter.isActive('customerCode')) p.customerCodes = colFilter.getSelected('customerCode')
+
+  // Merge top-bar dropdown + column filter for customer codes
+  const allCodes = [...new Set([
+    ...(customerCodesDropdown.value || []),
+    ...colFilter.getSelected('customerCode'),
+  ])] as string[]
+  if (allCodes.length) p.customerCodes = allCodes
+
+  if (pnSearch.value?.trim()) p.pnSearch = pnSearch.value.trim()
+  if (createdFrom.value) p.createdFrom = createdFrom.value
+  if (createdTo.value) p.createdTo = createdTo.value
   if (colFilter.isActive('status')) p.statuses = colFilter.getSelected('status')
   if (colFilter.isActive('invoiceNumber')) p.invoiceNumbers = colFilter.getSelected('invoiceNumber')
   return p
 })
 
-// Load all filter options from the dedicated endpoint (full DB, not current page only)
 async function loadAllInvoiceFilterOptions() {
   try {
     const res = await api.get<any>('/invoices/filter-options')
     cfStatusOptions.value = (res.statuses || []).sort()
-    cfCustomerOptions.value = [...new Set((res.customers || [])
-      .map((c: any) => c.code || '-'))]
+    cfCustomerOptions.value = ([...new Set((res.customers || [])
+      .map((c: any) => c.code || '-'))] as string[])
       .sort()
     cfInvoiceNumberOptions.value = (res.invoiceNumbers || []).sort()
   } catch {}
 }
 
-// Keep customFilter to satisfy DataListPage prop but stop using it for col filter options
 function invoiceCustomFilter(items: any[]): any[] {
   return items
 }
@@ -220,7 +302,6 @@ onMounted(() => {
   loadAllInvoiceFilterOptions()
 })
 
-// formatPrice helper
 function formatPrice(v: number | null | undefined) {
   if (v == null) return '0.00'
   return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -236,6 +317,8 @@ const headers = [
   { title: 'Sales Order #', key: 'invoiceNumber' },
   { title: 'Customer', key: 'customerCode' },
   { title: 'Subject', key: 'subject' },
+  { title: 'PO Date', key: 'customerPODate' },
+  { title: 'Created At', key: 'createdAt' },
   { title: 'Deadline', key: 'deadlineDate' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
@@ -245,8 +328,6 @@ const headers = [
 async function fetchQuotes(search: string) {
   loadingQuotes.value = true
   try {
-    // Single call — backend accepts List<string> status so we pass both statuses at once.
-    // The backend also applies the user's base/assigned-customer filter automatically.
     const result = await api.get<any>('/quotes', {
       query: {
         status: ['Sent', 'Accepted'],
@@ -269,7 +350,6 @@ async function fetchQuotes(search: string) {
   }
 }
 
-// Initial fetch when dialog opens
 watch(showCreateDialog, (val) => {
   if (val) fetchQuotes('')
 })

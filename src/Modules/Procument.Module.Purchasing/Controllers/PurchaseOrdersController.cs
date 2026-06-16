@@ -1158,12 +1158,13 @@ public class PurchaseOrdersController : ControllerBase
                 return Conflict(new { message = "A withdrawal has already been recorded for this payment." });
         }
 
-        await _paymentLedgerService.TryAutoWithdrawAsync(
-            po.SupplierId,
-            po.TotalAmount ?? 0,
-            pr?.CompanyPresetId,
-            pr?.Id,
-            request.WalletId);
+        // DISABLED: auto-withdraw paused per business decision
+        // await _paymentLedgerService.TryAutoWithdrawAsync(
+        //     po.SupplierId,
+        //     po.TotalAmount ?? 0,
+        //     pr?.CompanyPresetId,
+        //     pr?.Id,
+        //     request.WalletId);
 
         return Ok(new { message = "Withdrawal recorded." });
     }

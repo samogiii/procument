@@ -5,6 +5,9 @@ using Procument.Module.Catalog.Entities;
 
 namespace Procument.Module.Catalog.Controllers;
 
+public record CompanyPresetBankAccountDto(long Id, string AccountName, string? BankName, string? BankAddress, string? AccountNumber, string? BeneficiaryName, string? SwiftCode, int SortOrder);
+public record UpsertBankAccountRequest(string AccountName, string? BankName, string? BankAddress, string? AccountNumber, string? BeneficiaryName, string? SwiftCode, int SortOrder = 0);
+
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(Roles = "Admin,SuperAdmin,Expert")]
@@ -95,6 +98,10 @@ public class CompanyPresetsController : ControllerBase
                 p.PrimaryColor,
                 p.AccentColor,
                 p.CustomPdfHtml,
+                BankAccounts = p.BankAccounts
+                    .OrderBy(b => b.SortOrder).ThenBy(b => b.AccountName)
+                    .Select(b => new { b.Id, b.AccountName, b.BankName, b.BankAddress, b.AccountNumber, b.BeneficiaryName, b.SwiftCode, b.SortOrder })
+                    .ToList(),
             })
             .ToListAsync();
 
@@ -189,6 +196,73 @@ public class CompanyPresetsController : ControllerBase
         if (preset == null) return NotFound();
         preset.IsActive = false;
         preset.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // ── Bank Accounts ──────────────────────────────────────────────────────────
+
+    [HttpGet("{presetId}/bank-accounts")]
+    public async Task<ActionResult> GetBankAccounts(long presetId)
+    {
+        var accounts = await _db.Set<CompanyPresetBankAccount>()
+            .Where(b => b.CompanyPresetId == presetId)
+            .OrderBy(b => b.SortOrder).ThenBy(b => b.AccountName)
+            .Select(b => new CompanyPresetBankAccountDto(b.Id, b.AccountName, b.BankName, b.BankAddress, b.AccountNumber, b.BeneficiaryName, b.SwiftCode, b.SortOrder))
+            .ToListAsync();
+        return Ok(accounts);
+    }
+
+    [HttpPost("{presetId}/bank-accounts")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> CreateBankAccount(long presetId, [FromBody] UpsertBankAccountRequest req)
+    {
+        var presetExists = await _db.Set<CompanyPreset>().AnyAsync(p => p.Id == presetId && p.IsActive);
+        if (!presetExists) return NotFound();
+
+        var account = new CompanyPresetBankAccount
+        {
+            CompanyPresetId = presetId,
+            AccountName = req.AccountName,
+            BankName = req.BankName,
+            BankAddress = req.BankAddress,
+            AccountNumber = req.AccountNumber,
+            BeneficiaryName = req.BeneficiaryName,
+            SwiftCode = req.SwiftCode,
+            SortOrder = req.SortOrder,
+        };
+        _db.Set<CompanyPresetBankAccount>().Add(account);
+        await _db.SaveChangesAsync();
+        return Ok(new CompanyPresetBankAccountDto(account.Id, account.AccountName, account.BankName, account.BankAddress, account.AccountNumber, account.BeneficiaryName, account.SwiftCode, account.SortOrder));
+    }
+
+    [HttpPut("{presetId}/bank-accounts/{id}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> UpdateBankAccount(long presetId, long id, [FromBody] UpsertBankAccountRequest req)
+    {
+        var account = await _db.Set<CompanyPresetBankAccount>()
+            .FirstOrDefaultAsync(b => b.Id == id && b.CompanyPresetId == presetId);
+        if (account == null) return NotFound();
+
+        account.AccountName = req.AccountName;
+        account.BankName = req.BankName;
+        account.BankAddress = req.BankAddress;
+        account.AccountNumber = req.AccountNumber;
+        account.BeneficiaryName = req.BeneficiaryName;
+        account.SwiftCode = req.SwiftCode;
+        account.SortOrder = req.SortOrder;
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpDelete("{presetId}/bank-accounts/{id}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> DeleteBankAccount(long presetId, long id)
+    {
+        var account = await _db.Set<CompanyPresetBankAccount>()
+            .FirstOrDefaultAsync(b => b.Id == id && b.CompanyPresetId == presetId);
+        if (account == null) return NotFound();
+        _db.Set<CompanyPresetBankAccount>().Remove(account);
         await _db.SaveChangesAsync();
         return Ok();
     }

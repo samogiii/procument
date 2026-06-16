@@ -60,50 +60,41 @@ public static class InvoiceDocument
                     // Bill To / Ship To
                     col.Item().PaddingBottom(12).Row(row =>
                     {
+                        void AddressField(ColumnDescriptor col2, string label, string? val, string color)
+                        {
+                            if (string.IsNullOrWhiteSpace(val)) return;
+                            col2.Item().Text(t =>
+                            {
+                                t.Span($"{label}: ").Bold().FontSize(9).FontColor(color);
+                                t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
+                            });
+                        }
+
                         // Bill To
                         row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
                             .Column(bc =>
                             {
-                                void Field(string label, string? val)
-                                {
-                                    if (string.IsNullOrWhiteSpace(val)) return;
-                                    bc.Item().Text(t =>
-                                    {
-                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    });
-                                }
                                 bc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
                                 bc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
                                     bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                if (!string.IsNullOrWhiteSpace(req.CustomerContactPerson))
-                                    bc.Item().PaddingTop(2).Text($"Contact: {req.CustomerContactPerson}").Bold().FontSize(9).FontColor(primary);
-                                Field("Email", req.CustomerBillToEmail);
-                                Field("Phone", req.CustomerBillToPhone);
+                                AddressField(bc, "Contact", req.CustomerContactPerson, primary);
+                                AddressField(bc, "Email", req.CustomerBillToEmail, primary);
+                                AddressField(bc, "Phone", req.CustomerBillToPhone, primary);
                             });
 
                         // Ship To
                         row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10)
                             .Column(sc =>
                             {
-                                void Field(string label, string? val)
-                                {
-                                    if (string.IsNullOrWhiteSpace(val)) return;
-                                    sc.Item().Text(t =>
-                                    {
-                                        t.Span($"{label}: ").Bold().FontSize(9).FontColor(primary);
-                                        t.Span(val).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                    });
-                                }
                                 sc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
                                 sc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
                                     sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
-                                Field("Contact", req.CustomerShipToContactPerson);
-                                Field("Email", req.CustomerShipToEmail);
-                                Field("Phone", req.CustomerShipToPhone);
-                                Field("Account", req.CustomerShipToAccount);
+                                AddressField(sc, "Contact", req.CustomerShipToContactPerson, primary);
+                                AddressField(sc, "Email", req.CustomerShipToEmail, primary);
+                                AddressField(sc, "Phone", req.CustomerShipToPhone, primary);
+                                AddressField(sc, "Account", req.CustomerShipToAccount, primary);
                             });
                     });
 
@@ -150,8 +141,8 @@ public static class InvoiceDocument
                         // Totals (right side)
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             (req.Subtotal ?? 0) + totalDiscount, req.Tax ?? 0,
-                            req.Shipping ?? 0, req.Other ?? 0,
-                            primary, sym, totalDiscount));
+                            req.Shipping ?? 0, 0,
+                            primary, sym, totalDiscount, req.Other ?? 0));
                     });
 
                     // Comments
@@ -172,25 +163,27 @@ public static class InvoiceDocument
         string primary, string accent, string sym)
     {
         var items = req.Items ?? [];
+        var showDiscount = req.ShowDiscount;
 
         container.Column(outer =>
         {
             // Header row
             outer.Item().Row(hr =>
             {
-                string[] headers = [ "#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Delivery"];
-                float[] widths   = [   20,  0,           0,             26,    26,   55,    55,           58,    55,        58];
-                float[] rels     = [    0,   2.2f,        2.2f,          0,     0,    0,     0,            0,     0,         0];
-
-                for (int h = 0; h < headers.Length; h++)
-                {
-                    var label = headers[h];
-                    var w = widths[h];
-                    var rel = rels[h];
-                    var cell = w > 0 ? (IContainer)hr.ConstantItem(w) : hr.RelativeItem(rel);
-                    cell.Background(primary).Padding(6)
+                void HeaderCell(IContainer cell, string label)
+                    => cell.Background(primary).Padding(6)
                         .AlignCenter().Text(t => t.Span(label).FontSize(7.5f).Bold().FontColor(Colors.White));
-                }
+
+                HeaderCell(hr.ConstantItem(20), "#");
+                HeaderCell(hr.RelativeItem(2.2f), "Part No.");
+                HeaderCell(hr.RelativeItem(2.2f), "Description");
+                HeaderCell(hr.ConstantItem(26), "Qty");
+                HeaderCell(hr.ConstantItem(26), "CD");
+                HeaderCell(hr.ConstantItem(55), "Cert");
+                HeaderCell(hr.ConstantItem(55), "Unit Price");
+                HeaderCell(hr.ConstantItem(58), "Total");
+                if (showDiscount) HeaderCell(hr.ConstantItem(55), "Discount");
+                HeaderCell(hr.ConstantItem(58), "Delivery");
             });
 
             // Data rows
@@ -211,7 +204,6 @@ public static class InvoiceDocument
                                 if (bold) s.Bold();
                             });
 
-                    //Cell(r.ConstantItem(26), it.RfqReference ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
                     Cell(r.RelativeItem(2.2f), it.PartNumberName ?? "—", primary, bold: true);
                     Cell(r.RelativeItem(2.2f), it.Description ?? "—", Colors.Grey.Darken1);
@@ -220,7 +212,8 @@ public static class InvoiceDocument
                     Cell(r.ConstantItem(55), it.CertName ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(55), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
                     Cell(r.ConstantItem(58), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
-                    Cell(r.ConstantItem(55), it.Discount.HasValue && it.Discount.Value > 0 ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue && it.Discount.Value > 0 ? "#e53935" : Colors.Grey.Darken1);
+                    if (showDiscount)
+                        Cell(r.ConstantItem(55), it.Discount.HasValue && it.Discount.Value > 0 ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue && it.Discount.Value > 0 ? "#e53935" : Colors.Grey.Darken1);
                     Cell(r.ConstantItem(58), it.LeadTime ?? "—", Colors.Grey.Darken1);
                 });
             }

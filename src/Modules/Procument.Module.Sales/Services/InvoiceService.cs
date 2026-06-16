@@ -10,6 +10,7 @@ using Procument.Shared.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Purchasing.Services;
 using Procument.Shared.Services;
+using Procument.Module.Catalog.Entities;
 
 namespace Procument.Module.Sales.Services;
 
@@ -28,7 +29,7 @@ public class InvoiceService : IInvoiceService
         _procurementService = procurementService;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .AsNoTracking()
@@ -114,15 +115,32 @@ public class InvoiceService : IInvoiceService
                 query = query.Where(i => invs.Contains(i.InvoiceNumber));
         }
 
+        if (!string.IsNullOrWhiteSpace(pnSearch))
+        {
+            var s = pnSearch.Trim();
+            query = query.Where(i => i.InvoiceItems.Any(ii =>
+                (ii.QuoteItem != null && ii.QuoteItem.PartNumber != null && ii.QuoteItem.PartNumber.Name.Contains(s)) ||
+                (ii.QuoteItem != null && ii.QuoteItem.Alt != null && ii.QuoteItem.Alt.Contains(s))
+            ));
+        }
+
+        if (createdFrom.HasValue)
+            query = query.Where(i => i.CreatedAt >= createdFrom.Value);
+
+        if (createdTo.HasValue)
+            query = query.Where(i => i.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
         query = sortBy switch
         {
-            "invoiceNumber" => sortDesc ? query.OrderByDescending(i => i.InvoiceNumber) : query.OrderBy(i => i.InvoiceNumber),
-            "customerCode"  => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.CustomerCode : "") : query.OrderBy(i => i.Customer != null ? i.Customer.CustomerCode : ""),
-            "subject"       => sortDesc ? query.OrderByDescending(i => i.Subject) : query.OrderBy(i => i.Subject),
-            "totalAmount"   => sortDesc ? query.OrderByDescending(i => i.TotalAmount) : query.OrderBy(i => i.TotalAmount),
-            "status"        => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
-            "createdAt"     => sortDesc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
-            _               => query.OrderByDescending(i => i.CreatedAt),
+            "invoiceNumber"  => sortDesc ? query.OrderByDescending(i => i.InvoiceNumber) : query.OrderBy(i => i.InvoiceNumber),
+            "customerCode"   => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.CustomerCode : "") : query.OrderBy(i => i.Customer != null ? i.Customer.CustomerCode : ""),
+            "subject"        => sortDesc ? query.OrderByDescending(i => i.Subject) : query.OrderBy(i => i.Subject),
+            "totalAmount"    => sortDesc ? query.OrderByDescending(i => i.TotalAmount) : query.OrderBy(i => i.TotalAmount),
+            "status"         => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
+            "createdAt"      => sortDesc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
+            "customerPODate" => sortDesc ? query.OrderByDescending(i => i.CustomerPODate) : query.OrderBy(i => i.CustomerPODate),
+            "deadlineDate"   => sortDesc ? query.OrderByDescending(i => i.DeadlineDate) : query.OrderBy(i => i.DeadlineDate),
+            _                => query.OrderByDescending(i => i.CreatedAt),
         };
 
         var totalCount = await query.CountAsync();
@@ -175,6 +193,10 @@ public class InvoiceService : IInvoiceService
             ? await _db.Set<PaymentBox>().AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoice.DefaultDepositWalletId.Value)
             : null;
 
+        CompanyPresetBankAccount? bankAccount = invoice.DefaultBankAccountId.HasValue
+            ? await _db.Set<CompanyPresetBankAccount>().AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoice.DefaultBankAccountId.Value)
+            : null;
+
         var response = MapToResponse(invoice);
         if (wallet != null)
         {
@@ -183,6 +205,15 @@ public class InvoiceService : IInvoiceService
             response.WalletAccountNumber = wallet.AccountNumber;
             response.WalletBeneficiaryName = wallet.BeneficiaryName;
             response.WalletSwiftCode = wallet.SwiftCode;
+        }
+        if (bankAccount != null)
+        {
+            response.BankAccountName = bankAccount.AccountName;
+            response.BankAccountBankName = bankAccount.BankName;
+            response.BankAccountBankAddress = bankAccount.BankAddress;
+            response.BankAccountNumber = bankAccount.AccountNumber;
+            response.BankAccountBeneficiaryName = bankAccount.BeneficiaryName;
+            response.BankAccountSwiftCode = bankAccount.SwiftCode;
         }
         return response;
     }
@@ -567,6 +598,7 @@ public class InvoiceService : IInvoiceService
                 .Select(ii => ii.QuoteItem?.RFQItem?.RFQ?.ExType)
                 .FirstOrDefault(x => x.HasValue),
             DefaultDepositWalletId = i.DefaultDepositWalletId,
+            DefaultBankAccountId = i.DefaultBankAccountId,
             QuoteCoefYuan = i.Quote?.CoefYuan,
             QuoteExchangeRateYuan = i.Quote?.ExchangeRateYuan,
             Items = i.InvoiceItems?.Select(ii => new InvoiceItemResponse

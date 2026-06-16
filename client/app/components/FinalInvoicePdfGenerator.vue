@@ -114,6 +114,22 @@
           <template v-if="sections[3].open">
             <div class="section-label">Bank Details</div>
             <v-row dense align="center">
+              <v-col cols="12">
+                <v-select
+                  v-model="selectedBankAccountId"
+                  :items="presetBankAccounts"
+                  item-title="accountName"
+                  item-value="id"
+                  label="Select Bank Account"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-bank-outline"
+                  :no-data-text="presetBankAccounts.length ? 'No accounts' : 'Select a company preset first'"
+                  @update:model-value="applyBankAccount"
+                />
+              </v-col>
               <v-col cols="12"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="12"><v-text-field v-model="beneficiaryAddress" label="Beneficiary Address" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="12"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
@@ -258,23 +274,37 @@ watch(selectedPreset, async (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    beneficiaryName.value = preset.beneficiaryName || ''
-    bankName.value = preset.bankName || ''
-    bankAddress.value = preset.bankAddress || ''
-    bankAccount.value = preset.accountNumber || ''
-    swiftCode.value = preset.swiftCode || ''
     companyTerms.value = pdfData.value?.customerTermsAndConditions || preset.termsAndConditions || ''
-    const walletId = pdfData.value?.defaultDepositWalletId
-    if (walletId) {
-      try {
-        const wallet = await api.get<any>(`/payment-boxes/${walletId}`)
-        if (wallet.bankName) bankName.value = wallet.bankName
-        if (wallet.bankAddress) bankAddress.value = wallet.bankAddress
-        if (wallet.accountNumber) bankAccount.value = wallet.accountNumber
-        if (wallet.beneficiaryName) beneficiaryName.value = wallet.beneficiaryName
-        if (wallet.swiftCode) swiftCode.value = wallet.swiftCode
-      } catch { /* non-critical */ }
+    // Load bank accounts for this preset; try to restore saved selection from PI
+    presetBankAccounts.value = preset.bankAccounts || []
+    const savedId = pdfData.value?.defaultBankAccountId ?? null
+    const savedInThisPreset = savedId && presetBankAccounts.value.some((b: any) => b.id === savedId)
+    if (savedInThisPreset) {
+      selectedBankAccountId.value = savedId
+      applyBankAccount(savedId)
+    } else if (presetBankAccounts.value.length === 1) {
+      selectedBankAccountId.value = presetBankAccounts.value[0].id
+      applyBankAccount(selectedBankAccountId.value)
+    } else {
+      selectedBankAccountId.value = null
+      beneficiaryName.value = ''
+      bankName.value = ''
+      bankAddress.value = ''
+      bankAccount.value = ''
+      swiftCode.value = ''
     }
+    // DISABLED: wallet bank override — bank details now come from company preset bank accounts
+    // const walletId = pdfData.value?.defaultDepositWalletId
+    // if (walletId) {
+    //   try {
+    //     const wallet = await api.get<any>(`/payment-boxes/${walletId}`)
+    //     if (wallet.bankName) bankName.value = wallet.bankName
+    //     if (wallet.bankAddress) bankAddress.value = wallet.bankAddress
+    //     if (wallet.accountNumber) bankAccount.value = wallet.accountNumber
+    //     if (wallet.beneficiaryName) beneficiaryName.value = wallet.beneficiaryName
+    //     if (wallet.swiftCode) swiftCode.value = wallet.swiftCode
+    //   } catch { /* non-critical */ }
+    // }
   }
 })
 
@@ -329,6 +359,27 @@ const bankName            = ref('')
 const bankAddress         = ref('')
 const bankAccount         = ref('')
 const swiftCode           = ref('')
+
+// ── Preset bank accounts ──────────────────────────────────────────────────────
+const presetBankAccounts    = ref<any[]>([])
+const selectedBankAccountId = ref<number | null>(null)
+
+function applyBankAccount(id: number | null) {
+  const ba = presetBankAccounts.value.find(b => b.id === id)
+  if (ba) {
+    beneficiaryName.value = ba.beneficiaryName || ''
+    bankName.value        = ba.bankName || ''
+    bankAddress.value     = ba.bankAddress || ''
+    bankAccount.value     = ba.accountNumber || ''
+    swiftCode.value       = ba.swiftCode || ''
+  } else {
+    beneficiaryName.value = ''
+    bankName.value        = ''
+    bankAddress.value     = ''
+    bankAccount.value     = ''
+    swiftCode.value       = ''
+  }
+}
 
 // ── Packing List dialog ──
 const showPackingDialog = ref(false)
@@ -619,7 +670,7 @@ async function downloadPdf() {
         customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
         customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
         customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
-        customerShipToPhone: shipToPhone.value || d.customerShipToPhone || null,
+        customerShipToPhone: shipToPhone?.value || d?.customerShipToPhone || null,
         customerShipToAccount: d.customerShipToAccount || null,
         beneficiaryName: beneficiaryName.value || null,
         beneficiaryAddress: beneficiaryAddress.value || null,
@@ -701,7 +752,7 @@ async function downloadPackingList() {
       customerShipTo: shipTo.value || d.customerShipTo || d.customerBillTo || null,
       customerShipToContactPerson: shipToContactPerson.value || d.customerContactPerson || null,
       customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
-      customerShipToPhone: shipToPhone.value || data.customerShipToPhone || null,
+      customerShipToPhone: shipToPhone.value || d?.customerShipToPhone || null,
       customerShipToAccount: d.customerShipToAccount || null,
       items: (pdfData.value?.items || []).map((it: any) => ({
         partNumber:    it.partNumber    || null,

@@ -34,6 +34,7 @@ public class AppDbContext : DbContext
   public DbSet<Alternative> Alternatives => Set<Alternative>();
   public DbSet<PartNumberSupplier> PartNumberSuppliers => Set<PartNumberSupplier>();
   public DbSet<CompanyPreset> CompanyPresets => Set<CompanyPreset>();
+  public DbSet<CompanyPresetBankAccount> CompanyPresetBankAccounts => Set<CompanyPresetBankAccount>();
 
   // RFQ
   public DbSet<RFQHeader> RFQs => Set<RFQHeader>();
@@ -1172,6 +1173,24 @@ public class AppDbContext : DbContext
       entity.Property(e => e.PrimaryColor).HasMaxLength(20).HasDefaultValue("#1a2744");
       entity.Property(e => e.AccentColor).HasMaxLength(20).HasDefaultValue("#2563eb");
       entity.Property(e => e.CustomPdfHtml).HasColumnType("TEXT");
+
+      entity.HasMany(e => e.BankAccounts)
+            .WithOne(b => b.CompanyPreset)
+            .HasForeignKey(b => b.CompanyPresetId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<CompanyPresetBankAccount>(entity =>
+    {
+      entity.ToTable("CompanyPresetBankAccounts");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.AccountName).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.BankName).HasMaxLength(300);
+      entity.Property(e => e.BankAddress).HasMaxLength(1000);
+      entity.Property(e => e.AccountNumber).HasMaxLength(200);
+      entity.Property(e => e.BeneficiaryName).HasMaxLength(300);
+      entity.Property(e => e.SwiftCode).HasMaxLength(50);
+      entity.HasIndex(e => e.CompanyPresetId);
     });
 
     // ───────────────────────────────────────────

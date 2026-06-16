@@ -115,6 +115,14 @@ public class InvoiceResponse
     public string? WalletAccountNumber { get; set; }
     public string? WalletBeneficiaryName { get; set; }
     public string? WalletSwiftCode { get; set; }
+    // Default bank account from company preset bank accounts
+    public long? DefaultBankAccountId { get; set; }
+    public string? BankAccountName { get; set; }
+    public string? BankAccountBankName { get; set; }
+    public string? BankAccountBankAddress { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public string? BankAccountBeneficiaryName { get; set; }
+    public string? BankAccountSwiftCode { get; set; }
     // Yuan pricing settings inherited from the source Quote
     public decimal? QuoteCoefYuan { get; set; }
     public decimal? QuoteExchangeRateYuan { get; set; }
@@ -155,6 +163,7 @@ public class InvoiceItemResponse
 }
 
 public record SetDefaultWalletRequest(long? WalletId);
+public record SetDefaultBankAccountRequest(long? BankAccountId);
 
 public class UpdateInvoiceTotalsRequest
 {

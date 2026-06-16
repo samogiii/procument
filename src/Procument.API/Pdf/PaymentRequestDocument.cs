@@ -63,11 +63,11 @@ public static class PaymentRequestDocument
                                 }
 
                                 L("Company:", req.CompanyPayingFrom);
-                                L("Beneficiary:", req.OurBeneficiaryName);
-                                L("Account No:", req.OurAccountNumber);
-                                L("Bank Name:", req.OurBankName);
-                                L("SWIFT:", req.OurSwiftCode);
-                                L("Bank Address:", req.OurBankAddress);
+                                //L("Beneficiary:", req.OurBeneficiaryName);
+                                //L("Account No:", req.OurAccountNumber);
+                                //L("Bank Name:", req.OurBankName);
+                                //L("SWIFT:", req.OurSwiftCode);
+                                //L("Bank Address:", req.OurBankAddress);
                             });
                         });
 

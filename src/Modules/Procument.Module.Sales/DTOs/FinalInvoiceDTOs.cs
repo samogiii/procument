@@ -32,6 +32,7 @@ public class FinalInvoiceResponse
     public string? CustomerCurrencyType { get; set; }
     public string? CustomerContacts { get; set; }
     public long? DefaultDepositWalletId { get; set; }
+    public long? DefaultBankAccountId { get; set; }
     // Yuan pricing settings from the source Quote
     public decimal? QuoteCoefYuan { get; set; }
     public decimal? QuoteExchangeRateYuan { get; set; }

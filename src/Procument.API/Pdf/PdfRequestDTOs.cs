@@ -57,6 +57,9 @@ public class InvoicePdfRequest
     public decimal? Shipping { get; set; }
     public decimal? Other { get; set; }
 
+    // Display options
+    public bool ShowDiscount { get; set; } = true;
+
     // Text
     public string? Comments { get; set; }
     public string? Terms { get; set; }

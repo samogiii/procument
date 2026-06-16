@@ -163,7 +163,7 @@
         :items="exWorkSelectOptions"
         item-title="title"
         item-value="value"
-        label="Logistics Preference (Exworks)"
+        label="Ship To"
         class="mb-2"
         clearable
       />
@@ -207,7 +207,7 @@ const exWorkOptions = [
 ]
 // Only 2 choices shown in the edit select
 const exWorkSelectOptions = [
-  { title: 'Ex Warehouse', value: 0 },
+  { title: 'Warehouse', value: 0 },
   { title: 'Vendor/Customer', value: 1 },
 ]
 
@@ -360,7 +360,7 @@ const headers = computed(() => {
     { title: 'Code', key: 'customerCode' },
     { title: 'Company Type', key: 'companyType' },
     { title: 'Country', key: 'country' },
-    { title: 'Exworks', key: 'exWork', width: '130px' },
+    { title: 'Ship To Type', key: 'exWork', width: '130px' },
     { title: 'Email', key: 'email' },
     { title: 'Phone', key: 'phone' },
     { title: 'Website', key: 'website' },

@@ -36,11 +36,14 @@ public class InvoicesController : ControllerBase
         [FromQuery] string? sortBy = null, [FromQuery] bool sortDesc = false,
         [FromQuery] List<string>? customerCodes = null,
         [FromQuery] List<string>? statuses = null,
-        [FromQuery] List<string>? invoiceNumbers = null)
+        [FromQuery] List<string>? invoiceNumbers = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize };
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases);
+        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo);
         return Ok(result);
     }
 
@@ -193,6 +196,16 @@ public class InvoicesController : ControllerBase
         invoice.DefaultDepositWalletId = request.WalletId;
         await _db.SaveChangesAsync();
         return Ok(new { walletId = invoice.DefaultDepositWalletId });
+    }
+
+    [HttpPatch("{id:long}/default-bank-account")]
+    public async Task<IActionResult> SetDefaultBankAccount(long id, [FromBody] SetDefaultBankAccountRequest request)
+    {
+        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        if (invoice == null) return NotFound();
+        invoice.DefaultBankAccountId = request.BankAccountId;
+        await _db.SaveChangesAsync();
+        return Ok(new { bankAccountId = invoice.DefaultBankAccountId });
     }
 
     [HttpGet("{id:long}/prepayment-check")]

@@ -47,12 +47,14 @@
             <div class="detail-row"><v-icon icon="mdi-web" size="14" class="mr-1" />{{ preset.website || '—' }}</div>
             <div class="detail-row"><v-icon icon="mdi-email" size="14" class="mr-1" />{{ preset.email || '—' }}</div>
 
-            <!-- Bank Details Summary — hidden: bank details moved to individual wallets -->
-            <div v-if="false && preset.bankName" class="mt-2 pa-2 bg-surface-variant rounded-sm border">
-              <div class="text-caption font-weight-bold text-primary mb-1">BANK DETAILS</div>
-              <div class="detail-row"><v-icon icon="mdi-bank" size="12" class="mr-1" />{{ preset.bankName }}</div>
-              <div class="detail-row"><v-icon icon="mdi-numeric" size="12" class="mr-1" />{{ preset.accountNumber }}</div>
-              <div class="detail-row"><v-icon icon="mdi-identifier" size="12" class="mr-1" />{{ preset.swiftCode }}</div>
+            <!-- Bank Accounts Summary -->
+            <div v-if="preset.bankAccounts && preset.bankAccounts.length" class="mt-2 pa-2 bg-surface-variant rounded-sm border">
+              <div class="text-caption font-weight-bold text-primary mb-1">BANK ACCOUNTS ({{ preset.bankAccounts.length }})</div>
+              <div v-for="ba in preset.bankAccounts" :key="ba.id" class="detail-row">
+                <v-icon icon="mdi-bank-outline" size="12" class="mr-1 flex-shrink-0" />
+                <span class="font-weight-medium">{{ ba.accountName }}</span>
+                <span v-if="ba.bankName" class="text-medium-emphasis ml-1">· {{ ba.bankName }}</span>
+              </div>
             </div>
 
             <div v-if="preset.termsAndConditions" class="mt-2">
@@ -177,26 +179,41 @@
               />
             </v-col>
 
-            <!-- Bank Details — hidden: bank details moved to individual wallets -->
-            <v-col v-if="false" cols="12">
-              <div class="text-caption font-weight-bold text-medium-emphasis mb-2">BANK DETAILS</div>
-              <v-row dense>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.bankName" label="Bank Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-bank" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-account-cash" />
-                </v-col>
-                <v-col cols="12">
-                  <v-text-field v-model="form.bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-map-marker-radius" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.accountNumber" label="Account Number" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-numeric" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-identifier" />
-                </v-col>
-              </v-row>
+            <!-- Bank Accounts Manager -->
+            <v-col cols="12">
+              <div class="d-flex align-center mb-2">
+                <span class="text-caption font-weight-bold text-medium-emphasis">BANK ACCOUNTS</span>
+                <v-spacer />
+                <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-plus" @click="openBankAccountForm()">Add Account</v-btn>
+              </div>
+
+              <div v-if="bankAccounts.length === 0" class="text-caption text-medium-emphasis pa-3 text-center border rounded">
+                No bank accounts yet. Click "Add Account" to add one.
+              </div>
+
+              <v-list v-else density="compact" class="border rounded pa-0">
+                <v-list-item
+                  v-for="(ba, idx) in bankAccounts"
+                  :key="ba.id ?? `new-${idx}`"
+                  :class="{ 'border-b': idx < bankAccounts.length - 1 }"
+                  class="px-3 py-2"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-bank-outline" size="18" color="primary" class="mr-2" />
+                  </template>
+                  <v-list-item-title class="text-body-2 font-weight-medium">{{ ba.accountName }}</v-list-item-title>
+                  <v-list-item-subtitle class="text-caption">
+                    <span v-if="ba.bankName">{{ ba.bankName }}</span>
+                    <span v-if="ba.bankName && ba.accountNumber"> · </span>
+                    <span v-if="ba.accountNumber">{{ ba.accountNumber }}</span>
+                    <span v-if="ba.swiftCode" class="ml-1 text-medium-emphasis">({{ ba.swiftCode }})</span>
+                  </v-list-item-subtitle>
+                  <template #append>
+                    <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openBankAccountForm(ba)" />
+                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="removeBankAccount(ba, idx)" />
+                  </template>
+                </v-list-item>
+              </v-list>
             </v-col>
 
             <v-col cols="12">
@@ -390,6 +407,51 @@
       </v-card>
     </v-dialog>
 
+    <!-- Bank Account Form Dialog -->
+    <v-dialog v-model="showBankForm" max-width="480">
+      <v-card>
+        <v-toolbar color="surface" density="compact">
+          <v-toolbar-title class="text-body-1 font-weight-bold">
+            {{ editingBankAccount?.id ? 'Edit Bank Account' : 'Add Bank Account' }}
+          </v-toolbar-title>
+          <v-spacer />
+          <v-btn icon="mdi-close" @click="showBankForm = false" />
+        </v-toolbar>
+        <v-card-text class="pa-4">
+          <v-row dense>
+            <v-col cols="12">
+              <v-text-field v-model="bankForm.accountName" label="Account Name *" placeholder="e.g. USD Main, EUR Account" variant="outlined" density="compact" hide-details="auto" :rules="[v => !!v || 'Required']" prepend-inner-icon="mdi-tag-outline" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="bankForm.bankName" label="Bank Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-bank" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="bankForm.beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-account-cash" />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field v-model="bankForm.bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-map-marker-radius" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="bankForm.accountNumber" label="Account Number" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-numeric" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="bankForm.swiftCode" label="SWIFT Code" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-identifier" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model.number="bankForm.sortOrder" label="Sort Order" type="number" variant="outlined" density="compact" hide-details min="0" />
+            </v-col>
+          </v-row>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showBankForm = false">Cancel</v-btn>
+          <v-btn color="primary" variant="flat" :loading="savingBank" @click="saveBankAccount">
+            {{ editingBankAccount?.id ? 'Update' : 'Add' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Delete Confirm -->
     <v-dialog v-model="showDeleteConfirm" max-width="400">
       <v-card>
@@ -427,6 +489,14 @@ const logoPreview = ref<string | null>(null)
 const allWarehouses = ref<any[]>([])
 const selectedWarehouseIds = ref<number[]>([])
 const originalWarehouseIds = ref<number[]>([])
+
+// Bank accounts for the preset currently being edited
+const bankAccounts = ref<any[]>([])
+const showBankForm = ref(false)
+const savingBank = ref(false)
+const editingBankAccount = ref<any>(null)
+const defaultBankForm = () => ({ accountName: '', bankName: '', bankAddress: '', accountNumber: '', beneficiaryName: '', swiftCode: '', sortOrder: 0 })
+const bankForm = ref(defaultBankForm())
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -479,6 +549,7 @@ function openCreate() {
   editingId.value = null
   form.value = defaultForm()
   logoPreview.value = null
+  bankAccounts.value = []
   selectedWarehouseIds.value = []
   originalWarehouseIds.value = []
   showDialog.value = true
@@ -511,6 +582,8 @@ async function openEdit(preset: any) {
   logoPreview.value = preset.logoBase64
     ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
     : null
+  // Load bank accounts
+  bankAccounts.value = preset.bankAccounts ? [...preset.bankAccounts] : []
   // Load linked warehouses
   selectedWarehouseIds.value = []
   originalWarehouseIds.value = []
@@ -560,6 +633,14 @@ async function savePreset() {
     } else {
       const res = await api.post('/companypresets', form.value)
       presetId = res?.id ?? null
+      // Persist any in-memory bank accounts that were added before the preset existed
+      if (presetId) {
+        const pending = bankAccounts.value.filter(b => !b.id)
+        for (const b of pending) {
+          const { id: _, ...payload } = b
+          await api.post(`/companypresets/${presetId}/bank-accounts`, payload)
+        }
+      }
       showSnack('Preset created', 'success')
     }
     // Sync warehouse links
@@ -579,6 +660,63 @@ async function savePreset() {
   } finally {
     saving.value = false
   }
+}
+
+// ── Bank Account CRUD ──────────────────────────────────────────────────────────
+
+function openBankAccountForm(ba?: any) {
+  editingBankAccount.value = ba ?? null
+  bankForm.value = ba
+    ? { accountName: ba.accountName, bankName: ba.bankName || '', bankAddress: ba.bankAddress || '', accountNumber: ba.accountNumber || '', beneficiaryName: ba.beneficiaryName || '', swiftCode: ba.swiftCode || '', sortOrder: ba.sortOrder ?? 0 }
+    : defaultBankForm()
+  showBankForm.value = true
+}
+
+async function saveBankAccount() {
+  if (!bankForm.value.accountName?.trim()) {
+    showSnack('Account name is required', 'error')
+    return
+  }
+  savingBank.value = true
+  try {
+    const payload = { ...bankForm.value }
+    if (editingBankAccount.value?.id && editingId.value) {
+      // Existing account on saved preset — call API
+      const updated = await api.put(`/companypresets/${editingId.value}/bank-accounts/${editingBankAccount.value.id}`, payload)
+      const idx = bankAccounts.value.findIndex(b => b.id === editingBankAccount.value.id)
+      if (idx >= 0) bankAccounts.value[idx] = { ...editingBankAccount.value, ...payload }
+    } else if (editingBankAccount.value && !editingBankAccount.value.id) {
+      // Unsaved new account (preset not yet created) — update in-memory
+      const idx = bankAccounts.value.indexOf(editingBankAccount.value)
+      if (idx >= 0) bankAccounts.value[idx] = { ...editingBankAccount.value, ...payload }
+    } else if (editingId.value) {
+      // New account on existing preset — call API
+      const created = await api.post(`/companypresets/${editingId.value}/bank-accounts`, payload)
+      bankAccounts.value.push(created)
+    } else {
+      // New account on new preset (not saved yet) — add in-memory with temp marker
+      bankAccounts.value.push({ id: null, ...payload })
+    }
+    showBankForm.value = false
+    showSnack('Bank account saved', 'success')
+  } catch {
+    showSnack('Failed to save bank account', 'error')
+  } finally {
+    savingBank.value = false
+  }
+}
+
+async function removeBankAccount(ba: any, idx: number) {
+  if (ba.id && editingId.value) {
+    try {
+      await api.del(`/companypresets/${editingId.value}/bank-accounts/${ba.id}`)
+    } catch {
+      showSnack('Failed to delete bank account', 'error')
+      return
+    }
+  }
+  bankAccounts.value.splice(idx, 1)
+  showSnack('Bank account removed', 'success')
 }
 
 function confirmDelete(preset: any) {

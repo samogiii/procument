@@ -21,6 +21,15 @@
           class="cursor-pointer"
           @click="s.open = !s.open"
         >{{ s.label }}</v-chip>
+        <v-divider vertical class="mx-1" />
+        <v-chip
+          :color="showDiscount ? 'success' : 'default'"
+          :variant="showDiscount ? 'tonal' : 'outlined'"
+          size="small"
+          :prepend-icon="showDiscount ? 'mdi-tag-check-outline' : 'mdi-tag-off-outline'"
+          class="cursor-pointer"
+          @click="showDiscount = !showDiscount"
+        >Discount</v-chip>
       </div>
 
       <!-- Side-by-side layout: controls (left) + PDF preview (right) -->
@@ -99,6 +108,22 @@
           <template v-if="sections[2].open">
             <div class="section-label">Bank Information</div>
             <v-row dense align="center">
+              <v-col cols="12">
+                <v-select
+                  v-model="selectedBankAccountId"
+                  :items="presetBankAccounts"
+                  item-title="accountName"
+                  item-value="id"
+                  label="Select Bank Account"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-bank-outline"
+                  :no-data-text="presetBankAccounts.length ? 'No accounts' : 'Select a company preset first'"
+                  @update:model-value="applyBankAccount"
+                />
+              </v-col>
               <v-col cols="12"><v-text-field v-model="beneficiaryName" label="Beneficiary Name" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="bankName" label="Bank Name" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="bankAddress" label="Bank Address" variant="outlined" density="compact" hide-details /></v-col>
@@ -236,20 +261,32 @@ watch(selectedPreset, async (val) => {
     logoDataUrl.value = preset.logoBase64
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
-    // Pull bank details from preset (fallback)
-    beneficiaryName.value = preset.beneficiaryName || ''
-    bankName.value = preset.bankName || ''
-    bankAddress.value = preset.bankAddress || ''
-    bankAccount.value = preset.accountNumber || ''
-    swiftCode.value = preset.swiftCode || ''
     // Prefer customer's terms & conditions over preset's
     companyTerms.value = props.invoice?.customerTermsAndConditions || preset.termsAndConditions || ''
-    // Override bank details with wallet-specific values (pre-resolved on the invoice DTO — no extra API call needed)
-    if (props.invoice?.walletBankName) bankName.value = props.invoice.walletBankName
-    if (props.invoice?.walletBankAddress) bankAddress.value = props.invoice.walletBankAddress
-    if (props.invoice?.walletAccountNumber) bankAccount.value = props.invoice.walletAccountNumber
-    if (props.invoice?.walletBeneficiaryName) beneficiaryName.value = props.invoice.walletBeneficiaryName
-    if (props.invoice?.walletSwiftCode) swiftCode.value = props.invoice.walletSwiftCode
+    // Load bank accounts for this preset; try to restore saved selection
+    presetBankAccounts.value = preset.bankAccounts || []
+    const savedId = props.invoice?.defaultBankAccountId ?? null
+    const savedInThisPreset = savedId && presetBankAccounts.value.some((b: any) => b.id === savedId)
+    if (savedInThisPreset) {
+      selectedBankAccountId.value = savedId
+      applyBankAccount(savedId)
+    } else if (presetBankAccounts.value.length === 1) {
+      selectedBankAccountId.value = presetBankAccounts.value[0].id
+      applyBankAccount(selectedBankAccountId.value)
+    } else {
+      selectedBankAccountId.value = null
+      beneficiaryName.value = ''
+      bankName.value = ''
+      bankAddress.value = ''
+      bankAccount.value = ''
+      swiftCode.value = ''
+    }
+    // DISABLED: wallet bank override — bank details now come from company preset bank accounts
+    // if (props.invoice?.walletBankName) bankName.value = props.invoice.walletBankName
+    // if (props.invoice?.walletBankAddress) bankAddress.value = props.invoice.walletBankAddress
+    // if (props.invoice?.walletAccountNumber) bankAccount.value = props.invoice.walletAccountNumber
+    // if (props.invoice?.walletBeneficiaryName) beneficiaryName.value = props.invoice.walletBeneficiaryName
+    // if (props.invoice?.walletSwiftCode) swiftCode.value = props.invoice.walletSwiftCode
   }
 })
 
@@ -358,8 +395,30 @@ const bankAddress = ref('')
 const bankAccount = ref('')
 const swiftCode = ref('')
 
+// ── Preset bank accounts ──────────────────────────────────────────────────────
+const presetBankAccounts    = ref<any[]>([])
+const selectedBankAccountId = ref<number | null>(null)
+
+function applyBankAccount(id: number | null) {
+  const ba = presetBankAccounts.value.find(b => b.id === id)
+  if (ba) {
+    beneficiaryName.value = ba.beneficiaryName || ''
+    bankName.value        = ba.bankName || ''
+    bankAddress.value     = ba.bankAddress || ''
+    bankAccount.value     = ba.accountNumber || ''
+    swiftCode.value       = ba.swiftCode || ''
+  } else {
+    beneficiaryName.value = ''
+    bankName.value        = ''
+    bankAddress.value     = ''
+    bankAccount.value     = ''
+    swiftCode.value       = ''
+  }
+}
+
 const overrideCustomerName = ref('')
 const selectedItems = ref<number[]>([])
+const showDiscount = ref(true)
 
 function selectAllItems() {
   selectedItems.value = props.invoice?.items?.map((i: any) => i.id) || []
@@ -422,9 +481,11 @@ const renderedHtml = computed(() => {
 
   const rows = items.map((it: any, i: number) => {
     const bg = i % 2 === 0 ? '#ffffff' : rowEven
-    const discountCell = it.discount > 0
-      ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(Number(it.discount) * rate)}</td>`
-      : `<td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#9ca3af; border-bottom:1px solid #eef0f3;">—</td>`
+    const discountCell = showDiscount.value
+      ? (it.discount > 0
+        ? `<td style="padding:9px 8px; font-size:11px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(Number(it.discount) * rate)}</td>`
+        : `<td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#9ca3af; border-bottom:1px solid #eef0f3;">—</td>`)
+      : ''
     return `
     <tr style="background:${bg};">
       <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; border-bottom:1px solid #eef0f3;">${it.rfqReference || '—'}</td>
@@ -524,7 +585,7 @@ const renderedHtml = computed(() => {
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Cert</th>
               <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
-              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Discount</th>
+              ${showDiscount.value ? `<th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Discount</th>` : ''}
               <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Delivery</th>
             </tr>
           </thead>
@@ -537,12 +598,12 @@ const renderedHtml = computed(() => {
         <div>${bankSection}</div>
         <div style="min-width:260px;">
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal)}</td></tr>
-            ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; border-bottom:1px solid #eef0f3; font-weight:600;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal + (showDiscount.value ? totalDiscount : 0))}</td></tr>
+            ${showDiscount.value && totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; border-bottom:1px solid #eef0f3; font-weight:600;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
             <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shipping)}</td></tr>
             <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Processing Fee</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
-            <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(subtotal - totalDiscount + tax + shipping + other)}</td></tr>
+            <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(subtotal + tax + shipping + other)}</td></tr>
           </table>
         </div>
       </div>
@@ -632,6 +693,7 @@ async function downloadPdf() {
         bankAddress: bankAddress.value || null,
         bankAccount: bankAccount.value || null,
         swiftCode: swiftCode.value || null,
+        showDiscount: showDiscount.value,
         items: items.map((it: any) => ({
           rfqReference: it.rfqReference || null,
           partNumberName: it.partNumberName || null,
@@ -641,13 +703,13 @@ async function downloadPdf() {
           certName: it.certName || null,
           unitPrice: (Number(it.unitPrice) || 0) * curr.rate,
           totalPrice: (Number(it.totalPrice) || 0) * curr.rate,
-          discount: it.discount > 0 ? Number(it.discount) * curr.rate : null,
+          discount: showDiscount.value && it.discount > 0 ? Number(it.discount) * curr.rate : null,
           deliveryDate: it.expectedDeliveryDate
             ? new Date(it.expectedDeliveryDate).toLocaleDateString()
             : null,
           leadTime: it.leadTime || null,
         })),
-        subtotal: (items.reduce((sum, it) => sum + (Number(it.totalPrice) || 0), 0) + items.reduce((sum: number, it: any) => sum + (it.discount > 0 ? Number(it.discount) : 0), 0)) * curr.rate,
+        subtotal: items.reduce((sum: number, it: any) => sum + (Number(it.totalPrice) || 0), 0) * curr.rate,
         tax: (taxAmount.value || 0) * curr.rate,
         shipping: (shippingAmount.value || 0) * curr.rate,
         other: (otherAmount.value || 0) * curr.rate,

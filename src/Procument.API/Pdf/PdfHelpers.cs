@@ -161,7 +161,7 @@ public static class PdfHelpers
             if (processingFee > 0) { Row("Processing Fee", processingFee); grandTotal -= other; }
             else
             {
-                Row("Other", other, Colors.Grey.Lighten5);
+                Row("Processing Fee", other, Colors.Grey.Lighten5);
                 grandTotal -= processingFee;
             }
                 

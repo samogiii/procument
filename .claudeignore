@@ -1,0 +1,3 @@
+graphify-out/
+.obsidian/
+*.json  # If you have massive auto-generated JSONs you don't want it reading

@@ -203,7 +203,8 @@
               :readonly="!editingDetails"
             />
           </v-col>
-          <v-col cols="12" md="4">
+          <!-- Deposit Wallet selector — HIDDEN: bank details now come from company presets -->
+          <v-col v-if="false" cols="12" md="4">
             <v-select
               v-model="detailsForm.defaultDepositWalletId"
               :items="walletOptions"
@@ -215,6 +216,31 @@
               clearable
               prepend-inner-icon="mdi-wallet-outline"
             />
+          </v-col>
+          <!-- Bank Account selector from company presets -->
+          <v-col cols="12" md="4">
+            <v-select
+              v-model="detailsForm.defaultBankAccountId"
+              :items="bankAccountOptions"
+              item-title="title"
+              item-value="value"
+              label="Default Bank Account"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :readonly="!editingDetails"
+              clearable
+              prepend-inner-icon="mdi-bank-outline"
+              no-data-text="No bank accounts configured"
+            >
+              <template #item="{ item, props: itemProps }">
+                <v-list-item v-bind="itemProps">
+                  <template #subtitle>
+                    <span class="text-caption text-medium-emphasis">{{ item.raw.presetName }}</span>
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </v-col>
           <v-col cols="12" md="4">
             <v-text-field v-model.number="detailsForm.tax" label="Tax" variant="outlined" density="compact" hide-details type="number" :readonly="!editingDetails" prefix="$" />
@@ -468,7 +494,7 @@ const creatingFinal = ref(false)
 // Edit Details
 const editingDetails = ref(false)
 const savingDetails = ref(false)
-const detailsForm = ref<any>({ customerPONumber: '', customerPODate: '', dueDate: '', deadlineDate: '', subject: '', paymentStatus: '', prepaymentPercent: null, defaultDepositWalletId: null })
+const detailsForm = ref<any>({ customerPONumber: '', customerPODate: '', dueDate: '', deadlineDate: '', subject: '', paymentStatus: '', prepaymentPercent: null, defaultDepositWalletId: null, defaultBankAccountId: null })
 const detailsOriginal = ref<any>({})
 
 // Wallets for deposit
@@ -478,6 +504,19 @@ const walletOptions = computed(() => {
     title: w.name ? `${w.name} (${w.currency})` : `${w.companyPresetName} (${w.currency})`,
     value: w.id,
   }))
+})
+
+// Bank accounts from company presets
+const allPresets = ref<any[]>([])
+const bankAccountOptions = computed(() => {
+  return allPresets.value.flatMap((p: any) =>
+    (p.bankAccounts || []).map((ba: any) => ({
+      title: `${ba.accountName}${ba.bankName ? ' · ' + ba.bankName : ''}`,
+      subtitle: p.name,
+      value: ba.id,
+      presetName: p.name,
+    }))
+  )
 })
 
 const entityId = computed(() => String(route.params.id))
@@ -590,6 +629,7 @@ async function loadInvoice() {
       paymentStatus: invoice.value.paymentStatus || '',
       prepaymentPercent: invoice.value.prepaymentPercent ?? null,
       defaultDepositWalletId: invoice.value.defaultDepositWalletId ?? null,
+      defaultBankAccountId: invoice.value.defaultBankAccountId ?? null,
       tax: invoice.value.tax ?? 0,
       shipping: invoice.value.shipping ?? 0,
       processingFee: invoice.value.processingFee ?? 0,
@@ -604,6 +644,12 @@ async function loadInvoice() {
       } catch {
         wallets.value = []
       }
+    }
+    // Load company presets with bank accounts for the bank selector
+    try {
+      allPresets.value = await api.get('/companypresets')
+    } catch {
+      allPresets.value = []
     }
 
     // Fetch related procurement if applicable (created when status → Running)
@@ -647,6 +693,12 @@ async function saveDetails() {
     if (detailsForm.value.defaultDepositWalletId !== detailsOriginal.value.defaultDepositWalletId) {
       await api.patch(`/invoices/${route.params.id}/default-wallet`, {
         walletId: detailsForm.value.defaultDepositWalletId || null
+      })
+    }
+    // Save default bank account if changed
+    if (detailsForm.value.defaultBankAccountId !== detailsOriginal.value.defaultBankAccountId) {
+      await api.patch(`/invoices/${route.params.id}/default-bank-account`, {
+        bankAccountId: detailsForm.value.defaultBankAccountId || null
       })
     }
 

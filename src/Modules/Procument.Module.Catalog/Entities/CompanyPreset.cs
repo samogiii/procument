@@ -34,4 +34,7 @@ public class CompanyPreset : BaseEntity
 
     // Custom PDF template (optional HTML/CSS overrides the default generated layout)
     public string? CustomPdfHtml { get; set; }
+
+    // Multiple bank accounts per preset
+    public ICollection<CompanyPresetBankAccount> BankAccounts { get; set; } = new List<CompanyPresetBankAccount>();
 }

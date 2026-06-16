@@ -9,7 +9,8 @@ namespace Procument.Module.Sales.Services;
 
 public interface IFinalInvoiceService
 {
-    Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null);
+    Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null, string? sortBy = null, bool sortDesc = false);
+    Task<object> GetFilterOptionsAsync();
     Task<FinalInvoiceResponse?> GetByIdAsync(long id);
     Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
     Task<bool> UpdateStatusAsync(long id, string status);
@@ -32,14 +33,12 @@ public class FinalInvoiceService : IFinalInvoiceService
     /// SELECT with only the columns the list page actually displays. Avoids the 5-level
     /// Include/ThenInclude chain used by <see cref="GetByIdAsync"/>.
     /// </summary>
-    public async Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null)
+    public async Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null, string? sortBy = null, bool sortDesc = false)
     {
         var q = _db.Set<FinalInvoice>().AsNoTracking().AsQueryable();
 
         if (!isSuperAdmin && userBases != null)
-        {
             q = q.Where(fi => fi.Customer == null || fi.Customer.Base == null || userBases.Contains(fi.Customer.Base.Value));
-        }
 
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
@@ -56,26 +55,81 @@ public class FinalInvoiceService : IFinalInvoiceService
             q = q.Where(fi => fi.Customer != null && fi.Customer.Name.Contains(cs));
         }
 
-        var projected = q
-            .OrderByDescending(fi => fi.CreatedAt)
-            .Select(fi => new FinalInvoiceListItem
-            {
-                Id = fi.Id,
-                InvoiceNumber = fi.InvoiceNumber,
-                TotalAmount = fi.TotalAmount,
-                Status = fi.Status,
-                CreatedAt = fi.CreatedAt,
-                DueDate = fi.DueDate,
-                PaidDate = fi.PaidDate,
-                ProformaInvoiceId = fi.ProformaInvoiceId,
-                ProformaInvoiceNumber = fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : "",
-                CustomerId = fi.CustomerId,
-                CustomerName = fi.Customer != null ? fi.Customer.Name : "",
-                CustomerCode = fi.Customer != null ? fi.Customer.CustomerCode : null,
-                ItemCount = fi.Items.Count()
-            });
+        if (customerCodes?.Count > 0)
+        {
+            var codes = customerCodes.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+            if (codes.Count > 0)
+                q = q.Where(fi => fi.Customer != null && codes.Contains(fi.Customer.CustomerCode));
+        }
+
+        if (statuses?.Count > 0)
+        {
+            var sts = statuses.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (sts.Count > 0)
+                q = q.Where(fi => sts.Contains(fi.Status));
+        }
+
+        if (!string.IsNullOrWhiteSpace(pnSearch))
+        {
+            var s = pnSearch.Trim();
+            q = q.Where(fi => fi.Items.Any(item =>
+                (item.PartNumber != null && item.PartNumber.Name.Contains(s)) ||
+                (item.InvoiceItem != null && item.InvoiceItem.QuoteItem != null && item.InvoiceItem.QuoteItem.Alt != null && item.InvoiceItem.QuoteItem.Alt.Contains(s))
+            ));
+        }
+
+        if (createdFrom.HasValue)
+            q = q.Where(fi => fi.CreatedAt >= createdFrom.Value);
+
+        if (createdTo.HasValue)
+            q = q.Where(fi => fi.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+        IQueryable<FinalInvoice> ordered = sortBy switch
+        {
+            "invoiceNumber"         => sortDesc ? q.OrderByDescending(fi => fi.InvoiceNumber) : q.OrderBy(fi => fi.InvoiceNumber),
+            "customerCode"          => sortDesc ? q.OrderByDescending(fi => fi.Customer != null ? fi.Customer.CustomerCode : "") : q.OrderBy(fi => fi.Customer != null ? fi.Customer.CustomerCode : ""),
+            "proformaInvoiceNumber" => sortDesc ? q.OrderByDescending(fi => fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : "") : q.OrderBy(fi => fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : ""),
+            "totalAmount"           => sortDesc ? q.OrderByDescending(fi => fi.TotalAmount) : q.OrderBy(fi => fi.TotalAmount),
+            "status"                => sortDesc ? q.OrderByDescending(fi => fi.Status) : q.OrderBy(fi => fi.Status),
+            "dueDate"               => sortDesc ? q.OrderByDescending(fi => fi.DueDate) : q.OrderBy(fi => fi.DueDate),
+            "paidDate"              => sortDesc ? q.OrderByDescending(fi => fi.PaidDate) : q.OrderBy(fi => fi.PaidDate),
+            _                       => q.OrderByDescending(fi => fi.CreatedAt),
+        };
+
+        var projected = ordered.Select(fi => new FinalInvoiceListItem
+        {
+            Id = fi.Id,
+            InvoiceNumber = fi.InvoiceNumber,
+            TotalAmount = fi.TotalAmount,
+            Status = fi.Status,
+            CreatedAt = fi.CreatedAt,
+            DueDate = fi.DueDate,
+            PaidDate = fi.PaidDate,
+            ProformaInvoiceId = fi.ProformaInvoiceId,
+            ProformaInvoiceNumber = fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : "",
+            CustomerId = fi.CustomerId,
+            CustomerName = fi.Customer != null ? fi.Customer.Name : "",
+            CustomerCode = fi.Customer != null ? fi.Customer.CustomerCode : null,
+            ItemCount = fi.Items.Count()
+        });
 
         return await projected.ToPagedResultAsync(page);
+    }
+
+    public async Task<object> GetFilterOptionsAsync()
+    {
+        var q = _db.Set<FinalInvoice>().AsNoTracking();
+        var statuses = await q.Select(fi => fi.Status).Distinct().OrderBy(s => s).ToListAsync();
+        var customers = await q
+            .Where(fi => fi.Customer != null)
+            .Select(fi => new { code = fi.Customer!.CustomerCode, name = fi.Customer!.Name })
+            .Distinct()
+            .ToListAsync();
+        return new
+        {
+            statuses,
+            customers = customers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList()
+        };
     }
 
     public async Task<FinalInvoiceResponse?> GetByIdAsync(long id)
@@ -341,6 +395,7 @@ public class FinalInvoiceService : IFinalInvoiceService
             CustomerCurrencyType = fi.Customer?.CurrencyType,
             CustomerContacts = fi.Customer?.Contacts,
             DefaultDepositWalletId = fi.ProformaInvoice?.DefaultDepositWalletId,
+            DefaultBankAccountId = fi.ProformaInvoice?.DefaultBankAccountId,
             QuoteCoefYuan = fi.ProformaInvoice?.Quote?.CoefYuan,
             QuoteExchangeRateYuan = fi.ProformaInvoice?.Quote?.ExchangeRateYuan,
             //CustomerBillToContactPerson = fi.Customer?.ContactPerson,

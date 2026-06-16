@@ -6,7 +6,7 @@ namespace Procument.Module.Sales.Services;
 
 public interface IInvoiceService
 {
-    Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null);
+    Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null);
     Task<InvoiceResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<InvoiceResponse> CreateAsync(CreateInvoiceRequest request, long userId);
     Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request);

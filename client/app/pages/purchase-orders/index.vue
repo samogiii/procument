@@ -81,6 +81,49 @@
                 prepend-inner-icon="mdi-magnify"
                 style="min-width:200px;max-width:280px;"
               />
+              <v-text-field
+                v-model="poPnSearch"
+                label="Search by P/N"
+                variant="outlined"
+                density="compact"
+                hide-details
+                clearable
+                prepend-inner-icon="mdi-cog-outline"
+                style="min-width:160px;max-width:240px;"
+              />
+              <v-autocomplete
+                v-model="poSupplierFilter"
+                :items="poSupplierOptions"
+                label="Supplier"
+                variant="outlined"
+                density="compact"
+                hide-details
+                clearable
+                multiple
+                chips
+                closable-chips
+                style="min-width:160px;max-width:260px;"
+              />
+              <v-text-field
+                v-model="poDateFrom"
+                label="Created From"
+                type="date"
+                variant="outlined"
+                density="compact"
+                hide-details
+                clearable
+                style="min-width:155px;max-width:195px;"
+              />
+              <v-text-field
+                v-model="poDateTo"
+                label="Created To"
+                type="date"
+                variant="outlined"
+                density="compact"
+                hide-details
+                clearable
+                style="min-width:155px;max-width:195px;"
+              />
               <v-chip
                 v-if="poActiveFilterCount > 0"
                 size="small"
@@ -485,8 +528,8 @@
       </v-tabs-window>
     </v-card>
 
-    <!-- ══ Wallet picker dialog (shown before creating a PO) ══ -->
-    <v-dialog v-model="showWalletPickerDialog" max-width="500" persistent>
+    <!-- ══ Wallet picker dialog — HIDDEN: bank details now come from company presets ══ -->
+    <v-dialog v-if="false" v-model="showWalletPickerDialog" max-width="500" persistent>
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center pa-4 gap-2">
           <v-icon icon="mdi-wallet-outline" color="primary" />
@@ -763,15 +806,15 @@ async function loadPurchaseOrders() {
   // }
 }
 
-// ── Create PO from selected items — opens wallet picker first ──
+// ── Create PO from selected items — wallet picker hidden; creates directly ──
 function createPOFromGroup(supplierName: string, group: any[]) {
   const selected = getSelectedFromGroup(group)
   if (selected.length === 0) return
-  // Store pending create details and open wallet picker
   pendingCreate.supplierName = supplierName
   pendingCreate.group = group
   pendingCreate.walletId = null
-  showWalletPickerDialog.value = true
+  // Skip wallet picker dialog — proceed directly to create
+  confirmCreate()
 }
 
 function cancelCreate() {
@@ -830,6 +873,10 @@ function showSnack(text: string, color: string) {
 
 // ── Excel-style column filters for Purchase Orders tab ──
 const poSearch = ref('')
+const poPnSearch = ref('')
+const poSupplierFilter = ref<string[]>([])
+const poDateFrom = ref('')
+const poDateTo = ref('')
 const poColFilters = reactive<Record<string, Set<string>>>({})
 const poFilterSearch = reactive<Record<string, string>>({})
 
@@ -864,13 +911,27 @@ function togglePoFilter(key: string, val: string) {
   else poColFilters[key].add(val)
 }
 
-const poActiveFilterCount = computed(() =>
-  Object.values(poColFilters).filter(s => s && s.size > 0).length
+const poSupplierOptions = computed(() =>
+  [...new Set(purchaseOrders.value.map((po: any) => po.supplierName).filter(Boolean))].sort()
 )
+
+const poActiveFilterCount = computed(() => {
+  let count = Object.values(poColFilters).filter(s => s && s.size > 0).length
+  if (poSearch.value.trim()) count++
+  if (poPnSearch.value.trim()) count++
+  if (poSupplierFilter.value.length) count++
+  if (poDateFrom.value) count++
+  if (poDateTo.value) count++
+  return count
+})
 
 function clearAllPoFilters() {
   for (const key of Object.keys(poColFilters)) poColFilters[key] = new Set()
   poSearch.value = ''
+  poPnSearch.value = ''
+  poSupplierFilter.value = []
+  poDateFrom.value = ''
+  poDateTo.value = ''
 }
 
 const filteredPOs = computed(() => {
@@ -882,6 +943,29 @@ const filteredPOs = computed(() => {
       (r.supplierName || '').toLowerCase().includes(q) ||
       (r.invoiceNumber || '').toLowerCase().includes(q)
     )
+  }
+  // P/N search — matches any item in the PO
+  const pn = poPnSearch.value.trim().toLowerCase()
+  if (pn) {
+    rows = rows.filter(r =>
+      (r.items || []).some((item: any) =>
+        (item.partNumberName || '').toLowerCase().includes(pn)
+      )
+    )
+  }
+  // Supplier multi-select
+  if (poSupplierFilter.value.length) {
+    rows = rows.filter(r => poSupplierFilter.value.includes(r.supplierName))
+  }
+  // Date range on createdAt
+  if (poDateFrom.value) {
+    const from = new Date(poDateFrom.value)
+    rows = rows.filter(r => r.createdAt && new Date(r.createdAt) >= from)
+  }
+  if (poDateTo.value) {
+    const to = new Date(poDateTo.value)
+    to.setHours(23, 59, 59, 999)
+    rows = rows.filter(r => r.createdAt && new Date(r.createdAt) <= to)
   }
   // Apply column filters (status, supplier, etc.)
   for (const col of PO_FILTER_COLS) {

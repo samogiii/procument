@@ -1155,7 +1155,15 @@ function getRowProps({ item }: { item: any }) {
   const classes: string[] = []
   if (item.isUnread) classes.push('unread-rfq-row')
   if (isLeadTimeExpired(item.leadTime) && (item.status == 'Open' || item.status == 'In Progress')) classes.push('lead-time-expired-row')
-  return classes.length ? { class: classes.join(' ') } : {}
+  return {
+    ...(classes.length ? { class: classes.join(' ') } : {}),
+    onMousedown: (e: MouseEvent) => {
+      if (e.button === 1 && item.id) {
+        e.preventDefault()
+        window.open(`/rfqs/${item.id}`, '_blank')
+      }
+    },
+  }
 }
 
 const isAdmin = computed(() => authStore.isAdmin)
@@ -1311,7 +1319,6 @@ function debouncedFilterOptions() {
 
 watch(statusFilter, debouncedFilterOptions, { deep: true })
 watch(userFilter, debouncedFilterOptions, { deep: true })
-watch(customerFilter, debouncedFilterOptions, { deep: true })
 
 const headers = [
   { title: 'ID', key: 'id', width: '80px' },

@@ -31,6 +31,7 @@ public class Invoice : BaseEntity
     public long QuoteId { get; set; }
     public long CustomerId { get; set; }
     public long? DefaultDepositWalletId { get; set; }
+    public long? DefaultBankAccountId { get; set; }
 
     // Navigation
     public Quote Quote { get; set; } = null!;

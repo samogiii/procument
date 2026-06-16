@@ -273,6 +273,15 @@ public class QuoteService : IQuoteService
                 .Select(id => long.TryParse(id, out var l) ? l : -1)
                 .ToList();
 
+            var permittedRfqIdsStr = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId)
+                .ToListAsync();
+
+            var permittedRfqIds = permittedRfqIdsStr
+                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .ToList();
+
             var assignedCustomerIds = await GetUserAssignedCustomerIdsAsync(userId);
 
             query = query.Where(q =>
@@ -280,7 +289,9 @@ public class QuoteService : IQuoteService
                 q.Customer.Base == null ||
                 userBases.Contains(q.Customer.Base.Value) ||
                 assignedCustomerIds.Contains(q.Customer.Id) ||
-                permittedQuoteIds.Contains(q.Id));
+                permittedQuoteIds.Contains(q.Id) ||
+                permittedRfqIds.Contains(q.RFQId) ||
+                q.UserId == userId);
         }
 
         query = sortBy switch

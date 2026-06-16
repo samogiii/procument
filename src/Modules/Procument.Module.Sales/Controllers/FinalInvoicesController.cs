@@ -47,7 +47,12 @@ public class FinalInvoicesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50,
-        [FromQuery] string? search = null, [FromQuery] string? customerSearch = null)
+        [FromQuery] string? search = null, [FromQuery] string? customerSearch = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] DateTime? createdFrom = null, [FromQuery] DateTime? createdTo = null,
+        [FromQuery] List<string>? customerCodes = null,
+        [FromQuery] List<string>? statuses = null,
+        [FromQuery] string? sortBy = null, [FromQuery] bool sortDesc = false)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         bool isSuperAdmin = User.IsInRole("SuperAdmin");
@@ -55,7 +60,14 @@ public class FinalInvoicesController : ControllerBase
         int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(s => int.TryParse(s, out var b) ? b : -1)
             .Where(b => b > 0).ToArray();
-        var result = await _service.GetAllAsync(pq, customerSearch, isSuperAdmin, userBases);
+        var result = await _service.GetAllAsync(pq, customerSearch, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, customerCodes, statuses, sortBy, sortDesc);
+        return Ok(result);
+    }
+
+    [HttpGet("filter-options")]
+    public async Task<IActionResult> GetFilterOptions()
+    {
+        var result = await _service.GetFilterOptionsAsync();
         return Ok(result);
     }
 
@@ -270,6 +282,8 @@ public class FinalInvoicesController : ControllerBase
             customerContacts = fi.CustomerContacts ?? "",
 
             defaultDepositWalletId = fi.DefaultDepositWalletId,
+
+            defaultBankAccountId = fi.DefaultBankAccountId,
 
             coefYuan = fi.QuoteCoefYuan,
 

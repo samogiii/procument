@@ -373,15 +373,16 @@ watch(mobile, (isMobile) => {
 
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
+  { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
   { title: 'Action Center', icon: 'mdi-alert-circle-outline', to: '/attention', actionCenter: true, adminOnly: false, ilsOnly: false },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false, ilsOnly: false },
   // { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
   { title: 'RFQ Items', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false, ilsOnly: false },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Sales Order', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
-  { title: 'Order Items', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
+  { title: 'Checking Purchase Items', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },
-  { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
+  
   { title: 'Shipping', icon: 'mdi-warehouse', to: '/shipping', inventoryOnly: true },
   { title: 'Shipping Control', icon: 'mdi-truck-delivery-outline', to: '/total-shipping', inventoryOnly: true,  },
 

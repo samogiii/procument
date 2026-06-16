@@ -18,6 +18,7 @@
         placeholder="Filter rows..."
         density="compact"
         hide-details
+        clearable
         variant="outlined"
         style="max-width: 280px;"
       />
@@ -792,7 +793,7 @@ const filteredRows = computed(() => {
   let result = rows.value
 
   // Text search
-  const q = search.value.trim().toLowerCase()
+  const q = (search.value ?? '').trim().toLowerCase()
   if (q) {
     result = result.filter(r => {
       const blob = [
