@@ -415,7 +415,19 @@ public class ProcurementService : IProcurementService
         }
 
         if (!string.IsNullOrEmpty(search))
-            query = query.Where(i => i.PartNumberName.Contains(search) || (i.PartNumberDescription != null && i.PartNumberDescription.Contains(search)));
+        {
+            var s = search.Trim();
+            query = query.Where(i =>
+                (i.PartNumberName != null && i.PartNumberName.Contains(s)) ||
+                (i.PartNumberDescription != null && i.PartNumberDescription.Contains(s)) ||
+                (i.Condition != null && i.Condition.Contains(s)) ||
+                i.ItemStatus.Contains(s) ||
+                (i.Alt != null && i.Alt.Contains(s)) ||
+                (i.SupplierName != null && i.SupplierName.Contains(s)) ||
+                (i.CurrentSupplier != null && i.CurrentSupplier.Name.Contains(s)) ||
+                (i.RfqName != null && i.RfqName.Contains(s)) ||
+                (i.QuoteNumber != null && i.QuoteNumber.Contains(s)));
+        }
 
         if (partNames?.Count > 0)
             query = query.Where(i => partNames.Contains(i.PartNumberName));

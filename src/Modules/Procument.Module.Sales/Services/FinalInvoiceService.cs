@@ -45,8 +45,13 @@ public class FinalInvoiceService : IFinalInvoiceService
             var s = page.Search.Trim();
             q = q.Where(fi =>
                 fi.InvoiceNumber.Contains(s)
-             || (fi.Customer != null && fi.Customer.Name.Contains(s))
-             || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s)));
+             || fi.Status.Contains(s)
+             || (fi.Customer != null && (fi.Customer.Name.Contains(s) || (fi.Customer.CustomerCode != null && fi.Customer.CustomerCode.Contains(s))))
+             || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s))
+             || fi.Items.Any(item =>
+                    (item.PartNumber != null && item.PartNumber.Name.Contains(s)) ||
+                    (item.PartNumber != null && item.PartNumber.Description != null && item.PartNumber.Description.Contains(s)) ||
+                    (item.Condition != null && item.Condition.Contains(s))));
         }
 
         if (!string.IsNullOrWhiteSpace(customerSearch))

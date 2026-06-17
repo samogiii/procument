@@ -29,7 +29,7 @@ public class InvoiceService : IInvoiceService
         _procurementService = procurementService;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .AsNoTracking()
@@ -79,7 +79,17 @@ public class InvoiceService : IInvoiceService
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
             var s = page.Search.Trim();
-            query = query.Where(i => i.InvoiceNumber.Contains(s) || i.Customer.Name.Contains(s));
+            query = query.Where(i =>
+                i.InvoiceNumber.Contains(s) ||
+                i.Customer.Name.Contains(s) ||
+                (i.Customer.CustomerCode != null && i.Customer.CustomerCode.Contains(s)) ||
+                (i.Subject != null && i.Subject.Contains(s)) ||
+                (i.CustomerPONumber != null && i.CustomerPONumber.Contains(s)) ||
+                i.Status.Contains(s) ||
+                i.InvoiceItems.Any(ii => ii.QuoteItem != null && (
+                    (ii.QuoteItem.PartNumber != null && ii.QuoteItem.PartNumber.Name.Contains(s)) ||
+                    (ii.QuoteItem.PartNumber != null && ii.QuoteItem.PartNumber.Description != null && ii.QuoteItem.PartNumber.Description.Contains(s)) ||
+                    (ii.QuoteItem.Alt != null && ii.QuoteItem.Alt.Contains(s)))));
         }
 
         if (!string.IsNullOrWhiteSpace(status) && status != "All" && status != "Cancelled")
@@ -113,6 +123,13 @@ public class InvoiceService : IInvoiceService
             var invs = invoiceNumbers.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
             if (invs.Count > 0)
                 query = query.Where(i => invs.Contains(i.InvoiceNumber));
+        }
+
+        if (subjects?.Count > 0)
+        {
+            var subs = subjects.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (subs.Count > 0)
+                query = query.Where(i => i.Subject != null && subs.Contains(i.Subject));
         }
 
         if (!string.IsNullOrWhiteSpace(pnSearch))

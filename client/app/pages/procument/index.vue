@@ -35,14 +35,26 @@
       <v-card-text>
         <div class="d-flex flex-wrap gap-3 mb-4">
           <v-text-field
-            v-model="search"
-            prepend-inner-icon="mdi-magnify"
+            v-model="searchInput"
             label="Search..."
             single-line
             hide-details
+            clearable
             class="flex-grow-1 mx-2"
             style="min-width: 180px;"
-          />
+            @keyup.enter="runSearch"
+            @click:clear="runSearch"
+          >
+            <template #append-inner>
+              <v-btn
+                color="primary"
+                variant="tonal"
+                size="small"
+                icon="mdi-magnify"
+                @click="runSearch"
+              />
+            </template>
+          </v-text-field>
           <v-select
             v-model="statusFilter"
             :items="statusSelectItems"
@@ -1182,6 +1194,16 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procumen
   itemsPerPage: 50,
 })
 const search = pf.search
+// `search` is the COMMITTED term that drives the query. `searchInput` is the raw
+// text-field value — it only commits on button click / Enter so the heavy backend
+// search does not fire on every keystroke.
+const searchInput = ref(search.value)
+function runSearch() {
+  search.value = (searchInput.value ?? '').trim()
+}
+watch(search, (v) => {
+  if ((v ?? '') !== (searchInput.value ?? '')) searchInput.value = v
+})
 const currentPage = pf.page           // top-level ref so Vue auto-unwraps in template
 const currentItemsPerPage = pf.itemsPerPage
 const loading = ref(false)
@@ -1615,7 +1637,8 @@ function debouncedProcumentLoad() {
   clearTimeout(procumentDebounce)
   procumentDebounce = setTimeout(() => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), 350)
 }
-watch(search, debouncedProcumentLoad)
+// `search` only changes on explicit commit (button / Enter), so load immediately.
+watch(search, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }))
 watch(pnSearch, debouncedProcumentLoad)
 watch(statusFilter, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })
 watch(userFilter, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 }), { deep: true })

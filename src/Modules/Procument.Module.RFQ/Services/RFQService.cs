@@ -214,18 +214,20 @@ public class RFQService : IRFQService
         {
             var s = page.Search.Trim();
             // If the search term is numeric, also match by RFQ Id (exact) so users can
-            // paste/type an RFQ id in the search box and find it.
-            if (long.TryParse(s, out var searchId))
-            {
-                query = query.Where(r =>
-                    r.Id == searchId ||
-                    r.Name.Contains(s) ||
-                    r.Customer.Name.Contains(s));
-            }
-            else
-            {
-                query = query.Where(r => r.Name.Contains(s) || r.Customer.Name.Contains(s));
-            }
+            // paste/type an RFQ id in the search box and find it. TryParse leaves searchId=0
+            // for non-numeric input, and ids are always > 0, so the comparison is harmless.
+            long.TryParse(s, out var searchId);
+            query = query.Where(r =>
+                r.Id == searchId ||
+                r.Name.Contains(s) ||
+                r.Status.Contains(s) ||
+                r.Customer.Name.Contains(s) ||
+                (r.Customer.CustomerCode != null && r.Customer.CustomerCode.Contains(s)) ||
+                r.RFQItems.Any(i =>
+                    i.PartNumber.Name.Contains(s) ||
+                    (i.Alt != null && i.Alt.Contains(s)) ||
+                    (i.Condition != null && i.Condition.Contains(s)) ||
+                    i.PartNumber.Alternatives.Any(a => a.Name.Contains(s))));
         }
 
         if (!string.IsNullOrWhiteSpace(pnSearch))

@@ -9,10 +9,19 @@ namespace Procument.Module.Purchasing.Services;
 public interface IILSService
 {
     Task<List<ILSItemResponse>> GetAllAsync();
+    Task<ILSItemResponse?> GetByIdAsync(long id);
     Task<ILSItemResponse> SaveAsync(SaveILSItemRequest request);
     Task<bool> DeleteAsync(long id);
     Task<List<ARShopSuggestionResponse>> GetARShopSuggestionsAsync();
     Task<BulkImportResult> BulkImportAsync(BulkImportILSRequest request);
+
+    // ── Serials ──
+    Task<List<ILSSerialResponse>> GetSerialsAsync(long ilsItemId);
+    Task<ILSSerialResponse> SaveSerialAsync(SaveILSSerialRequest request);
+    Task<bool> DeleteSerialAsync(long serialId);
+    Task<ILSSerialResponse?> UploadSerialImageAsync(long serialId, string kind, Microsoft.AspNetCore.Http.IFormFile file);
+    Task<(Stream stream, string fileName, string mimeType)?> GetSerialImageAsync(long serialId, string kind);
+    Task<ILSSerialResponse?> DeleteSerialImageAsync(long serialId, string kind);
 }
 
 public class ILSService : IILSService
@@ -28,7 +37,23 @@ public class ILSService : IILSService
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
-        return items.Select(MapToResponse).ToList();
+        var counts = await _db.Set<ILSItemSerial>()
+            .GroupBy(s => s.ILSItemId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count);
+
+        return items.Select(i => MapToResponse(i, counts.GetValueOrDefault(i.Id))).ToList();
+    }
+
+    public async Task<ILSItemResponse?> GetByIdAsync(long id)
+    {
+        var item = await _db.Set<ILSItem>()
+            .Include(i => i.PartNumber)
+            .FirstOrDefaultAsync(i => i.Id == id);
+        if (item == null) return null;
+
+        var count = await _db.Set<ILSItemSerial>().CountAsync(s => s.ILSItemId == id);
+        return MapToResponse(item, count);
     }
 
     public async Task<ILSItemResponse> SaveAsync(SaveILSItemRequest request)
@@ -243,7 +268,7 @@ public class ILSService : IILSService
         return result;
     }
 
-    private static ILSItemResponse MapToResponse(ILSItem i) => new()
+    private static ILSItemResponse MapToResponse(ILSItem i, int serialCount = 0) => new()
     {
         Id = i.Id,
         PartNumberId = i.PartNumberId,
@@ -257,6 +282,210 @@ public class ILSService : IILSService
         CertName = i.CertName,
         LeadTime = i.LeadTime,
         ProcumentRecordId = i.ProcumentRecordId,
+        SerialCount = serialCount,
         CreatedAt = i.CreatedAt,
+    };
+
+    // ════════════════════════════════════════════════════════════
+    // SERIALS — one physical unit per row; parent Qty auto-syncs
+    // ════════════════════════════════════════════════════════════
+
+    private const string SerialDocRoot = "Documents/ILSSerials";
+
+    public async Task<List<ILSSerialResponse>> GetSerialsAsync(long ilsItemId)
+    {
+        var serials = await _db.Set<ILSItemSerial>()
+            .Where(s => s.ILSItemId == ilsItemId)
+            .OrderBy(s => s.CreatedAt)
+            .ToListAsync();
+
+        return serials.Select(MapSerial).ToList();
+    }
+
+    public async Task<ILSSerialResponse> SaveSerialAsync(SaveILSSerialRequest request)
+    {
+        var itemExists = await _db.Set<ILSItem>().AnyAsync(i => i.Id == request.ILSItemId);
+        if (!itemExists)
+            throw new KeyNotFoundException($"ILS item {request.ILSItemId} not found.");
+
+        if (string.IsNullOrWhiteSpace(request.SerialNumber))
+            throw new ArgumentException("Serial number is required.");
+
+        ILSItemSerial serial;
+        if (request.Id.HasValue && request.Id > 0)
+        {
+            serial = await _db.Set<ILSItemSerial>()
+                .FirstOrDefaultAsync(s => s.Id == request.Id.Value)
+                ?? throw new KeyNotFoundException($"Serial {request.Id} not found.");
+
+            serial.SerialNumber = request.SerialNumber.Trim();
+            serial.LeadTime = request.LeadTime;
+            serial.CertText = request.CertText;
+            serial.Price = request.Price;
+            serial.Location = request.Location;
+            serial.Condition = request.Condition;
+            serial.TagDate = request.TagDate;
+            serial.Notes = request.Notes;
+        }
+        else
+        {
+            serial = new ILSItemSerial
+            {
+                ILSItemId = request.ILSItemId,
+                SerialNumber = request.SerialNumber.Trim(),
+                LeadTime = request.LeadTime,
+                CertText = request.CertText,
+                Price = request.Price,
+                Location = request.Location,
+                Condition = request.Condition,
+                TagDate = request.TagDate,
+                Notes = request.Notes,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.Set<ILSItemSerial>().Add(serial);
+        }
+
+        await _db.SaveChangesAsync();
+        await RecomputeQtyAsync(serial.ILSItemId);
+
+        return MapSerial(serial);
+    }
+
+    public async Task<bool> DeleteSerialAsync(long serialId)
+    {
+        var serial = await _db.Set<ILSItemSerial>().FindAsync(serialId);
+        if (serial == null) return false;
+
+        var ilsItemId = serial.ILSItemId;
+        _db.Set<ILSItemSerial>().Remove(serial);
+        await _db.SaveChangesAsync();
+
+        // Remove stored image files for this serial
+        var folder = Path.Combine(SerialDocRoot, serialId.ToString());
+        if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+
+        await RecomputeQtyAsync(ilsItemId);
+        return true;
+    }
+
+    public async Task<ILSSerialResponse?> UploadSerialImageAsync(long serialId, string kind, Microsoft.AspNetCore.Http.IFormFile file)
+    {
+        var serial = await _db.Set<ILSItemSerial>().FindAsync(serialId);
+        if (serial == null) return null;
+
+        var prefix = NormalizeKind(kind);
+        var folder = Path.Combine(SerialDocRoot, serialId.ToString());
+        Directory.CreateDirectory(folder);
+
+        // Remove the old file of this kind if present
+        var oldStored = prefix == "cert" ? serial.CertImageFileName : serial.PartImageFileName;
+        if (!string.IsNullOrEmpty(oldStored))
+        {
+            var oldPath = Path.Combine(folder, oldStored);
+            if (File.Exists(oldPath)) File.Delete(oldPath);
+        }
+
+        var ext = Path.GetExtension(file.FileName);
+        var storedName = $"{prefix}_{Guid.NewGuid():N}{ext}";
+        var fullPath = Path.Combine(folder, storedName);
+
+        await using (var fs = File.Create(fullPath))
+            await file.CopyToAsync(fs);
+
+        if (prefix == "cert")
+        {
+            serial.CertImageFileName = storedName;
+            serial.CertImageOriginalName = file.FileName;
+        }
+        else
+        {
+            serial.PartImageFileName = storedName;
+            serial.PartImageOriginalName = file.FileName;
+        }
+
+        await _db.SaveChangesAsync();
+        return MapSerial(serial);
+    }
+
+    public async Task<(Stream stream, string fileName, string mimeType)?> GetSerialImageAsync(long serialId, string kind)
+    {
+        var serial = await _db.Set<ILSItemSerial>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == serialId);
+        if (serial == null) return null;
+
+        var prefix = NormalizeKind(kind);
+        var storedName = prefix == "cert" ? serial.CertImageFileName : serial.PartImageFileName;
+        var originalName = prefix == "cert" ? serial.CertImageOriginalName : serial.PartImageOriginalName;
+        if (string.IsNullOrEmpty(storedName)) return null;
+
+        var path = Path.Combine(SerialDocRoot, serialId.ToString(), storedName);
+        if (!File.Exists(path)) return null;
+
+        var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+        if (!provider.TryGetContentType(path, out var mime)) mime = "application/octet-stream";
+
+        return (File.OpenRead(path), originalName ?? storedName, mime);
+    }
+
+    public async Task<ILSSerialResponse?> DeleteSerialImageAsync(long serialId, string kind)
+    {
+        var serial = await _db.Set<ILSItemSerial>().FindAsync(serialId);
+        if (serial == null) return null;
+
+        var prefix = NormalizeKind(kind);
+        var storedName = prefix == "cert" ? serial.CertImageFileName : serial.PartImageFileName;
+        if (!string.IsNullOrEmpty(storedName))
+        {
+            var path = Path.Combine(SerialDocRoot, serialId.ToString(), storedName);
+            if (File.Exists(path)) File.Delete(path);
+        }
+
+        if (prefix == "cert")
+        {
+            serial.CertImageFileName = null;
+            serial.CertImageOriginalName = null;
+        }
+        else
+        {
+            serial.PartImageFileName = null;
+            serial.PartImageOriginalName = null;
+        }
+
+        await _db.SaveChangesAsync();
+        return MapSerial(serial);
+    }
+
+    private async Task RecomputeQtyAsync(long ilsItemId)
+    {
+        var item = await _db.Set<ILSItem>().FirstOrDefaultAsync(i => i.Id == ilsItemId);
+        if (item == null) return;
+        item.Qty = await _db.Set<ILSItemSerial>().CountAsync(s => s.ILSItemId == ilsItemId);
+        await _db.SaveChangesAsync();
+    }
+
+    private static string NormalizeKind(string kind)
+    {
+        var k = (kind ?? "").Trim().ToLowerInvariant();
+        if (k != "cert" && k != "part")
+            throw new ArgumentException("Image kind must be 'cert' or 'part'.");
+        return k;
+    }
+
+    private static ILSSerialResponse MapSerial(ILSItemSerial s) => new()
+    {
+        Id = s.Id,
+        ILSItemId = s.ILSItemId,
+        SerialNumber = s.SerialNumber,
+        LeadTime = s.LeadTime,
+        CertText = s.CertText,
+        HasCertImage = !string.IsNullOrEmpty(s.CertImageFileName),
+        CertImageOriginalName = s.CertImageOriginalName,
+        HasPartImage = !string.IsNullOrEmpty(s.PartImageFileName),
+        PartImageOriginalName = s.PartImageOriginalName,
+        Price = s.Price,
+        Location = s.Location,
+        Condition = s.Condition,
+        TagDate = s.TagDate,
+        Notes = s.Notes,
+        CreatedAt = s.CreatedAt,
     };
 }

@@ -65,8 +65,12 @@ public class ProcumentPageService : IProcumentPageService
             var s = page.Search.Trim();
             itemQuery = itemQuery.Where(i =>
                 i.PartNumber.Name.Contains(s) ||
+                (i.Alt != null && i.Alt.Contains(s)) ||
+                (i.Condition != null && i.Condition.Contains(s)) ||
                 i.RFQ.Name.Contains(s) ||
-                i.RFQ.Customer.Name.Contains(s));
+                i.RFQ.Status.Contains(s) ||
+                i.RFQ.Customer.Name.Contains(s) ||
+                (i.RFQ.Customer.CustomerCode != null && i.RFQ.Customer.CustomerCode.Contains(s)));
         }
 
         if (!string.IsNullOrWhiteSpace(pnSearch))
@@ -358,8 +362,7 @@ public class ProcumentPageService : IProcumentPageService
         // a fresh cost can be added today to an older RFQ and is still a current, useful price.
         var relatedRfqItemIds = await _db.Set<RFQItem>()
             .Where(i => relatedPnIds.Contains(i.PartNumberId)
-                     && i.RFQId != excludeRfqId
-                     && (i.RFQ.Status == "Open" || i.RFQ.Status == "In Progress"))
+                     && i.RFQId != excludeRfqId)
             .Select(i => i.Id)
             .ToListAsync();
 
@@ -386,7 +389,7 @@ public class ProcumentPageService : IProcumentPageService
                 // Hide the price when the cost record itself was last touched more than 14 days ago.
                 // Based on the cost's own age — NOT the part's Tag Date and NOT the RFQ's CreatedAt.
                 Price       = (r.UpdatedAt ?? r.CreatedAt) >= cutoff ? r.Price : 0m,
-                PriceHidden = (r.UpdatedAt ?? r.CreatedAt) < cutoff,
+                PriceHidden = (r.UpdatedAt ?? r.CreatedAt) <= cutoff,
                 Condition = r.Condition,
                 Alt = r.Alt,
                 Unit = r.Unit,

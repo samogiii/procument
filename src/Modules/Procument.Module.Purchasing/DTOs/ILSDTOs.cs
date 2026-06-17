@@ -30,6 +30,40 @@ public class ILSItemResponse
     public string? CertName { get; set; }
     public string? LeadTime { get; set; }
     public long? ProcumentRecordId { get; set; }
+    public int SerialCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SaveILSSerialRequest
+{
+    public long? Id { get; set; }
+    public long ILSItemId { get; set; }
+    public string SerialNumber { get; set; } = string.Empty;
+    public string? LeadTime { get; set; }
+    public string? CertText { get; set; }
+    public decimal? Price { get; set; }
+    public string? Location { get; set; }
+    public string? Condition { get; set; }
+    public DateOnly? TagDate { get; set; }
+    public string? Notes { get; set; }
+}
+
+public class ILSSerialResponse
+{
+    public long Id { get; set; }
+    public long ILSItemId { get; set; }
+    public string SerialNumber { get; set; } = string.Empty;
+    public string? LeadTime { get; set; }
+    public string? CertText { get; set; }
+    public bool HasCertImage { get; set; }
+    public string? CertImageOriginalName { get; set; }
+    public bool HasPartImage { get; set; }
+    public string? PartImageOriginalName { get; set; }
+    public decimal? Price { get; set; }
+    public string? Location { get; set; }
+    public string? Condition { get; set; }
+    public DateOnly? TagDate { get; set; }
+    public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 

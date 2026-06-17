@@ -17,6 +17,14 @@ public class ILSQuoteItem : BaseEntity
     public string? Notes { get; set; }
     public long? ILSItemId { get; set; }
 
+    // Serial-level quoting: specific S/N + base price × coef = sell price.
+    // ILSItemSerialId is a soft reference (snapshot fields below preserve history);
+    // no DB FK to avoid multiple cascade paths from ILSItems → ILSQuoteItems.
+    public long? ILSItemSerialId { get; set; }
+    public string? SerialNumber { get; set; }
+    public decimal? BasePrice { get; set; }
+    public decimal? Coef { get; set; }
+
     // Navigation
     public ILSQuote ILSQuote { get; set; } = null!;
     public PartNumber PartNumber { get; set; } = null!;

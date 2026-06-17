@@ -117,6 +117,22 @@
       />
     </template>
 
+    <!-- Column filter: Subject -->
+    <template #header.subject="{ column, toggleSort }">
+      <ColFilterMenu
+        col-key="subject"
+        :label="column.title"
+        :options="cfSubjectOptions"
+        :selected="colFilter.selected['subject'] || new Set()"
+        :search="colFilter.search['subject'] || ''"
+        @toggle="(v) => colFilter.toggle('subject', v)"
+        @select-all="() => colFilter.selectAll('subject', cfSubjectOptions)"
+        @clear-all="() => colFilter.clearAll('subject')"
+        @update:search="(v) => colFilter.search['subject'] = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />
     </template>
@@ -253,9 +269,10 @@ const colFilter = useColFilterPersisted('invoices')
 const cfCustomerOptions = ref<string[]>([])
 const cfStatusOptions = ref<string[]>([])
 const cfInvoiceNumberOptions = ref<string[]>([])
+const cfSubjectOptions = ref<string[]>([])
 
 const hasActiveFilters = computed(() =>
-  hasPageFilters.value || colFilter.isActive('customerCode') || colFilter.isActive('status') || colFilter.isActive('invoiceNumber')
+  hasPageFilters.value || colFilter.isActive('customerCode') || colFilter.isActive('status') || colFilter.isActive('invoiceNumber') || colFilter.isActive('subject')
 )
 
 function clearFilters() {
@@ -263,6 +280,7 @@ function clearFilters() {
   colFilter.clearAll('customerCode')
   colFilter.clearAll('status')
   colFilter.clearAll('invoiceNumber')
+  colFilter.clearAll('subject')
 }
 
 const extraParams = computed<Record<string, string | string[]>>(() => {
@@ -280,6 +298,7 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (createdTo.value) p.createdTo = createdTo.value
   if (colFilter.isActive('status')) p.statuses = colFilter.getSelected('status')
   if (colFilter.isActive('invoiceNumber')) p.invoiceNumbers = colFilter.getSelected('invoiceNumber')
+  if (colFilter.isActive('subject')) p.subjects = colFilter.getSelected('subject')
   return p
 })
 
@@ -291,6 +310,7 @@ async function loadAllInvoiceFilterOptions() {
       .map((c: any) => c.code || '-'))] as string[])
       .sort()
     cfInvoiceNumberOptions.value = (res.invoiceNumbers || []).sort()
+    cfSubjectOptions.value = (res.subjects || []).sort()
   } catch {}
 }
 

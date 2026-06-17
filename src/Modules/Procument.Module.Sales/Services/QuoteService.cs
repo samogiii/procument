@@ -218,7 +218,19 @@ public class QuoteService : IQuoteService
             query = query.Where(q => q.Status != "Rejected");
 
         if (!string.IsNullOrEmpty(search))
-            query = query.Where(q => q.QuoteNumber.Contains(search) || (q.Customer != null && q.Customer.Name.Contains(search)));
+        {
+            var s = search.Trim();
+            query = query.Where(q =>
+                q.QuoteNumber.Contains(s) ||
+                q.Status.Contains(s) ||
+                (q.Customer != null && (q.Customer.Name.Contains(s) || (q.Customer.CustomerCode != null && q.Customer.CustomerCode.Contains(s)))) ||
+                (q.RFQ != null && q.RFQ.Name.Contains(s)) ||
+                q.QuoteItems.Any(qi =>
+                    (qi.PartNumber != null && qi.PartNumber.Name.Contains(s)) ||
+                    (qi.PartNumber != null && qi.PartNumber.Description != null && qi.PartNumber.Description.Contains(s)) ||
+                    (qi.Alt != null && qi.Alt.Contains(s)) ||
+                    (qi.Condition != null && qi.Condition.Contains(s))));
+        }
 
         if (!string.IsNullOrEmpty(pnSearch))
             query = query.Where(q => q.QuoteItems.Any(qi => qi.PartNumber != null && qi.PartNumber.Name.Contains(pnSearch)));

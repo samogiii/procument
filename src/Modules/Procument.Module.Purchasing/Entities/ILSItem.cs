@@ -20,4 +20,5 @@ public class ILSItem : BaseEntity
     // Navigation
     public PartNumber PartNumber { get; set; } = null!;
     public ProcumentRecord? ProcumentRecord { get; set; }
+    public List<ILSItemSerial> Serials { get; set; } = new();
 }

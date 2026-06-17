@@ -143,12 +143,31 @@
             <v-chip v-if="item.certName" size="small" variant="tonal" color="info">{{ item.certName }}</v-chip>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
+          <template #item.serialCount="{ item }">
+            <v-chip
+              size="small"
+              variant="tonal"
+              :color="item.serialCount > 0 ? 'primary' : 'grey'"
+              prepend-icon="mdi-barcode"
+              @click="navigateTo(`/ils/items/${item.id}`)"
+            >
+              {{ item.serialCount || 0 }}
+            </v-chip>
+          </template>
           <template #item.procumentRecordId="{ item }">
             <v-chip v-if="item.procumentRecordId" size="x-small" color="warning" variant="tonal" prepend-icon="mdi-wrench">
               Shop #{{ item.procumentRecordId }}
             </v-chip>
           </template>
           <template #item.actions="{ item }">
+            <v-btn
+              icon="mdi-format-list-numbered"
+              size="x-small"
+              variant="text"
+              color="primary"
+              title="Manage serial numbers"
+              @click="navigateTo(`/ils/items/${item.id}`)"
+            />
             <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openEditDialog(item)" />
             <v-btn
               v-if="isAdmin"
@@ -679,13 +698,13 @@
             <table class="quote-items-table">
               <thead>
                 <tr>
-                  <th style="min-width: 200px;">ILS Item *</th>
-                  <th style="width: 90px;">Condition</th>
-                  <th style="width: 70px;">Cert</th>
-                  <th style="width: 80px;">Avail. Qty</th>
-                  <th style="width: 70px;">Qty *</th>
-                  <th style="width: 110px;">Sell Price *</th>
-                  <th style="width: 120px;">Total Price</th>
+                  <th style="min-width: 180px;">ILS Item *</th>
+                  <th style="min-width: 150px;">Serial #</th>
+                  <th style="width: 100px;">Base $</th>
+                  <th style="width: 80px;">Coef</th>
+                  <th style="width: 110px;">Sell $</th>
+                  <th style="width: 60px;">Qty</th>
+                  <th style="width: 110px;">Total</th>
                   <th style="width: 36px;"></th>
                 </tr>
               </thead>
@@ -706,27 +725,43 @@
                       @update:model-value="val => onILSItemSelected(val, row)"
                     >
                       <template #item="{ item: suggestion, props: sp }">
-                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · Qty: ${suggestion.raw.qty} · $${formatPrice(suggestion.raw.price)}`" />
+                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · ${suggestion.raw.serialCount || 0} S/N · $${formatPrice(suggestion.raw.price)}`" />
                       </template>
                     </v-autocomplete>
                   </td>
-                  <td class="text-center">
-                    <v-chip v-if="row.ilsItem?.condition" size="x-small" variant="tonal" :color="conditionColor(row.ilsItem.condition)">
-                      {{ row.ilsItem.condition }}
-                    </v-chip>
-                    <span v-else class="text-medium-emphasis text-caption">—</span>
-                  </td>
-                  <td style="padding-left: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
-                    {{ row.ilsItem?.certName || '—' }}
-                  </td>
-                  <td class="text-center" style="font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
-                    {{ row.ilsItem?.qty ?? '—' }}
+                  <td>
+                    <v-autocomplete
+                      :model-value="row.serial"
+                      :items="serialOptions(row)"
+                      item-title="serialNumber"
+                      item-value="id"
+                      density="compact"
+                      variant="plain"
+                      hide-details
+                      return-object
+                      clearable
+                      :disabled="!row.ilsItem"
+                      :loading="row.ilsItem && serialsLoading[row.ilsItem.id]"
+                      :placeholder="row.ilsItem ? 'Select S/N (optional)' : '—'"
+                      no-data-text="No serials"
+                      @update:model-value="val => onSerialSelected(val, row)"
+                    >
+                      <template #item="{ item: suggestion, props: sp }">
+                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · $${formatPrice(suggestion.raw.price ?? 0)} · ${suggestion.raw.location || '—'}`" />
+                      </template>
+                    </v-autocomplete>
                   </td>
                   <td>
-                    <v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcRow(row)" />
+                    <v-text-field v-model.number="row.basePrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcSell(row)" />
                   </td>
                   <td>
-                    <v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcRow(row)" />
+                    <v-text-field v-model.number="row.coef" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details @input="recalcSell(row)" />
+                  </td>
+                  <td>
+                    <v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcTotal(row)" />
+                  </td>
+                  <td>
+                    <v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcTotal(row)" />
                   </td>
                   <td class="text-right" style="font-family: monospace; padding-right: 8px; color: #4ade80; font-weight: 600;">
                     ${{ formatPrice(row.totalPrice) }}
@@ -743,12 +778,12 @@
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="4"></td>
+                  <td colspan="5"></td>
                   <td class="text-right text-caption font-weight-bold" style="padding-right: 4px;">TOTAL:</td>
                   <td class="text-right font-weight-bold" style="font-family: monospace; padding-right: 8px; color: #4ade80;">
                     ${{ formatPrice(quoteTotalAmount) }}
                   </td>
-                  <td colspan="2"></td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
@@ -931,8 +966,9 @@ const headers = [
   { title: 'Cert', key: 'certName', width: '110px' },
   { title: 'Tag Date', key: 'tagDate', width: '110px' },
   { title: 'Lead Time', key: 'leadTime', width: '110px' },
+  { title: 'Serials', key: 'serialCount', width: '90px', sortable: false },
   { title: 'Source', key: 'procumentRecordId', width: '110px', sortable: false },
-  { title: '', key: 'actions', width: '80px', sortable: false },
+  { title: '', key: 'actions', width: '110px', sortable: false },
 ]
 
 // ── Condition color helper ──
@@ -1463,9 +1499,28 @@ async function loadILSQuotes() {
 // ── ILS Inventory items for quote selection (already loaded in allItems) ──
 const availableILSItems = computed(() => allItems.value)
 
+// ── Serial cache (keyed by ILS item id) for the quote builder ──
+const serialsByItem = reactive<Record<number, any[]>>({})
+const serialsLoading = reactive<Record<number, boolean>>({})
+
+async function loadSerialsFor(itemId: number) {
+  if (serialsByItem[itemId] || serialsLoading[itemId]) return
+  serialsLoading[itemId] = true
+  try {
+    serialsByItem[itemId] = await api.get<any[]>(`/ils/${itemId}/serials`)
+  } catch {
+    serialsByItem[itemId] = []
+  } finally {
+    serialsLoading[itemId] = false
+  }
+}
+
 // ── Quote Form ──
 interface QuoteItemRow {
   ilsItem: any | null
+  serial: any | null
+  basePrice: number
+  coef: number
   qty: number
   sellPrice: number
   totalPrice: number
@@ -1483,9 +1538,24 @@ const quoteTotalAmount = computed(() =>
   quoteForm.value.items.reduce((sum, r) => sum + (r.totalPrice || 0), 0)
 )
 
+// Serials of a row's chosen item, hiding any already picked on other rows
+function serialOptions(row: QuoteItemRow) {
+  if (!row.ilsItem) return []
+  const all = serialsByItem[row.ilsItem.id] || []
+  const taken = new Set(
+    quoteForm.value.items
+      .filter(r => r !== row && r.serial && r.ilsItem?.id === row.ilsItem.id)
+      .map(r => r.serial.id)
+  )
+  return all.filter(s => !taken.has(s.id) || s.id === row.serial?.id)
+}
+
 function newQuoteItemRow(): QuoteItemRow {
   return {
     ilsItem: null,
+    serial: null,
+    basePrice: 0,
+    coef: 1,
     qty: 1,
     sellPrice: 0,
     totalPrice: 0,
@@ -1500,13 +1570,29 @@ function removeQuoteItemRow(idx: number) {
   quoteForm.value.items.splice(idx, 1)
 }
 
-function recalcRow(row: QuoteItemRow) {
-  row.totalPrice = (Number(row.qty) || 0) * (Number(row.sellPrice) || 0)
+function recalcSell(row: QuoteItemRow) {
+  row.sellPrice = Math.round((Number(row.basePrice) || 0) * (Number(row.coef) || 0) * 100) / 100
+  recalcTotal(row)
+}
+
+function recalcTotal(row: QuoteItemRow) {
+  row.totalPrice = Math.round((Number(row.qty) || 0) * (Number(row.sellPrice) || 0) * 100) / 100
 }
 
 function onILSItemSelected(item: any, row: QuoteItemRow) {
   row.ilsItem = item || null
-  recalcRow(row)
+  row.serial = null
+  if (item) {
+    loadSerialsFor(item.id)
+    if (!row.basePrice) row.basePrice = Number(item.price) || 0
+  }
+  recalcSell(row)
+}
+
+function onSerialSelected(serial: any, row: QuoteItemRow) {
+  row.serial = serial || null
+  if (serial) row.basePrice = Number(serial.price) || 0
+  recalcSell(row)
 }
 
 function openCreateQuoteDialog() {
@@ -1526,13 +1612,17 @@ async function saveQuote() {
         partNumberId: row.ilsItem.partNumberId,
         partNumberName: row.ilsItem.partNumberName,
         altPartNumber: row.ilsItem.altPartNumber || null,
-        condition: row.ilsItem.condition || null,
+        condition: row.serial?.condition || row.ilsItem.condition || null,
         certName: row.ilsItem.certName || null,
         qty: Number(row.qty) || 1,
         sellPrice: Number(row.sellPrice) || 0,
         totalPrice: Number(row.totalPrice) || 0,
-        leadTime: row.ilsItem.leadTime || null,
+        leadTime: row.serial?.leadTime || row.ilsItem.leadTime || null,
         ilsItemId: row.ilsItem.id,
+        ilsItemSerialId: row.serial?.id ?? null,
+        serialNumber: row.serial?.serialNumber ?? null,
+        basePrice: row.basePrice ?? null,
+        coef: row.coef ?? null,
       })),
     }
     const created = await api.post<any>('/ils-quotes', payload)

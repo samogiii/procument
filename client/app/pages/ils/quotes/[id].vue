@@ -101,9 +101,12 @@
                 <th style="width: 40px;">#</th>
                 <th style="min-width: 140px;">Part Number</th>
                 <th style="width: 120px;">Alt P/N</th>
+                <th style="width: 140px;">Serial #</th>
                 <th style="width: 90px;">Condition</th>
                 <th style="width: 80px;">Cert</th>
-                <th style="width: 70px;">Qty</th>
+                <th style="width: 60px;">Qty</th>
+                <th style="width: 100px;">Base</th>
+                <th style="width: 70px;">Coef</th>
                 <th style="width: 110px;">Sell Price</th>
                 <th style="width: 120px;">Total Price</th>
                 <th style="width: 110px;">Lead Time</th>
@@ -115,6 +118,7 @@
                 <td class="text-center text-medium-emphasis text-caption">{{ Number(i) + 1 }}</td>
                 <td class="font-weight-bold" style="font-family: monospace; padding-left: 8px;">{{ item.partNumberName }}</td>
                 <td style="padding-left: 8px; color: #fbbf24; font-size: 12px;">{{ item.altPartNumber || '—' }}</td>
+                <td style="padding-left: 8px; font-family: monospace; font-size: 12px;">{{ item.serialNumber || '—' }}</td>
                 <td style="padding-left: 8px;">
                   <v-chip v-if="item.condition" size="x-small" variant="tonal" :color="conditionColor(item.condition)">
                     {{ item.condition }}
@@ -123,6 +127,12 @@
                 </td>
                 <td style="padding-left: 8px; font-size: 12px;">{{ item.certName || '—' }}</td>
                 <td class="text-center" style="font-size: 13px;">{{ item.qty }}</td>
+                <td class="text-right" style="font-family: monospace; padding-right: 12px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
+                  {{ item.basePrice != null ? '$' + formatPrice(item.basePrice) : '—' }}
+                </td>
+                <td class="text-center" style="font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
+                  {{ item.coef != null ? '×' + item.coef : '—' }}
+                </td>
                 <td class="text-right" style="font-family: monospace; padding-right: 12px; font-size: 13px;">
                   ${{ formatPrice(item.sellPrice) }}
                 </td>
@@ -137,7 +147,7 @@
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="6"></td>
+                <td colspan="9"></td>
                 <td class="text-right text-caption font-weight-bold" style="padding-right: 4px; border-top: 1px solid rgba(255,255,255,0.1);">TOTAL:</td>
                 <td class="text-right font-weight-bold" style="font-family: monospace; padding-right: 12px; font-size: 14px; color: #4ade80; border-top: 1px solid rgba(255,255,255,0.1);">
                   ${{ formatPrice(quote.totalAmount) }}
@@ -238,13 +248,13 @@
             <table class="quote-items-table">
               <thead>
                 <tr>
-                  <th style="min-width: 200px;">ILS Item *</th>
-                  <th style="width: 90px;">Condition</th>
-                  <th style="width: 70px;">Cert</th>
-                  <th style="width: 80px;">Avail. Qty</th>
-                  <th style="width: 70px;">Qty *</th>
-                  <th style="width: 110px;">Sell Price *</th>
-                  <th style="width: 120px;">Total Price</th>
+                  <th style="min-width: 180px;">ILS Item *</th>
+                  <th style="min-width: 150px;">Serial #</th>
+                  <th style="width: 100px;">Base $</th>
+                  <th style="width: 80px;">Coef</th>
+                  <th style="width: 110px;">Sell $</th>
+                  <th style="width: 60px;">Qty</th>
+                  <th style="width: 110px;">Total</th>
                   <th style="width: 36px;"></th>
                 </tr>
               </thead>
@@ -262,39 +272,50 @@
                       return-object
                       placeholder="Select from inventory..."
                       no-data-text="No ILS items found"
-                      @update:model-value="val => recalcEditRow(row)"
+                      @update:model-value="val => onEditILSItemSelected(val, row)"
                     >
                       <template #item="{ item: suggestion, props: sp }">
-                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · Qty: ${suggestion.raw.qty} · $${formatPrice(suggestion.raw.price)}`" />
+                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · ${suggestion.raw.serialCount || 0} S/N · $${formatPrice(suggestion.raw.price)}`" />
                       </template>
                     </v-autocomplete>
                   </td>
-                  <td class="text-center">
-                    <v-chip v-if="row.ilsItem?.condition" size="x-small" variant="tonal" :color="conditionColor(row.ilsItem.condition)">
-                      {{ row.ilsItem.condition }}
-                    </v-chip>
-                    <span v-else class="text-medium-emphasis text-caption">—</span>
+                  <td>
+                    <v-autocomplete
+                      :model-value="row.serial"
+                      :items="editSerialOptions(row)"
+                      item-title="serialNumber"
+                      item-value="id"
+                      density="compact"
+                      variant="plain"
+                      hide-details
+                      return-object
+                      clearable
+                      :disabled="!row.ilsItem"
+                      :placeholder="row.ilsItem ? 'Select S/N (optional)' : '—'"
+                      no-data-text="No serials"
+                      @update:model-value="val => onEditSerialSelected(val, row)"
+                    >
+                      <template #item="{ item: suggestion, props: sp }">
+                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · $${formatPrice(suggestion.raw.price ?? 0)} · ${suggestion.raw.location || '—'}`" />
+                      </template>
+                    </v-autocomplete>
                   </td>
-                  <td style="padding-left: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
-                    {{ row.ilsItem?.certName || '—' }}
-                  </td>
-                  <td class="text-center" style="font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6);">
-                    {{ row.ilsItem?.qty ?? '—' }}
-                  </td>
-                  <td><v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcEditRow(row)" /></td>
-                  <td><v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcEditRow(row)" /></td>
+                  <td><v-text-field v-model.number="row.basePrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcEditSell(row)" /></td>
+                  <td><v-text-field v-model.number="row.coef" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details @input="recalcEditSell(row)" /></td>
+                  <td><v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcEditTotal(row)" /></td>
+                  <td><v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcEditTotal(row)" /></td>
                   <td class="text-right" style="font-family: monospace; padding-right: 8px; color: #4ade80; font-weight: 600;">${{ formatPrice(row.totalPrice) }}</td>
                   <td><v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="editForm.items.splice(idx, 1)" /></td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="4"></td>
+                  <td colspan="5"></td>
                   <td class="text-right text-caption font-weight-bold" style="padding-right: 4px;">TOTAL:</td>
                   <td class="text-right font-weight-bold" style="font-family: monospace; padding-right: 8px; color: #4ade80;">
                     ${{ formatPrice(editTotalAmount) }}
                   </td>
-                  <td colspan="2"></td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
@@ -366,10 +387,11 @@
                   <th>#</th>
                   <th>Part Number</th>
                   <th>Alt P/N</th>
+                  <th>Serial #</th>
                   <th>Condition</th>
                   <th>Cert</th>
                   <th>Qty</th>
-                  <th>Sell Price</th>
+                  <th>Unit Price</th>
                   <th>Total Price</th>
                   <th>Lead Time</th>
                 </tr>
@@ -379,6 +401,7 @@
                   <td>{{ Number(i) + 1 }}</td>
                   <td><strong>{{ item.partNumberName }}</strong></td>
                   <td>{{ item.altPartNumber || '—' }}</td>
+                  <td>{{ item.serialNumber || '—' }}</td>
                   <td>{{ item.condition || '—' }}</td>
                   <td>{{ item.certName || '—' }}</td>
                   <td>{{ item.qty }}</td>
@@ -389,7 +412,7 @@
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="7" style="text-align: right; font-weight: bold; border-top: 2px solid #1a2744;">TOTAL:</td>
+                  <td colspan="8" style="text-align: right; font-weight: bold; border-top: 2px solid #1a2744;">TOTAL:</td>
                   <td style="font-weight: bold; border-top: 2px solid #1a2744;">${{ formatPrice(quote?.totalAmount) }}</td>
                   <td style="border-top: 2px solid #1a2744;"></td>
                 </tr>
@@ -512,9 +535,35 @@ const editSaving = ref(false)
 
 interface EditItemRow {
   ilsItem: any | null
+  serial: any | null
+  basePrice: number
+  coef: number
   qty: number
   sellPrice: number
   totalPrice: number
+}
+
+// Serial cache keyed by ILS item id
+const serialsByItem = reactive<Record<number, any[]>>({})
+
+async function loadSerialsFor(itemId: number) {
+  if (serialsByItem[itemId]) return
+  try {
+    serialsByItem[itemId] = await api.get<any[]>(`/ils/${itemId}/serials`)
+  } catch {
+    serialsByItem[itemId] = []
+  }
+}
+
+function editSerialOptions(row: EditItemRow) {
+  if (!row.ilsItem) return []
+  const all = serialsByItem[row.ilsItem.id] || []
+  const taken = new Set(
+    editForm.value.items
+      .filter(r => r !== row && r.serial && r.ilsItem?.id === row.ilsItem.id)
+      .map(r => r.serial.id)
+  )
+  return all.filter(s => !taken.has(s.id) || s.id === row.serial?.id)
 }
 
 const editForm = ref({
@@ -536,18 +585,25 @@ function openEditDialog() {
     notes: quote.value.notes || '',
     items: (quote.value.items || []).map((item: any) => {
       const matchedILSItem = allILSItems.value.find((i: any) => i.id === item.ilsItemId)
+      const ilsItem = matchedILSItem || {
+        id: item.ilsItemId,
+        partNumberId: item.partNumberId,
+        partNumberName: item.partNumberName,
+        altPartNumber: item.altPartNumber,
+        condition: item.condition,
+        certName: item.certName,
+        leadTime: item.leadTime,
+        qty: null,
+        price: null,
+      }
+      if (item.ilsItemId) loadSerialsFor(item.ilsItemId)
       return {
-        ilsItem: matchedILSItem || {
-          id: item.ilsItemId,
-          partNumberId: item.partNumberId,
-          partNumberName: item.partNumberName,
-          altPartNumber: item.altPartNumber,
-          condition: item.condition,
-          certName: item.certName,
-          leadTime: item.leadTime,
-          qty: null,
-          price: null,
-        },
+        ilsItem,
+        serial: item.ilsItemSerialId
+          ? { id: item.ilsItemSerialId, serialNumber: item.serialNumber, price: item.basePrice, condition: item.condition }
+          : null,
+        basePrice: item.basePrice != null ? Number(item.basePrice) : 0,
+        coef: item.coef != null ? Number(item.coef) : 1,
         qty: item.qty,
         sellPrice: Number(item.sellPrice),
         totalPrice: Number(item.totalPrice),
@@ -558,11 +614,32 @@ function openEditDialog() {
 }
 
 function addEditItemRow() {
-  editForm.value.items.push({ ilsItem: null, qty: 1, sellPrice: 0, totalPrice: 0 })
+  editForm.value.items.push({ ilsItem: null, serial: null, basePrice: 0, coef: 1, qty: 1, sellPrice: 0, totalPrice: 0 })
 }
 
-function recalcEditRow(row: EditItemRow) {
-  row.totalPrice = (Number(row.qty) || 0) * (Number(row.sellPrice) || 0)
+function recalcEditSell(row: EditItemRow) {
+  row.sellPrice = Math.round((Number(row.basePrice) || 0) * (Number(row.coef) || 0) * 100) / 100
+  recalcEditTotal(row)
+}
+
+function recalcEditTotal(row: EditItemRow) {
+  row.totalPrice = Math.round((Number(row.qty) || 0) * (Number(row.sellPrice) || 0) * 100) / 100
+}
+
+function onEditILSItemSelected(item: any, row: EditItemRow) {
+  row.ilsItem = item || null
+  row.serial = null
+  if (item) {
+    loadSerialsFor(item.id)
+    if (!row.basePrice) row.basePrice = Number(item.price) || 0
+  }
+  recalcEditSell(row)
+}
+
+function onEditSerialSelected(serial: any, row: EditItemRow) {
+  row.serial = serial || null
+  if (serial) row.basePrice = Number(serial.price) || 0
+  recalcEditSell(row)
 }
 
 async function saveEdit() {
@@ -579,13 +656,17 @@ async function saveEdit() {
         partNumberId: row.ilsItem.partNumberId,
         partNumberName: row.ilsItem.partNumberName,
         altPartNumber: row.ilsItem.altPartNumber || null,
-        condition: row.ilsItem.condition || null,
+        condition: row.serial?.condition || row.ilsItem.condition || null,
         certName: row.ilsItem.certName || null,
         qty: Number(row.qty) || 1,
         sellPrice: Number(row.sellPrice) || 0,
         totalPrice: Number(row.totalPrice) || 0,
-        leadTime: row.ilsItem.leadTime || null,
+        leadTime: row.serial?.leadTime || row.ilsItem.leadTime || null,
         ilsItemId: row.ilsItem.id,
+        ilsItemSerialId: row.serial?.id ?? null,
+        serialNumber: row.serial?.serialNumber ?? null,
+        basePrice: row.basePrice ?? null,
+        coef: row.coef ?? null,
       })),
     }
     const updated = await api.put<any>(`/ils-quotes/${id.value}`, payload)

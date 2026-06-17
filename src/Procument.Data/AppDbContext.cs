@@ -71,6 +71,7 @@ public class AppDbContext : DbContext
   public DbSet<TrackNumberBox> TrackNumberBoxes => Set<TrackNumberBox>();
   public DbSet<ShipmentNoteBox> ShipmentNoteBoxes => Set<ShipmentNoteBox>();
   public DbSet<ILSItem> ILSItems => Set<ILSItem>();
+  public DbSet<ILSItemSerial> ILSItemSerials => Set<ILSItemSerial>();
   public DbSet<ILSCustomer> ILSCustomers => Set<ILSCustomer>();
   public DbSet<ILSQuote> ILSQuotes => Set<ILSQuote>();
   public DbSet<ILSQuoteItem> ILSQuoteItems => Set<ILSQuoteItem>();
@@ -1050,6 +1051,30 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.CreatedAt);
     });
 
+    modelBuilder.Entity<ILSItemSerial>(entity =>
+    {
+      entity.ToTable("ILSItemSerials");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SerialNumber).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.CertText).HasMaxLength(500);
+      entity.Property(e => e.CertImageFileName).HasMaxLength(300);
+      entity.Property(e => e.CertImageOriginalName).HasMaxLength(300);
+      entity.Property(e => e.PartImageFileName).HasMaxLength(300);
+      entity.Property(e => e.PartImageOriginalName).HasMaxLength(300);
+      entity.Property(e => e.Location).HasMaxLength(100);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.ILSItem)
+                .WithMany(i => i.Serials)
+                .HasForeignKey(e => e.ILSItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasIndex(e => e.ILSItemId);
+    });
+
     modelBuilder.Entity<ILSCustomer>(entity =>
     {
       entity.ToTable("ILSCustomers");
@@ -1085,9 +1110,12 @@ public class AppDbContext : DbContext
       entity.HasKey(e => e.Id);
       entity.Property(e => e.SellPrice).HasColumnType("decimal(18,2)");
       entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BasePrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Coef).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Condition).HasMaxLength(100);
       entity.Property(e => e.CertName).HasMaxLength(200);
       entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.SerialNumber).HasMaxLength(200);
 
       entity.HasOne(e => e.ILSQuote)
                 .WithMany(q => q.Items)
@@ -1104,6 +1132,8 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.ILSItemId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+      // ILSItemSerialId is a soft reference only (no FK) — snapshot columns above
+      // preserve quote history and avoid multiple cascade paths to ILSQuoteItems.
       entity.HasIndex(e => e.ILSQuoteId);
     });
 

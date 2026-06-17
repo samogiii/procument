@@ -162,7 +162,11 @@ public class ILSQuoteService : IILSQuoteService
                 TotalPrice = item.TotalPrice,
                 LeadTime = item.LeadTime,
                 Notes = item.Notes,
-                ILSItemId = item.ILSItemId
+                ILSItemId = item.ILSItemId,
+                ILSItemSerialId = item.ILSItemSerialId,
+                SerialNumber = item.SerialNumber,
+                BasePrice = item.BasePrice,
+                Coef = item.Coef
             };
             _db.Set<ILSQuoteItem>().Add(quoteItem);
         }
@@ -205,7 +209,11 @@ public class ILSQuoteService : IILSQuoteService
                 TotalPrice = item.TotalPrice,
                 LeadTime = item.LeadTime,
                 Notes = item.Notes,
-                ILSItemId = item.ILSItemId
+                ILSItemId = item.ILSItemId,
+                ILSItemSerialId = item.ILSItemSerialId,
+                SerialNumber = item.SerialNumber,
+                BasePrice = item.BasePrice,
+                Coef = item.Coef
             });
         }
 
@@ -282,7 +290,11 @@ public class ILSQuoteService : IILSQuoteService
             TotalPrice = i.TotalPrice,
             LeadTime = i.LeadTime,
             Notes = i.Notes,
-            ILSItemId = i.ILSItemId
+            ILSItemId = i.ILSItemId,
+            ILSItemSerialId = i.ILSItemSerialId,
+            SerialNumber = i.SerialNumber,
+            BasePrice = i.BasePrice,
+            Coef = i.Coef
         }).ToList()
     };
 }

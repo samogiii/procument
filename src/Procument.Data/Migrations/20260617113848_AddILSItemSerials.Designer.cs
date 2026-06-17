@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260617113848_AddILSItemSerials")]
+    partial class AddILSItemSerials
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -879,24 +882,15 @@ namespace Procument.Data.Migrations
                     b.Property<string>("AltPartNumber")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal?>("BasePrice")
-                        .HasColumnType("decimal(18,2)");
-
                     b.Property<string>("CertName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
-
-                    b.Property<decimal?>("Coef")
-                        .HasColumnType("decimal(18,4)");
 
                     b.Property<string>("Condition")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<long?>("ILSItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("ILSItemSerialId")
                         .HasColumnType("bigint");
 
                     b.Property<long>("ILSQuoteId")
@@ -917,10 +911,6 @@ namespace Procument.Data.Migrations
 
                     b.Property<decimal>("SellPrice")
                         .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<decimal>("TotalPrice")
                         .HasColumnType("decimal(18,2)");

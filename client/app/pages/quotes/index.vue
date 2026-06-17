@@ -9,6 +9,7 @@
     :extra-params="extraParams"
     page-key="quotes"
     :show-total-sum="true"
+    :hide-clear-button="true"
   >
     <template #actions>
       <v-btn

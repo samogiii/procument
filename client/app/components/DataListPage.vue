@@ -21,14 +21,26 @@
         <!-- Search + optional status filter -->
         <div class="d-flex flex-wrap gap-3 mb-4">
           <v-text-field
-            v-model="search"
-            prepend-inner-icon="mdi-magnify"
+            v-model="searchInput"
             :label="searchPlaceholder"
             single-line
             hide-details
+            clearable
             class="flex-grow-1 mx-2"
             style="min-width: 180px;"
-          />
+            @keyup.enter="applySearch"
+            @click:clear="applySearch"
+          >
+            <template #append-inner>
+              <v-btn
+                color="primary"
+                variant="tonal"
+                size="small"
+                icon="mdi-magnify"
+                @click="applySearch"
+              />
+            </template>
+          </v-text-field>
           <v-select
             v-if="statusOptions?.length"
             v-model="statusFilter"
@@ -66,7 +78,7 @@
           </v-select>
           <slot name="filters" />
           <v-btn
-            v-if="hasDlpActiveFilters"
+            v-if="hasDlpActiveFilters && !hideClearButton"
             variant="tonal"
             color="error"
             size="small"
@@ -186,6 +198,8 @@ const props = withDefaults(defineProps<{
   extraParams?: Record<string, string | string[]>
   /** Show a live total-amount sum chip in the page header. Reads from frontend (current page for server-side, all items for client-side). */
   showTotalSum?: boolean
+  /** Hide DataListPage's built-in Clear button (use when the parent page renders its own combined Clear). */
+  hideClearButton?: boolean
 }>(), {
   serverSide: false,
   itemsPerPage: 50,
@@ -193,6 +207,7 @@ const props = withDefaults(defineProps<{
   showSelect: false,
   modelValue: () => [],
   showTotalSum: false,
+  hideClearButton: false,
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -212,6 +227,18 @@ const currentPage = _pf ? _pf.filters.page : ref(1)
 const currentItemsPerPage = _pf ? _pf.filters.itemsPerPage : ref(props.itemsPerPage)
 const clearDlpFilters = _pf ? _pf.clearFilters : () => {}
 const hasDlpActiveFilters = _pf ? _pf.hasActiveFilters : computed(() => false)
+
+// `search` is the COMMITTED term that drives the query. `searchInput` is the
+// raw text-field value — it only commits to `search` on button click / Enter,
+// so the heavy backend search does not fire on every keystroke.
+const searchInput = ref(search.value)
+function applySearch() {
+  search.value = (searchInput.value ?? '').trim()
+}
+// Keep the input in sync when `search` is reset elsewhere (e.g. Clear filters).
+watch(search, (v) => {
+  if ((v ?? '') !== (searchInput.value ?? '')) searchInput.value = v
+})
 
 // If URL has ?status=X, apply it once on load (overrides saved)
 const initialStatus = route.query.status ? [route.query.status as string] : []
@@ -357,14 +384,11 @@ function onRowClick(_event: Event, row: any) {
 }
 
 // ─── Watchers for server-side search/status changes ───
-let searchDebounce: any = null
 if (props.serverSide) {
+  // `search` only changes on explicit commit (button / Enter), so fire immediately.
   watch(search, () => {
-    clearTimeout(searchDebounce)
-    searchDebounce = setTimeout(() => {
-      currentPage.value = 1
-      loadServerItems({ ...lastServerOptions.value, page: 1 })
-    }, 350)
+    currentPage.value = 1
+    loadServerItems({ ...lastServerOptions.value, page: 1 })
   })
   watch(statusFilter, () => {
     currentPage.value = 1

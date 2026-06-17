@@ -32,18 +32,20 @@ public class InvoicesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<PagedResult<InvoiceResponse>>> GetAll(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
+        [FromQuery] string? search = null,
         [FromQuery] string? status = null, [FromQuery] string? customer = null,
         [FromQuery] string? sortBy = null, [FromQuery] bool sortDesc = false,
         [FromQuery] List<string>? customerCodes = null,
         [FromQuery] List<string>? statuses = null,
         [FromQuery] List<string>? invoiceNumbers = null,
+        [FromQuery] List<string>? subjects = null,
         [FromQuery] string? pnSearch = null,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null)
     {
-        var pq = new PageQuery { Page = page, PageSize = pageSize };
+        var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo);
+        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, subjects);
         return Ok(result);
     }
 
@@ -241,11 +243,18 @@ public class InvoicesController : ControllerBase
             .Distinct()
             .OrderBy(n => n)
             .ToListAsync();
+        var subjects = await query
+            .Where(i => i.Subject != null && i.Subject != "")
+            .Select(i => i.Subject!)
+            .Distinct()
+            .OrderBy(s => s)
+            .ToListAsync();
         return Ok(new
         {
             statuses,
             customers = customers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList(),
-            invoiceNumbers
+            invoiceNumbers,
+            subjects
         });
     }
 

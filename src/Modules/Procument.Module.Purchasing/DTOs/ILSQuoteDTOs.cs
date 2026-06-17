@@ -51,6 +51,10 @@ public class ILSQuoteItemRequest
     public string? LeadTime { get; set; }
     public string? Notes { get; set; }
     public long? ILSItemId { get; set; }
+    public long? ILSItemSerialId { get; set; }
+    public string? SerialNumber { get; set; }
+    public decimal? BasePrice { get; set; }
+    public decimal? Coef { get; set; }
 }
 
 public class ILSQuoteResponse
@@ -83,6 +87,10 @@ public class ILSQuoteItemResponse
     public string? LeadTime { get; set; }
     public string? Notes { get; set; }
     public long? ILSItemId { get; set; }
+    public long? ILSItemSerialId { get; set; }
+    public string? SerialNumber { get; set; }
+    public decimal? BasePrice { get; set; }
+    public decimal? Coef { get; set; }
 }
 
 public class UpdateILSQuoteStatusRequest
