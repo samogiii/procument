@@ -41,11 +41,37 @@ public class ILSQuoteService : IILSQuoteService
                 ContactPerson = c.ContactPerson,
                 Address = c.Address,
                 Description = c.Description,
+                BillTo = c.BillTo,
+                ShipTo = c.ShipTo,
+                TermsAndConditions = c.TermsAndConditions,
+                Website = c.Website,
+                Country = c.Country,
+                ShippingAccount = c.ShippingAccount,
                 IsActive = c.IsActive,
                 CreatedAt = c.CreatedAt
             })
             .ToListAsync();
     }
+
+    private static ILSCustomerResponse MapCustomer(ILSCustomer c) => new()
+    {
+        Id = c.Id,
+        Name = c.Name,
+        CustomerCode = c.CustomerCode,
+        Email = c.Email,
+        Phone = c.Phone,
+        ContactPerson = c.ContactPerson,
+        Address = c.Address,
+        Description = c.Description,
+        BillTo = c.BillTo,
+        ShipTo = c.ShipTo,
+        TermsAndConditions = c.TermsAndConditions,
+        Website = c.Website,
+        Country = c.Country,
+        ShippingAccount = c.ShippingAccount,
+        IsActive = c.IsActive,
+        CreatedAt = c.CreatedAt
+    };
 
     public async Task<ILSCustomerResponse> SaveCustomerAsync(long? id, ILSCustomerDto dto)
     {
@@ -62,6 +88,12 @@ public class ILSQuoteService : IILSQuoteService
             customer.ContactPerson = dto.ContactPerson;
             customer.Address = dto.Address;
             customer.Description = dto.Description;
+            customer.BillTo = dto.BillTo;
+            customer.ShipTo = dto.ShipTo;
+            customer.TermsAndConditions = dto.TermsAndConditions;
+            customer.Website = dto.Website;
+            customer.Country = dto.Country;
+            customer.ShippingAccount = dto.ShippingAccount;
             customer.ModifyAt = DateTime.UtcNow;
         }
         else
@@ -75,6 +107,12 @@ public class ILSQuoteService : IILSQuoteService
                 ContactPerson = dto.ContactPerson,
                 Address = dto.Address,
                 Description = dto.Description,
+                BillTo = dto.BillTo,
+                ShipTo = dto.ShipTo,
+                TermsAndConditions = dto.TermsAndConditions,
+                Website = dto.Website,
+                Country = dto.Country,
+                ShippingAccount = dto.ShippingAccount,
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true
             };
@@ -83,19 +121,7 @@ public class ILSQuoteService : IILSQuoteService
 
         await _db.SaveChangesAsync();
 
-        return new ILSCustomerResponse
-        {
-            Id = customer.Id,
-            Name = customer.Name,
-            CustomerCode = customer.CustomerCode,
-            Email = customer.Email,
-            Phone = customer.Phone,
-            ContactPerson = customer.ContactPerson,
-            Address = customer.Address,
-            Description = customer.Description,
-            IsActive = customer.IsActive,
-            CreatedAt = customer.CreatedAt
-        };
+        return MapCustomer(customer);
     }
 
     public async Task<bool> DeleteCustomerAsync(long id)
@@ -139,6 +165,8 @@ public class ILSQuoteService : IILSQuoteService
             ILSCustomerId = request.ILSCustomerId,
             RfqReference = request.RfqReference,
             Notes = request.Notes,
+            BillTo = request.BillTo,
+            ShipTo = request.ShipTo,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -187,6 +215,8 @@ public class ILSQuoteService : IILSQuoteService
         quote.ILSCustomerId = request.ILSCustomerId;
         quote.RfqReference = request.RfqReference;
         quote.Notes = request.Notes;
+        quote.BillTo = request.BillTo;
+        quote.ShipTo = request.ShipTo;
         quote.Status = "Draft";
 
         // Remove old items
@@ -275,6 +305,9 @@ public class ILSQuoteService : IILSQuoteService
         RfqReference = q.RfqReference,
         TotalAmount = q.TotalAmount,
         Notes = q.Notes,
+        BillTo = q.BillTo ?? q.ILSCustomer.BillTo,
+        ShipTo = q.ShipTo ?? q.ILSCustomer.ShipTo,
+        CustomerTermsAndConditions = q.ILSCustomer.TermsAndConditions,
         CreatedAt = q.CreatedAt,
         Items = q.Items.Select(i => new ILSQuoteItemResponse
         {

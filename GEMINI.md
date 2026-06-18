@@ -251,6 +251,11 @@ For **every** user request, follow this loop:
 > **Follow-ups:** open questions / TODOs.
 > ```
 
+### 2026-06-18 — ILS Enhancements: Cert Multi-line & PDF Layout/Title Fix
+**Files:** `client/app/pages/ils/items/[id].vue`, `client/app/components/IlsQuotePdfGenerator.vue`, `src/Procument.API/Controllers/PdfController.cs`
+**Summary:** Converted the ILS Serial "Cert Text" field from a single-line input to a multi-line auto-growing `v-textarea` and updated the item table to support `white-space: pre-wrap`. Refactored the `IlsQuotePdfGenerator.vue` modal layout from a stacked top-bottom view into a side-by-side view (controls on the left, live PDF preview on the right) to match the main application's standard. Finally, fixed a bug where ILS Proforma Invoices always generated PDFs titled "QUOTATION"; added `DocTitle` to `QuotePdfRequest` on the backend, allowing the frontend to dynamically pass "PROFORMA INVOICE" and automatically adjust the footer text context.
+**Follow-ups:** none.
+
 ### 2026-05-25 — Invoice Details Deposit Wallet Selection Box
 **Files:**
 - Backend: `src/Modules/Procument.Module.Sales/DTOs/InvoiceDTOs.cs`, `src/Modules/Procument.Module.Sales/Services/InvoiceService.cs`

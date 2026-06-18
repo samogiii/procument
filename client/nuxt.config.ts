@@ -24,7 +24,7 @@ export default defineNuxtConfig({
     public: {
       apiMap: {
         // Frontend Host/Domain : Target Backend API URL
-        'localhost:3000': 'https://localhost:7024/api',
+        'localhost:3000': 'https://192.168.3.3:7024/api',
         '192.168.3.3:3000': 'https://localhost:7024/api',
         '37.114.248.6:3000': 'http://37.114.248.6:3333/api',
         '192.168.3.55:3000': 'http://37.114.248.6:3333/api',

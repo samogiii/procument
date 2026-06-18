@@ -75,6 +75,8 @@ public class AppDbContext : DbContext
   public DbSet<ILSCustomer> ILSCustomers => Set<ILSCustomer>();
   public DbSet<ILSQuote> ILSQuotes => Set<ILSQuote>();
   public DbSet<ILSQuoteItem> ILSQuoteItems => Set<ILSQuoteItem>();
+  public DbSet<ILSProformaInvoice> ILSProformaInvoices => Set<ILSProformaInvoice>();
+  public DbSet<ILSProformaInvoiceItem> ILSProformaInvoiceItems => Set<ILSProformaInvoiceItem>();
   public DbSet<CapListItem> CapListItems => Set<CapListItem>();
   public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
   public DbSet<Procurement> Procurements => Set<Procurement>();
@@ -1083,6 +1085,12 @@ public class AppDbContext : DbContext
       entity.Property(e => e.CustomerCode).HasMaxLength(100);
       entity.Property(e => e.Email).HasMaxLength(200);
       entity.Property(e => e.Phone).HasMaxLength(50);
+      entity.Property(e => e.BillTo).HasMaxLength(2000);
+      entity.Property(e => e.ShipTo).HasMaxLength(2000);
+      entity.Property(e => e.TermsAndConditions).HasMaxLength(2000);
+      entity.Property(e => e.Website).HasMaxLength(300);
+      entity.Property(e => e.Country).HasMaxLength(300);
+      entity.Property(e => e.ShippingAccount).HasMaxLength(300);
     });
 
     modelBuilder.Entity<ILSQuote>(entity =>
@@ -1094,6 +1102,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.Notes).HasMaxLength(2000);
       entity.Property(e => e.RfqReference).HasMaxLength(200);
+      entity.Property(e => e.BillTo).HasMaxLength(2000);
+      entity.Property(e => e.ShipTo).HasMaxLength(2000);
 
       entity.HasOne(e => e.ILSCustomer)
                 .WithMany()
@@ -1135,6 +1145,53 @@ public class AppDbContext : DbContext
       // ILSItemSerialId is a soft reference only (no FK) — snapshot columns above
       // preserve quote history and avoid multiple cascade paths to ILSQuoteItems.
       entity.HasIndex(e => e.ILSQuoteId);
+    });
+
+    modelBuilder.Entity<ILSProformaInvoice>(entity =>
+    {
+      entity.ToTable("ILSProformaInvoices");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.PINumber).HasMaxLength(100);
+      entity.Property(e => e.Status).HasMaxLength(50);
+      entity.Property(e => e.Subject).HasMaxLength(300);
+      entity.Property(e => e.CustomerPONumber).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(2000);
+      entity.Property(e => e.BillTo).HasMaxLength(2000);
+      entity.Property(e => e.ShipTo).HasMaxLength(2000);
+      entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.ILSCustomer)
+                .WithMany()
+                .HasForeignKey(e => e.ILSCustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ILSCustomerId);
+      entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<ILSProformaInvoiceItem>(entity =>
+    {
+      entity.ToTable("ILSProformaInvoiceItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SellPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.AltPartNumber).HasMaxLength(200);
+      entity.Property(e => e.SerialNumber).HasMaxLength(200);
+
+      entity.HasOne(e => e.ILSProformaInvoice)
+                .WithMany(p => p.Items)
+                .HasForeignKey(e => e.ILSProformaInvoiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.PartNumber)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ILSProformaInvoiceId);
     });
 
     modelBuilder.Entity<CapListItem>(entity =>

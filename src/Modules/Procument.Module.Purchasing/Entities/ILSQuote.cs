@@ -10,6 +10,11 @@ public class ILSQuote : BaseEntity
     public string? RfqReference { get; set; }
     public decimal TotalAmount { get; set; }
     public string? Notes { get; set; }
+
+    // Per-quote Bill To / Ship To override (defaults from the customer)
+    public string? BillTo { get; set; }
+    public string? ShipTo { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation

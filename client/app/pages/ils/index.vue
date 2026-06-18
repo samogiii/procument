@@ -37,9 +37,19 @@
           color="primary"
           prepend-icon="mdi-plus"
           size="small"
-          @click="openCreateQuoteDialog"
+          @click="navigateTo('/ils/quotes/new')"
         >
           New ILS Quote
+        </v-btn>
+      </template>
+      <template v-if="mainTab === 'pi'">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          size="small"
+          @click="navigateTo('/ils/pi/new')"
+        >
+          New PI
         </v-btn>
       </template>
       <template v-if="mainTab === 'customers'">
@@ -60,6 +70,9 @@
       </v-tab>
       <v-tab value="quotes">
         <v-icon start size="18">mdi-file-document-outline</v-icon>Quotes
+      </v-tab>
+      <v-tab value="pi">
+        <v-icon start size="18">mdi-file-document-check</v-icon>PI
       </v-tab>
       <v-tab value="customers">
         <v-icon start size="18">mdi-account-group</v-icon>ILS Customers
@@ -228,6 +241,58 @@
                 variant="text"
                 color="error"
                 @click.stop="confirmDeleteQuote(item)"
+              />
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+    </v-tabs-window-item>
+
+    <!-- ══════════════════════════════ PI TAB ══════════════════════════════ -->
+    <v-tabs-window-item value="pi">
+      <v-card class="glass-card">
+        <v-card-text>
+          <v-text-field
+            v-model="piSearch"
+            prepend-inner-icon="mdi-magnify"
+            label="Search PIs..."
+            single-line
+            hide-details
+            class="mb-4"
+            style="max-width: 320px;"
+          />
+          <v-data-table
+            :headers="piHeaders"
+            :items="filteredPIs"
+            :search="piSearch"
+            :loading="pisLoading"
+            :items-per-page="25"
+            hover
+            density="comfortable"
+            @click:row="(_: any, { item }: { item: any }) => navigateTo(`/ils/pi/${item.id}`)"
+          >
+            <template #item.status="{ item }">
+              <v-chip size="small" variant="tonal" :color="ilsPIStatusColor(item.status)">
+                {{ item.status }}
+              </v-chip>
+            </template>
+            <template #item.totalAmount="{ item }">
+              <span class="font-weight-medium" style="font-family: monospace; color: #4ade80;">
+                ${{ formatPrice(item.totalAmount) }}
+              </span>
+            </template>
+            <template #item.createdAt="{ item }">
+              {{ new Date(item.createdAt).toLocaleDateString() }}
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon="mdi-open-in-new" size="x-small" variant="text" color="primary" @click.stop="navigateTo(`/ils/pi/${item.id}`)" />
+              <v-btn
+                v-if="isAdmin"
+                icon="mdi-delete"
+                size="x-small"
+                variant="text"
+                color="error"
+                @click.stop="confirmDeletePI(item)"
               />
             </template>
           </v-data-table>
@@ -640,172 +705,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Create ILS Quote Dialog -->
-    <v-dialog v-model="showQuoteDialog" max-width="860" persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center pa-4 pb-2">
-          <v-icon icon="mdi-file-document-plus" class="mr-2" size="20" color="primary" />
-          New ILS Quote
-          <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="showQuoteDialog = false" />
-        </v-card-title>
-        <v-divider />
-        <v-card-text class="pa-4">
-          <v-row dense class="mb-2">
-            <v-col cols="12" md="6">
-              <v-select
-                v-model="quoteForm.ilsCustomerId"
-                :items="ilsCustomers"
-                item-title="name"
-                item-value="id"
-                label="ILS Customer *"
-                variant="outlined"
-                density="compact"
-                hide-details
-              />
-            </v-col>
-            <v-col cols="12" md="6">
-              <v-text-field
-                v-model="quoteForm.rfqReference"
-                label="RFQ Reference Number"
-                variant="outlined"
-                density="compact"
-                hide-details
-                placeholder="e.g. RFQ-2024-001"
-              />
-            </v-col>
-            <v-col cols="12">
-              <v-textarea
-                v-model="quoteForm.notes"
-                label="Notes"
-                variant="outlined"
-                density="compact"
-                hide-details
-                rows="2"
-              />
-            </v-col>
-          </v-row>
-
-          <div class="d-flex align-center mb-2">
-            <span class="text-subtitle-2">Quote Items</span>
-            <v-spacer />
-            <v-btn size="x-small" color="primary" variant="tonal" prepend-icon="mdi-plus" @click="addQuoteItemRow">
-              Add Item
-            </v-btn>
-          </div>
-
-          <div class="quote-items-table-wrap">
-            <table class="quote-items-table">
-              <thead>
-                <tr>
-                  <th style="min-width: 180px;">ILS Item *</th>
-                  <th style="min-width: 150px;">Serial #</th>
-                  <th style="width: 100px;">Base $</th>
-                  <th style="width: 80px;">Coef</th>
-                  <th style="width: 110px;">Sell $</th>
-                  <th style="width: 60px;">Qty</th>
-                  <th style="width: 110px;">Total</th>
-                  <th style="width: 36px;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, idx) in quoteForm.items" :key="idx">
-                  <td>
-                    <v-autocomplete
-                      v-model="row.ilsItem"
-                      :items="availableILSItems"
-                      :item-title="(i: any) => i.partNumberName + (i.altPartNumber ? ' / ' + i.altPartNumber : '')"
-                      item-value="id"
-                      density="compact"
-                      variant="plain"
-                      hide-details
-                      return-object
-                      placeholder="Select from inventory..."
-                      no-data-text="No ILS items found"
-                      @update:model-value="val => onILSItemSelected(val, row)"
-                    >
-                      <template #item="{ item: suggestion, props: sp }">
-                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · ${suggestion.raw.serialCount || 0} S/N · $${formatPrice(suggestion.raw.price)}`" />
-                      </template>
-                    </v-autocomplete>
-                  </td>
-                  <td>
-                    <v-autocomplete
-                      :model-value="row.serial"
-                      :items="serialOptions(row)"
-                      item-title="serialNumber"
-                      item-value="id"
-                      density="compact"
-                      variant="plain"
-                      hide-details
-                      return-object
-                      clearable
-                      :disabled="!row.ilsItem"
-                      :loading="row.ilsItem && serialsLoading[row.ilsItem.id]"
-                      :placeholder="row.ilsItem ? 'Select S/N (optional)' : '—'"
-                      no-data-text="No serials"
-                      @update:model-value="val => onSerialSelected(val, row)"
-                    >
-                      <template #item="{ item: suggestion, props: sp }">
-                        <v-list-item v-bind="sp" :subtitle="`${suggestion.raw.condition || '—'} · $${formatPrice(suggestion.raw.price ?? 0)} · ${suggestion.raw.location || '—'}`" />
-                      </template>
-                    </v-autocomplete>
-                  </td>
-                  <td>
-                    <v-text-field v-model.number="row.basePrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcSell(row)" />
-                  </td>
-                  <td>
-                    <v-text-field v-model.number="row.coef" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details @input="recalcSell(row)" />
-                  </td>
-                  <td>
-                    <v-text-field v-model.number="row.sellPrice" type="number" min="0" step="0.01" density="compact" variant="plain" hide-details prefix="$" @input="recalcTotal(row)" />
-                  </td>
-                  <td>
-                    <v-text-field v-model.number="row.qty" type="number" min="1" density="compact" variant="plain" hide-details @input="recalcTotal(row)" />
-                  </td>
-                  <td class="text-right" style="font-family: monospace; padding-right: 8px; color: #4ade80; font-weight: 600;">
-                    ${{ formatPrice(row.totalPrice) }}
-                  </td>
-                  <td>
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="removeQuoteItemRow(idx)" />
-                  </td>
-                </tr>
-                <tr v-if="!quoteForm.items.length">
-                  <td colspan="8" class="text-center text-caption text-medium-emphasis py-4">
-                    No items yet — click "Add Item"
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="5"></td>
-                  <td class="text-right text-caption font-weight-bold" style="padding-right: 4px;">TOTAL:</td>
-                  <td class="text-right font-weight-bold" style="font-family: monospace; padding-right: 8px; color: #4ade80;">
-                    ${{ formatPrice(quoteTotalAmount) }}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </v-card-text>
-        <v-divider />
-        <v-card-actions class="pa-4 pt-3">
-          <v-spacer />
-          <v-btn variant="text" @click="showQuoteDialog = false">Cancel</v-btn>
-          <v-btn
-            color="primary"
-            variant="flat"
-            :loading="quoteSaving"
-            :disabled="!quoteForm.ilsCustomerId || !quoteForm.items.some(r => r.ilsItem)"
-            @click="saveQuote"
-          >
-            Create Quote
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <!-- Delete Quote Confirm -->
     <v-dialog v-model="showDeleteQuoteConfirm" max-width="400">
       <v-card>
@@ -817,6 +716,21 @@
           <v-spacer />
           <v-btn variant="text" @click="showDeleteQuoteConfirm = false">Cancel</v-btn>
           <v-btn color="error" variant="flat" :loading="deleteQuoteSaving" @click="doDeleteQuote">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete PI Confirm -->
+    <v-dialog v-model="showDeletePIConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="pa-4 pb-2">Delete Proforma Invoice?</v-card-title>
+        <v-card-text>
+          Remove PI <strong>{{ deletePITarget?.piNumber }}</strong>? This cannot be undone.
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showDeletePIConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="deletePISaving" @click="doDeletePI">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -850,6 +764,24 @@
             </v-col>
             <v-col cols="12" md="6">
               <v-text-field v-model="customerForm.address" label="Address" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="customerForm.website" label="Website" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="customerForm.country" label="Country" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="customerForm.shippingAccount" label="Shipping Account" variant="outlined" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-textarea v-model="customerForm.billTo" label="Bill To" variant="outlined" density="compact" hide-details rows="2" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-textarea v-model="customerForm.shipTo" label="Ship To" variant="outlined" density="compact" hide-details rows="2" />
+            </v-col>
+            <v-col cols="12">
+              <v-textarea v-model="customerForm.termsAndConditions" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" />
             </v-col>
             <v-col cols="12">
               <v-textarea v-model="customerForm.description" label="Description" variant="outlined" density="compact" hide-details rows="2" />
@@ -1371,6 +1303,12 @@ const defaultCustomerForm = () => ({
   contactPerson: '',
   address: '',
   description: '',
+  billTo: '',
+  shipTo: '',
+  termsAndConditions: '',
+  website: '',
+  country: '',
+  shippingAccount: '',
 })
 const customerForm = ref(defaultCustomerForm())
 
@@ -1396,6 +1334,12 @@ function openCustomerDialog(item?: any) {
       contactPerson: item.contactPerson || '',
       address: item.address || '',
       description: item.description || '',
+      billTo: item.billTo || '',
+      shipTo: item.shipTo || '',
+      termsAndConditions: item.termsAndConditions || '',
+      website: item.website || '',
+      country: item.country || '',
+      shippingAccount: item.shippingAccount || '',
     }
   } else {
     editingCustomerId.value = null
@@ -1451,8 +1395,6 @@ async function doDeleteCustomer() {
 const ilsQuotes = ref<any[]>([])
 const quotesLoading = ref(false)
 const quoteSearch = ref('')
-const showQuoteDialog = ref(false)
-const quoteSaving = ref(false)
 const showDeleteQuoteConfirm = ref(false)
 const deleteQuoteTarget = ref<any>(null)
 const deleteQuoteSaving = ref(false)
@@ -1480,7 +1422,7 @@ const filteredQuotes = computed(() => {
 
 function ilsQuoteStatusColor(status: string) {
   const map: Record<string, string> = {
-    Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error'
+    Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error', Invoiced: 'purple'
   }
   return map[status] || 'grey'
 }
@@ -1493,147 +1435,6 @@ async function loadILSQuotes() {
     showSnack('Failed to load ILS quotes', 'error')
   } finally {
     quotesLoading.value = false
-  }
-}
-
-// ── ILS Inventory items for quote selection (already loaded in allItems) ──
-const availableILSItems = computed(() => allItems.value)
-
-// ── Serial cache (keyed by ILS item id) for the quote builder ──
-const serialsByItem = reactive<Record<number, any[]>>({})
-const serialsLoading = reactive<Record<number, boolean>>({})
-
-async function loadSerialsFor(itemId: number) {
-  if (serialsByItem[itemId] || serialsLoading[itemId]) return
-  serialsLoading[itemId] = true
-  try {
-    serialsByItem[itemId] = await api.get<any[]>(`/ils/${itemId}/serials`)
-  } catch {
-    serialsByItem[itemId] = []
-  } finally {
-    serialsLoading[itemId] = false
-  }
-}
-
-// ── Quote Form ──
-interface QuoteItemRow {
-  ilsItem: any | null
-  serial: any | null
-  basePrice: number
-  coef: number
-  qty: number
-  sellPrice: number
-  totalPrice: number
-}
-
-const defaultQuoteForm = () => ({
-  ilsCustomerId: null as number | null,
-  rfqReference: '',
-  notes: '',
-  items: [] as QuoteItemRow[],
-})
-const quoteForm = ref(defaultQuoteForm())
-
-const quoteTotalAmount = computed(() =>
-  quoteForm.value.items.reduce((sum, r) => sum + (r.totalPrice || 0), 0)
-)
-
-// Serials of a row's chosen item, hiding any already picked on other rows
-function serialOptions(row: QuoteItemRow) {
-  if (!row.ilsItem) return []
-  const all = serialsByItem[row.ilsItem.id] || []
-  const taken = new Set(
-    quoteForm.value.items
-      .filter(r => r !== row && r.serial && r.ilsItem?.id === row.ilsItem.id)
-      .map(r => r.serial.id)
-  )
-  return all.filter(s => !taken.has(s.id) || s.id === row.serial?.id)
-}
-
-function newQuoteItemRow(): QuoteItemRow {
-  return {
-    ilsItem: null,
-    serial: null,
-    basePrice: 0,
-    coef: 1,
-    qty: 1,
-    sellPrice: 0,
-    totalPrice: 0,
-  }
-}
-
-function addQuoteItemRow() {
-  quoteForm.value.items.push(newQuoteItemRow())
-}
-
-function removeQuoteItemRow(idx: number) {
-  quoteForm.value.items.splice(idx, 1)
-}
-
-function recalcSell(row: QuoteItemRow) {
-  row.sellPrice = Math.round((Number(row.basePrice) || 0) * (Number(row.coef) || 0) * 100) / 100
-  recalcTotal(row)
-}
-
-function recalcTotal(row: QuoteItemRow) {
-  row.totalPrice = Math.round((Number(row.qty) || 0) * (Number(row.sellPrice) || 0) * 100) / 100
-}
-
-function onILSItemSelected(item: any, row: QuoteItemRow) {
-  row.ilsItem = item || null
-  row.serial = null
-  if (item) {
-    loadSerialsFor(item.id)
-    if (!row.basePrice) row.basePrice = Number(item.price) || 0
-  }
-  recalcSell(row)
-}
-
-function onSerialSelected(serial: any, row: QuoteItemRow) {
-  row.serial = serial || null
-  if (serial) row.basePrice = Number(serial.price) || 0
-  recalcSell(row)
-}
-
-function openCreateQuoteDialog() {
-  quoteForm.value = defaultQuoteForm()
-  showQuoteDialog.value = true
-}
-
-async function saveQuote() {
-  if (!quoteForm.value.ilsCustomerId || !quoteForm.value.items.length) return
-  quoteSaving.value = true
-  try {
-    const payload = {
-      ilsCustomerId: quoteForm.value.ilsCustomerId,
-      rfqReference: quoteForm.value.rfqReference || null,
-      notes: quoteForm.value.notes || null,
-      items: quoteForm.value.items.filter(row => row.ilsItem).map(row => ({
-        partNumberId: row.ilsItem.partNumberId,
-        partNumberName: row.ilsItem.partNumberName,
-        altPartNumber: row.ilsItem.altPartNumber || null,
-        condition: row.serial?.condition || row.ilsItem.condition || null,
-        certName: row.ilsItem.certName || null,
-        qty: Number(row.qty) || 1,
-        sellPrice: Number(row.sellPrice) || 0,
-        totalPrice: Number(row.totalPrice) || 0,
-        leadTime: row.serial?.leadTime || row.ilsItem.leadTime || null,
-        ilsItemId: row.ilsItem.id,
-        ilsItemSerialId: row.serial?.id ?? null,
-        serialNumber: row.serial?.serialNumber ?? null,
-        basePrice: row.basePrice ?? null,
-        coef: row.coef ?? null,
-      })),
-    }
-    const created = await api.post<any>('/ils-quotes', payload)
-    ilsQuotes.value.unshift(created)
-    showSnack(`Quote ${created.quoteNumber} created`, 'success')
-    showQuoteDialog.value = false
-    navigateTo(`/ils/quotes/${created.id}`)
-  } catch {
-    showSnack('Failed to create quote', 'error')
-  } finally {
-    quoteSaving.value = false
   }
 }
 
@@ -1657,10 +1458,79 @@ async function doDeleteQuote() {
   }
 }
 
-// Load customers and quotes on mount
+// ════════════════════════════════════════════════════════════
+// ILS PROFORMA INVOICES (PI)
+// ════════════════════════════════════════════════════════════
+
+const ilsPIs = ref<any[]>([])
+const pisLoading = ref(false)
+const piSearch = ref('')
+const showDeletePIConfirm = ref(false)
+const deletePITarget = ref<any>(null)
+const deletePISaving = ref(false)
+
+const piHeaders = [
+  { title: 'PI #', key: 'piNumber', width: '120px' },
+  { title: 'Customer', key: 'ilsCustomerName' },
+  { title: 'Subject', key: 'subject', width: '160px' },
+  { title: 'Items', key: 'items.length', width: '70px' },
+  { title: 'Total', key: 'totalAmount', width: '120px' },
+  { title: 'Status', key: 'status', width: '110px' },
+  { title: 'Created', key: 'createdAt', width: '110px' },
+  { title: '', key: 'actions', width: '80px', sortable: false },
+]
+
+const filteredPIs = computed(() => {
+  if (!piSearch.value) return ilsPIs.value
+  const q = piSearch.value.toLowerCase()
+  return ilsPIs.value.filter(p =>
+    p.piNumber?.toLowerCase().includes(q) ||
+    p.ilsCustomerName?.toLowerCase().includes(q) ||
+    p.subject?.toLowerCase().includes(q)
+  )
+})
+
+function ilsPIStatusColor(status: string) {
+  const map: Record<string, string> = { Open: 'info', Paid: 'success', Cancelled: 'error' }
+  return map[status] || 'grey'
+}
+
+async function loadILSPIs() {
+  pisLoading.value = true
+  try {
+    ilsPIs.value = await api.get<any[]>('/ils-proforma')
+  } catch {
+    showSnack('Failed to load PIs', 'error')
+  } finally {
+    pisLoading.value = false
+  }
+}
+
+function confirmDeletePI(item: any) {
+  deletePITarget.value = item
+  showDeletePIConfirm.value = true
+}
+
+async function doDeletePI() {
+  if (!deletePITarget.value) return
+  deletePISaving.value = true
+  try {
+    await api.del(`/ils-proforma/${deletePITarget.value.id}`)
+    ilsPIs.value = ilsPIs.value.filter(p => p.id !== deletePITarget.value.id)
+    showSnack('PI deleted')
+    showDeletePIConfirm.value = false
+  } catch {
+    showSnack('Failed to delete PI', 'error')
+  } finally {
+    deletePISaving.value = false
+  }
+}
+
+// Load customers, quotes, and PIs on mount
 onMounted(() => {
   loadILSCustomers()
   loadILSQuotes()
+  loadILSPIs()
 })
 </script>
 

@@ -12,6 +12,7 @@ public static class PurchasingModule
         services.AddScoped<IProcumentPageService, ProcumentPageService>();
         services.AddScoped<IILSService, ILSService>();
         services.AddScoped<IILSQuoteService, ILSQuoteService>();
+        services.AddScoped<IILSProformaService, ILSProformaService>();
         services.AddScoped<ICapListService, CapListService>();
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<IAvailabilityService, AvailabilityService>();

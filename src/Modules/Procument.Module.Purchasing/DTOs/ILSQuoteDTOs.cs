@@ -11,6 +11,12 @@ public class ILSCustomerDto
     public string? ContactPerson { get; set; }
     public string? Address { get; set; }
     public string? Description { get; set; }
+    public string? BillTo { get; set; }
+    public string? ShipTo { get; set; }
+    public string? TermsAndConditions { get; set; }
+    public string? Website { get; set; }
+    public string? Country { get; set; }
+    public string? ShippingAccount { get; set; }
 }
 
 public class ILSCustomerResponse
@@ -23,6 +29,12 @@ public class ILSCustomerResponse
     public string? ContactPerson { get; set; }
     public string? Address { get; set; }
     public string? Description { get; set; }
+    public string? BillTo { get; set; }
+    public string? ShipTo { get; set; }
+    public string? TermsAndConditions { get; set; }
+    public string? Website { get; set; }
+    public string? Country { get; set; }
+    public string? ShippingAccount { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
 }
@@ -34,6 +46,8 @@ public class CreateILSQuoteRequest
     public long ILSCustomerId { get; set; }
     public string? RfqReference { get; set; }
     public string? Notes { get; set; }
+    public string? BillTo { get; set; }
+    public string? ShipTo { get; set; }
     public List<ILSQuoteItemRequest> Items { get; set; } = new();
 }
 
@@ -68,6 +82,9 @@ public class ILSQuoteResponse
     public string? RfqReference { get; set; }
     public decimal TotalAmount { get; set; }
     public string? Notes { get; set; }
+    public string? BillTo { get; set; }
+    public string? ShipTo { get; set; }
+    public string? CustomerTermsAndConditions { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<ILSQuoteItemResponse> Items { get; set; } = new();
 }

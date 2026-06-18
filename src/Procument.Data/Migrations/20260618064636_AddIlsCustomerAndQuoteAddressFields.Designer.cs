@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260618064636_AddIlsCustomerAndQuoteAddressFields")]
+    partial class AddIlsCustomerAndQuoteAddressFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -846,129 +849,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("ILSItemId");
 
                     b.ToTable("ILSItemSerials", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSProformaInvoice", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("BillTo")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CustomerPONumber")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<long>("ILSCustomerId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<string>("PINumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("ShipTo")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("Subject")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("ILSCustomerId");
-
-                    b.ToTable("ILSProformaInvoices", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSProformaInvoiceItem", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("AltPartNumber")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("CertName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("Condition")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<long?>("ILSItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("ILSItemSerialId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("ILSProformaInvoiceId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("LeadTime")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<long>("PartNumberId")
-                        .HasColumnType("bigint");
-
-                    b.Property<double>("Qty")
-                        .HasColumnType("float");
-
-                    b.Property<decimal>("SellPrice")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<long?>("SourceQuoteId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("SourceQuoteItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<decimal>("TotalPrice")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ILSProformaInvoiceId");
-
-                    b.HasIndex("PartNumberId");
-
-                    b.ToTable("ILSProformaInvoiceItems", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSQuote", b =>
@@ -3497,36 +3377,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("ILSItem");
                 });
 
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSProformaInvoice", b =>
-                {
-                    b.HasOne("Procument.Module.Purchasing.Entities.ILSCustomer", "ILSCustomer")
-                        .WithMany()
-                        .HasForeignKey("ILSCustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ILSCustomer");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSProformaInvoiceItem", b =>
-                {
-                    b.HasOne("Procument.Module.Purchasing.Entities.ILSProformaInvoice", "ILSProformaInvoice")
-                        .WithMany("Items")
-                        .HasForeignKey("ILSProformaInvoiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Catalog.Entities.PartNumber", "PartNumber")
-                        .WithMany()
-                        .HasForeignKey("PartNumberId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ILSProformaInvoice");
-
-                    b.Navigation("PartNumber");
-                });
-
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSQuote", b =>
                 {
                     b.HasOne("Procument.Module.Purchasing.Entities.ILSCustomer", "ILSCustomer")
@@ -4199,11 +4049,6 @@ namespace Procument.Data.Migrations
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSItem", b =>
                 {
                     b.Navigation("Serials");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSProformaInvoice", b =>
-                {
-                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSQuote", b =>

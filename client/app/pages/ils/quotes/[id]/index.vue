@@ -231,6 +231,12 @@
                 placeholder="e.g. RFQ-2024-001"
               />
             </v-col>
+            <v-col cols="12" md="6">
+              <v-textarea v-model="editForm.billTo" label="Bill To" variant="outlined" density="compact" hide-details rows="2" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-textarea v-model="editForm.shipTo" label="Ship To" variant="outlined" density="compact" hide-details rows="2" />
+            </v-col>
             <v-col cols="12">
               <v-textarea v-model="editForm.notes" label="Notes" variant="outlined" density="compact" hide-details rows="2" />
             </v-col>
@@ -332,101 +338,8 @@
       </v-card>
     </v-dialog>
 
-    <!-- PDF Dialog -->
-    <v-dialog v-model="showPdf" max-width="900" scrollable>
-      <v-card>
-        <v-card-title class="d-flex align-center pa-4 pb-2">
-          <v-icon icon="mdi-file-pdf-box" class="mr-2" color="error" size="22" />
-          ILS Quote PDF Preview
-          <v-spacer />
-          <v-btn icon="mdi-printer" variant="tonal" color="primary" size="small" class="mr-2" @click="printPdf" />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="showPdf = false" />
-        </v-card-title>
-        <v-divider />
-        <v-card-text class="pa-0">
-          <div class="pdf-preview" ref="pdfRef">
-            <div class="pdf-header">
-              <div class="pdf-company">
-                <div class="pdf-title">ILS QUOTE</div>
-                <div class="pdf-subtitle">ILS Aviation Parts</div>
-              </div>
-              <div class="pdf-meta">
-                <table class="pdf-meta-table">
-                  <tbody>
-                    <tr>
-                      <td>Quote #</td>
-                      <td><strong>{{ quote?.quoteNumber }}</strong></td>
-                    </tr>
-                    <tr>
-                      <td>Date</td>
-                      <td>{{ quote ? new Date(quote.createdAt).toLocaleDateString() : '' }}</td>
-                    </tr>
-                    <tr v-if="quote?.rfqReference">
-                      <td>RFQ Ref</td>
-                      <td>{{ quote.rfqReference }}</td>
-                    </tr>
-                    <tr>
-                      <td>Status</td>
-                      <td>{{ quote?.status }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="pdf-section-title">Customer</div>
-            <div class="pdf-customer">
-              <strong>{{ quote?.ilsCustomerName }}</strong>
-              <span v-if="quote?.ilsCustomerCode"> ({{ quote.ilsCustomerCode }})</span>
-            </div>
-
-            <div class="pdf-section-title">Items</div>
-            <table class="pdf-items-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Part Number</th>
-                  <th>Alt P/N</th>
-                  <th>Serial #</th>
-                  <th>Condition</th>
-                  <th>Cert</th>
-                  <th>Qty</th>
-                  <th>Unit Price</th>
-                  <th>Total Price</th>
-                  <th>Lead Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(item, i) in quote?.items" :key="item.id">
-                  <td>{{ Number(i) + 1 }}</td>
-                  <td><strong>{{ item.partNumberName }}</strong></td>
-                  <td>{{ item.altPartNumber || '—' }}</td>
-                  <td>{{ item.serialNumber || '—' }}</td>
-                  <td>{{ item.condition || '—' }}</td>
-                  <td>{{ item.certName || '—' }}</td>
-                  <td>{{ item.qty }}</td>
-                  <td>${{ formatPrice(item.sellPrice) }}</td>
-                  <td><strong>${{ formatPrice(item.totalPrice) }}</strong></td>
-                  <td>{{ item.leadTime || '—' }}</td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="8" style="text-align: right; font-weight: bold; border-top: 2px solid #1a2744;">TOTAL:</td>
-                  <td style="font-weight: bold; border-top: 2px solid #1a2744;">${{ formatPrice(quote?.totalAmount) }}</td>
-                  <td style="border-top: 2px solid #1a2744;"></td>
-                </tr>
-              </tfoot>
-            </table>
-
-            <div v-if="quote?.notes" class="pdf-notes">
-              <div class="pdf-section-title">Notes</div>
-              <p>{{ quote.notes }}</p>
-            </div>
-          </div>
-        </v-card-text>
-      </v-card>
-    </v-dialog>
+    <!-- PDF Generator -->
+    <IlsQuotePdfGenerator v-if="quote" v-model="showPdf" :quote="quote" />
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2500" location="bottom right">
       {{ snackbarText }}
@@ -448,7 +361,6 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 const showPdf = ref(false)
-const pdfRef = ref<HTMLElement | null>(null)
 const statusUpdating = ref(false)
 const ilsCustomers = ref<any[]>([])
 
@@ -468,7 +380,7 @@ function formatPrice(val: any) {
 
 function statusColor(status: string) {
   const map: Record<string, string> = {
-    Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error'
+    Draft: 'grey', Sent: 'info', Accepted: 'success', Rejected: 'error', Invoiced: 'purple'
   }
   return map[status] || 'grey'
 }
@@ -511,9 +423,6 @@ async function updateStatus(status: string) {
   }
 }
 
-function printPdf() {
-  window.print()
-}
 
 const allILSItems = ref<any[]>([])
 
@@ -570,6 +479,8 @@ const editForm = ref({
   ilsCustomerId: null as number | null,
   rfqReference: '',
   notes: '',
+  billTo: '',
+  shipTo: '',
   items: [] as EditItemRow[],
 })
 
@@ -583,6 +494,8 @@ function openEditDialog() {
     ilsCustomerId: quote.value.ilsCustomerId,
     rfqReference: quote.value.rfqReference || '',
     notes: quote.value.notes || '',
+    billTo: quote.value.billTo || '',
+    shipTo: quote.value.shipTo || '',
     items: (quote.value.items || []).map((item: any) => {
       const matchedILSItem = allILSItems.value.find((i: any) => i.id === item.ilsItemId)
       const ilsItem = matchedILSItem || {
@@ -652,6 +565,8 @@ async function saveEdit() {
       ilsCustomerId: editForm.value.ilsCustomerId,
       rfqReference: editForm.value.rfqReference || null,
       notes: editForm.value.notes || null,
+      billTo: editForm.value.billTo || null,
+      shipTo: editForm.value.shipTo || null,
       items: validItems.map(row => ({
         partNumberId: row.ilsItem.partNumberId,
         partNumberName: row.ilsItem.partNumberName,
@@ -761,71 +676,4 @@ async function saveEdit() {
   border-bottom: none;
 }
 
-/* PDF Preview */
-.pdf-preview {
-  padding: 32px 40px;
-  background: #fff;
-  color: #111;
-  min-height: 600px;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 13px;
-}
-.pdf-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 28px;
-  border-bottom: 3px solid #1a2744;
-  padding-bottom: 20px;
-}
-.pdf-title {
-  font-size: 26px;
-  font-weight: 900;
-  color: #1a2744;
-  letter-spacing: 0.05em;
-}
-.pdf-subtitle {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1a2744;
-  margin-top: 4px;
-}
-.pdf-detail { font-size: 12px; color: #555; margin-top: 2px; }
-.pdf-meta-table td { padding: 3px 8px; font-size: 12px; }
-.pdf-meta-table td:first-child { color: #666; font-weight: 600; text-align: right; }
-.pdf-section-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #1a2744;
-  border-bottom: 1px solid #ddd;
-  padding-bottom: 4px;
-  margin: 16px 0 8px;
-}
-.pdf-customer { font-size: 13px; margin-bottom: 8px; }
-.pdf-items-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.pdf-items-table th {
-  background: #1a2744;
-  color: #fff;
-  padding: 6px 8px;
-  text-align: left;
-  font-weight: 600;
-}
-.pdf-items-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid #eee;
-}
-.pdf-items-table tr:nth-child(even) td { background: #f8f9fa; }
-.pdf-items-table tfoot td { padding: 8px; background: #f0f2f5; font-size: 13px; }
-.pdf-notes { margin-top: 20px; font-size: 12px; color: #444; }
-
-@media print {
-  .pdf-preview { padding: 20px; }
-  .v-card { box-shadow: none !important; }
-}
 </style>

@@ -243,7 +243,7 @@ public class PdfController : ControllerBase
 
                 row.RelativeItem(2).AlignRight().Column(right =>
                 {
-                    right.Item().AlignRight().Text(t => t.Span("QUOTATION").Bold().FontSize(20).FontColor(primary));
+                    right.Item().AlignRight().Text(t => t.Span(req.DocTitle ?? "QUOTATION").Bold().FontSize(20).FontColor(primary));
                     right.Item().AlignRight().PaddingTop(4).Text(t => t.Span(req.QuoteNumber ?? "").FontSize(10).FontColor(Colors.Grey.Medium));
                 });
             });
@@ -487,6 +487,9 @@ public class PdfController : ControllerBase
 // ───────────────────── REQUEST DTOs ─────────────────────
 public class QuotePdfRequest
 {
+    // Meta
+    public string? DocTitle { get; set; }
+
     // Company
     public string? CompanyName { get; set; }
     public string? CompanyLocation { get; set; }

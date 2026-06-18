@@ -43,8 +43,8 @@
             {{ s.tagDate ? new Date(s.tagDate).toLocaleDateString() : '—' }}
           </template>
           <template #item.cert="{ item: s }">
-            <div class="d-flex align-center gap-2">
-              <span v-if="s.certText">{{ s.certText }}</span>
+            <div class="d-flex align-center gap-2 py-1">
+              <span v-if="s.certText" style="white-space: pre-wrap; font-size: 13px; line-height: 1.4; max-width: 300px; display: inline-block;">{{ s.certText }}</span>
               <span v-else-if="!s.hasCertImage" class="text-medium-emphasis">—</span>
               <img
                 v-if="s.hasCertImage"
@@ -135,8 +135,16 @@
                 Cert — provide text and/or an image (at least one required)
               </p>
             </v-col>
-            <v-col cols="12" md="6">
-              <v-text-field v-model="form.certText" label="Cert Text" variant="outlined" density="compact" hide-details />
+            <v-col cols="12">
+              <v-textarea
+                v-model="form.certText"
+                label="Cert Text"
+                variant="outlined"
+                density="compact"
+                hide-details
+                rows="3"
+                auto-grow
+              />
             </v-col>
             <v-col cols="12" md="6">
               <v-file-input
