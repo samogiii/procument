@@ -44,6 +44,7 @@ public class POResponse
     public string? InvoiceNumber { get; set; }
     public long? CustomerId { get; set; }
     public string? RejectionNote { get; set; }
+    public string? Subject { get; set; }
     public string AdminApproval { get; set; } = "Pending";
     public string? AdminApprovalNote { get; set; }
     public DateTime? AdminApprovalAt { get; set; }
@@ -72,6 +73,12 @@ public class UpdatePOTotalsRequest
     public decimal? ProcessingFee { get; set; }
     public decimal? Shipping { get; set; }
     public decimal? Tax { get; set; }
+}
+
+/// <summary>Update the free-text Subject on a PO.</summary>
+public class UpdatePOSubjectRequest
+{
+    public string? Subject { get; set; }
 }
 
 public class UpdateAdminApprovalRequest

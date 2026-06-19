@@ -196,6 +196,23 @@
                         </v-menu>
                       </div>
                     </th>
+                    <th style="width: 160px;">
+                      <div class="po-th-inner">
+                        <span>Subject</span>
+                        <v-menu :close-on-content-click="false" max-width="260">
+                          <template #activator="{ props: mp }">
+                            <v-btn v-bind="mp" :icon="poColFilters['subject']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['subject']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
+                          </template>
+                          <v-card class="pa-2" min-width="220">
+                            <v-text-field v-model="poFilterSearch['subject']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
+                            <div style="max-height:220px;overflow-y:auto;">
+                              <v-checkbox v-for="val in poUniqueValues('subject')" :key="val" :label="val" :model-value="poColFilters['subject']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('subject', val)" />
+                            </div>
+                            <v-btn v-if="poColFilters['subject']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['subject'] = new Set()">Clear</v-btn>
+                          </v-card>
+                        </v-menu>
+                      </div>
+                    </th>
                     <th style="width: 120px;">Total Amount</th>
                     <th style="width: 180px;">
                       <div class="po-th-inner">
@@ -243,6 +260,7 @@
                     <td class="cell-pn">{{ po.poNumber }}</td>
                     <td v-if="isAdmin" class="text-medium-emphasis">{{ po.invoiceNumber || '—' }}</td>
                     <td>{{ po.supplierName || '—' }}</td>
+                    <td class="text-medium-emphasis" :title="po.subject || ''" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ po.subject || '—' }}</td>
                     <td class="text-right cell-price">${{ formatPrice(po.totalAmount) }}</td>
                     <td @click.stop>
                       <div class="d-flex flex-column gap-1">
@@ -884,6 +902,7 @@ const PO_FILTER_COLS = [
   { key: 'poNumber',      field: (r: any) => r.poNumber },
   { key: 'invoiceNumber', field: (r: any) => r.invoiceNumber || '—' },
   { key: 'supplierName',  field: (r: any) => r.supplierName || '—' },
+  { key: 'subject',       field: (r: any) => r.subject || '—' },
   { key: 'status',        field: (r: any) => r.status },
 ]
 

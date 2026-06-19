@@ -472,6 +472,23 @@ public class PurchaseOrdersController : ControllerBase
         });
     }
 
+    /// <summary>Update the free-text Subject on a PO.</summary>
+    [HttpPatch("{id:long}/subject")]
+    [Auditable("PurchaseOrder", "UpdateSubject", CaptureBody = true)]
+    public async Task<IActionResult> UpdateSubject(long id, [FromBody] UpdatePOSubjectRequest request)
+    {
+        var (uid, isA, isSA, bases) = GetCurrentUser();
+        if (!await _poService.UserCanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
+
+        var po = await _db.Set<PurchaseOrder>().FindAsync(id);
+        if (po == null) return NotFound();
+
+        po.Subject = string.IsNullOrWhiteSpace(request.Subject) ? null : request.Subject.Trim();
+        await _db.SaveChangesAsync();
+
+        return Ok(new { po.Subject });
+    }
+
     // ═══════════════════════════════════════════
     // Import Details
     // ═══════════════════════════════════════════

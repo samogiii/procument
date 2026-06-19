@@ -15,6 +15,8 @@ public class PurchaseOrder : BaseEntity
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? RejectionNote { get; set; }
+    /// <summary>Free-text subject/title for the PO (mirrors Invoice.Subject). Editable on the PO page.</summary>
+    public string? Subject { get; set; }
 
     // ─── Return / Recycle Workflow (loop back into Procurement) ───
     /// <summary>Reason captured when the PO (or some items) were returned to Procurement.</summary>

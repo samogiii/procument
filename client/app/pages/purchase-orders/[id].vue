@@ -99,6 +99,34 @@
       </v-col>
     </v-row>
 
+    <!-- ── Subject (free-text; editable by anyone who can access this PO) ── -->
+    <v-card class="glass-card mb-6">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-text-box-outline" class="mr-2" size="20" color="blue" />
+        Subject
+        <v-spacer />
+        <template v-if="!editingSubject">
+          <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-pencil" @click="startSubjectEdit">Edit</v-btn>
+        </template>
+        <template v-else>
+          <v-btn size="small" variant="text" class="mr-2" @click="cancelSubjectEdit">Cancel</v-btn>
+          <v-btn size="small" variant="flat" color="success" prepend-icon="mdi-content-save" :loading="savingSubject" @click="saveSubject">Save</v-btn>
+        </template>
+      </v-card-title>
+      <v-card-text>
+        <v-text-field
+          v-model="subjectForm"
+          label="Subject"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          :readonly="!editingSubject"
+          placeholder="—"
+        />
+      </v-card-text>
+    </v-card>
+
     <!-- ── Admin Approval (visible to Admin/SuperAdmin; action buttons for SuperAdmin only) ── -->
     <v-card class="glass-card mb-6" v-if="isAdmin">
       <v-card-title class="d-flex align-center">
@@ -1252,7 +1280,39 @@ async function loadPo() {
     po.value = await api.get(`/purchase-orders/${route.params.id}`)
     // Hydrate the PDF totals form from the PO response (processingFee / shipping / tax)
     loadTotalsFromPo()
+    // Hydrate the Subject field
+    if (!editingSubject.value) subjectForm.value = po.value?.subject || ''
   } catch {}
+}
+
+// ── Subject (free-text) ──
+const subjectForm = ref('')
+const editingSubject = ref(false)
+const savingSubject = ref(false)
+
+function startSubjectEdit() {
+  subjectForm.value = po.value?.subject || ''
+  editingSubject.value = true
+}
+function cancelSubjectEdit() {
+  subjectForm.value = po.value?.subject || ''
+  editingSubject.value = false
+}
+async function saveSubject() {
+  savingSubject.value = true
+  try {
+    const saved = await api.patch<any>(`/purchase-orders/${route.params.id}/subject`, {
+      subject: subjectForm.value || null,
+    })
+    subjectForm.value = saved?.subject || ''
+    if (po.value) po.value.subject = saved?.subject || null
+    editingSubject.value = false
+    showSnack('Subject saved', 'success')
+  } catch {
+    showSnack('Failed to save subject', 'error')
+  } finally {
+    savingSubject.value = false
+  }
 }
 
 const entityId = computed(() => String(route.params.id))
@@ -2033,6 +2093,8 @@ onMounted(async () => {
     po.value = await api.get(`/purchase-orders/${route.params.id}`)
     // Hydrate the PDF totals form (processingFee / shipping / tax)
     loadTotalsFromPo()
+    // Hydrate the Subject field
+    if (!editingSubject.value) subjectForm.value = po.value?.subject || ''
     // Important: wait for enriched trail to identify ALL linked invoices
     await loadEnriched()
     // Then load everything else

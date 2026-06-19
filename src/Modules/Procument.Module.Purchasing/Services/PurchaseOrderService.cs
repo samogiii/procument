@@ -926,6 +926,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         InvoiceId = po.InvoiceId,
         InvoiceNumber = invoiceNumber,
         RejectionNote = po.RejectionNote,
+        Subject = po.Subject,
         AdminApproval = po.AdminApproval,
         AdminApprovalNote = po.AdminApprovalNote,
         AdminApprovalAt = po.AdminApprovalAt,
