@@ -1027,7 +1027,7 @@ async function exportToExcel() {
       ['Quote Number:', q.quoteNumber || '—', '', 'Date:', q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'],
       ['Customer:', q.customerName || '—', '', 'RFQ:', q.rfqName || '—'],
       [],
-      ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Supplier', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
+      ['#', 'Ref', 'Part Number', 'Alt Part Number',  'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
     ]
 
     sortedItems.forEach((it: any, idx: number) => {
@@ -1036,7 +1036,7 @@ async function exportToExcel() {
         it.rfqReference || '—',
         it.partNumberName || '—',
         it.alt || '',
-        it.supplierName || '',
+        
         it.qty,
         it.condition || '—',
         it.leadTime || '—',

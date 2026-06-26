@@ -205,7 +205,18 @@ public static class InvoiceDocument
                             });
 
                     Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(2.2f), it.PartNumberName ?? "—", primary, bold: true);
+
+                    // Part number — when an Alt is set, show it as the effective PN with the original as reference
+                    var isAlt = !string.IsNullOrWhiteSpace(it.Alt);
+                    r.RelativeItem(2.2f).Background(bg).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
+                        .Padding(5).AlignCenter().AlignMiddle().Column(c =>
+                        {
+                            c.Item().Text(t => t.Span(isAlt ? it.Alt! : (it.PartNumberName ?? "—"))
+                                .FontSize(8.5f).Bold().FontColor(isAlt ? accent : primary));
+                            if (isAlt)
+                                c.Item().Text(t => t.Span($"(Alt to: {it.PartNumberName})")
+                                    .FontSize(7).FontColor(Colors.Grey.Medium));
+                        });
                     Cell(r.RelativeItem(2.2f), it.Description ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(26), it.Qty.ToString(), primary, bold: true);
                     Cell(r.ConstantItem(26), it.Condition ?? "—", primary);

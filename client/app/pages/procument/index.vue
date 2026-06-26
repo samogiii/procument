@@ -202,6 +202,7 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          :sort-by="sort.sortByModel.value"
           hover
           density="comfortable"
           item-value="rfqItemId"
@@ -561,18 +562,23 @@
                         Recent suppliers:
                       </span>
                       <v-chip
-                        v-for="s in getSuggestions(item.rfqItemId).recentQuotes"
-                        :key="'recent-' + s.supplierId"
+                        v-for="g in getRecentSuppliers(item.rfqItemId)"
+                        :key="'recent-' + g.supplierId"
                         size="small"
                         color="amber"
                         variant="tonal"
                         prepend-icon="mdi-flash"
                         class="cursor-pointer"
-                        @click.stop="applySuggestion(item, s)"
+                        :title="g.quotes.length > 1 ? 'Adds all ' + g.quotes.length + ' conditions' : ''"
+                        @click.stop="applySuggestionGroup(item, g)"
                       >
-                        {{ s.supplierName }}
-                        <span v-if="s.priceHidden" class="text-caption ml-1" style="color:#ef5350;" title="Price expired (older than 14 days)">Expired</span>
-                        <span v-else class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
+                        {{ g.supplierName }}
+                        <template v-for="(q, qi) in g.quotes" :key="qi">
+                          <span v-if="qi > 0" class="text-caption ml-1" style="opacity:0.5;">|</span>
+                          <span class="text-caption ml-1 text-medium-emphasis">{{ q.condition || 'NE' }}</span>
+                          <span v-if="q.priceHidden" class="text-caption ml-1" style="color:#ef5350;" title="Price expired (older than 14 days)">Expired</span>
+                          <span v-else class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(q.price) }}</span>
+                        </template>
                       </v-chip>
                       <v-btn
                         v-if="getSuggestions(item.rfqItemId).recentQuotes.length > 1"
@@ -1192,6 +1198,9 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('procumen
   colRfqName: [] as string[],
   page: 1,
   itemsPerPage: 50,
+  // Remember the last column sort (incl. Deadline/days) across refreshes
+  sortKey: '',
+  sortDesc: false,
 })
 const search = pf.search
 // `search` is the COMMITTED term that drives the query. `searchInput` is the raw
@@ -1209,7 +1218,7 @@ const currentItemsPerPage = pf.itemsPerPage
 const loading = ref(false)
 const allItems = ref<any[]>([])
 const totalItems = ref(0)
-const sort = useServerSort()
+const sort = useServerSort({ sortKey: pf.sortKey, sortDesc: pf.sortDesc })
 
 // ── Excel-style column filters (server-side, persisted) ──
 // colPn / colCond live in usePageFilters → auto-persisted to localStorage.
@@ -1688,17 +1697,42 @@ function getSuggestions(rfqItemId: number) {
   return itemSuggestions.value[rfqItemId] || { knownSuppliers: [], recentQuotes: [], loading: false }
 }
 
+// Group recent quotes by supplier so the same supplier with multiple conditions
+// shows as ONE chip listing every condition/price (instead of duplicate name chips).
+function getRecentSuppliers(rfqItemId: number) {
+  const groups = new Map<number, { supplierId: number; supplierName: string; quotes: any[] }>()
+  for (const s of getSuggestions(rfqItemId).recentQuotes) {
+    let g = groups.get(s.supplierId)
+    if (!g) {
+      g = { supplierId: s.supplierId, supplierName: s.supplierName, quotes: [] }
+      groups.set(s.supplierId, g)
+    }
+    g.quotes.push(s)
+  }
+  return Array.from(groups.values())
+}
+
+// Clicking a supplier chip applies every condition that supplier has.
+function applySuggestionGroup(item: any, group: { quotes: any[] }) {
+  for (const q of group.quotes) {
+    applySuggestion(item, q)
+  }
+}
+
 function applySuggestion(item: any, suggestion: any) {
   const key = item.rfqItemId
   if (!editableQuotes.value[key]) {
     editableQuotes.value[key] = []
   }
-  // Check if this supplier is already added
+  // Check if this supplier+condition is already added
+  const suggestionCondition = (suggestion.condition || 'NE').toUpperCase()
   const alreadyExists = editableQuotes.value[key].some(
-    (q: any) => q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase()
+    (q: any) =>
+      q.supplierName?.toLowerCase() === suggestion.supplierName?.toLowerCase() &&
+      (q.condition || 'NE').toUpperCase() === suggestionCondition
   )
   if (alreadyExists) {
-    showSnack(`${suggestion.supplierName} is already added`, 'warning')
+    showSnack(`${suggestion.supplierName} (${suggestionCondition}) is already added`, 'warning')
     return
   }
   editableQuotes.value[key].unshift({
@@ -1731,8 +1765,11 @@ function applyAllSuggestions(item: any) {
   // Reverse to maintain order when using unshift (first suggestion ends up at top)
   for (const s of [...suggestions.recentQuotes].reverse()) {
     const key = item.rfqItemId
+    const sCondition = (s.condition || 'NE').toUpperCase()
     const alreadyExists = (editableQuotes.value[key] || []).some(
-      (q: any) => q.supplierName?.toLowerCase() === s.supplierName?.toLowerCase()
+      (q: any) =>
+        q.supplierName?.toLowerCase() === s.supplierName?.toLowerCase() &&
+        (q.condition || 'NE').toUpperCase() === sCondition
     )
     if (!alreadyExists) {
       applySuggestion(item, s)

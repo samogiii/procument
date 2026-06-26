@@ -295,6 +295,8 @@ public class FinalInvoicesController : ControllerBase
 
                 partNumber = i.PartNumberName,
 
+                alt = i.Alt,
+
                 description = i.Description ?? "",
 
                 qty = i.Qty,

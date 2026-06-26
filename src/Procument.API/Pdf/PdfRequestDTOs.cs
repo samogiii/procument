@@ -70,6 +70,8 @@ public class InvoicePdfItem
 {
     public string? RfqReference { get; set; }
     public string? PartNumberName { get; set; }
+    /// <summary>Alternative part number quoted to the customer. When set, it is shown as the effective PN.</summary>
+    public string? Alt { get; set; }
     public string? Description { get; set; }
     public int Qty { get; set; }
     public string? Condition { get; set; }
@@ -231,6 +233,8 @@ public class FinalInvoicePdfItem
 {
     public string? RfqReference { get; set; }
     public string? PartNumber { get; set; }
+    /// <summary>Alternative part number quoted to the customer. When set, it is shown as the effective PN.</summary>
+    public string? Alt { get; set; }
     public string? Description { get; set; }
     public int Qty { get; set; }
     public string? Condition { get; set; }

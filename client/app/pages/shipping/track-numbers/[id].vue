@@ -633,7 +633,7 @@ function downloadDoc(tid: number, docId: number, fileName = 'document', mimeType
 
 async function deleteDoc(tid: number, docId: number) {
   try {
-    await api.delete(`/shipping/documents/${docId}`)
+    await api.del(`/shipping/documents/${docId}`)
     notify('Deleted')
     await loadTracks()
   } catch {

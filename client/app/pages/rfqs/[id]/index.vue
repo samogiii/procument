@@ -634,19 +634,23 @@
                           Recent suppliers:
                         </span>
                         <v-chip
-                          v-for="s in getSuggestions(item.id).recentQuotes"
-                          :key="'recent-' + s.supplierId + '-' + (s.condition || 'NE')"
+                          v-for="g in getRecentSuppliers(item.id)"
+                          :key="'recent-' + g.supplierId"
                           size="small"
                           color="amber"
                           variant="tonal"
                           prepend-icon="mdi-flash"
                           class="cursor-pointer"
-                          @click="applySuggestion(item, s)"
+                          :title="g.quotes.length > 1 ? 'Adds all ' + g.quotes.length + ' conditions' : ''"
+                          @click="applySuggestionGroup(item, g)"
                         >
-                          {{ s.supplierName }}
-                          <span class="text-caption ml-1 text-medium-emphasis">{{ s.condition || 'NE' }}</span>
-                          <span v-if="s.priceHidden" class="text-caption ml-1" style="color:#ef5350;" title="Price expired (older than 14 days)">Expired</span>
-                          <span v-else class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(s.price) }}</span>
+                          {{ g.supplierName }}
+                          <template v-for="(q, qi) in g.quotes" :key="qi">
+                            <span v-if="qi > 0" class="text-caption ml-1" style="opacity:0.5;">|</span>
+                            <span class="text-caption ml-1 text-medium-emphasis">{{ q.condition || 'NE' }}</span>
+                            <span v-if="q.priceHidden" class="text-caption ml-1" style="color:#ef5350;" title="Price expired (older than 14 days)">Expired</span>
+                            <span v-else class="text-caption ml-1 text-medium-emphasis">${{ formatPrice(q.price) }}</span>
+                          </template>
                         </v-chip>
                         <v-btn
                           v-if="getSuggestions(item.id).recentQuotes.length > 0"
@@ -1957,6 +1961,28 @@ async function loadItemSuggestions(item: any) {
 
 function getSuggestions(itemId: number) {
   return itemSuggestions.value[itemId] || { knownSuppliers: [], recentQuotes: [], loading: false }
+}
+
+// Group recent quotes by supplier so the same supplier with multiple conditions
+// shows as ONE chip listing every condition/price (instead of duplicate name chips).
+function getRecentSuppliers(itemId: number) {
+  const groups = new Map<number, { supplierId: number; supplierName: string; quotes: any[] }>()
+  for (const s of getSuggestions(itemId).recentQuotes) {
+    let g = groups.get(s.supplierId)
+    if (!g) {
+      g = { supplierId: s.supplierId, supplierName: s.supplierName, quotes: [] }
+      groups.set(s.supplierId, g)
+    }
+    g.quotes.push(s)
+  }
+  return Array.from(groups.values())
+}
+
+// Clicking a supplier chip applies every condition that supplier has.
+function applySuggestionGroup(item: any, group: { quotes: any[] }) {
+  for (const q of group.quotes) {
+    applySuggestion(item, q)
+  }
 }
 
 function applySuggestion(item: any, suggestion: any) {

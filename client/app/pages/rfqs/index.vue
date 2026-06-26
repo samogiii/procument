@@ -176,6 +176,7 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          :sort-by="sort.sortByModel.value"
           hover
           :row-props="getRowProps"
           @update:options="loadServerPage"
@@ -1122,6 +1123,10 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
   customer: [] as string[],
   page: 1,
   itemsPerPage: 50,
+  // Days column: remember the last sort + days-left filter across refreshes
+  sortKey: '',
+  sortDesc: false,
+  daysFilter: null as number | null,
 })
 // If URL has ?status=X, apply it once on load
 if (route.query.status && pf.status.value.length === 0) {
@@ -1199,9 +1204,9 @@ const currentItemsPerPage = pf.itemsPerPage
 const loading = ref(false)
 const items = ref<any[]>([])
 const totalItems = ref(0)
-const sort = useServerSort()
+const sort = useServerSort({ sortKey: pf.sortKey, sortDesc: pf.sortDesc })
 const showNoQuote = ref(false)
-const daysFilter = ref<number | null>(null)
+const daysFilter = pf.daysFilter
 
 const daysFilterPresets = [
   { label: 'Overdue', value: 0 },

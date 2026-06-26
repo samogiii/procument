@@ -106,7 +106,7 @@ public static class FinalInvoiceDocument
                     });
 
                     // Items table (incl. Discount, Track # + Carrier)
-                    col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, sym));
+                    col.Item().PaddingBottom(10).Element(c => ComposeItemsTable(c, req, primary, accent, sym));
 
                     //// Totals + Shipping Info + Bank Details
                     //col.Item().PaddingBottom(10).Row(sRow =>
@@ -222,7 +222,7 @@ public static class FinalInvoiceDocument
     }
 
     private static void ComposeItemsTable(IContainer container, FinalInvoicePdfRequest req,
-        string primary, string sym)
+        string primary, string accent, string sym)
     {
         var items = req.Items ?? [];
 
@@ -266,7 +266,18 @@ public static class FinalInvoiceDocument
 
                     //Cell(r.ConstantItem(24), it.RfqReference ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(18), (idx + 1).ToString(), Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(1.6f), it.PartNumber ?? "—", primary, bold: true);
+
+                    // Part number — when an Alt is set, show it as the effective PN with the original as reference
+                    var isAlt = !string.IsNullOrWhiteSpace(it.Alt);
+                    r.RelativeItem(1.6f).Background(bg).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
+                        .Padding(5).AlignCenter().AlignMiddle().Column(c =>
+                        {
+                            c.Item().Text(t => t.Span(isAlt ? it.Alt! : (it.PartNumber ?? "—"))
+                                .FontSize(8f).Bold().FontColor(isAlt ? accent : primary));
+                            if (isAlt)
+                                c.Item().Text(t => t.Span($"(Alt to: {it.PartNumber})")
+                                    .FontSize(6.5f).FontColor(Colors.Grey.Medium));
+                        });
                     Cell(r.RelativeItem(1.8f), it.Description ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(24), it.Qty.ToString(), primary, bold: true);
                     Cell(r.ConstantItem(24), it.Condition ?? "—", primary);

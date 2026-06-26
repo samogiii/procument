@@ -484,7 +484,7 @@ const renderedHtml = computed(() => {
     return `
     <tr style="background:${bg};">
       <td style="padding:9px 8px; font-size:11px; color:#6b7280; text-align:center; border-bottom:1px solid #eef0f3;">${i + 1}</td>
-      <td style="padding:9px 10px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.partNumber || '—'}</td>
+      <td style="padding:9px 10px; font-size:11px; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.alt || it.partNumber || '—'}${it.alt ? `<div style="font-size:9px; font-weight:400; color:#9ca3af;">(Alt to: ${it.partNumber || '—'})</div>` : ''}</td>
       <td style="padding:9px 10px; font-size:10.5px; color:#4b5563; border-bottom:1px solid #eef0f3;">${it.description || '—'}</td>
       <td style="padding:9px 8px; font-size:11px; text-align:center; font-weight:600; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.qty}</td>
       <td style="padding:9px 8px; font-size:10.5px; text-align:center; color:#1a2744; border-bottom:1px solid #eef0f3;">${it.condition || '—'}</td>
@@ -683,6 +683,7 @@ async function downloadPdf() {
         items: items.map((it: any) => ({
           rfqReference: it.rfqReference || null,
           partNumber: it.partNumber || null,
+          alt: it.alt || null,
           description: it.description || null,
           qty: it.qty || 0,
           condition: it.condition || null,
