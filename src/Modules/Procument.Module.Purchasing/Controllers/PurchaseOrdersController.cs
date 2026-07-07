@@ -403,6 +403,7 @@ public class PurchaseOrdersController : ControllerBase
             orderedBy,
             supplier = new
             {
+                id = po.SupplierId,
                 name = po.Supplier?.Name ?? "",
                 address = po.Supplier?.Address ?? "",
                 phone = po.Supplier?.Phone ?? "",

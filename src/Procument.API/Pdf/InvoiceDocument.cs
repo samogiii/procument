@@ -75,7 +75,7 @@ public static class InvoiceDocument
                             .Column(bc =>
                             {
                                 bc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "BILL TO", accent));
-                                bc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                bc.Item().PaddingTop(6).Text(string.IsNullOrWhiteSpace(req.CustomerBillToName) ? req.CustomerName : req.CustomerBillToName).Bold().FontSize(11).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerBillTo))
                                     bc.Item().PaddingTop(4).Text(req.CustomerBillTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 AddressField(bc, "Contact", req.CustomerContactPerson, primary);
@@ -88,7 +88,7 @@ public static class InvoiceDocument
                             .Column(sc =>
                             {
                                 sc.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "SHIP TO", accent));
-                                sc.Item().PaddingTop(6).Text(req.CustomerName).Bold().FontSize(11).FontColor(primary);
+                                sc.Item().PaddingTop(6).Text(string.IsNullOrWhiteSpace(req.CustomerShipToName) ? req.CustomerName : req.CustomerShipToName).Bold().FontSize(11).FontColor(primary);
                                 if (!string.IsNullOrWhiteSpace(req.CustomerShipTo))
                                     sc.Item().PaddingTop(4).Text(req.CustomerShipTo).FontSize(9).FontColor(Colors.Grey.Darken1);
                                 AddressField(sc, "Contact", req.CustomerShipToContactPerson, primary);

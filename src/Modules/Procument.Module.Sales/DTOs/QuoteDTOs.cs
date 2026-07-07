@@ -30,6 +30,14 @@ public class UpdateQuoteStatusRequest
     public string? RejectionNote { get; set; }
 }
 
+public class SendQuoteEmailRequest
+{
+    public string ToEmail { get; set; } = string.Empty;
+    public string? ToName { get; set; }
+    public string Subject { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+}
+
 // ──── Response DTOs ────
 
 public class QuoteAssignedUserResponse
@@ -64,6 +72,8 @@ public class QuoteResponse
     public DateTime? SentAt { get; set; }
     public int? CustomerBase { get; set; }
     public long? CustomerId { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? CustomerContacts { get; set; }
     public int? RFQExType { get; set; }
     public decimal? CoefYuan { get; set; }
     public decimal? ExchangeRateYuan { get; set; }

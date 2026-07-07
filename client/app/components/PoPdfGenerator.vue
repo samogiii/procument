@@ -51,7 +51,11 @@
 
           <!-- VENDOR -->
           <template v-if="sections[1].open">
-            <div class="section-label">Vendor (Supplier)</div>
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">Vendor (Supplier)</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-content-save" :loading="savingSupplier" :disabled="!supplierId" @click="saveVendorToSupplier">Save to Supplier</v-btn>
+            </div>
             <v-row dense align="center">
               <v-col v-if="supplierContacts.length" cols="12">
                 <v-select
@@ -294,6 +298,24 @@ const purchaseFromEmail = ref('')
 // Supplier contact persons (parsed from supplier.contacts JSON)
 const supplierContacts = ref<{name: string, email: string, phone?: string, title?: string}[]>([])
 const selectedSupplierContact = ref<string | null>(null)
+const supplierId = ref<number | null>(null)
+const savingSupplier = ref(false)
+
+// Persist the edited vendor block (name/address/phone/email) back to the catalog supplier.
+// Uses the dedicated contact-info PATCH so the supplier's contacts JSON / status stay intact.
+async function saveVendorToSupplier() {
+  if (!supplierId.value) return
+  savingSupplier.value = true
+  try {
+    await api.patch(`/suppliers/${supplierId.value}/contact-info`, {
+      name:    purchaseFromName.value    || null,
+      address: purchaseFromAddress.value || null,
+      phone:   purchaseFromPhone.value   || null,
+      email:   purchaseFromEmail.value   || null,
+    })
+  } catch (e) { console.error('[PoPdf] Failed to save vendor to supplier', e) }
+  finally { savingSupplier.value = false }
+}
 
 function applySupplierContact(email: string | null) {
   if (!email) return
@@ -351,6 +373,7 @@ function onWarehouseSelected(warehouseId: number | null) {
     deliverToPhone.value = wh.phone || ''
     deliverToEmail.value = wh.email || ''
     if (wh.fedexAccount) fedExAccount.value = wh.fedexAccount
+    if (wh.servicePriority) servicePriority.value = wh.servicePriority
     // Bill To uses the billing Address; Ship To uses ShipToAddress (falls back to Address if not set)
     billToName.value = wh.displayName || wh.name || ''
     billToAddress.value = wh.address || ''
@@ -402,6 +425,7 @@ watch(model, async (open) => {
 
         // Initialize Purchase From (Supplier) - use supplier data
         const supplier = data.supplier || {}
+        supplierId.value = supplier.id || null
         purchaseFromName.value = supplier.name || ''
         purchaseFromAddress.value = supplier.address || ''
         purchaseFromPhone.value = supplier.phone || ''

@@ -11,6 +11,7 @@ public class SaveWarehouseRequest
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? FedexAccount { get; set; }
+    public string? ServicePriority { get; set; }
     public bool? IsActive { get; set; }
 }
 
@@ -25,6 +26,7 @@ public class WarehouseResponse
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? FedexAccount { get; set; }
+    public string? ServicePriority { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
 }

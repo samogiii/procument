@@ -530,6 +530,8 @@ public class QuoteService : IQuoteService
             CustomerCurrencyType = q.Customer.CurrencyType,
             CustomerBase = q.Customer.Base,
             CustomerId = q.Customer.Id,
+            CustomerEmail = q.Customer.Email,
+            CustomerContacts = q.Customer.Contacts,
             UserName = q.User?.Name,
             AssignedUsers = assignedUsers ?? new(),
             RejectionNote = q.RejectionNote,

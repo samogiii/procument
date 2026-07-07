@@ -35,6 +35,17 @@ public class CompanyPreset : BaseEntity
     // Custom PDF template (optional HTML/CSS overrides the default generated layout)
     public string? CustomPdfHtml { get; set; }
 
+    // SMTP Settings (for sending quote emails)
+    public bool SmtpEnabled { get; set; } = false;
+    public string? SmtpHost { get; set; }
+    public int? SmtpPort { get; set; }
+    public string? SmtpUsername { get; set; }
+    public string? SmtpPasswordEncrypted { get; set; }
+    public string? SmtpPasswordIv { get; set; }
+    public string? SmtpFromEmail { get; set; }
+    public string? SmtpFromDisplayName { get; set; }
+    public bool SmtpUseSsl { get; set; } = true;
+
     // Multiple bank accounts per preset
     public ICollection<CompanyPresetBankAccount> BankAccounts { get; set; } = new List<CompanyPresetBankAccount>();
 }

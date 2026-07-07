@@ -266,6 +266,11 @@ public class ProcurementService : IProcurementService
                     var supplierId = sq.SupplierId ?? item.CurrentSupplierId;
                     if (supplierId == null) continue;
 
+                    // Prefer the alt entered on THIS supplier quote; fall back to item-level alt.
+                    var effectivePnIdQuote = string.IsNullOrWhiteSpace(sq.Alt)
+                        ? effectivePnIdAuto
+                        : await ResolveAltPartNumberIdAsync(item.PartNumberId, sq.Alt);
+
                     // Guard by SourceSupplierQuoteId so same-supplier / different-condition quotes
                     // each produce their own POItem
                     var alreadyActive = await _db.Set<POItem>().AnyAsync(p =>
@@ -281,7 +286,7 @@ public class ProcurementService : IProcurementService
                         POId = null,
                         InvoiceItemId = item.SourceInvoiceItemId,
                         ProcumentId = item.SourceProcumentRecordId,
-                        PartNumberId = effectivePnIdAuto,
+                        PartNumberId = effectivePnIdQuote,
                         SupplierId = supplierId,
                         Qty = qty,
                         UnitPrice = price,
@@ -1146,6 +1151,11 @@ public class ProcurementService : IProcurementService
                     p.ReturnedAt == null);
                 if (alreadyActive) continue;
 
+                // Prefer the alt entered on THIS supplier quote; fall back to item-level alt.
+                var splitPartNumberId = string.IsNullOrWhiteSpace(sq.Alt)
+                    ? effectivePartNumberId
+                    : await ResolveAltPartNumberIdAsync(pi.PartNumberId, sq.Alt);
+
                 int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
                 decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;
                 var splitItem = new POItem
@@ -1153,7 +1163,7 @@ public class ProcurementService : IProcurementService
                     POId = null,
                     InvoiceItemId = pi.SourceInvoiceItemId,
                     ProcumentId = pi.SourceProcumentRecordId,
-                    PartNumberId = effectivePartNumberId,
+                    PartNumberId = splitPartNumberId,
                     SupplierId = supplierId,
                     Qty = qty,
                     UnitPrice = price,
@@ -1175,12 +1185,18 @@ public class ProcurementService : IProcurementService
             p.SourceProcurementItemId == pi.Id && p.ReturnedAt == null);
         if (already) return created;
 
+        // Prefer the alt entered on the selected supplier quote; fall back to item-level alt.
+        var singleQuoteAlt = selectedQuotes.FirstOrDefault()?.Alt;
+        var singlePartNumberId = string.IsNullOrWhiteSpace(singleQuoteAlt)
+            ? effectivePartNumberId
+            : await ResolveAltPartNumberIdAsync(pi.PartNumberId, singleQuoteAlt);
+
         var poItem = new POItem
         {
             POId = null, // unassigned — admin will group & create POs from /purchase-orders
             InvoiceItemId = pi.SourceInvoiceItemId,
             ProcumentId = pi.SourceProcumentRecordId,
-            PartNumberId = effectivePartNumberId,
+            PartNumberId = singlePartNumberId,
             SupplierId = pi.CurrentSupplierId,
             Qty = pi.Qty,
             UnitPrice = pi.UnitPrice,
@@ -1343,7 +1359,8 @@ public class ProcurementService : IProcurementService
         var createdIds = new List<long>();
         if (!alreadyActive)
         {
-            var sqAlt = pi.Alt ?? pi.QuoteAlt;
+            // Prefer the alt entered on THIS supplier quote; fall back to item-level alt.
+            var sqAlt = string.IsNullOrWhiteSpace(sq.Alt) ? (pi.Alt ?? pi.QuoteAlt) : sq.Alt;
             var sqEffectivePnId = await ResolveAltPartNumberIdAsync(pi.PartNumberId, sqAlt);
             int qty = sq.Qty > 0 ? (int)Math.Round(sq.Qty) : pi.Qty;
             decimal price = sq.Price > 0 ? sq.Price : pi.UnitPrice;

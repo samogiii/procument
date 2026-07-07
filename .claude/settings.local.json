@@ -52,7 +52,9 @@
       "Bash(graphify install *)",
       "Bash(awk '{print $5, $9}')",
       "Bash(python3 -W ignore -c ' *)",
-      "Bash(grep -v \"//\\\\|DTO\\\\|Response\\\\|Request\\\\|Migration\")"
+      "Bash(grep -v \"//\\\\|DTO\\\\|Response\\\\|Request\\\\|Migration\")",
+      "Bash(xargs grep -l \"status.*patch\\\\|status.*change\")",
+      "Bash(xargs grep -l \"dialog.*column\\\\|v-col\")"
     ]
   }
 }

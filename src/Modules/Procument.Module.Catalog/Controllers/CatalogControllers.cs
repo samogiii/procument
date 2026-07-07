@@ -493,12 +493,32 @@ public class SuppliersController : ControllerBase
         return Ok(new { entity.Id, entity.Name });
     }
 
+    /// <summary>
+    /// Update only a supplier's contact details (name/email/phone/address) without touching
+    /// contacts JSON, status or other fields. Used by the PO PDF generator's
+    /// "Save to Supplier" button when the user edits the vendor block.
+    /// </summary>
+    [HttpPatch("{id:long}/contact-info")]
+    public async Task<ActionResult> UpdateContactInfo(long id, [FromBody] SupplierContactInfoDto dto)
+    {
+        var entity = await _db.Set<Supplier>().FindAsync(id);
+        if (entity == null) return NotFound();
+
+        if (!string.IsNullOrWhiteSpace(dto.Name)) entity.Name = dto.Name.Trim();
+        entity.Email = dto.Email;
+        entity.Phone = dto.Phone;
+        entity.Address = dto.Address;
+
+        await _db.SaveChangesAsync();
+        return Ok(new { entity.Id, entity.Name, entity.Email, entity.Phone, entity.Address });
+    }
+
     [HttpDelete("{id:long}")]
     public async Task<ActionResult> Delete(long id)
     {
         var entity = await _db.Set<Supplier>().FindAsync(id);
         if (entity == null) return NotFound();
-        
+
         // Soft delete: set IsActive to false and status to "Disabled"
         entity.IsActive = false;
         entity.Status = "Disabled";
@@ -524,6 +544,14 @@ public class SupplierDto
 public class ResubmitSupplierDto
 {
     public string Name { get; set; } = string.Empty;
+}
+
+public class SupplierContactInfoDto
+{
+    public string? Name { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Address { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════

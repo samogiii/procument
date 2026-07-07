@@ -1,12 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Procument.Module.Catalog.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Catalog.Controllers;
 
 public record CompanyPresetBankAccountDto(long Id, string AccountName, string? BankName, string? BankAddress, string? AccountNumber, string? BeneficiaryName, string? SwiftCode, int SortOrder);
 public record UpsertBankAccountRequest(string AccountName, string? BankName, string? BankAddress, string? AccountNumber, string? BeneficiaryName, string? SwiftCode, int SortOrder = 0);
+public record SmtpTestRequest(string ToEmail);
 
 [ApiController]
 [Route("api/[controller]")]
@@ -14,10 +17,20 @@ public record UpsertBankAccountRequest(string AccountName, string? BankName, str
 public class CompanyPresetsController : ControllerBase
 {
     private readonly DbContext _db;
-    public CompanyPresetsController(DbContext db)
+    private readonly ICryptoService _crypto;
+    private readonly IEmailService _emailService;
+    private readonly IConfiguration _configuration;
+
+    public CompanyPresetsController(DbContext db, ICryptoService crypto, IEmailService emailService, IConfiguration configuration)
     {
         _db = db;
+        _crypto = crypto;
+        _emailService = emailService;
+        _configuration = configuration;
     }
+
+    private string SmtpEncryptionKey => _configuration["Smtp:EncryptionKey"]
+        ?? throw new InvalidOperationException("Smtp:EncryptionKey is not configured.");
 
     [HttpGet]
     [Authorize(Roles = "Admin,SuperAdmin,Expert")]
@@ -98,6 +111,13 @@ public class CompanyPresetsController : ControllerBase
                 p.PrimaryColor,
                 p.AccentColor,
                 p.CustomPdfHtml,
+                p.SmtpEnabled,
+                p.SmtpHost,
+                p.SmtpPort,
+                p.SmtpUsername,
+                p.SmtpFromEmail,
+                p.SmtpFromDisplayName,
+                p.SmtpUseSsl,
                 BankAccounts = p.BankAccounts
                     .OrderBy(b => b.SortOrder).ThenBy(b => b.AccountName)
                     .Select(b => new { b.Id, b.AccountName, b.BankName, b.BankAddress, b.AccountNumber, b.BeneficiaryName, b.SwiftCode, b.SortOrder })
@@ -111,7 +131,43 @@ public class CompanyPresetsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult> GetById(long id)
     {
-        var item = await _db.Set<CompanyPreset>().FindAsync(id);
+        var item = await _db.Set<CompanyPreset>()
+            .Where(p => p.Id == id)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Location,
+                p.Phone,
+                p.Website,
+                p.Email,
+                p.TermsAndConditions,
+                p.LogoBase64,
+                p.ShipToAddress,
+                p.ShipToPhone,
+                p.LogoMimeType,
+                p.FedexAccount,
+                p.BankName,
+                p.BankAddress,
+                p.AccountNumber,
+                p.BeneficiaryName,
+                p.SwiftCode,
+                p.SortOrder,
+                p.IsActive,
+                p.CreatedAt,
+                p.ModifyAt,
+                p.PrimaryColor,
+                p.AccentColor,
+                p.CustomPdfHtml,
+                p.SmtpEnabled,
+                p.SmtpHost,
+                p.SmtpPort,
+                p.SmtpUsername,
+                p.SmtpFromEmail,
+                p.SmtpFromDisplayName,
+                p.SmtpUseSsl,
+            })
+            .FirstOrDefaultAsync();
         if (item == null) return NotFound();
         return Ok(item);
     }
@@ -142,9 +198,24 @@ public class CompanyPresetsController : ControllerBase
             PrimaryColor = dto.PrimaryColor ?? "#1a2744",
             AccentColor = dto.AccentColor ?? "#2563eb",
             CustomPdfHtml = dto.CustomPdfHtml,
+            SmtpEnabled = dto.SmtpEnabled,
+            SmtpHost = dto.SmtpHost,
+            SmtpPort = dto.SmtpPort,
+            SmtpUsername = dto.SmtpUsername,
+            SmtpFromEmail = dto.SmtpFromEmail,
+            SmtpFromDisplayName = dto.SmtpFromDisplayName,
+            SmtpUseSsl = dto.SmtpUseSsl,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
+
+        if (!string.IsNullOrEmpty(dto.SmtpPassword))
+        {
+            var cipher = _crypto.EncryptBrowser(dto.SmtpPassword, SmtpEncryptionKey, out var iv);
+            preset.SmtpPasswordEncrypted = cipher;
+            preset.SmtpPasswordIv = iv;
+        }
+
         _db.Set<CompanyPreset>().Add(preset);
         await _db.SaveChangesAsync();
         return Ok(new { preset.Id });
@@ -176,12 +247,27 @@ public class CompanyPresetsController : ControllerBase
         preset.BeneficiaryName = dto.BeneficiaryName;
         preset.SwiftCode = dto.SwiftCode;
         preset.ModifyAt = DateTime.UtcNow;
+        preset.SmtpEnabled = dto.SmtpEnabled;
+        preset.SmtpHost = dto.SmtpHost;
+        preset.SmtpPort = dto.SmtpPort;
+        preset.SmtpUsername = dto.SmtpUsername;
+        preset.SmtpFromEmail = dto.SmtpFromEmail;
+        preset.SmtpFromDisplayName = dto.SmtpFromDisplayName;
+        preset.SmtpUseSsl = dto.SmtpUseSsl;
 
         // Only update logo if provided
         if (dto.LogoBase64 != null)
         {
             preset.LogoBase64 = dto.LogoBase64;
             preset.LogoMimeType = dto.LogoMimeType;
+        }
+
+        // Only update SMTP password if a new plaintext value is submitted
+        if (!string.IsNullOrEmpty(dto.SmtpPassword))
+        {
+            var cipher = _crypto.EncryptBrowser(dto.SmtpPassword, SmtpEncryptionKey, out var iv);
+            preset.SmtpPasswordEncrypted = cipher;
+            preset.SmtpPasswordIv = iv;
         }
 
         await _db.SaveChangesAsync();
@@ -198,6 +284,41 @@ public class CompanyPresetsController : ControllerBase
         preset.ModifyAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Ok();
+    }
+
+    // ── SMTP Test ──────────────────────────────────────────────────────────────
+
+    [HttpPost("{id}/smtp-test")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> SendTestEmail(long id, [FromBody] SmtpTestRequest req)
+    {
+        var preset = await _db.Set<CompanyPreset>().FirstOrDefaultAsync(p => p.Id == id);
+        if (preset == null) return NotFound();
+        if (!preset.SmtpEnabled || string.IsNullOrEmpty(preset.SmtpHost) || string.IsNullOrEmpty(preset.SmtpPasswordEncrypted))
+            return BadRequest(new { message = "SMTP is not configured for this company preset." });
+
+        try
+        {
+            var password = _crypto.DecryptBrowser(preset.SmtpPasswordEncrypted!, preset.SmtpPasswordIv!, SmtpEncryptionKey);
+            var config = new SmtpConfig
+            {
+                Host = preset.SmtpHost!,
+                Port = preset.SmtpPort ?? 587,
+                Username = preset.SmtpUsername,
+                Password = password,
+                UseSsl = preset.SmtpUseSsl,
+                FromEmail = preset.SmtpFromEmail ?? preset.Email ?? preset.SmtpUsername ?? "",
+                FromDisplayName = preset.SmtpFromDisplayName ?? preset.Name,
+            };
+            await _emailService.SendAsync(config, req.ToEmail, null,
+                $"Test Email from {preset.Name}",
+                $"<p>This is a test email sent from the <strong>{preset.Name}</strong> SMTP configuration.</p>");
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Failed to send test email: {ex.Message}" });
+        }
     }
 
     // ── Bank Accounts ──────────────────────────────────────────────────────────
@@ -291,4 +412,13 @@ public class CompanyPresetDto
     public string? AccountNumber { get; set; }
     public string? BeneficiaryName { get; set; }
     public string? SwiftCode { get; set; }
+    public bool SmtpEnabled { get; set; } = false;
+    public string? SmtpHost { get; set; }
+    public int? SmtpPort { get; set; }
+    public string? SmtpUsername { get; set; }
+    /// <summary>Plaintext input only — never returned to the client. Null/empty means "don't change".</summary>
+    public string? SmtpPassword { get; set; }
+    public string? SmtpFromEmail { get; set; }
+    public string? SmtpFromDisplayName { get; set; }
+    public bool SmtpUseSsl { get; set; } = true;
 }

@@ -17,6 +17,7 @@ public class Warehouse : BaseEntity
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? FedexAccount { get; set; }
+    public string? ServicePriority { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

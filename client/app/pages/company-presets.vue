@@ -265,6 +265,40 @@
               </div>
             </v-col>
 
+            <!-- SMTP Email Settings -->
+            <v-col cols="12">
+              <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SMTP EMAIL SETTINGS</div>
+              <v-row dense>
+                <v-col cols="12">
+                  <v-switch v-model="form.smtpEnabled" label="Enable SMTP sending for this company" density="compact" hide-details color="primary" />
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-text-field v-model="form.smtpHost" label="SMTP Host" placeholder="smtp.gmail.com" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-server-outline" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model.number="form.smtpPort" label="Port" type="number" placeholder="587" variant="outlined" density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.smtpUsername" label="Username" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-account-outline" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.smtpPassword" label="Password" type="password" placeholder="Leave blank to keep current password" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-lock-outline" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.smtpFromEmail" label="From Email" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-email-outline" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.smtpFromDisplayName" label="From Display Name" variant="outlined" density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6" class="d-flex align-center">
+                  <v-switch v-model="form.smtpUseSsl" label="Use SSL/TLS" density="compact" hide-details color="primary" />
+                </v-col>
+                <v-col cols="12" md="6" class="d-flex align-center justify-end">
+                  <v-btn size="small" variant="tonal" color="secondary" prepend-icon="mdi-email-fast-outline" :disabled="!editingId" @click="openSmtpTest">Send Test Email</v-btn>
+                </v-col>
+              </v-row>
+            </v-col>
+
             <!-- Logo Upload -->
             <v-col cols="12">
               <div class="logo-upload-area">
@@ -452,6 +486,32 @@
       </v-card>
     </v-dialog>
 
+    <!-- SMTP Test Email Dialog -->
+    <v-dialog v-model="showSmtpTest" max-width="420">
+      <v-card>
+        <v-toolbar color="surface" density="compact">
+          <v-toolbar-title class="text-body-1 font-weight-bold">Send Test Email</v-toolbar-title>
+          <v-spacer />
+          <v-btn icon="mdi-close" @click="showSmtpTest = false" />
+        </v-toolbar>
+        <v-card-text class="pa-4">
+          <v-text-field
+            v-model="smtpTestEmail"
+            label="Send test email to"
+            variant="outlined"
+            density="compact"
+            hide-details
+            prepend-inner-icon="mdi-email-outline"
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showSmtpTest = false">Cancel</v-btn>
+          <v-btn color="primary" variant="flat" :loading="sendingSmtpTest" @click="sendTestEmail">Send</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Delete Confirm -->
     <v-dialog v-model="showDeleteConfirm" max-width="400">
       <v-card>
@@ -523,6 +583,14 @@ const defaultForm = () => ({
   primaryColor: '#1a2744',
   accentColor: '#2563eb',
   customPdfHtml: null as string | null,
+  smtpEnabled: false,
+  smtpHost: '',
+  smtpPort: 587,
+  smtpUsername: '',
+  smtpPassword: null as string | null,
+  smtpFromEmail: '',
+  smtpFromDisplayName: '',
+  smtpUseSsl: true,
 })
 
 const form = ref(defaultForm())
@@ -578,6 +646,14 @@ async function openEdit(preset: any) {
     primaryColor: preset.primaryColor || '#1a2744',
     accentColor: preset.accentColor || '#2563eb',
     customPdfHtml: preset.customPdfHtml || null,
+    smtpEnabled: preset.smtpEnabled || false,
+    smtpHost: preset.smtpHost || '',
+    smtpPort: preset.smtpPort || 587,
+    smtpUsername: preset.smtpUsername || '',
+    smtpPassword: null,
+    smtpFromEmail: preset.smtpFromEmail || '',
+    smtpFromDisplayName: preset.smtpFromDisplayName || '',
+    smtpUseSsl: preset.smtpUseSsl ?? true,
   }
   logoPreview.value = preset.logoBase64
     ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
@@ -717,6 +793,35 @@ async function removeBankAccount(ba: any, idx: number) {
   }
   bankAccounts.value.splice(idx, 1)
   showSnack('Bank account removed', 'success')
+}
+
+// ── SMTP Test Email ──────────────────────────────────────────────────────────
+
+const showSmtpTest = ref(false)
+const smtpTestEmail = ref('')
+const sendingSmtpTest = ref(false)
+
+function openSmtpTest() {
+  if (!editingId.value) return
+  smtpTestEmail.value = ''
+  showSmtpTest.value = true
+}
+
+async function sendTestEmail() {
+  if (!editingId.value || !smtpTestEmail.value?.trim()) {
+    showSnack('Enter a recipient email', 'error')
+    return
+  }
+  sendingSmtpTest.value = true
+  try {
+    await api.post(`/companypresets/${editingId.value}/smtp-test`, { toEmail: smtpTestEmail.value.trim() })
+    showSnack('Test email sent', 'success')
+    showSmtpTest.value = false
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to send test email', 'error')
+  } finally {
+    sendingSmtpTest.value = false
+  }
 }
 
 function confirmDelete(preset: any) {
@@ -958,6 +1063,13 @@ async function saveCustomHtml() {
       primaryColor: preset.primaryColor,
       accentColor: preset.accentColor,
       customPdfHtml: editingHtml.value.trim() || null,
+      smtpEnabled: preset.smtpEnabled || false,
+      smtpHost: preset.smtpHost,
+      smtpPort: preset.smtpPort,
+      smtpUsername: preset.smtpUsername,
+      smtpFromEmail: preset.smtpFromEmail,
+      smtpFromDisplayName: preset.smtpFromDisplayName,
+      smtpUseSsl: preset.smtpUseSsl ?? true,
     })
     showSnack('Template saved', 'success')
     showHtmlEditor.value = false

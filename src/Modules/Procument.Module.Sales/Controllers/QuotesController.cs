@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Procument.Module.Catalog.Entities;
 using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
@@ -21,12 +24,19 @@ public class QuotesController : ControllerBase
     private readonly IQuoteService _quoteService;
     private readonly DbContext _db;
     private readonly IFinalInvoiceLockGuard _lockGuard;
+    private readonly IEmailService _emailService;
+    private readonly ICryptoService _crypto;
+    private readonly IConfiguration _configuration;
 
-    public QuotesController(IQuoteService quoteService, DbContext db, IFinalInvoiceLockGuard lockGuard)
+    public QuotesController(IQuoteService quoteService, DbContext db, IFinalInvoiceLockGuard lockGuard,
+        IEmailService emailService, ICryptoService crypto, IConfiguration configuration)
     {
         _quoteService = quoteService;
         _db = db;
         _lockGuard = lockGuard;
+        _emailService = emailService;
+        _crypto = crypto;
+        _configuration = configuration;
     }
 
     /// <summary>Get all quotes (paginated).</summary>
@@ -128,24 +138,92 @@ public class QuotesController : ControllerBase
         }
         else if (request.Status == "Sent")
         {
-            // Notify all admins that a quote needs review
-            var adminIds = await _db.Set<User>().Where(u => (u.Role == "Admin" || u.Role == "SuperAdmin") && u.IsActive).Select(u => u.Id).ToListAsync();
-            foreach (var aid in adminIds)
-            {
-                _db.Set<Notification>().Add(new Notification
-                {
-                    UserId = aid,
-                    Type = "PendingApproval",
-                    EntityName = "Quote",
-                    EntityId = id,
-                    EntityNumber = quote.QuoteNumber,
-                    Message = $"Quote {quote.QuoteNumber} is pending approval."
-                });
-            }
-            await _db.SaveChangesAsync();
+            await NotifyAdminsQuoteSentAsync(id, quote.QuoteNumber);
         }
 
         return Ok();
+    }
+
+    /// <summary>Send the quote via the matched CompanyPreset's SMTP config, then mark it Sent.</summary>
+    [HttpPost("{id:long}/send-email")]
+    [Auditable("Quote", "SendEmail", CaptureBody = false)]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> SendEmail(long id, [FromForm] SendQuoteEmailRequest request, IFormFile? attachment)
+    {
+        if (await _lockGuard.IsQuoteLocked(id))
+            return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
+
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);
+        if (quote == null) return NotFound();
+
+        var preset = await _db.Set<CompanyPreset>()
+            .FirstOrDefaultAsync(p => p.IsActive && p.SortOrder == quote.CustomerBase);
+        if (preset == null || !preset.SmtpEnabled || string.IsNullOrEmpty(preset.SmtpHost) || string.IsNullOrEmpty(preset.SmtpPasswordEncrypted))
+            return BadRequest(new { message = "SMTP is not configured for this customer's company preset." });
+
+        if (attachment == null || attachment.Length == 0)
+            return BadRequest(new { message = "An attachment is required." });
+
+        try
+        {
+            var encryptionKey = _configuration["Smtp:EncryptionKey"]
+                ?? throw new InvalidOperationException("Smtp:EncryptionKey is not configured.");
+            var password = _crypto.DecryptBrowser(preset.SmtpPasswordEncrypted!, preset.SmtpPasswordIv!, encryptionKey);
+
+            using var ms = new MemoryStream();
+            await attachment.CopyToAsync(ms);
+
+            var smtpConfig = new SmtpConfig
+            {
+                Host = preset.SmtpHost!,
+                Port = preset.SmtpPort ?? 587,
+                Username = preset.SmtpUsername,
+                Password = password,
+                UseSsl = preset.SmtpUseSsl,
+                FromEmail = preset.SmtpFromEmail ?? preset.Email ?? preset.SmtpUsername ?? "",
+                FromDisplayName = preset.SmtpFromDisplayName ?? preset.Name,
+            };
+            var emailAttachment = new EmailAttachment
+            {
+                FileName = attachment.FileName,
+                Content = ms.ToArray(),
+                ContentType = string.IsNullOrEmpty(attachment.ContentType) ? "application/pdf" : attachment.ContentType,
+            };
+
+            await _emailService.SendAsync(smtpConfig, request.ToEmail, request.ToName, request.Subject, request.Body,
+                new[] { emailAttachment });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new { message = $"Failed to send email: {ex.Message}" });
+        }
+
+        var success = await _quoteService.UpdateStatusAsync(id, "Sent", userId, isAdmin, null);
+        if (!success) return BadRequest(new { message = "Status change not allowed." });
+
+        await NotifyAdminsQuoteSentAsync(id, quote.QuoteNumber);
+
+        return Ok();
+    }
+
+    private async Task NotifyAdminsQuoteSentAsync(long id, string quoteNumber)
+    {
+        // Notify all admins that a quote needs review
+        var adminIds = await _db.Set<User>().Where(u => (u.Role == "Admin" || u.Role == "SuperAdmin") && u.IsActive).Select(u => u.Id).ToListAsync();
+        foreach (var aid in adminIds)
+        {
+            _db.Set<Notification>().Add(new Notification
+            {
+                UserId = aid,
+                Type = "PendingApproval",
+                EntityName = "Quote",
+                EntityId = id,
+                EntityNumber = quoteNumber,
+                Message = $"Quote {quoteNumber} is pending approval."
+            });
+        }
+        await _db.SaveChangesAsync();
     }
 
     /// <summary>Update quote items (re-select procurement records).</summary>

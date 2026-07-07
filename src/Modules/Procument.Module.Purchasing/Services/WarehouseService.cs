@@ -60,6 +60,7 @@ public class WarehouseService : IWarehouseService
             Phone = request.Phone?.Trim(),
             Email = request.Email?.Trim(),
             FedexAccount = request.FedexAccount?.Trim(),
+            ServicePriority = request.ServicePriority?.Trim(),
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
@@ -80,6 +81,7 @@ public class WarehouseService : IWarehouseService
         w.Phone = request.Phone?.Trim();
         w.Email = request.Email?.Trim();
         w.FedexAccount = request.FedexAccount?.Trim();
+        w.ServicePriority = request.ServicePriority?.Trim();
         if (request.IsActive.HasValue) w.IsActive = request.IsActive.Value;
         await _db.SaveChangesAsync();
         return MapResponse(w);
@@ -170,6 +172,7 @@ public class WarehouseService : IWarehouseService
         Phone = w.Phone,
         Email = w.Email,
         FedexAccount = w.FedexAccount,
+        ServicePriority = w.ServicePriority,
         IsActive = w.IsActive,
         CreatedAt = w.CreatedAt,
     };

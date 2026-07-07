@@ -118,8 +118,11 @@
             <v-col cols="12" sm="6">
               <v-text-field v-model="form.email" label="Email" variant="outlined" density="compact" />
             </v-col>
-            <v-col cols="12">
+            <v-col cols="12" sm="6">
               <v-text-field v-model="form.fedexAccount" label="FedEx Account" variant="outlined" density="compact" prepend-inner-icon="mdi-truck-fast" />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field v-model="form.servicePriority" label="Service Priority" variant="outlined" density="compact" prepend-inner-icon="mdi-star-outline" />
             </v-col>
           </v-row>
         </v-card-text>
@@ -224,6 +227,7 @@ const form = reactive({
   phone: '',
   email: '',
   fedexAccount: '',
+  servicePriority: '',
 })
 
 const snack = ref(false)
@@ -273,7 +277,7 @@ function onExpandedChange(newExpanded: any[]) {
 
 function openCreate() {
   editingId.value = null
-  Object.assign(form, { name: '', displayName: '', type: 'OurWarehouse', address: '', shipToAddress: '', phone: '', email: '', fedexAccount: '' })
+  Object.assign(form, { name: '', displayName: '', type: 'OurWarehouse', address: '', shipToAddress: '', phone: '', email: '', fedexAccount: '', servicePriority: '' })
   dialog.value = true
 }
 
@@ -288,6 +292,7 @@ function openEdit(item: any) {
     phone: item.phone ?? '',
     email: item.email ?? '',
     fedexAccount: item.fedexAccount ?? '',
+    servicePriority: item.servicePriority ?? '',
   })
   dialog.value = true
 }

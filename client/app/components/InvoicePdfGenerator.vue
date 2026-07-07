@@ -85,6 +85,7 @@
                   @update:model-value="applyCustomerContact"
                 />
               </v-col>
+              <v-col cols="12"><v-textarea v-model="billToName" label="Name" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-textarea v-model="billTo" label="Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-text-field v-model="contactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
@@ -95,6 +96,7 @@
 
             <div class="section-label">Ship To</div>
             <v-row dense align="center">
+              <v-col cols="12"><v-textarea v-model="shipToName" label="Name" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-textarea v-model="shipTo" label="Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-text-field v-model="shipToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="shipToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
@@ -184,7 +186,7 @@
 
         <!-- ── Right panel: PDF preview ── -->
         <div class="flex-grow-1 overflow-y-auto d-flex justify-center pa-6" style="background: rgb(var(--v-theme-surface-variant));">
-          <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" />
+          <div ref="pdfContent" class="pdf-page" v-html="renderedHtml" @blur.capture="onPreviewEdit" />
         </div>
 
       </div>
@@ -303,9 +305,11 @@ watch(model, (open) => {
     }
     // Pre-fill address fields from invoice data
     contactPerson.value = props.invoice?.customerContactPerson || ''
+    billToName.value = props.invoice?.customerName || ''
     billTo.value = props.invoice?.customerBillTo || ''
     billToEmail.value = props.invoice?.customerEmail || ''
     billToPhone.value = props.invoice?.customerPhone || ''
+    shipToName.value = props.invoice?.customerName || ''
     shipTo.value = props.invoice?.customerShipTo || props.invoice?.customerBillTo || ''
     shipToContactPerson.value = props.invoice?.customerContactPerson || ''
     shipToEmail.value = props.invoice?.customerEmail || ''
@@ -363,6 +367,7 @@ const currency = ref('Dollar (USD)')
 const exchangeRate = ref(7.0)
 const comments = ref('No Comments')
 const contactPerson = ref('')
+const billToName = ref('')
 const billTo = ref('')
 const billToEmail = ref('')
 const billToPhone = ref('')
@@ -382,6 +387,7 @@ function applyCustomerContact(email: string | null) {
     if (c.phone) { billToPhone.value = c.phone; shipToPhone.value = c.phone }
   }
 }
+const shipToName = ref('')
 const shipTo = ref('')
 const shipToContactPerson = ref('')
 const shipToEmail = ref('')
@@ -554,7 +560,7 @@ const renderedHtml = computed(() => {
       <div style="display:flex; gap:0; margin:0 40px 20px 40px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
         <div style="flex:1; padding:16px 20px; border-right:1px solid #e5e7eb;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Bill To</div>
-          <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
+          <div contenteditable="true" data-editable="billToName" style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px; outline:none; cursor:text;">${billToName.value || inv.customerName || '—'}</div>
           ${(billTo.value || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px; line-height:1.5; white-space:pre-wrap;">${billTo.value || inv.customerBillTo}</div>` : ''}
           ${contactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${contactPerson.value}</div>` : ''}
           ${billToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${billToEmail.value}</div>` : ''}
@@ -562,7 +568,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="flex:1; padding:16px 20px;">
           <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:8px;">Ship To</div>
-          <div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${inv.customerName || '—'}</div>
+          <div contenteditable="true" data-editable="shipToName" style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px; outline:none; cursor:text;">${shipToName.value || inv.customerName || '—'}</div>
           ${(shipTo.value || inv.customerShipTo || inv.customerBillTo) ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px; line-height:1.5; white-space:pre-wrap;">${shipTo.value || inv.customerShipTo || inv.customerBillTo}</div>` : ''}
           ${shipToContactPerson.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Contact: ${shipToContactPerson.value}</div>` : ''}
           ${shipToEmail.value ? `<div style="font-size:10.5px; color:#4b5563; margin-bottom:2px;">Email: ${shipToEmail.value}</div>` : ''}
@@ -630,6 +636,18 @@ const renderedHtml = computed(() => {
   `
 })
 
+// Commit inline edits of the Bill To / Ship To customer name from the preview.
+// Uses blur (via @blur.capture) so the name ref only changes once the user
+// leaves the field — avoids re-rendering the v-html mid-typing and losing the caret.
+function onPreviewEdit(e: FocusEvent) {
+  const el = e.target as HTMLElement | null
+  const field = el?.dataset?.editable
+  if (!field) return
+  const val = (el?.textContent || '').trim()
+  if (field === 'billToName') billToName.value = val
+  else if (field === 'shipToName') shipToName.value = val
+}
+
 const pdfContent = ref<HTMLElement | null>(null)
 async function downloadPdf() {
   generating.value = true
@@ -678,6 +696,8 @@ async function downloadPdf() {
         currencySymbol: curr.symbol,
         exchangeRate: curr.rate,
         customerName: overrideCustomerName.value || inv.customerName || '—',
+        customerBillToName: billToName.value || overrideCustomerName.value || inv.customerName || null,
+        customerShipToName: shipToName.value || overrideCustomerName.value || inv.customerName || null,
         customerContactPerson: contactPerson.value || null,
         customerBillTo: billTo.value || inv.customerBillTo || null,
         customerBillToEmail: billToEmail.value || null,

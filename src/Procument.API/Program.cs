@@ -57,6 +57,7 @@ builder.Services.AddScoped<Procument.Shared.Services.INotificationService>(sp =>
 builder.Services.AddScoped<IFinalInvoiceLockGuard, FinalInvoiceLockGuard>();
 builder.Services.AddSingleton<IDocumentStorageService, DocumentStorageService>();
 builder.Services.AddSingleton<ICryptoService, CryptoService>();
+builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddHttpClient();
 

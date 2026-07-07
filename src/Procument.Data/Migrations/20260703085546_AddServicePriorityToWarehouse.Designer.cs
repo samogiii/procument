@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260703085546_AddServicePriorityToWarehouse")]
+    partial class AddServicePriorityToWarehouse
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,33 +128,6 @@ namespace Procument.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ShipToPhone")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("SmtpEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("SmtpFromDisplayName")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("SmtpFromEmail")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("SmtpHost")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("SmtpPasswordEncrypted")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("SmtpPasswordIv")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("SmtpPort")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("SmtpUseSsl")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("SmtpUsername")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("SortOrder")

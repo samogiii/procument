@@ -489,6 +489,13 @@
 
     <QuotePdfGenerator v-model="showPdf" :quote="quote" />
 
+    <QuoteSendEmailDialog
+      v-model="showSendEmailDialog"
+      :quote="quote"
+      :preset="activeSmtpPreset"
+      @sent="onEmailSent"
+    />
+
     <!-- Rejection Note Dialog -->
     <v-dialog v-model="showRejectDialog" max-width="450" persistent>
       <v-card>
@@ -581,6 +588,8 @@ const showRejectionHistory = ref(false)
 const showPermissions = ref(false)
 const showAudit = ref(false)
 const showPdf = ref(false)
+const showSendEmailDialog = ref(false)
+const activeSmtpPreset = ref<any>(null)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
@@ -961,7 +970,20 @@ function onStatusSelect(newStatus: string) {
       return
     }
   }
+  if (newStatus === 'Sent') {
+    const matchedPreset = apiPresets.value.find((p: any) => p.sortOrder === quote.value.customerBase)
+    if (matchedPreset?.smtpEnabled) {
+      activeSmtpPreset.value = matchedPreset
+      showSendEmailDialog.value = true
+      return // dialog owns the status transition — do NOT call changeStatus here
+    }
+  }
   changeStatus(newStatus)
+}
+
+function onEmailSent() {
+  quote.value.status = 'Sent'
+  showSnack('Quote sent and status updated', 'success')
 }
 
 async function confirmUnder1000Accept() {
