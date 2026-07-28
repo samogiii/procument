@@ -263,7 +263,7 @@
           <VBtn prepend-icon="mdi-history" @click="showAudit = true" size="small" variant="tonal" color="secondary" v-if="isAdmin">Audit</VBtn>
           <VBtn v-if="isAdmin" prepend-icon="mdi-shield-account" @click="showPermissions = true" size="small" variant="tonal" color="secondary">Perms</VBtn>
           <v-btn v-if="isAdmin" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
-          <v-btn v-if="isAdmin" prepend-icon="mdi-file-excel" size="small" color="success" @click="exportToExcel">Excel</v-btn>
+          <v-btn  prepend-icon="mdi-file-excel" size="small" color="success" @click="exportToExcel">Excel</v-btn>
           <v-btn
             size="small"
             variant="tonal"

@@ -139,6 +139,22 @@ public class ShippingController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    /// <summary>
+    /// Settle a whole track in one action — every part taken as arrived in full and accepted.
+    /// This is what puts the stock into the Ready-for-SN and transferable pools at the track's
+    /// warehouse, so a transfer that has landed can be used without a part-by-part review.
+    /// Shipping (SYD/Expert) and SuperAdmin only.
+    /// </summary>
+    [HttpPost("track-numbers/{trackId:long}/receive-all")]
+    [Authorize(Roles = "SuperAdmin,Expert")]
+    public async Task<ActionResult<ShippingTrackResponse>> ReceiveAll(
+        long trackId,
+        [FromBody] ReceiveTransferRequest? request = null)
+    {
+        var result = await _service.ReceiveAndAcceptAllAsync(trackId, GetUserId(), request?.Note?.Trim());
+        return result == null ? NotFound() : Ok(result);
+    }
+
     // ── Single track review (Admin/Expert) ───────────────────────────────
 
     /// <summary>Get a single track number with all inventory items and documents — for Admin/Expert review on PO page.</summary>

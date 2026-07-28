@@ -29,6 +29,9 @@ public interface IShippingService
     // Review
     Task<TrackNumberItemResponse?> ReviewItemAsync(long trackId, long itemId, long reviewerId, ReviewTrackNumberItemRequest request);
 
+    // Bulk receipt — accept a whole track in one action, no per-part review
+    Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null);
+
     // Ready for SN
     Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null);
 
@@ -48,14 +51,16 @@ public class ShippingService : IShippingService
     private readonly IWarehouseService _warehouseService;
     private readonly IPurchaseOrderService _poService;
     private readonly INotificationService _notifications;
+    private readonly IWarehouseTransferService _transferService;
     private const string DocsRoot = "Documents/TrackNumbers";
 
-    public ShippingService(DbContext db, IWarehouseService warehouseService, IPurchaseOrderService poService, INotificationService notifications)
+    public ShippingService(DbContext db, IWarehouseService warehouseService, IPurchaseOrderService poService, INotificationService notifications, IWarehouseTransferService transferService)
     {
         _db = db;
         _warehouseService = warehouseService;
         _poService = poService;
         _notifications = notifications;
+        _transferService = transferService;
     }
 
     // ── Track Numbers for user ─────────────────────────────────────────────
@@ -79,7 +84,9 @@ public class ShippingService : IShippingService
 
         var tracks = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
-        return tracks.Select(t => MapTrackResponse(t)).ToList();
+        var assigneesByPoId = await LoadPoAssigneesAsync(tracks);
+
+        return tracks.Select(t => MapTrackResponse(t, assigneesByPoId)).ToList();
     }
 
     // ── Track Boxes ───────────────────────────────────────────────────────
@@ -173,6 +180,11 @@ public class ShippingService : IShippingService
             track.Status = "Received in Warehouse";
 
         await _db.SaveChangesAsync();
+
+        // If this track is the destination leg of a warehouse transfer, roll the confirmed
+        // quantities up onto the transfer so it closes out.
+        if (track.SourceTransferId.HasValue)
+            await _transferService.SyncReceiptFromTrackAsync(trackId, submittedByUserId);
 
         // Notify admins that Inventory submitted parts
         var submitter = await _db.Set<Module.Identity.Entities.User>().FindAsync(submittedByUserId);
@@ -360,6 +372,69 @@ public class ShippingService : IShippingService
         return MapItemResponse(item);
     }
 
+    /// <summary>
+    /// Settles a whole track in one action: any part with no counted quantity is taken as
+    /// having arrived in full, and every part is marked Accepted. This is the path for
+    /// shipping/admin to close out an arrival — notably a warehouse transfer, where the
+    /// goods were already verified at the source — without the PO's assigned users
+    /// reviewing each part separately.
+    /// </summary>
+    public async Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null)
+    {
+        var track = await _db.Set<POItemTrackNumber>()
+            .Include(t => t.Items)
+            .FirstOrDefaultAsync(t => t.Id == trackId);
+        if (track == null) return null;
+
+        var now = DateTime.UtcNow;
+
+        foreach (var item in track.Items)
+        {
+            // No actual quantity means nobody counted it yet — "received in warehouse is ok"
+            // takes the expected quantity as what turned up.
+            if (!item.ActualQty.HasValue) item.ActualQty = item.ExpectedQty;
+            item.IsAvailable ??= item.ActualQty > 0;
+
+            // Leave an already-accepted part alone so its original reviewer stamp survives
+            // a second click.
+            if (item.Status == "Accepted") continue;
+
+            item.Status = "Accepted";
+            item.ReviewedByUserId = reviewerId;
+            item.ReviewedAt = now;
+            item.ReviewNote = note;
+        }
+
+        if (track.Status == "Ship to Warehouse")
+            track.Status = "Received in Warehouse";
+
+        await _db.SaveChangesAsync();
+
+        // Destination leg of a warehouse transfer — roll the quantities up so the
+        // transfer closes out instead of sitting In Transit forever.
+        if (track.SourceTransferId.HasValue)
+            await _transferService.SyncReceiptFromTrackAsync(trackId, reviewerId);
+
+        if (track.WarehouseId.HasValue)
+        {
+            var inventoryUserIds = await _db.Set<UserWarehouse>()
+                .Where(uw => uw.WarehouseId == track.WarehouseId.Value)
+                .Select(uw => uw.UserId)
+                .ToListAsync();
+
+            if (inventoryUserIds.Count > 0)
+            {
+                var reviewer = await _db.Set<Module.Identity.Entities.User>().FindAsync(reviewerId);
+                await _notifications.CreateForUsersAsync(
+                    inventoryUserIds, "PartAccepted", "TrackNumber", trackId, track.TrackNumber,
+                    $"All parts on Track {track.TrackNumber} were received and accepted by {reviewer?.Name ?? "admin"}",
+                    reviewerId, reviewer?.Name);
+            }
+        }
+
+        return await GetTrackForReviewAsync(trackId);
+    }
+
     // ── Ready for SN ──────────────────────────────────────────────────────
 
     public async Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null)
@@ -385,7 +460,10 @@ public class ShippingService : IShippingService
             from rfq in rfqs.DefaultIfEmpty()
             join customer in _db.Set<Procument.Module.Catalog.Entities.Customer>().AsNoTracking() on (long?)rfq.CustomerId equals (long?)customer.Id into cu
             from customer in cu.DefaultIfEmpty()
+            // Units moved out on a warehouse transfer are counted at the destination instead —
+            // without this they would appear in the Ready-for-SN queue at both warehouses.
             where item.Status == "Accepted" && item.ActualQty.HasValue
+                  && item.ActualQty.Value > item.TransferredOutQty
                   && !assignedTrackIds.Contains(item.TrackNumberId)
             select new ReadyForSnItemResponse
             {
@@ -396,7 +474,7 @@ public class ShippingService : IShippingService
                 PartNumberName = partNumber != null ? partNumber.Name : null,
                 PartDescription = partNumber != null ? partNumber.Description : null,
                 SupplierName = supplier != null ? supplier.Name : null,
-                ActualQty = item.ActualQty!.Value,
+                ActualQty = item.ActualQty!.Value - item.TransferredOutQty,
                 WarehouseId = track.WarehouseId,
                 WarehouseName = warehouse != null ? warehouse.Name : null,
                 CustomerId = rfq != null ? (long?)rfq.CustomerId : null,
@@ -424,12 +502,58 @@ public class ShippingService : IShippingService
             .Include(t => t.Boxes)
             .FirstOrDefaultAsync(t => t.Id == trackId);
 
-        return track == null ? null : MapTrackResponse(track);
+        if (track == null) return null;
+
+        var assigneesByPoId = await LoadPoAssigneesAsync([track]);
+        return MapTrackResponse(track, assigneesByPoId);
+    }
+
+    // ── PO assignees ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Users assigned to each track's parent PO. Assignment is permission-based
+    /// (EntityPermission with EntityName = "PO"), not a column on PurchaseOrder.
+    /// Loaded in one query for the whole page rather than per row.
+    /// </summary>
+    private async Task<Dictionary<long, List<TrackAssignedUserResponse>>> LoadPoAssigneesAsync(
+        IReadOnlyCollection<POItemTrackNumber> tracks)
+    {
+        var poIds = tracks
+            .Select(t => t.POItem?.POId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        if (poIds.Count == 0) return new();
+
+        // EntityPermission.EntityId is a string column — compare as strings.
+        var poIdStrings = poIds.Select(id => id.ToString()).ToList();
+
+        var permissions = await _db.Set<Module.Identity.Entities.EntityPermission>()
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "PO" && poIdStrings.Contains(p.EntityId))
+            .ToListAsync();
+
+        return permissions
+            .GroupBy(p => long.TryParse(p.EntityId, out var id) ? id : -1L)
+            .Where(g => g.Key > 0)
+            .ToDictionary(
+                g => g.Key,
+                // A user can hold more than one permission row on the same PO.
+                g => g.Select(p => new TrackAssignedUserResponse { Id = p.User.Id, Name = p.User.Name })
+                      .GroupBy(u => u.Id)
+                      .Select(ug => ug.First())
+                      .OrderBy(u => u.Name)
+                      .ToList());
     }
 
     // ── Mapping helpers ───────────────────────────────────────────────────
 
-    private static ShippingTrackResponse MapTrackResponse(POItemTrackNumber t) => new()
+    private static ShippingTrackResponse MapTrackResponse(
+        POItemTrackNumber t,
+        Dictionary<long, List<TrackAssignedUserResponse>>? assigneesByPoId = null) => new()
     {
         Id = t.Id,
         TrackNumber = t.TrackNumber,
@@ -444,6 +568,10 @@ public class ShippingService : IShippingService
         PartNumberName = t.POItem?.PartNumber?.Name,
         PoItemQty = t.POItem?.Qty ?? 0,
         CreatedAt = t.CreatedAt,
+        AssignedUsers = t.POItem?.POId != null && assigneesByPoId != null
+            && assigneesByPoId.TryGetValue(t.POItem.POId.Value, out var assignees)
+                ? assignees
+                : new(),
         Items = t.Items?.Select(MapItemResponse).ToList() ?? new(),
         Documents = t.Documents?.Select(d => MapDocResponse(d, d.UploadedBy?.Name)).ToList() ?? new(),
         Boxes = t.Boxes?.Select(MapBoxResponse).ToList() ?? new(),

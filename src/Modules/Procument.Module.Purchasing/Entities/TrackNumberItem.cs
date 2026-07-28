@@ -12,6 +12,13 @@ public class TrackNumberItem : BaseEntity
     public int? ActualQty { get; set; }
     public bool? IsAvailable { get; set; }
 
+    /// <summary>
+    /// Units shipped out of this warehouse on a <see cref="WarehouseTransfer"/>.
+    /// Remaining stock here is <c>ActualQty - TransferredOutQty</c> — Ready-for-SN must use that,
+    /// otherwise the same units count at both the source and destination warehouse.
+    /// </summary>
+    public int TransferredOutQty { get; set; }
+
     /// <summary>"Pending" | "Accepted" | "Rejected"</summary>
     public string Status { get; set; } = "Pending";
 

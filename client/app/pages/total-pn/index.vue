@@ -465,7 +465,7 @@ const rows = ref<any[]>([])
 const totalCount = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
-const pageSizeOptions = [25, 50, 100, 200]
+const pageSizeOptions = [25, 50, 100, 200,500,1000,2000]
 const totalPages = computed(() => pageSize.value > 0 ? Math.ceil(totalCount.value / pageSize.value) : 1)
 const tableMaxHeight = computed(() => `calc(100vh - 260px)`)
 const search = ref('')

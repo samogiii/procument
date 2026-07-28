@@ -29,6 +29,13 @@ public interface IDocumentStorageService
     bool DeleteProformaInvoiceFile(string invoiceNumber, string fileName);
     bool DeleteSupplierFile(string invoiceNumber, string supplierName, string fileName);
 
+    // Quote document operations (separate root: Documents/Quotes)
+    string EnsureQuoteFolder(string quoteNumber);
+    string SaveFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName, Stream content);
+    IEnumerable<DocumentFileInfo> ListFilesInQuoteCategories(string quoteNumber, IEnumerable<(string Key, string Folder)> categories);
+    (Stream Stream, string AbsolutePath)? OpenFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName);
+    bool DeleteFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName);
+
     string Sanitize(string? name);
 }
 
@@ -43,6 +50,7 @@ public class DocumentFileInfo
 public class DocumentStorageService : IDocumentStorageService
 {
     private readonly string _rootPath;
+    private readonly string _quotesRootPath;
 
     public DocumentStorageService(IConfiguration configuration)
     {
@@ -59,9 +67,71 @@ public class DocumentStorageService : IDocumentStorageService
         }
 
         Directory.CreateDirectory(_rootPath);
+
+        var configuredQuotes = configuration["DocumentStorage:QuotesRoot"];
+        _quotesRootPath = !string.IsNullOrWhiteSpace(configuredQuotes)
+            ? (Path.IsPathRooted(configuredQuotes) ? configuredQuotes : Path.Combine(AppContext.BaseDirectory, configuredQuotes))
+            : Path.Combine(AppContext.BaseDirectory, "Documents", "Quotes");
+
+        Directory.CreateDirectory(_quotesRootPath);
     }
 
     public string GetRootPath() => _rootPath;
+
+    // ── Quote documents ──────────────────────────────────────────────────────
+
+    public string EnsureQuoteFolder(string quoteNumber)
+    {
+        var safe = Sanitize(quoteNumber);
+        if (string.IsNullOrEmpty(safe)) throw new ArgumentException("Invalid quote number", nameof(quoteNumber));
+        var path = Path.Combine(_quotesRootPath, safe);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    public string SaveFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName, Stream content)
+    {
+        var quoteDir = EnsureQuoteFolder(quoteNumber);
+        var catDir = Path.Combine(quoteDir, categoryFolder);
+        Directory.CreateDirectory(catDir);
+        var safeName = GetSafeFileName(fileName);
+        safeName = ResolveConflict(catDir, safeName);
+        using var fs = File.Create(Path.Combine(catDir, safeName));
+        content.CopyTo(fs);
+        return safeName;
+    }
+
+    public IEnumerable<DocumentFileInfo> ListFilesInQuoteCategories(string quoteNumber, IEnumerable<(string Key, string Folder)> categories)
+    {
+        var quoteDir = EnsureQuoteFolder(quoteNumber);
+        var result = new List<DocumentFileInfo>();
+        foreach (var (key, folder) in categories)
+        {
+            var catDir = Path.Combine(quoteDir, folder);
+            if (!Directory.Exists(catDir)) continue;
+            result.AddRange(new DirectoryInfo(catDir)
+                .EnumerateFiles()
+                .Select(f => new DocumentFileInfo { Name = f.Name, Category = key, Size = f.Length, ModifiedAt = f.LastWriteTimeUtc }));
+        }
+        return result;
+    }
+
+    public (Stream Stream, string AbsolutePath)? OpenFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName)
+    {
+        var quoteDir = EnsureQuoteFolder(quoteNumber);
+        var path = Path.Combine(quoteDir, categoryFolder, Sanitize(fileName));
+        if (!File.Exists(path)) return null;
+        return (File.OpenRead(path), path);
+    }
+
+    public bool DeleteFileInQuoteCategory(string quoteNumber, string categoryFolder, string fileName)
+    {
+        var quoteDir = EnsureQuoteFolder(quoteNumber);
+        var path = Path.Combine(quoteDir, categoryFolder, Sanitize(fileName));
+        if (!File.Exists(path)) return false;
+        File.Delete(path);
+        return true;
+    }
 
     public string EnsureProformaInvoiceFolder(string invoiceNumber)
     {

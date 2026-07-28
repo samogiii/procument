@@ -116,9 +116,19 @@ public class ShippingTrackResponse
     /// <summary>Original ordered quantity from the PO item — used as the default Expected Qty.</summary>
     public int PoItemQty { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Users assigned to the parent PO (EntityPermission where EntityName = "PO").</summary>
+    public List<TrackAssignedUserResponse> AssignedUsers { get; set; } = new();
+
     public List<TrackNumberItemResponse> Items { get; set; } = new();
     public List<TrackNumberDocumentResponse> Documents { get; set; } = new();
     public List<TrackBoxResponse> Boxes { get; set; } = new();
+}
+
+public class TrackAssignedUserResponse
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = string.Empty;
 }
 
 // ── Ready for SN ──────────────────────────────────────

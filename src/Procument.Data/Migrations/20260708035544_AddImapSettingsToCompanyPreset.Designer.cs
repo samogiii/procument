@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Procument.Data;
 
@@ -11,9 +12,11 @@ using Procument.Data;
 namespace Procument.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260708035544_AddImapSettingsToCompanyPreset")]
+    partial class AddImapSettingsToCompanyPreset
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1341,20 +1344,7 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<string>("Origin")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasDefaultValue("Supplier");
-
                     b.Property<long>("POItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("ParentTrackNumberId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("SourceTransferId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Status")
@@ -1375,10 +1365,6 @@ namespace Procument.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("POItemId");
-
-                    b.HasIndex("ParentTrackNumberId");
-
-                    b.HasIndex("SourceTransferId");
 
                     b.HasIndex("Status");
 
@@ -2267,9 +2253,6 @@ namespace Procument.Data.Migrations
                     b.Property<long>("TrackNumberId")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("TransferredOutQty")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.HasIndex("POItemId");
@@ -2363,119 +2346,6 @@ namespace Procument.Data.Migrations
                     b.HasIndex("IsActive");
 
                     b.ToTable("Warehouses", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.WarehouseTransfer", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Carrier")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("CreatedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("FromWarehouseId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime?>("ReceivedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("ReceivedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("In Transit");
-
-                    b.Property<long>("ToWarehouseId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("TrackNumber")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("TransferNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("FromWarehouseId");
-
-                    b.HasIndex("ReceivedByUserId");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("ToWarehouseId");
-
-                    b.HasIndex("TransferNumber")
-                        .IsUnique();
-
-                    b.ToTable("WarehouseTransfers", (string)null);
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.WarehouseTransferItem", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("POItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("Qty")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ReceivedQty")
-                        .HasColumnType("int");
-
-                    b.Property<long>("SourceTrackNumberItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasDefaultValue("In Transit");
-
-                    b.Property<long>("WarehouseTransferId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("POItemId");
-
-                    b.HasIndex("SourceTrackNumberItemId");
-
-                    b.HasIndex("WarehouseTransferId");
-
-                    b.ToTable("WarehouseTransferItems", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.RFQ.Entities.RFQHeader", b =>
@@ -3814,26 +3684,12 @@ namespace Procument.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Procument.Module.Purchasing.Entities.POItemTrackNumber", "ParentTrackNumber")
-                        .WithMany()
-                        .HasForeignKey("ParentTrackNumberId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Procument.Module.Purchasing.Entities.WarehouseTransfer", "SourceTransfer")
-                        .WithMany("DestinationTracks")
-                        .HasForeignKey("SourceTransferId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Procument.Module.Purchasing.Entities.Warehouse", "Warehouse")
                         .WithMany("TrackNumbers")
                         .HasForeignKey("WarehouseId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("POItem");
-
-                    b.Navigation("ParentTrackNumber");
-
-                    b.Navigation("SourceTransfer");
 
                     b.Navigation("Warehouse");
                 });
@@ -4087,67 +3943,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("User");
 
                     b.Navigation("Warehouse");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.WarehouseTransfer", b =>
-                {
-                    b.HasOne("Procument.Module.Identity.Entities.User", "CreatedBy")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Purchasing.Entities.Warehouse", "FromWarehouse")
-                        .WithMany()
-                        .HasForeignKey("FromWarehouseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Identity.Entities.User", "ReceivedBy")
-                        .WithMany()
-                        .HasForeignKey("ReceivedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Procument.Module.Purchasing.Entities.Warehouse", "ToWarehouse")
-                        .WithMany()
-                        .HasForeignKey("ToWarehouseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("CreatedBy");
-
-                    b.Navigation("FromWarehouse");
-
-                    b.Navigation("ReceivedBy");
-
-                    b.Navigation("ToWarehouse");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.WarehouseTransferItem", b =>
-                {
-                    b.HasOne("Procument.Module.Purchasing.Entities.POItem", "POItem")
-                        .WithMany()
-                        .HasForeignKey("POItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Purchasing.Entities.TrackNumberItem", "SourceTrackNumberItem")
-                        .WithMany()
-                        .HasForeignKey("SourceTrackNumberItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Procument.Module.Purchasing.Entities.WarehouseTransfer", "Transfer")
-                        .WithMany("Items")
-                        .HasForeignKey("WarehouseTransferId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("POItem");
-
-                    b.Navigation("SourceTrackNumberItem");
-
-                    b.Navigation("Transfer");
                 });
 
             modelBuilder.Entity("Procument.Module.RFQ.Entities.RFQHeader", b =>
@@ -4523,13 +4318,6 @@ namespace Procument.Data.Migrations
                     b.Navigation("TrackNumbers");
 
                     b.Navigation("UserWarehouses");
-                });
-
-            modelBuilder.Entity("Procument.Module.Purchasing.Entities.WarehouseTransfer", b =>
-                {
-                    b.Navigation("DestinationTracks");
-
-                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Procument.Module.RFQ.Entities.RFQHeader", b =>

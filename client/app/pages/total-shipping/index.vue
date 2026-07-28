@@ -8,6 +8,10 @@
     </div>
 
     <v-tabs v-model="activeTab" class="mb-4" color="primary">
+      <v-tab value="totalOrder" @click="loadTotalOrder" v-if="isSydOrAdmin">
+        <v-icon start icon="mdi-table-large" />
+        Total Order
+      </v-tab>
       <v-tab value="tracks" v-if="isSydOrAdmin">
         <v-icon start icon="mdi-package-variant-closed" />
         Track Numbers
@@ -23,9 +27,13 @@
         <v-icon start icon="mdi-note-text-outline" />
         Shipping Number
       </v-tab>
-      <v-tab value="totalOrder" @click="loadTotalOrder" v-if="isSydOrAdmin">
-        <v-icon start icon="mdi-table-large" />
-        Total Order
+      
+      <v-tab value="transfers" @click="loadTransfers" v-if="canTransfer">
+        <v-icon start icon="mdi-transfer" />
+        Transfers
+        <v-chip v-if="inTransitCount" size="x-small" color="deep-purple" variant="tonal" class="ml-2">
+          {{ inTransitCount }}
+        </v-chip>
       </v-tab>
       <v-tab value="finished" @click="loadSnData" v-if="isSydOrAdmin">
         <v-icon start icon="mdi-archive-check-outline" />
@@ -168,6 +176,15 @@
                         <v-chip :color="statusColor(rec.status)" size="x-small" variant="tonal">
                           {{ rec.status }}
                         </v-chip>
+                        <v-btn
+                          v-if="rec.poItemId"
+                          icon="mdi-map-marker-path"
+                          size="x-small"
+                          variant="text"
+                          color="deep-purple"
+                          title="View shipping trace"
+                          @click.stop="openTrace(rec.poItemId)"
+                        />
                         <v-btn
                           icon="mdi-eye-outline"
                           size="x-small"
@@ -1042,7 +1059,143 @@
       </v-window-item>
 
       <!-- ══════════════════════════════════════════════
-           TAB 5 — Finished (Confirmed SN# archive)
+           TAB 5 — Warehouse Transfers
+           ══════════════════════════════════════════════ -->
+      <v-window-item value="transfers">
+        <v-card class="mb-4 pa-3">
+          <div class="d-flex flex-wrap gap-3 align-center">
+            <v-autocomplete
+              v-model="transferFilterWarehouse"
+              :items="warehouses"
+              item-title="name"
+              item-value="id"
+              label="Warehouse (either side)"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              style="min-width:180px;max-width:240px;"
+              @update:model-value="loadTransfers"
+            />
+            <v-select
+              v-model="transferFilterStatus"
+              :items="transferStatuses"
+              label="Status"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              style="min-width:180px;max-width:220px;"
+              @update:model-value="loadTransfers"
+            />
+            <v-spacer />
+            <v-btn
+              color="primary"
+              variant="flat"
+              prepend-icon="mdi-transfer"
+              @click="transferDialog = true"
+            >
+              New Transfer
+            </v-btn>
+          </div>
+        </v-card>
+
+        <v-progress-linear v-if="loadingTransfers" indeterminate color="primary" class="mb-3" />
+
+        <div v-if="!loadingTransfers && transfers.length === 0" class="text-center text-medium-emphasis pa-8">
+          No warehouse transfers yet.
+        </div>
+
+        <v-card v-for="t in transfers" :key="t.id" variant="outlined" class="mb-3">
+          <div class="d-flex align-center gap-2 pa-3 flex-wrap">
+            <v-icon icon="mdi-transfer" size="18" color="deep-purple" />
+            <span class="text-subtitle-2 font-weight-bold">{{ t.transferNumber }}</span>
+            <v-chip :color="transferStatusColor(t.status)" size="x-small" variant="tonal">{{ t.status }}</v-chip>
+            <span class="text-body-2">
+              {{ t.fromWarehouseName || '—' }}
+              <v-icon icon="mdi-arrow-right" size="14" class="mx-1" />
+              {{ t.toWarehouseName || '—' }}
+            </span>
+            <v-chip size="x-small" color="blue-grey" variant="outlined">
+              <v-icon icon="mdi-barcode-scan" start size="12" />{{ t.trackNumber }}
+            </v-chip>
+            <v-chip v-if="t.carrier" size="x-small" color="secondary" variant="outlined">{{ t.carrier }}</v-chip>
+            <v-chip size="x-small" color="blue-grey" variant="tonal">
+              {{ t.receivedQty }} / {{ t.totalQty }} received
+            </v-chip>
+            <span class="text-caption text-medium-emphasis">
+              {{ new Date(t.createdAt).toLocaleDateString() }}
+              <span v-if="t.createdByName"> · {{ t.createdByName }}</span>
+            </span>
+            <v-spacer />
+            <v-btn
+              v-if="t.status === 'In Transit' || t.status === 'Partially Received'"
+              size="x-small"
+              variant="flat"
+              color="success"
+              prepend-icon="mdi-check-all"
+              :loading="receivingTransferId === t.id"
+              @click="confirmReceiveAll(t)"
+            >
+              Receive All
+            </v-btn>
+            <v-btn
+              v-if="t.status === 'In Transit'"
+              size="x-small"
+              variant="tonal"
+              color="error"
+              prepend-icon="mdi-close-circle-outline"
+              @click="cancelTransfer(t)"
+            >
+              Cancel
+            </v-btn>
+          </div>
+
+          <v-divider />
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>PO#</th>
+                <th class="text-right">Sent</th>
+                <th class="text-right">Received</th>
+                <th>Status</th>
+                <th class="text-right" style="width:60px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="line in t.items" :key="line.id">
+                <td class="text-body-2">{{ line.partNumberName || '—' }}</td>
+                <td class="text-caption">{{ line.poNumber || '—' }}</td>
+                <td class="text-right">{{ line.qty }}</td>
+                <td class="text-right">{{ line.receivedQty ?? '—' }}</td>
+                <td>
+                  <v-chip :color="transferStatusColor(line.status)" size="x-small" variant="tonal">
+                    {{ line.status }}
+                  </v-chip>
+                </td>
+                <td class="text-right">
+                  <v-btn
+                    icon="mdi-map-marker-path"
+                    size="x-small"
+                    variant="text"
+                    color="deep-purple"
+                    title="View shipping trace"
+                    @click="openTrace(line.poItemId)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+
+          <div v-if="t.notes" class="pa-3 pt-0 text-caption text-medium-emphasis font-italic">
+            {{ t.notes }}
+          </div>
+        </v-card>
+      </v-window-item>
+
+      <!-- ══════════════════════════════════════════════
+           TAB 6 — Finished (Confirmed SN# archive)
            ══════════════════════════════════════════════ -->
       <v-window-item value="finished">
         <!-- Header + view toggle -->
@@ -1813,6 +1966,15 @@
       </v-card>
     </v-dialog>
 
+    <WarehouseTransferDialog
+      v-model="transferDialog"
+      :warehouses="warehouses"
+      :default-from-warehouse-id="transferFilterWarehouse"
+      @created="onTransferCreated"
+    />
+
+    <ShippingTraceDialog v-model="traceDialog" :po-item-id="tracePoItemId" />
+
     <v-snackbar v-model="snack" :color="snackColor" timeout="3000" location="top right">{{ snackMsg }}</v-snackbar>
 
     <DocPreviewModal
@@ -1832,6 +1994,9 @@ const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
 const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
+// Warehouse transfers are gated to SuperAdmin and the SYD shipping account —
+// must stay in step with WarehouseTransfersController.IsUnrestricted().
+const canTransfer = computed(() => authStore.isSuperAdmin || authStore.user?.name === 'SYD')
 const docPreview = useDocPreview()
 const route = useRoute()
 
@@ -1883,7 +2048,7 @@ function docDownloadUrl(docId: number) {
 
 // ── Tab 1 — Track Numbers (grouped) ─────────────────────────────────────────
 
-const activeTab = ref('tracks')
+const activeTab = ref('totalOrder')
 const search = ref('')
 const filterWarehouse = ref<number | null>(null)
 const filterStatus = ref<string | null>(null)
@@ -2640,11 +2805,103 @@ async function loadTotalOrder() {
     const res = await api.get('/po-items/total-order?page=1&pageSize=5000')
     toRows.value = res.items ?? res
     toLoaded = true
-  } catch (e) {
+  } catch (e: any) {
     console.error('[TotalOrder] load failed', e)
+    // Was silent before, so a failed load looked identical to an empty result.
+    notify(e?.data?.message || 'Failed to load Total Order.', 'error')
   } finally {
     toLoading.value = false
   }
+}
+
+// ── Tab 5 — Warehouse Transfers ─────────────────────────────────────────────
+
+const transfers = ref<any[]>([])
+const loadingTransfers = ref(false)
+const transferDialog = ref(false)
+const transferFilterWarehouse = ref<number | null>(null)
+const transferFilterStatus = ref<string | null>(null)
+const transferStatuses = ['In Transit', 'Partially Received', 'Received', 'Cancelled']
+
+const inTransitCount = computed(() =>
+  transfers.value.filter(t => t.status === 'In Transit' || t.status === 'Partially Received').length)
+
+function transferStatusColor(status: string) {
+  const map: Record<string, string> = {
+    'In Transit': 'blue-grey',
+    'Partially Received': 'amber',
+    'Received': 'success',
+    'Short': 'warning',
+    'Cancelled': 'error',
+  }
+  return map[status] ?? 'default'
+}
+
+async function loadTransfers() {
+  loadingTransfers.value = true
+  try {
+    const params = new URLSearchParams()
+    if (transferFilterWarehouse.value) params.set('warehouseId', String(transferFilterWarehouse.value))
+    if (transferFilterStatus.value) params.set('status', transferFilterStatus.value)
+    const qs = params.toString()
+    transfers.value = await api.get(`/warehouse-transfers${qs ? `?${qs}` : ''}`)
+  } catch (e: any) {
+    notify(e?.data?.message || 'Failed to load transfers.', 'error')
+  } finally {
+    loadingTransfers.value = false
+  }
+}
+
+function onTransferCreated(transfer: any) {
+  notify(`Transfer ${transfer.transferNumber} created — ${transfer.toWarehouseName} will confirm receipt.`)
+  loadTransfers()
+}
+
+async function cancelTransfer(t: any) {
+  if (!confirm(`Cancel transfer ${t.transferNumber}? The items return to ${t.fromWarehouseName}.`)) return
+  try {
+    await api.post(`/warehouse-transfers/${t.id}/cancel`, {})
+    notify(`Transfer ${t.transferNumber} cancelled.`)
+    loadTransfers()
+  } catch (e: any) {
+    notify(e?.data?.message || 'Failed to cancel the transfer.', 'error')
+  }
+}
+
+const receivingTransferId = ref<number | null>(null)
+
+/**
+ * Closes the whole transfer in one action — each destination leg is taken as arrived
+ * in full and all its parts accepted, so nobody has to review them part by part.
+ */
+async function confirmReceiveAll(t: any) {
+  const outstanding = t.totalQty - t.receivedQty
+  if (!confirm(
+    `Receive transfer ${t.transferNumber} at ${t.toWarehouseName}?\n\n`
+    + `All ${outstanding} outstanding unit(s) will be marked received in full and every part accepted. `
+    + `Parts already accepted keep their original reviewer.`,
+  )) return
+
+  receivingTransferId.value = t.id
+  try {
+    await api.post(`/warehouse-transfers/${t.id}/receive-all`, {})
+    notify(`Transfer ${t.transferNumber} received at ${t.toWarehouseName}.`)
+    loadTransfers()
+  } catch (e: any) {
+    notify(e?.data?.message || 'Failed to receive the transfer.', 'error')
+  } finally {
+    receivingTransferId.value = null
+  }
+}
+
+// ── Shipping trace ──────────────────────────────────────────────────────────
+
+const traceDialog = ref(false)
+const tracePoItemId = ref<number | null>(null)
+
+function openTrace(poItemId: number) {
+  tracePoItemId.value = poItemId
+  traceDialog.value = true
 }
 
 onMounted(async () => {
@@ -2657,6 +2914,9 @@ onMounted(async () => {
     await loadSnData()
   } else {
     await loadItems()
+    // Every other tab loads from its own @click, which never fires for the tab that
+    // is already open on arrival — so the default tab has to load itself here.
+    if (activeTab.value === 'totalOrder') await loadTotalOrder()
   }
 })
 </script>

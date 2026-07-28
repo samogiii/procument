@@ -46,6 +46,14 @@ public class CompanyPreset : BaseEntity
     public string? SmtpFromDisplayName { get; set; }
     public bool SmtpUseSsl { get; set; } = true;
 
+    // IMAP Settings (optional — files a copy of sent quote emails into the account's
+    // "Sent" folder, since plain SMTP submission does not do this on its own)
+    public bool ImapEnabled { get; set; } = false;
+    public string? ImapHost { get; set; }
+    public int? ImapPort { get; set; }
+    public bool ImapUseSsl { get; set; } = true;
+    public string? ImapSentFolder { get; set; }
+
     // Multiple bank accounts per preset
     public ICollection<CompanyPresetBankAccount> BankAccounts { get; set; } = new List<CompanyPresetBankAccount>();
 }

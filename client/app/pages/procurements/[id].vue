@@ -632,7 +632,7 @@ async function loadDetail() {
 
       if (!users.value.length) {
         const allUsers = await api.get<any[]>('/users')
-        const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+        const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
         users.value = allUsers.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
       }
     }

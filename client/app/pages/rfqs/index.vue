@@ -1490,7 +1490,7 @@ async function openAssignModal(rfq: any) {
     // 3. Ensure we have the target user list (only once)
     if (!quickAssignUsers.value.length) {
       const all = await api.get<any[]>('/users')
-      const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+      const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
       quickAssignUsers.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
     }
   } catch (e) {

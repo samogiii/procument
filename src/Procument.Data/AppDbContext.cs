@@ -70,6 +70,8 @@ public class AppDbContext : DbContext
   public DbSet<ShipmentNoteTrackNumber> ShipmentNoteTrackNumbers => Set<ShipmentNoteTrackNumber>();
   public DbSet<TrackNumberBox> TrackNumberBoxes => Set<TrackNumberBox>();
   public DbSet<ShipmentNoteBox> ShipmentNoteBoxes => Set<ShipmentNoteBox>();
+  public DbSet<WarehouseTransfer> WarehouseTransfers => Set<WarehouseTransfer>();
+  public DbSet<WarehouseTransferItem> WarehouseTransferItems => Set<WarehouseTransferItem>();
   public DbSet<ILSItem> ILSItems => Set<ILSItem>();
   public DbSet<ILSItemSerial> ILSItemSerials => Set<ILSItemSerial>();
   public DbSet<ILSCustomer> ILSCustomers => Set<ILSCustomer>();
@@ -718,6 +720,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Carrier).HasMaxLength(200);
       entity.Property(e => e.Notes).HasMaxLength(1000);
       entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Ship to Warehouse");
+      entity.Property(e => e.Origin).HasMaxLength(20).HasDefaultValue("Supplier");
 
       entity.HasOne(e => e.POItem)
                 .WithMany(i => i.TrackNumbers)
@@ -730,9 +733,89 @@ public class AppDbContext : DbContext
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
+      entity.HasOne(e => e.SourceTransfer)
+                .WithMany(t => t.DestinationTracks)
+                .HasForeignKey(e => e.SourceTransferId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ParentTrackNumber)
+                .WithMany()
+                .HasForeignKey(e => e.ParentTrackNumberId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
       entity.HasIndex(e => e.POItemId);
       entity.HasIndex(e => e.WarehouseId);
       entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.SourceTransferId);
+      entity.HasIndex(e => e.ParentTrackNumberId);
+    });
+
+    // ───────────────────────────────────────────
+    // Warehouse-to-warehouse transfers
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<WarehouseTransfer>(entity =>
+    {
+      entity.ToTable("WarehouseTransfers");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.TransferNumber).HasMaxLength(50).IsRequired();
+      entity.Property(e => e.TrackNumber).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.Carrier).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.Status).HasMaxLength(30).HasDefaultValue("In Transit");
+
+      entity.HasOne(e => e.FromWarehouse)
+                .WithMany()
+                .HasForeignKey(e => e.FromWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ToWarehouse)
+                .WithMany()
+                .HasForeignKey(e => e.ToWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.CreatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ReceivedBy)
+                .WithMany()
+                .HasForeignKey(e => e.ReceivedByUserId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.TransferNumber).IsUnique();
+      entity.HasIndex(e => e.FromWarehouseId);
+      entity.HasIndex(e => e.ToWarehouseId);
+      entity.HasIndex(e => e.Status);
+    });
+
+    modelBuilder.Entity<WarehouseTransferItem>(entity =>
+    {
+      entity.ToTable("WarehouseTransferItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("In Transit");
+
+      entity.HasOne(e => e.Transfer)
+                .WithMany(t => t.Items)
+                .HasForeignKey(e => e.WarehouseTransferId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.SourceTrackNumberItem)
+                .WithMany()
+                .HasForeignKey(e => e.SourceTrackNumberItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.POItem)
+                .WithMany()
+                .HasForeignKey(e => e.POItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.WarehouseTransferId);
+      entity.HasIndex(e => e.SourceTrackNumberItemId);
+      entity.HasIndex(e => e.POItemId);
     });
 
     // ───────────────────────────────────────────

@@ -1132,7 +1132,7 @@ async function loadUsers() {
   if (users.value.length) return
   try {
     const allUsers = await api.get<any[]>('/users')
-    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
     users.value = allUsers.filter((u: any) => allowed.includes(u.name) || allowed.includes(u.username))
   } catch {
     users.value = []

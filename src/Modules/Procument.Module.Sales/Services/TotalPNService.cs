@@ -474,7 +474,7 @@ public class TotalPNService : ITotalPNService
                 Qty = poi.Qty,
                 Condition = poi.Condition ?? pi?.Condition,
                 Priority = pi?.RfqPriority,
-                Warehouse = poi.TrackNumbers.Select(t => t.Warehouse != null ? t.Warehouse.Name : null).FirstOrDefault(w => w != null),
+                Warehouse = BuildWarehouseChain(poi.TrackNumbers),
                 SerialNumber = sns.Select(sn => sn.SNNumber).Where(s => !string.IsNullOrEmpty(s)).Distinct() is var snNums
                     ? string.Join(", ", snNums) is string joined && joined.Length > 0 ? joined : null
                     : null,
@@ -495,6 +495,62 @@ public class TotalPNService : ITotalPNService
             Page = page.Page,
             PageSize = page.PageSize,
         };
+    }
+
+    /// <summary>
+    /// Where the part is now, then each warehouse it moved from: "Dubai ← Istanbul ← Shanghai".
+    ///
+    /// Only a warehouse-to-warehouse transfer is a move, and each one links its destination leg
+    /// back to the source through <see cref="POItemTrackNumber.ParentTrackNumberId"/>, so the
+    /// chain is built by following those links — never by ordering legs on date. A part can hold
+    /// several legs for reasons that are not movement at all (a split delivery, or a second track
+    /// covering a shortfall); those are separate arrivals and are listed comma-separated, because
+    /// joining them with arrows would claim a move that never happened.
+    /// </summary>
+    private static string? BuildWarehouseChain(IEnumerable<POItemTrackNumber> tracks)
+    {
+        var legs = tracks
+            .Where(t => t.Warehouse != null && !string.IsNullOrWhiteSpace(t.Warehouse.Name))
+            .ToList();
+
+        if (legs.Count == 0) return null;
+
+        var byId = legs.ToDictionary(t => t.Id);
+        var used = new HashSet<long>();
+        var chain = new List<string>();
+
+        // Newest transfer arrival is the part's current home; walk its parent links back
+        // through every hop it made.
+        var newestHop = legs
+            .Where(t => t.SourceTransferId.HasValue)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .FirstOrDefault();
+
+        for (var cur = newestHop; cur != null; )
+        {
+            if (!used.Add(cur.Id)) break;   // guard against a cycle in the links
+            chain.Add(cur.Warehouse!.Name);
+
+            cur = cur.ParentTrackNumberId.HasValue && byId.TryGetValue(cur.ParentTrackNumberId.Value, out var parent)
+                ? parent
+                : null;
+        }
+
+        // Legs that were never part of that journey — independent arrivals for this part.
+        var separate = legs
+            .Where(t => !used.Contains(t.Id))
+            .OrderBy(t => t.CreatedAt)
+            .Select(t => t.Warehouse!.Name)
+            .Distinct()
+            .Where(n => !chain.Contains(n))
+            .ToList();
+
+        var moved = string.Join(" ← ", chain);
+        if (separate.Count == 0) return moved.Length > 0 ? moved : null;
+
+        var arrivals = string.Join(", ", separate);
+        return moved.Length > 0 ? $"{moved}, {arrivals}" : arrivals;
     }
 
     public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases)

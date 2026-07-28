@@ -299,6 +299,32 @@
               </v-row>
             </v-col>
 
+            <!-- IMAP Settings (files sent quote emails into the account's Sent folder) -->
+            <v-col cols="12">
+              <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SAVE TO "SENT" FOLDER (IMAP)</div>
+              <div class="text-caption text-medium-emphasis mb-2">
+                SMTP alone only delivers the email — it does not file a copy in your mailbox's Sent folder. Enable this
+                and provide your IMAP settings (same account as above) so sent quotes also appear in your webmail's Sent folder.
+              </div>
+              <v-row dense>
+                <v-col cols="12">
+                  <v-switch v-model="form.imapEnabled" label="Save a copy to the Sent folder via IMAP" density="compact" hide-details color="primary" />
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-text-field v-model="form.imapHost" label="IMAP Host" placeholder="imap.hostinger.com" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-server-outline" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model.number="form.imapPort" label="Port" type="number" placeholder="993" variant="outlined" density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="form.imapSentFolder" label="Sent Folder Name (optional)" placeholder="Auto-detect" variant="outlined" density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6" class="d-flex align-center">
+                  <v-switch v-model="form.imapUseSsl" label="Use SSL/TLS" density="compact" hide-details color="primary" />
+                </v-col>
+              </v-row>
+            </v-col>
+
             <!-- Logo Upload -->
             <v-col cols="12">
               <div class="logo-upload-area">
@@ -525,7 +551,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarTimeout" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
   </div>
@@ -561,6 +587,7 @@ const bankForm = ref(defaultBankForm())
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+const snackbarTimeout = ref(3000)
 
 const defaultForm = () => ({
   name: '',
@@ -591,6 +618,11 @@ const defaultForm = () => ({
   smtpFromEmail: '',
   smtpFromDisplayName: '',
   smtpUseSsl: true,
+  imapEnabled: false,
+  imapHost: '',
+  imapPort: 993,
+  imapUseSsl: true,
+  imapSentFolder: null as string | null,
 })
 
 const form = ref(defaultForm())
@@ -654,6 +686,11 @@ async function openEdit(preset: any) {
     smtpFromEmail: preset.smtpFromEmail || '',
     smtpFromDisplayName: preset.smtpFromDisplayName || '',
     smtpUseSsl: preset.smtpUseSsl ?? true,
+    imapEnabled: preset.imapEnabled || false,
+    imapHost: preset.imapHost || '',
+    imapPort: preset.imapPort || 993,
+    imapUseSsl: preset.imapUseSsl ?? true,
+    imapSentFolder: preset.imapSentFolder || null,
   }
   logoPreview.value = preset.logoBase64
     ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
@@ -814,9 +851,12 @@ async function sendTestEmail() {
   }
   sendingSmtpTest.value = true
   try {
-    await api.post(`/companypresets/${editingId.value}/smtp-test`, { toEmail: smtpTestEmail.value.trim() })
-    showSnack('Test email sent', 'success')
-    showSmtpTest.value = false
+    const res: any = await api.post(`/companypresets/${editingId.value}/smtp-test`, { toEmail: smtpTestEmail.value.trim() })
+    // Delivery can succeed while the IMAP Sent-folder copy fails — keep the dialog open in
+    // that case so the folder name can be corrected against the reported error.
+    const imapFailed = res?.imapConfigured && !res?.savedToSentFolder
+    showSnack(res?.message || 'Test email sent', imapFailed ? 'warning' : 'success')
+    if (!imapFailed) showSmtpTest.value = false
   } catch (e: any) {
     showSnack(e?.data?.message || 'Failed to send test email', 'error')
   } finally {
@@ -1070,6 +1110,11 @@ async function saveCustomHtml() {
       smtpFromEmail: preset.smtpFromEmail,
       smtpFromDisplayName: preset.smtpFromDisplayName,
       smtpUseSsl: preset.smtpUseSsl ?? true,
+      imapEnabled: preset.imapEnabled || false,
+      imapHost: preset.imapHost,
+      imapPort: preset.imapPort,
+      imapUseSsl: preset.imapUseSsl ?? true,
+      imapSentFolder: preset.imapSentFolder,
     })
     showSnack('Template saved', 'success')
     showHtmlEditor.value = false
@@ -1084,6 +1129,8 @@ async function saveCustomHtml() {
 function showSnack(text: string, color: string) {
   snackbarText.value = text
   snackbarColor.value = color
+  // Diagnostic messages (e.g. an IMAP folder error) are long — give them time to be read.
+  snackbarTimeout.value = color === 'success' ? 3000 : 8000
   snackbar.value = true
 }
 </script>

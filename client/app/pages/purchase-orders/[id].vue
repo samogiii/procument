@@ -1350,7 +1350,7 @@ async function loadAssignedUsers() {
 async function loadAllUsers() {
   try {
     const all = await api.get<any[]>('/users')
-    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM']
+    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
     // Matching against username which is likely what 'GHS' etc are
     allUsers.value = all.filter(u => allowed.includes(u.username) || allowed.includes(u.name))
   } catch {

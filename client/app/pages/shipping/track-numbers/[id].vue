@@ -23,6 +23,17 @@
         >
           {{ t.status }}
         </v-chip>
+        <v-btn
+          v-if="canReceiveAll"
+          size="small"
+          variant="flat"
+          color="success"
+          prepend-icon="mdi-check-all"
+          :loading="receivingAll"
+          @click="receiveAll"
+        >
+          Receive All
+        </v-btn>
       </div>
     </div>
 
@@ -35,13 +46,14 @@
           <v-icon icon="mdi-file-multiple-outline" color="primary" size="18" />
           Shipment Documents
           <v-chip size="x-small" variant="tonal" class="ml-1">{{ trackLevelDocs.length }}</v-chip>
-          <v-spacer />
-          <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-upload" @click="openUpload(null)">
-            Upload
-          </v-btn>
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-3">
+          <FileDropZone
+            label="Drag shipment documents here or click to browse"
+            :on-upload="(files, onProgress) => uploadFiles(files, onProgress, primaryTrack.id, null)"
+            class="mb-3"
+          />
           <div v-if="!trackLevelDocs.length" class="text-caption text-medium-emphasis">
             No shipment-level documents uploaded yet.
           </div>
@@ -256,11 +268,13 @@
           <div class="d-flex align-center mb-2">
             <v-icon icon="mdi-paperclip" size="14" class="mr-1 text-medium-emphasis" />
             <span class="text-caption font-weight-bold text-medium-emphasis">PART DOCUMENTS</span>
-            <v-spacer />
-            <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-upload" @click="openUpload(t.poItemId, t.id)">
-              Upload
-            </v-btn>
           </div>
+          <FileDropZone
+            compact
+            label="Drag files here or click to browse"
+            :on-upload="(files, onProgress) => uploadFiles(files, onProgress, t.id, t.poItemId)"
+            class="mb-2"
+          />
           <div v-if="!partDocs(t).length" class="text-caption text-medium-emphasis">No part documents yet.</div>
           <v-list v-else density="compact" class="pa-0">
             <v-list-item
@@ -319,32 +333,6 @@
           <v-spacer />
           <v-btn variant="text" @click="boxDialog = false">Cancel</v-btn>
           <v-btn color="orange" variant="flat" :loading="savingBox" @click="saveBox">Save</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Upload Dialog -->
-    <v-dialog v-model="uploadDialog" max-width="440" persistent>
-      <v-card>
-        <v-card-title class="text-h6 pa-4 pb-2">
-          {{ uploadPoItemId != null ? 'Upload Part Document' : 'Upload Shipment Document' }}
-        </v-card-title>
-        <v-divider />
-        <v-card-text class="pa-4">
-          <v-file-input
-            v-model="uploadFile"
-            label="Select file"
-            variant="outlined"
-            density="compact"
-            prepend-icon="mdi-paperclip"
-            accept="image/*,application/pdf,.pdf,.png,.jpg,.jpeg"
-          />
-        </v-card-text>
-        <v-divider />
-        <v-card-actions class="pa-4 pt-2">
-          <v-spacer />
-          <v-btn variant="text" @click="uploadDialog = false">Cancel</v-btn>
-          <v-btn color="primary" variant="flat" :loading="uploading" :disabled="!uploadFile" @click="doUpload">Upload</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -495,6 +483,41 @@ async function submitPart(t: any) {
   }
 }
 
+// ── Receive all (shipping / admin) ────────────────────────────────────────────
+
+// Must stay in step with ShippingController.ReceiveAll's [Authorize] roles.
+const canReceiveAll = computed(() =>
+  authStore.isSuperAdmin || authStore.isExpert || authStore.user?.name === 'SYD')
+
+const receivingAll = ref(false)
+
+/**
+ * Marks every part on this shipment as arrived in full and accepted, which is what
+ * moves the stock into the Ready-for-SN and transferable pools at this warehouse.
+ */
+async function receiveAll() {
+  const pending = groupTracks.value.filter(t => t.items?.[0]?.status !== 'Accepted').length
+  if (!confirm(
+    `Receive all parts on ${primaryTrack.value?.trackNumber} at ${primaryTrack.value?.warehouseName || 'this warehouse'}?\n\n`
+    + `${pending} part(s) will be marked received in full and accepted, making the stock available `
+    + `for a shipment note or another transfer from here. Parts already accepted keep their original reviewer.`,
+  )) return
+
+  receivingAll.value = true
+  try {
+    // One call per track: the page groups several tracks under one track number.
+    for (const t of groupTracks.value) {
+      await api.post(`/shipping/track-numbers/${t.id}/receive-all`, {})
+    }
+    notify('All parts received and accepted')
+    await loadTracks()
+  } catch (e: any) {
+    notify(e?.data?.message || 'Failed to receive the parts', 'error')
+  } finally {
+    receivingAll.value = false
+  }
+}
+
 // ── Reject ────────────────────────────────────────────────────────────────────
 
 const rejectDialog = ref(false)
@@ -590,41 +613,55 @@ async function deleteBox(trackIdForBox: number, boxId: number) {
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 
-const uploadDialog = ref(false)
-const uploadFile = ref<File | null>(null)
-const uploading = ref(false)
-const uploadPoItemId = ref<number | null>(null)
-const uploadTrackId = ref<number | null>(null)
+/**
+ * Uploads every dropped file to the track-level or part-level endpoint.
+ * Both endpoints take a single file, so this posts them one at a time —
+ * that also keeps a dropped folder from firing dozens of parallel requests.
+ */
+async function uploadFiles(
+  files: File[],
+  onProgress: (done: number) => void,
+  targetTrackId: number,
+  poItemId: number | null,
+) {
+  const url = poItemId != null
+    ? `/shipping/track-numbers/${targetTrackId}/parts/${poItemId}/documents`
+    : `/shipping/track-numbers/${targetTrackId}/documents`
 
-function openUpload(poItemId: number | null, trackIdForUpload?: number) {
-  uploadPoItemId.value = poItemId
-  uploadTrackId.value = trackIdForUpload ?? primaryTrack.value?.id ?? null
-  uploadFile.value = null
-  uploadDialog.value = true
-}
+  const failed: string[] = []
+  let done = 0
 
-async function doUpload() {
-  if (!uploadFile.value || !uploadTrackId.value) return
-  uploading.value = true
-  try {
+  for (const file of files) {
     const formData = new FormData()
-    formData.append('file', uploadFile.value as Blob)
-    const url = uploadPoItemId.value != null
-      ? `/shipping/track-numbers/${uploadTrackId.value}/parts/${uploadPoItemId.value}/documents`
-      : `/shipping/track-numbers/${uploadTrackId.value}/documents`
-    await $fetch(`${api.baseURL}${url}`, {
-      method: 'POST',
-      body: formData,
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
-    notify('Uploaded')
-    uploadDialog.value = false
-    await loadTracks()
-  } catch {
-    notify('Upload failed', 'error')
-  } finally {
-    uploading.value = false
+    formData.append('file', file)
+    try {
+      await $fetch(`${api.baseURL}${url}`, {
+        method: 'POST',
+        body: formData,
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+    } catch {
+      failed.push(file.name)
+    }
+    onProgress(++done)
   }
+
+  await loadTracks()
+
+  if (failed.length === files.length) {
+    notify('Upload failed', 'error')
+    // Rejecting leaves the files staged in the drop zone so they can be retried.
+    throw new Error('upload failed')
+  }
+
+  if (failed.length) {
+    // Partial failure resolves anyway: the successful files are already stored,
+    // so keeping them staged would upload duplicates on a retry.
+    notify(`Uploaded ${files.length - failed.length}, failed: ${failed.join(', ')}`, 'warning')
+    return
+  }
+
+  notify(`Uploaded ${files.length} file${files.length === 1 ? '' : 's'}`)
 }
 
 function downloadDoc(tid: number, docId: number, fileName = 'document', mimeType?: string) {

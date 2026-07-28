@@ -14,12 +14,24 @@ public class POItemTrackNumber : BaseEntity
 
     public string Status { get; set; } = "Ship to Warehouse";
 
+    // ─── Warehouse-to-warehouse transfer chain ───
+    /// <summary>"Supplier" (arrived from a supplier) or "Transfer" (emitted by a WarehouseTransfer).</summary>
+    public string Origin { get; set; } = "Supplier";
+
+    /// <summary>Set when this leg was emitted by a warehouse transfer. Null for supplier shipments.</summary>
+    public long? SourceTransferId { get; set; }
+
+    /// <summary>The leg this stock arrived on before being transferred. Walk this to rebuild the trace.</summary>
+    public long? ParentTrackNumberId { get; set; }
+
     // Foreign key
     public long POItemId { get; set; }
 
     // Navigation
     public POItem POItem { get; set; } = null!;
     public Warehouse? Warehouse { get; set; }
+    public WarehouseTransfer? SourceTransfer { get; set; }
+    public POItemTrackNumber? ParentTrackNumber { get; set; }
     public ICollection<TrackNumberItem> Items { get; set; } = new List<TrackNumberItem>();
     public ICollection<TrackNumberDocument> Documents { get; set; } = new List<TrackNumberDocument>();
     public ICollection<ShipmentNoteTrackNumber> ShipmentNotes { get; set; } = new List<ShipmentNoteTrackNumber>();

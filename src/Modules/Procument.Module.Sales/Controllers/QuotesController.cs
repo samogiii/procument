@@ -27,9 +27,10 @@ public class QuotesController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly ICryptoService _crypto;
     private readonly IConfiguration _configuration;
+    private readonly IDocumentStorageService _documentStorage;
 
     public QuotesController(IQuoteService quoteService, DbContext db, IFinalInvoiceLockGuard lockGuard,
-        IEmailService emailService, ICryptoService crypto, IConfiguration configuration)
+        IEmailService emailService, ICryptoService crypto, IConfiguration configuration, IDocumentStorageService documentStorage)
     {
         _quoteService = quoteService;
         _db = db;
@@ -37,6 +38,7 @@ public class QuotesController : ControllerBase
         _emailService = emailService;
         _crypto = crypto;
         _configuration = configuration;
+        _documentStorage = documentStorage;
     }
 
     /// <summary>Get all quotes (paginated).</summary>
@@ -148,7 +150,7 @@ public class QuotesController : ControllerBase
     [HttpPost("{id:long}/send-email")]
     [Auditable("Quote", "SendEmail", CaptureBody = false)]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> SendEmail(long id, [FromForm] SendQuoteEmailRequest request, IFormFile? attachment)
+    public async Task<IActionResult> SendEmail(long id, [FromForm] SendQuoteEmailRequest request, IFormFile? attachment, IFormFile? attachmentExcel, [FromForm] List<IFormFile>? extraAttachments)
     {
         if (await _lockGuard.IsQuoteLocked(id))
             return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
@@ -162,17 +164,18 @@ public class QuotesController : ControllerBase
         if (preset == null || !preset.SmtpEnabled || string.IsNullOrEmpty(preset.SmtpHost) || string.IsNullOrEmpty(preset.SmtpPasswordEncrypted))
             return BadRequest(new { message = "SMTP is not configured for this customer's company preset." });
 
-        if (attachment == null || attachment.Length == 0)
-            return BadRequest(new { message = "An attachment is required." });
+        var hasPdf = attachment != null && attachment.Length > 0;
+        var hasExcel = attachmentExcel != null && attachmentExcel.Length > 0;
+        var extraFiles = extraAttachments?.Where(f => f != null && f.Length > 0).ToList() ?? new List<IFormFile>();
+        if (!hasPdf && !hasExcel && extraFiles.Count == 0)
+            return BadRequest(new { message = "At least one attachment is required." });
 
+        string? sentFolderError = null;
         try
         {
             var encryptionKey = _configuration["Smtp:EncryptionKey"]
                 ?? throw new InvalidOperationException("Smtp:EncryptionKey is not configured.");
             var password = _crypto.DecryptBrowser(preset.SmtpPasswordEncrypted!, preset.SmtpPasswordIv!, encryptionKey);
-
-            using var ms = new MemoryStream();
-            await attachment.CopyToAsync(ms);
 
             var smtpConfig = new SmtpConfig
             {
@@ -184,15 +187,59 @@ public class QuotesController : ControllerBase
                 FromEmail = preset.SmtpFromEmail ?? preset.Email ?? preset.SmtpUsername ?? "",
                 FromDisplayName = preset.SmtpFromDisplayName ?? preset.Name,
             };
-            var emailAttachment = new EmailAttachment
-            {
-                FileName = attachment.FileName,
-                Content = ms.ToArray(),
-                ContentType = string.IsNullOrEmpty(attachment.ContentType) ? "application/pdf" : attachment.ContentType,
-            };
 
-            await _emailService.SendAsync(smtpConfig, request.ToEmail, request.ToName, request.Subject, request.Body,
-                new[] { emailAttachment });
+            var emailAttachments = new List<EmailAttachment>();
+            if (hasPdf)
+            {
+                using var ms = new MemoryStream();
+                await attachment!.CopyToAsync(ms);
+                emailAttachments.Add(new EmailAttachment
+                {
+                    FileName = attachment.FileName,
+                    Content = ms.ToArray(),
+                    ContentType = string.IsNullOrEmpty(attachment.ContentType) ? "application/pdf" : attachment.ContentType,
+                });
+            }
+            if (hasExcel)
+            {
+                using var ms = new MemoryStream();
+                await attachmentExcel!.CopyToAsync(ms);
+                emailAttachments.Add(new EmailAttachment
+                {
+                    FileName = attachmentExcel.FileName,
+                    Content = ms.ToArray(),
+                    ContentType = string.IsNullOrEmpty(attachmentExcel.ContentType) ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : attachmentExcel.ContentType,
+                });
+            }
+            foreach (var extra in extraFiles)
+            {
+                using var ms = new MemoryStream();
+                await extra.CopyToAsync(ms);
+                emailAttachments.Add(new EmailAttachment
+                {
+                    FileName = Path.GetFileName(extra.FileName),
+                    Content = ms.ToArray(),
+                    ContentType = string.IsNullOrEmpty(extra.ContentType) ? "application/octet-stream" : extra.ContentType,
+                });
+            }
+
+            ImapConfig? imapConfig = null;
+            if (preset.ImapEnabled && !string.IsNullOrEmpty(preset.ImapHost))
+            {
+                imapConfig = new ImapConfig
+                {
+                    Host = preset.ImapHost!,
+                    Port = preset.ImapPort ?? 993,
+                    UseSsl = preset.ImapUseSsl,
+                    SentFolderName = preset.ImapSentFolder,
+                };
+            }
+
+            var sendResult = await _emailService.SendAsync(smtpConfig, request.ToEmail, request.ToName, request.Subject, request.Body,
+                emailAttachments, ccEmail: null, imap: imapConfig);
+            sentFolderError = sendResult.SentFolderError;
+
+            PersistSentAttachments(quote.QuoteNumber, emailAttachments);
         }
         catch (Exception ex)
         {
@@ -204,7 +251,9 @@ public class QuotesController : ControllerBase
 
         await NotifyAdminsQuoteSentAsync(id, quote.QuoteNumber);
 
-        return Ok();
+        // Delivery succeeded; the Sent-folder copy may not have. Report it so a broken IMAP
+        // config is visible here rather than only in the logs.
+        return Ok(new { sentFolderError });
     }
 
     private async Task NotifyAdminsQuoteSentAsync(long id, string quoteNumber)
@@ -224,6 +273,31 @@ public class QuotesController : ControllerBase
             });
         }
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>Best-effort: files a timestamped copy of each attachment sent with the quote email
+    /// into that quote's document folder, so it shows alongside manually uploaded/downloaded files.</summary>
+    private void PersistSentAttachments(string quoteNumber, IEnumerable<EmailAttachment> attachments)
+    {
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+        foreach (var a in attachments)
+        {
+            try
+            {
+                var ext = Path.GetExtension(a.FileName);
+                var nameOnly = Path.GetFileNameWithoutExtension(a.FileName);
+                var timestampedName = $"{nameOnly} - {timestamp}{ext}";
+                var category = ext.ToLowerInvariant() switch
+                {
+                    ".xlsx" or ".xls" => "Excel",
+                    ".pdf" => "PDF",
+                    _ => "Uploaded",
+                };
+                using var ms = new MemoryStream(a.Content, writable: false);
+                _documentStorage.SaveFileInQuoteCategory(quoteNumber, category, timestampedName, ms);
+            }
+            catch { /* best-effort archival only — do not fail the send */ }
+        }
     }
 
     /// <summary>Update quote items (re-select procurement records).</summary>

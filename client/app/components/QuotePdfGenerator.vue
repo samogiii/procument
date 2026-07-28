@@ -574,11 +574,39 @@ async function downloadPdf() {
       link.click()
       link.parentNode?.removeChild(link)
       window.URL.revokeObjectURL(url)
+
+      persistDownloadedPdf(response, fileName)
     }
   } catch (err) {
     console.error('PDF generation failed:', err)
   } finally {
     generating.value = false
+  }
+}
+
+const emit = defineEmits<{ (e: 'pdf-uploaded'): void }>()
+
+// Best-effort: also files a timestamped copy of the downloaded PDF into this
+// quote's document folder, so it shows up alongside uploaded/sent files.
+async function persistDownloadedPdf(blob: Blob, fileName: string) {
+  const quoteId = props.quote?.id
+  if (!quoteId) return
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const nameOnly = fileName.replace(/\.pdf$/i, '')
+    const timestampedName = `${nameOnly} - ${timestamp}.pdf`
+    const authStore = useAuthStore()
+    const form = new FormData()
+    form.append('file', new File([blob], timestampedName, { type: 'application/pdf' }))
+    form.append('category', 'pdf')
+    await $fetch(`${api.baseURL}/quotes/${quoteId}/documents/upload`, {
+      method: 'POST',
+      body: form,
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    emit('pdf-uploaded')
+  } catch {
+    // best-effort archival only — do not interrupt the download flow
   }
 }
 </script>

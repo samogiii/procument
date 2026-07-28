@@ -44,6 +44,8 @@
       </div>
     </div>
 
+    
+
     <!-- Stat Cards -->
     <v-row class="mb-6">
       <v-col cols="12" md="3">
@@ -159,7 +161,7 @@
       <div class="font-weight-bold mb-1">Rejection Reason</div>
       {{ quote.rejectionNote }}
     </v-alert>
-
+    <QuoteDocuments v-if="quote.id" :quote-id="quote.id" ref="documentsRef" />
     <!-- Rejection History: show rejected quotes when current quote is active -->
     <v-card
       v-if="rejectedSiblings.length"
@@ -487,13 +489,14 @@
       <BusinessAuditViewer entity-name="Quote" :entity-id="route.params.id as string" />
     </v-dialog>
 
-    <QuotePdfGenerator v-model="showPdf" :quote="quote" />
+    <QuotePdfGenerator v-model="showPdf" :quote="quote" @pdf-uploaded="documentsRef?.loadDocuments()" />
 
     <QuoteSendEmailDialog
       v-model="showSendEmailDialog"
       :quote="quote"
       :preset="activeSmtpPreset"
       @sent="onEmailSent"
+      @sent-folder-warning="onSentFolderWarning"
     />
 
     <!-- Rejection Note Dialog -->
@@ -548,7 +551,7 @@
     </v-dialog>
 
     <!-- Snackbar -->
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2500" location="bottom end">
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'success' ? 2500 : 8000" location="bottom end">
       {{ snackbarText }}
     </v-snackbar>
   </div>
@@ -590,6 +593,13 @@ const showAudit = ref(false)
 const showPdf = ref(false)
 const showSendEmailDialog = ref(false)
 const activeSmtpPreset = ref<any>(null)
+const documentsRef = ref<{ loadDocuments: () => Promise<void> } | null>(null)
+// Only these named users go through the SMTP send-email flow when marking a quote Sent;
+// everyone else just gets the normal instant status change.
+const canSendQuoteEmail = computed(() => {
+  const name = authStore.user?.name
+  return name === 'AMJ' || name === 'System Admin'
+})
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
@@ -970,7 +980,7 @@ function onStatusSelect(newStatus: string) {
       return
     }
   }
-  if (newStatus === 'Sent') {
+  if (newStatus === 'Sent' && canSendQuoteEmail.value) {
     const matchedPreset = apiPresets.value.find((p: any) => p.sortOrder === quote.value.customerBase)
     if (matchedPreset?.smtpEnabled) {
       activeSmtpPreset.value = matchedPreset
@@ -984,6 +994,11 @@ function onStatusSelect(newStatus: string) {
 function onEmailSent() {
   quote.value.status = 'Sent'
   showSnack('Quote sent and status updated', 'success')
+  documentsRef.value?.loadDocuments()
+}
+
+function onSentFolderWarning(message: string) {
+  showSnack(`Email sent, but it was not copied to the Sent folder: ${message}`, 'warning')
 }
 
 async function confirmUnder1000Accept() {
@@ -1097,9 +1112,35 @@ async function exportToExcel() {
     const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}.xlsx`
     XLSX.writeFile(wb, fileName)
     showSnack('Excel exported successfully', 'success')
+
+    persistDownloadedExcel(wb, fileName, q.id)
   } catch (err) {
     console.error('Excel export failed:', err)
     showSnack('Excel export failed', 'error')
+  }
+}
+
+// Best-effort: files a timestamped copy of the exported Excel into this quote's
+// document folder, so it shows up alongside uploaded/sent files.
+async function persistDownloadedExcel(wb: any, fileName: string, quoteId?: number) {
+  if (!quoteId) return
+  try {
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const nameOnly = fileName.replace(/\.xlsx$/i, '')
+    const timestampedName = `${nameOnly} - ${timestamp}.xlsx`
+    const form = new FormData()
+    form.append('file', new File([blob], timestampedName, { type: blob.type }))
+    form.append('category', 'excel')
+    await $fetch(`${api.baseURL}/quotes/${quoteId}/documents/upload`, {
+      method: 'POST',
+      body: form,
+      headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    documentsRef.value?.loadDocuments()
+  } catch {
+    // best-effort archival only — do not interrupt the export flow
   }
 }
 

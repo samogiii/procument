@@ -118,6 +118,11 @@ public class CompanyPresetsController : ControllerBase
                 p.SmtpFromEmail,
                 p.SmtpFromDisplayName,
                 p.SmtpUseSsl,
+                p.ImapEnabled,
+                p.ImapHost,
+                p.ImapPort,
+                p.ImapUseSsl,
+                p.ImapSentFolder,
                 BankAccounts = p.BankAccounts
                     .OrderBy(b => b.SortOrder).ThenBy(b => b.AccountName)
                     .Select(b => new { b.Id, b.AccountName, b.BankName, b.BankAddress, b.AccountNumber, b.BeneficiaryName, b.SwiftCode, b.SortOrder })
@@ -166,6 +171,11 @@ public class CompanyPresetsController : ControllerBase
                 p.SmtpFromEmail,
                 p.SmtpFromDisplayName,
                 p.SmtpUseSsl,
+                p.ImapEnabled,
+                p.ImapHost,
+                p.ImapPort,
+                p.ImapUseSsl,
+                p.ImapSentFolder,
             })
             .FirstOrDefaultAsync();
         if (item == null) return NotFound();
@@ -205,6 +215,11 @@ public class CompanyPresetsController : ControllerBase
             SmtpFromEmail = dto.SmtpFromEmail,
             SmtpFromDisplayName = dto.SmtpFromDisplayName,
             SmtpUseSsl = dto.SmtpUseSsl,
+            ImapEnabled = dto.ImapEnabled,
+            ImapHost = dto.ImapHost,
+            ImapPort = dto.ImapPort,
+            ImapUseSsl = dto.ImapUseSsl,
+            ImapSentFolder = dto.ImapSentFolder,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
@@ -254,6 +269,11 @@ public class CompanyPresetsController : ControllerBase
         preset.SmtpFromEmail = dto.SmtpFromEmail;
         preset.SmtpFromDisplayName = dto.SmtpFromDisplayName;
         preset.SmtpUseSsl = dto.SmtpUseSsl;
+        preset.ImapEnabled = dto.ImapEnabled;
+        preset.ImapHost = dto.ImapHost;
+        preset.ImapPort = dto.ImapPort;
+        preset.ImapUseSsl = dto.ImapUseSsl;
+        preset.ImapSentFolder = dto.ImapSentFolder;
 
         // Only update logo if provided
         if (dto.LogoBase64 != null)
@@ -310,10 +330,37 @@ public class CompanyPresetsController : ControllerBase
                 FromEmail = preset.SmtpFromEmail ?? preset.Email ?? preset.SmtpUsername ?? "",
                 FromDisplayName = preset.SmtpFromDisplayName ?? preset.Name,
             };
-            await _emailService.SendAsync(config, req.ToEmail, null,
+            ImapConfig? imapConfig = null;
+            if (preset.ImapEnabled && !string.IsNullOrEmpty(preset.ImapHost))
+            {
+                imapConfig = new ImapConfig
+                {
+                    Host = preset.ImapHost!,
+                    Port = preset.ImapPort ?? 993,
+                    UseSsl = preset.ImapUseSsl,
+                    SentFolderName = preset.ImapSentFolder,
+                };
+            }
+            var result = await _emailService.SendAsync(config, req.ToEmail, null,
                 $"Test Email from {preset.Name}",
-                $"<p>This is a test email sent from the <strong>{preset.Name}</strong> SMTP configuration.</p>");
-            return Ok();
+                $"<p>This is a test email sent from the <strong>{preset.Name}</strong> SMTP configuration.</p>",
+                imap: imapConfig);
+
+            // The IMAP copy fails independently of delivery — report it instead of hiding it,
+            // otherwise a broken Sent-folder config looks like a fully successful test.
+            var message = imapConfig == null
+                ? "Test email sent."
+                : result.SavedToSentFolder
+                    ? $"Test email sent and filed in \"{result.SentFolderPath}\"."
+                    : $"Test email sent, but saving to the Sent folder failed: {result.SentFolderError}";
+            return Ok(new
+            {
+                message,
+                imapConfigured = imapConfig != null,
+                savedToSentFolder = result.SavedToSentFolder,
+                sentFolderPath = result.SentFolderPath,
+                sentFolderError = result.SentFolderError,
+            });
         }
         catch (Exception ex)
         {
@@ -421,4 +468,9 @@ public class CompanyPresetDto
     public string? SmtpFromEmail { get; set; }
     public string? SmtpFromDisplayName { get; set; }
     public bool SmtpUseSsl { get; set; } = true;
+    public bool ImapEnabled { get; set; } = false;
+    public string? ImapHost { get; set; }
+    public int? ImapPort { get; set; }
+    public bool ImapUseSsl { get; set; } = true;
+    public string? ImapSentFolder { get; set; }
 }
