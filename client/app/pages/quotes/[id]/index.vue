@@ -567,6 +567,11 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const quote = ref<any>({})
+
+// Show the quote number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(quote.value?.quoteNumber))
+
 const linkedInvoices = ref<any[]>([])
 const apiPresets = ref<any[]>([])
 const allRfqItems = ref<any[]>([])

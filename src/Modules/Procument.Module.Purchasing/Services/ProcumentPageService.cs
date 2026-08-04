@@ -14,6 +14,7 @@ public interface IProcumentPageService
 {
     Task<PagedResult<ProcumentPageItemResponse>> GetAllItemsAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, List<string>? statuses = null, List<string>? customerSearch = null, List<long>? userIds = null, string? pnSearch = null, bool pendingOnly = false, string? sortBy = null, bool sortDesc = false, List<string>? conditions = null, List<string>? colPartNames = null, List<string>? customerCodes = null, List<long>? rfqIds = null, List<string>? rfqNames = null, bool includeNoQuote = false);
     Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId);
+    Task<PartHistoryResponse> GetPartHistoryAsync(long partNumberId);
 }
 
 public class ProcumentPageService : IProcumentPageService
@@ -295,28 +296,22 @@ public class ProcumentPageService : IProcumentPageService
         };
     }
 
-    public async Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId)
+    /// <summary>
+    /// Part numbers whose history counts as this part's history: itself, part numbers that list
+    /// this one as an alternative, and part numbers sharing any of its alternatives.
+    /// </summary>
+    private async Task<HashSet<long>> GetRelatedPartNumberIdsAsync(long partNumberId)
     {
-        var cutoff = DateTime.UtcNow.AddDays(-14);
-
-        // 1. Get this part number's alternative IDs
-        var altPartNumberIds = await _db.Set<Alternative>()
-            .Where(a => a.PartNumberId == partNumberId)
-            .Select(a => a.PartNumberId)
-            .ToListAsync();
-
-        // Also find part numbers that have this part number as an alternative
         var partNumberName = await _db.Set<PartNumber>()
             .Where(p => p.Id == partNumberId)
             .Select(p => p.Name)
             .FirstOrDefaultAsync();
 
-        // Collect all related part number IDs (self + those sharing alternatives)
         var relatedPnIds = new HashSet<long> { partNumberId };
 
         if (!string.IsNullOrEmpty(partNumberName))
         {
-            // Find part numbers that have this name as an alternative
+            // Part numbers that have this name as an alternative
             var pnIdsWithThisAsAlt = await _db.Set<Alternative>()
                 .Where(a => a.Name == partNumberName)
                 .Select(a => a.PartNumberId)
@@ -324,7 +319,7 @@ public class ProcumentPageService : IProcumentPageService
             foreach (var id in pnIdsWithThisAsAlt) relatedPnIds.Add(id);
         }
 
-        // Find part numbers that share any alternative with this one
+        // Part numbers that share any alternative with this one
         var myAlts = await _db.Set<Alternative>()
             .Where(a => a.PartNumberId == partNumberId)
             .Select(a => a.Name)
@@ -338,6 +333,16 @@ public class ProcumentPageService : IProcumentPageService
                 .ToListAsync();
             foreach (var id in pnIdsShareAlt) relatedPnIds.Add(id);
         }
+
+        return relatedPnIds;
+    }
+
+    public async Task<SupplierSuggestionsResponse> GetSuggestionsAsync(long partNumberId, long excludeRfqId)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-14);
+
+        // 1. Collect all related part number IDs (self + those sharing alternatives)
+        var relatedPnIds = await GetRelatedPartNumberIdsAsync(partNumberId);
 
         // 2. Known suppliers from PartNumberSupplier junction table
         var knownSuppliers = await _db.Set<PartNumberSupplier>()
@@ -409,6 +414,314 @@ public class ProcumentPageService : IProcumentPageService
         {
             KnownSuppliers = knownSuppliers,
             RecentQuotes = recentBySupplier
+        };
+    }
+
+    /// <summary>Max cost rows returned by the history modal. Summary counts still cover everything.</summary>
+    private const int HistoryRecordLimit = 500;
+
+    /// <summary>
+    /// Full read-only history for a part: every expert who owned, was assigned to, or entered costs
+    /// for an RFQ containing it, plus every supplier cost row ever recorded against it. No date cutoff.
+    /// </summary>
+    public async Task<PartHistoryResponse> GetPartHistoryAsync(long partNumberId)
+    {
+        var relatedPnIds = await GetRelatedPartNumberIdsAsync(partNumberId);
+
+        var part = await _db.Set<PartNumber>()
+            .AsNoTracking()
+            .Where(p => p.Id == partNumberId)
+            .Select(p => new { p.Id, p.Name, p.Description, p.CreatedAt })
+            .FirstOrDefaultAsync();
+
+        if (part == null)
+            return new PartHistoryResponse { PartNumberId = partNumberId };
+
+        var relatedNames = await _db.Set<PartNumber>()
+            .AsNoTracking()
+            .Where(p => relatedPnIds.Contains(p.Id) && p.Id != partNumberId)
+            .Select(p => p.Name)
+            .ToListAsync();
+
+        // ── 1. Every RFQ line that has ever carried this part (or a related one) ──
+        var rfqLines = await _db.Set<RFQItem>()
+            .AsNoTracking()
+            .Where(i => relatedPnIds.Contains(i.PartNumberId))
+            .Select(i => new
+            {
+                i.RFQId,
+                RFQName = i.RFQ.Name,
+                RFQStatus = i.RFQ.Status,
+                RFQCreatedAt = i.RFQ.CreatedAt,
+                OwnerId = i.RFQ.UserId,
+                OwnerName = i.RFQ.User != null ? i.RFQ.User.Name : null,
+                OwnerRole = i.RFQ.User != null ? i.RFQ.User.Role : null
+            })
+            .ToListAsync();
+
+        var rfqs = rfqLines
+            .GroupBy(l => l.RFQId)
+            .Select(g => g.First())
+            .ToList();
+
+        var rfqIdStrs = rfqs.Select(r => r.RFQId.ToString()).ToList();
+
+        // ── 2. Experts explicitly assigned to those RFQs ──
+        var assignments = await _db.Set<EntityPermission>()
+            .AsNoTracking()
+            .Where(p => p.EntityName == "RFQ" && rfqIdStrs.Contains(p.EntityId))
+            .Select(p => new
+            {
+                p.EntityId,
+                p.UserId,
+                UserName = p.User.Name,
+                UserRole = p.User.Role,
+                p.CreatedAt
+            })
+            .ToListAsync();
+
+        var assignedByRfq = assignments
+            .GroupBy(a => a.EntityId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(a => a.UserName).Distinct().OrderBy(n => n).ToList());
+
+        // ── 3. Every cost row ever recorded against those part numbers ──
+        var recordQuery = _db.Set<ProcumentRecord>()
+            .AsNoTracking()
+            .Where(r => relatedPnIds.Contains(r.RFQItem.PartNumberId));
+
+        var totalRecordCount = await recordQuery.CountAsync();
+
+        var records = await recordQuery
+            .OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt)
+            .ThenByDescending(r => r.Id)
+            .Take(HistoryRecordLimit)
+            .Select(r => new PartHistoryRecordDto
+            {
+                Id = r.Id,
+                SupplierId = r.SupplierId,
+                SupplierName = r.Supplier.Name,
+                SupplierDependency = r.Supplier.Dependency,
+                SupplierStatus = r.Supplier.Status,
+                SupplierCreatedAt = r.Supplier.CreatedAt,
+                Type = r.Type ?? "Procument",
+                Condition = r.Condition,
+                Alt = r.Alt,
+                Qty = r.Qty,
+                Unit = r.Unit,
+                Price = r.Price,
+                CertName = r.CertName,
+                TagDate = r.TagDate,
+                LeadTime = r.LeadTime,
+                ShippingCost = r.ShippingCost,
+                ShippingPoint = r.ShippingPoint,
+                Note = r.Note,
+                MyNotes = r.MyNotes,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt,
+                EnteredByUserId = r.UserId,
+                EnteredByName = r.User != null ? r.User.Name : null,
+                RFQId = r.RFQItem.RFQId,
+                RFQName = r.RFQItem.RFQ.Name,
+                RFQStatus = r.RFQItem.RFQ.Status,
+                RFQCreatedAt = r.RFQItem.RFQ.CreatedAt,
+                PartNumberName = r.RFQItem.PartNumber.Name,
+                RFQOwnerName = r.RFQItem.RFQ.User != null ? r.RFQItem.RFQ.User.Name : null
+            })
+            .ToListAsync();
+
+        foreach (var rec in records)
+            rec.AssignedUsers = assignedByRfq.TryGetValue(rec.RFQId.ToString(), out var names)
+                ? names
+                : new List<string>();
+
+        // Per-supplier aggregates come from the full set, not just the returned page.
+        var supplierStats = await recordQuery
+            .GroupBy(r => r.SupplierId)
+            .Select(g => new
+            {
+                SupplierId = g.Key,
+                RecordCount = g.Count(),
+                FirstQuotedAt = g.Min(r => r.CreatedAt),
+                LastQuotedAt = g.Max(r => r.UpdatedAt ?? r.CreatedAt),
+                MinPrice = g.Min(r => r.Price),
+                MaxPrice = g.Max(r => r.Price)
+            })
+            .ToListAsync();
+
+        var supplierMeta = await _db.Set<Supplier>()
+            .AsNoTracking()
+            .Where(s => supplierStats.Select(x => x.SupplierId).Contains(s.Id))
+            .Select(s => new { s.Id, s.Name, s.Dependency, s.Status, s.CreatedAt })
+            .ToListAsync();
+
+        // Suppliers linked to the part in the junction table — including ones never quoted.
+        var links = await _db.Set<PartNumberSupplier>()
+            .AsNoTracking()
+            .Where(ps => relatedPnIds.Contains(ps.PartNumberId))
+            .Select(ps => new
+            {
+                ps.SupplierId,
+                SupplierName = ps.Supplier.Name,
+                ps.Supplier.Dependency,
+                ps.Supplier.Status,
+                SupplierCreatedAt = ps.Supplier.CreatedAt,
+                LinkedAt = ps.CreatedAt
+            })
+            .ToListAsync();
+
+        var linkBySupplier = links
+            .GroupBy(l => l.SupplierId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(l => l.LinkedAt).First());
+
+        // Most recent price per supplier, taken from the returned rows (already newest-first).
+        var lastPriceBySupplier = records
+            .GroupBy(r => r.SupplierId)
+            .ToDictionary(g => g.Key, g => g.First().Price);
+
+        var conditionsBySupplier = records
+            .GroupBy(r => r.SupplierId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => r.Condition).Where(c => !string.IsNullOrWhiteSpace(c))
+                      .Select(c => c!.Trim().ToUpperInvariant()).Distinct().OrderBy(c => c).ToList());
+
+        var certsBySupplier = records
+            .GroupBy(r => r.SupplierId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => r.CertName).Where(c => !string.IsNullOrWhiteSpace(c))
+                      .Select(c => c!.Trim()).Distinct().OrderBy(c => c).ToList());
+
+        var suppliers = new List<PartHistorySupplierDto>();
+
+        foreach (var stat in supplierStats)
+        {
+            var meta = supplierMeta.FirstOrDefault(m => m.Id == stat.SupplierId);
+            linkBySupplier.TryGetValue(stat.SupplierId, out var link);
+            suppliers.Add(new PartHistorySupplierDto
+            {
+                SupplierId = stat.SupplierId,
+                SupplierName = meta?.Name ?? link?.SupplierName ?? "—",
+                Dependency = meta?.Dependency ?? link?.Dependency,
+                Status = meta?.Status ?? link?.Status ?? "Approved",
+                SupplierCreatedAt = meta?.CreatedAt ?? link?.SupplierCreatedAt,
+                LinkedAt = link?.LinkedAt,
+                IsLinked = link != null,
+                RecordCount = stat.RecordCount,
+                FirstQuotedAt = stat.FirstQuotedAt,
+                LastQuotedAt = stat.LastQuotedAt,
+                LastPrice = lastPriceBySupplier.TryGetValue(stat.SupplierId, out var lp) ? lp : null,
+                MinPrice = stat.MinPrice,
+                MaxPrice = stat.MaxPrice,
+                Conditions = conditionsBySupplier.TryGetValue(stat.SupplierId, out var conds) ? conds : new List<string>(),
+                Certs = certsBySupplier.TryGetValue(stat.SupplierId, out var certs) ? certs : new List<string>()
+            });
+        }
+
+        // Linked suppliers that have never been quoted for this part still belong in the list.
+        foreach (var link in linkBySupplier.Values)
+        {
+            if (suppliers.Any(s => s.SupplierId == link.SupplierId)) continue;
+            suppliers.Add(new PartHistorySupplierDto
+            {
+                SupplierId = link.SupplierId,
+                SupplierName = link.SupplierName,
+                Dependency = link.Dependency,
+                Status = link.Status,
+                SupplierCreatedAt = link.SupplierCreatedAt,
+                LinkedAt = link.LinkedAt,
+                IsLinked = true,
+                RecordCount = 0
+            });
+        }
+
+        suppliers = suppliers
+            .OrderByDescending(s => s.LastQuotedAt ?? s.LinkedAt ?? DateTime.MinValue)
+            .ToList();
+
+        // ── 4. Experts: RFQ owners + assignees + whoever entered the costs ──
+        var experts = new Dictionary<long, PartHistoryExpertDto>();
+
+        PartHistoryExpertDto GetExpert(long userId, string name, string? role)
+        {
+            if (!experts.TryGetValue(userId, out var e))
+            {
+                e = new PartHistoryExpertDto { UserId = userId, UserName = name, Role = role };
+                experts[userId] = e;
+            }
+            if (string.IsNullOrWhiteSpace(e.Role)) e.Role = role;
+            return e;
+        }
+
+        static void Touch(PartHistoryExpertDto e, DateTime? when)
+        {
+            if (when == null) return;
+            if (e.FirstActivity == null || when < e.FirstActivity) e.FirstActivity = when;
+            if (e.LastActivity == null || when > e.LastActivity) e.LastActivity = when;
+        }
+
+        foreach (var rfq in rfqs)
+        {
+            if (rfq.OwnerId is not long ownerId || string.IsNullOrWhiteSpace(rfq.OwnerName)) continue;
+            var e = GetExpert(ownerId, rfq.OwnerName!, rfq.OwnerRole);
+            e.OwnedRfqCount++;
+            Touch(e, rfq.RFQCreatedAt);
+        }
+
+        foreach (var a in assignments)
+        {
+            var e = GetExpert(a.UserId, a.UserName, a.UserRole);
+            e.AssignedRfqCount++;
+            Touch(e, a.CreatedAt);
+        }
+
+        // Cost-entry counts come from the full set so the totals stay right when records are capped.
+        var recordAuthors = await recordQuery
+            .Where(r => r.UserId != null)
+            .GroupBy(r => r.UserId!.Value)
+            .Select(g => new
+            {
+                UserId = g.Key,
+                Count = g.Count(),
+                First = g.Min(r => r.CreatedAt),
+                Last = g.Max(r => r.UpdatedAt ?? r.CreatedAt)
+            })
+            .ToListAsync();
+
+        var authorIds = recordAuthors.Select(a => a.UserId).ToList();
+        var authorMeta = await _db.Set<User>()
+            .AsNoTracking()
+            .Where(u => authorIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Name, u.Role })
+            .ToListAsync();
+
+        foreach (var a in recordAuthors)
+        {
+            var meta = authorMeta.FirstOrDefault(m => m.Id == a.UserId);
+            if (meta == null) continue;
+            var e = GetExpert(a.UserId, meta.Name, meta.Role);
+            e.RecordCount += a.Count;
+            Touch(e, a.First);
+            Touch(e, a.Last);
+        }
+
+        return new PartHistoryResponse
+        {
+            PartNumberId = part.Id,
+            PartNumberName = part.Name,
+            Description = part.Description,
+            PartCreatedAt = part.CreatedAt,
+            RelatedPartNumbers = relatedNames.Distinct().OrderBy(n => n).ToList(),
+            TotalRfqCount = rfqs.Count,
+            TotalRecordCount = totalRecordCount,
+            Truncated = totalRecordCount > records.Count,
+            Experts = experts.Values
+                .OrderByDescending(e => e.LastActivity ?? DateTime.MinValue)
+                .ToList(),
+            Suppliers = suppliers,
+            Records = records
         };
     }
 }

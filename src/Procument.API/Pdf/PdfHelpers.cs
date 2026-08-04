@@ -1,3 +1,4 @@
+using System.Globalization;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -68,7 +69,10 @@ public static class PdfHelpers
         });
     }
 
-    /// <summary>Bordered address box with coloured title label.</summary>
+    /// <summary>Bordered address box with coloured title label.
+    /// <paramref name="appendTitle"/> / <paramref name="appendLines"/> add an optional secondary
+    /// block inside the same box (used for FFW under Ship To). When no append line has content the
+    /// box renders exactly as before — no label, no blank line.</summary>
     public static void DrawAddressBox(
         IContainer container,
         string title,
@@ -76,8 +80,12 @@ public static class PdfHelpers
         string? address,
         string? extraLine1,
         string? extraLine2,
-        string accent)
+        string accent,
+        string? appendTitle = null,
+        IEnumerable<string?>? appendLines = null)
     {
+        var appended = appendLines?.Where(l => !string.IsNullOrWhiteSpace(l)).ToList() ?? [];
+
         container.Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(c =>
         {
             c.Item().AlignCenter()
@@ -93,6 +101,24 @@ public static class PdfHelpers
             if (!string.IsNullOrEmpty(extraLine2))
                 c.Item().AlignCenter().PaddingTop(2)
                     .Text(t => t.Span(extraLine2).FontSize(9).FontColor(Colors.Grey.Darken1));
+
+            if (appended.Count == 0) return;
+
+            // The "<br>" — extra top padding on the first appended element instead of an empty row.
+            if (!string.IsNullOrWhiteSpace(appendTitle))
+                c.Item().AlignCenter().PaddingTop(10)
+                    .Text(t => t.Span(appendTitle).Bold().FontSize(8).FontColor(accent).LetterSpacing(0.1f));
+
+            for (int i = 0; i < appended.Count; i++)
+            {
+                var pad = i == 0 && string.IsNullOrWhiteSpace(appendTitle) ? 10 : (i == 0 ? 4 : 2);
+                c.Item().AlignCenter().PaddingTop(pad).Text(t =>
+                {
+                    var span = t.Span(appended[i]).FontSize(9);
+                    span.FontColor(i == 0 ? Colors.Black : Colors.Grey.Darken1);
+                    if (i == 0) span.Bold();
+                });
+            }
         });
     }
 
@@ -127,7 +153,8 @@ public static class PdfHelpers
         string primary,
         string sym,
         decimal discount = 0,
-        decimal processingFee = 0)
+        decimal processingFee = 0,
+        decimal? taxPercent = null)
     {
         var grandTotal = subtotal - discount + tax + shipping + other + processingFee;
         container.Width(220).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Column(col =>
@@ -156,7 +183,11 @@ public static class PdfHelpers
             Row("Subtotal", subtotal, Colors.Grey.Lighten5);
             if (discount > 0) Row("Discount", discount, overrideColor: "#e53935", prefix: $"-{sym}");
             
-            Row("Tax", tax, Colors.Grey.Lighten5);
+            // Name the rate when the caller computed the tax from one, e.g. "Tax (13%)".
+            var taxLabel = taxPercent is > 0
+                ? $"Tax ({taxPercent.Value.ToString("0.##", CultureInfo.InvariantCulture)}%)"
+                : "Tax";
+            Row(taxLabel, tax, Colors.Grey.Lighten5);
             Row("Shipping", shipping);
             if (processingFee > 0) { Row("Processing Fee", processingFee); grandTotal -= other; }
             else

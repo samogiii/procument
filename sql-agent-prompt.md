@@ -28,6 +28,12 @@ Part 3 is mandatory, even for one-line queries. If you ran more than one query, 
 
 ## 2. Query Plan — run these five steps before writing any SQL
 
+### Step 0 — Reuse before you derive (do this first, every time)
+
+**Scan §6 before writing any SQL.** If a Verified Pattern answers the user's question — even approximately — copy it **verbatim** and substitute only the parameters (customer code, date range, part list). Do not re-derive it, do not "improve" it, do not restructure it. A verified query with swapped parameters is correct by construction; a freshly derived one is not. State in the plan which §6 pattern you reused.
+
+**Hard rule: any query returning two or more aggregate columns MUST use the isolated-scalar shape** from §6 — each metric computed in its own CTE or scalar subquery, nothing joined at the top level. Mixing several aggregates over a chain of `LEFT JOIN`s is prohibited regardless of how careful the `DISTINCT`s look. This is not a stylistic preference: it is the only shape in which a parent-level `SUM` cannot be multiplied by a child table's row count. That mistake is invisible in the output — some columns stay correct while others inflate several-fold — so it must be prevented structurally, not caught by inspection.
+
 Write the plan in `<thinking>`. Steps 1 and 4 are where senior and junior queries diverge; never skip them.
 
 **1. Declare the grain.** One sentence: *"One row per ___."* e.g. "one row per procurement item per competing supplier quote." Every later decision follows from this.
@@ -147,6 +153,8 @@ Two correct-looking queries that define a metric differently produce two differe
 
 **Never hardcode a surrogate key.** Resolve `CustomerCode` / names by joining `Customers` in the same query. A literal `CustomerId = 74` cannot be checked by the reader and yields a complete, plausible, wrong report if it is off.
 
+**Row-exclusion defaults — decide, then say so.** This schema carries soft-delete and cancellation flags: `Invoices.IsCancelled` (plus `Status = 'Cancelled'`), and `IsActive` on `Customers`, `Suppliers`, `Warehouses`, `CompanyPresets`, `Tasks`, and `PaymentRequests`. A revenue or volume report that counts cancelled invoices overstates the business. **Default to excluding them** (`AND i.IsCancelled = 0`), name the exclusion in the plan and in one line under the table, and include them only when the user is asking about cancellations. Never apply — or omit — this filter silently.
+
 **Never re-join a child you already aggregated.** If a CTE rolls `QuoteItems` up to quote grain, joining `QuoteItems` again in the outer query re-fans every quote row and multiplies header amounts by the line count. Pre-aggregate *or* join raw — never both.
 
 ---
@@ -212,17 +220,23 @@ Everything else:
 
 ## 6. Verified Query Patterns (tested — prefer these over reconstructing a join)
 
-**RFQ → sent-quote coverage for one customer over a date range.** *Verified 2026-07-28 against live data (C510, July 2026).*
+Patterns are written with `@parameters`. **Substitute the user's values into the `DECLARE` block only** — never edit the query body. If your executor allows a single statement per call, inline the literals in the same places instead.
 
-Each metric is aggregated in its own isolated scope and returned as a scalar subquery. Nothing joins at the top level, so fan-out is structurally impossible — prefer this shape over `LEFT JOIN` + `COUNT(DISTINCT)` for any multi-metric summary.
+**RFQ → sent-quote coverage for one customer over a date range.** *Verified 2026-07-28 against live data.*
+
+Each metric is aggregated in its own isolated scope and returned as a scalar subquery. Nothing joins at the top level, so fan-out is structurally impossible — this is the mandatory shape for any multi-metric summary (§2 Step 0).
 ```sql
+DECLARE @CustomerCode nvarchar(100) = N'<customer code>';
+DECLARE @FromDate     date          = '<first day wanted>';
+DECLARE @ToDateExcl   date          = '<day AFTER the last day wanted>';
+
 WITH ScopedRfq AS (
     SELECT r.Id
     FROM dbo.RFQs r
     JOIN dbo.Customers c ON c.Id = r.CustomerId
-    WHERE c.CustomerCode = 'C510'
-      AND r.CreatedAt >= '2026-07-01'
-      AND r.CreatedAt <  '2026-07-30'      -- half-open; never BETWEEN
+    WHERE c.CustomerCode = @CustomerCode
+      AND r.CreatedAt >= @FromDate
+      AND r.CreatedAt <  @ToDateExcl       -- half-open; never BETWEEN
 ),
 SentQuotes AS (
     SELECT q.Id, q.RFQId, COALESCE(q.FinalPrice, q.TotalAmount) AS QuotePrice
@@ -247,7 +261,7 @@ SELECT
 Two facts established by that verification run — apply them to every future report:
 
 - **`SentQuoteCount` ≠ `RFQsWithSentQuote`.** The live run returned 98 quotes across 91 RFQs: RFQs do receive multiple sent quotes (revisions). "How many RFQs got a quote" is always `COUNT(DISTINCT RFQId)`. Using the quote count overstated the answer by 7.7%.
-- **`TotalPrice_Header` and `TotalPrice_Lines` differ by cents, not dollars.** The run returned 19,168,611.22 vs 19,168,611.53 — per-line rounding accumulating across 98 quotes. A sub-dollar gap is expected and confirms the figure; a gap of dollars or more is a real finding. **Header is authoritative.**
+- **`TotalPrice_Header` and `TotalPrice_Lines` differ by cents, not dollars.** Header amounts are stored rounded to 2dp; the line roll-up is raw math, so a sub-dollar gap across ~100 quotes is expected and *confirms* the figure. A gap of whole dollars or more is a real finding — report it. **Header is authoritative.**
 
 **Currency guard.** `Quotes.CoefYuan` / `ExchangeRateYuan` mean some quotes may not be USD. Summing quote value across mixed currencies is meaningless. Before reporting any multi-quote total, confirm the scope is single-currency:
 ```sql
@@ -276,25 +290,31 @@ JOIN [dbo].[ProcurementSupplierQuotes] psq ON psq.ProcurementItemId = pi.Id
 JOIN [dbo].[Procurements] pr ON pr.Id = pi.ProcurementId
 JOIN [dbo].[Invoices]     i  ON i.Id  = pr.InvoiceId
 JOIN [dbo].[Customers]    c  ON c.Id  = i.CustomerId
-WHERE pi.PartNumberName IN ('6023100-2','622-5135-202','2-8020-25')
+WHERE pi.PartNumberName IN (/* the requested part numbers, quoted and comma-separated */)
 ORDER BY pi.RfqName, pi.PartNumberName, psq.IsSelected DESC;
 ```
 
-**Base-scoped customers** (the `Base` NULL fallback):
+**Base-scoped customers** (the `Base` NULL fallback). `@Base` is the office number; the prefix is `'C' + @Base + '%'`:
 ```sql
+DECLARE @Base int = <base number>;
+
 SELECT TOP 1000 c.Id, c.Name, c.CustomerCode, c.Base
 FROM [dbo].[Customers] c
-WHERE (c.Base = 5) OR (c.Base IS NULL AND c.CustomerCode LIKE 'C5%')
+WHERE (c.Base = @Base)
+   OR (c.Base IS NULL AND c.CustomerCode LIKE 'C' + CAST(@Base AS varchar(10)) + '%')
 ORDER BY c.Name;
 ```
 
 **POs tied to base-N customers** (no Base column on PO — route through Invoice):
 ```sql
+DECLARE @Base int = <base number>;
+
 SELECT TOP 1000 po.Id, po.PONumber, po.Status, c.Name AS CustomerName, c.Base, c.CustomerCode
 FROM [dbo].[PurchaseOrders] po
 LEFT JOIN [dbo].[Invoices]  i ON i.Id = po.InvoiceId
 LEFT JOIN [dbo].[Customers] c ON c.Id = i.CustomerId
-WHERE (c.Base = 3) OR (c.Base IS NULL AND c.CustomerCode LIKE 'C3%')
+WHERE (c.Base = @Base)
+   OR (c.Base IS NULL AND c.CustomerCode LIKE 'C' + CAST(@Base AS varchar(10)) + '%')
 ORDER BY po.CreatedAt DESC;
 ```
 
@@ -330,7 +350,7 @@ OUTER APPLY (
     WHERE psq.ProcurementItemId = pi.Id AND psq.IsSelected = 1
     ORDER BY psq.Id DESC          -- deterministic tiebreak
 ) cost
-WHERE i.CreatedAt >= DATEADD(month, -3, GETDATE())
+WHERE i.CreatedAt >= @FromDate AND i.CreatedAt < @ToDateExcl
 ORDER BY i.InvoiceNumber, ii.Id;
 ```
 
@@ -378,7 +398,7 @@ OUTER APPLY (SELECT TOP 1 poi.* FROM [dbo].[POItems] poi WHERE poi.SourceProcure
 LEFT JOIN [dbo].[PurchaseOrders] po ON po.Id = poi.POId
 OUTER APPLY (SELECT TOP 1 fii.* FROM [dbo].[FinalInvoiceItems] fii WHERE fii.InvoiceItemId = ii.Id ORDER BY fii.Id DESC) fii
 LEFT JOIN [dbo].[FinalInvoices] fi ON fi.Id = fii.FinalInvoiceId
-WHERE pn.Name = '6023100-2'
+WHERE pn.Name = @PartNumber
 ORDER BY r.CreatedAt DESC;
 ```
 
@@ -389,3 +409,66 @@ ORDER BY r.CreatedAt DESC;
 Full table-by-table schema, column types, status enumerations, permission model, and the workflow roadmap: **`llm.md`** in this repository. Use it to confirm exact column names and nullability.
 
 Precedence when sources conflict: **live `INFORMATION_SCHEMA` > §5 Join Registry / §6 Verified Patterns > §3 Vocabulary & §4 Disambiguation > `llm.md` prose.** The vocabulary outranks the raw schema because it encodes real-world usage the schema can't express; the live database outranks everything because prose drifts.
+
+---
+
+## 9. SQL Engineering Reference
+
+Consult when a query needs something §2–§6 doesn't cover. Ordered by how often each item silently produces a *wrong number* rather than an error — a query that fails is harmless; one that returns a plausible wrong total is not.
+
+### NULL semantics — the quietest source of wrong answers
+- **`NOT IN (subquery)` returns zero rows if the subquery yields even one NULL.** Use `NOT EXISTS` for anti-joins, always. This is the single most common way a correct-looking exclusion query returns nothing.
+- `= NULL` and `<> NULL` are never true, only unknown. Use `IS NULL` / `IS NOT NULL`.
+- `COUNT(*)` counts rows; `COUNT(col)` skips NULLs. After a `LEFT JOIN`, `COUNT(child.Id)` is the *matched* count while `COUNT(*)` is the row count — usually you want the former.
+- Every aggregate except `COUNT(*)` ignores NULLs. **`SUM` over zero rows returns NULL, not 0** — wrap in `ISNULL(...,0)` wherever an empty result is legitimate.
+- A `CASE` with no `ELSE` returns NULL on the fall-through, which then disappears from the aggregate. Be deliberate about `ELSE 0` vs `ELSE NULL` — they give different `AVG` results.
+- Arithmetic and `+` concatenation with NULL yield NULL. `CONCAT()` is NULL-safe.
+
+### Row scoping
+- `DISTINCT` used to remove duplicates is a **symptom, not a fix**. If you need it, the grain is wrong (§2 step 4) — find the fan-out.
+- `WHERE` filters rows before grouping; `HAVING` filters groups after. A predicate on a non-aggregated column belongs in `WHERE`.
+- `EXISTS` is a semi-join: it tests "at least one match" without duplicating the left row. Prefer it to `JOIN` + `DISTINCT` for existence checks.
+- A predicate on a `LEFT JOIN`ed table belongs in `ON`, not `WHERE` (§2.5).
+
+### Numeric correctness
+- **Integer division truncates.** `SUM(a) / SUM(b)` over int columns returns an int — `7/2 = 3`. Use `SUM(a) * 1.0 / SUM(b)` or cast explicitly.
+- Guard every division with `NULLIF(denominator, 0)`; divide-by-zero aborts the whole query.
+- `decimal` multiplication grows scale and can overflow at 38 digits. Cast explicitly on long aggregate chains.
+- **Round once, at presentation.** Rounding per line then summing differs from summing then rounding; that difference is a reconciliation gap, not noise.
+- Never use `float`/`real` for money — `decimal` only.
+
+### Time
+- Half-open ranges always: `>= @from AND < @toExclusive` (§2.5).
+- Applying a function to the filtered column — `CAST(CreatedAt AS date) = @d`, `YEAR(CreatedAt) = 2026` — blocks index seeks and evaluates per row. Express it as a range.
+- **`GETDATE()` in a saved report makes it non-reproducible**: two runs answer different questions and cannot be reconciled. Parameterize the range instead.
+- `GETDATE()` is server-local; `SYSUTCDATETIME()` is UTC. If stored timestamps are UTC, comparing to `GETDATE()` shifts every boundary.
+- `datetime2` comparisons include time; a date literal means midnight.
+
+### Determinism
+- `TOP n` without `ORDER BY` returns arbitrary rows, and the set can change between identical runs.
+- `TOP 1` inside `OUTER APPLY` needs a tiebreak column (usually `Id DESC`) or "the latest row" is unstable.
+- `ORDER BY` on a non-unique column is not a stable sort — append the key.
+- Canonical "one row per group, latest by X": `ROW_NUMBER() OVER (PARTITION BY grp ORDER BY x DESC, Id DESC)` filtered to `= 1`.
+
+### Window functions — detail and totals in one pass
+- `SUM(x) OVER (PARTITION BY g)` puts a group total on every detail row without collapsing them — ideal for "this line, and its share of the order."
+- Running total: `SUM(x) OVER (PARTITION BY g ORDER BY d ROWS UNBOUNDED PRECEDING)`. **State the frame** — the default is `RANGE`, which lumps ties together and gives a different answer than most people expect.
+- Window functions execute *after* `WHERE`/`GROUP BY` and cannot be filtered in `WHERE`. Wrap in a CTE and filter outside.
+
+### Set operations
+- `UNION` deduplicates (and sorts); `UNION ALL` does not. Default to `UNION ALL` — `UNION` silently collapses legitimately distinct rows.
+- Column count, order, and compatible types must match; result names come from the first branch.
+
+### Performance, in the order that matters here
+- Filter on indexed columns where possible (marked ⚑ in the schema).
+- Keep predicates sargable: no functions or implicit conversions on the column side. Comparing an `nvarchar` column to a non-prefixed literal can force a scan — write `N'value'`.
+- **CTEs in SQL Server are not materialized.** A CTE referenced N times may execute N times. Correctness is unaffected; speed is. If an expensive scoping CTE is reused several times, a `#temp` table is faster.
+- `SELECT *` in a report is a defect — it breaks silently when columns change.
+- Leading-wildcard `LIKE '%x'` cannot seek. Anchor the pattern when you can.
+
+### Reporting craft
+- Return the key column that defines the grain, so any row is traceable to its source record.
+- Name columns with unit or currency when ambiguous: `TotalPrice_USD`, `LeadTimeDays`.
+- Never blend currencies or units into one total (§6 currency guard).
+- Pair every aggregate with the detail query that reconciles to it (§2.5).
+- Prefer one set-based query to several round trips.

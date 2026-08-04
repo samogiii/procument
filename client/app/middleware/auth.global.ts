@@ -34,6 +34,11 @@ function matchesAnyPrefix(path: string, prefixes: readonly string[]): boolean {
     return prefixes.some(p => path === p || path.startsWith(p + '/'))
 }
 
+// Routes gated by a named feature permission rather than by role.
+const FEATURE_GATED_PREFIXES: ReadonlyArray<{ prefix: string; feature: string }> = [
+    { prefix: '/payment-control', feature: 'walletMenu' },
+]
+
 export default defineNuxtRouteMiddleware((to) => {
     if (import.meta.server) return
 
@@ -60,6 +65,18 @@ export default defineNuxtRouteMiddleware((to) => {
 
     if (authStore.isAuthenticated && to.path === '/login') {
         return navigateTo('/dashboard')
+    }
+
+    // ── Feature-gated routes ───────────────────────────────────────────
+    // Applies to every role, SuperAdmin included. Typing the URL is denied the
+    // same way as a hidden nav entry.
+    if (authStore.isAuthenticated) {
+        for (const { prefix, feature } of FEATURE_GATED_PREFIXES) {
+            if (!matchesAnyPrefix(to.path, [prefix])) continue
+            if (!(authStore as any)[feature]) {
+                throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
+            }
+        }
     }
 
     // ── Role-scoped route allowlist ────────────────────────────────────

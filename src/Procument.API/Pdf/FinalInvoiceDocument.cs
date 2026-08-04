@@ -11,7 +11,12 @@ namespace Procument.API.Pdf;
 /// </summary>
 public static class FinalInvoiceDocument
 {
+    /// <summary>Routes to the requested template; "modern" (the default) keeps the layout below.</summary>
     public static byte[] Generate(FinalInvoicePdfRequest req)
+        => PdfTemplateRenderer.TryRenderAlternate(req.Template, () => PdfDocModelBuilders.FromFinalInvoice(req))
+           ?? GenerateModern(req);
+
+    private static byte[] GenerateModern(FinalInvoicePdfRequest req)
     {
         var primary = req.PrimaryColor ?? "#312e81";
         var accent  = req.AccentColor  ?? "#6366f1";
@@ -204,7 +209,7 @@ public static class FinalInvoiceDocument
                         sRow.AutoItem().Element(c => PdfHelpers.DrawTotals(c,
                             req.Subtotal ?? 0, req.Tax ?? 0,
                             req.ShippingCost ?? 0, req.Other ?? 0,
-                            primary, sym, totalDiscount));
+                            primary, sym, totalDiscount, taxPercent: req.TaxPercent));
                     });
 
                     // Comments

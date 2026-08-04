@@ -18,11 +18,11 @@ public interface IQuoteService
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
     Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false);
     Task<bool> DeleteAsync(long id);
-    Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null);
-    Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin);
-    Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin);
-    Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin);
-    Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin);
+    Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null);
+    Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin, int[]? userBases = null);
+    Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin, int[]? userBases = null);
+    Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin, int[]? userBases = null);
+    Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin, int[]? userBases = null);
     Task<bool> UpdateYuanSettingsAsync(long quoteId, decimal? coefYuan, decimal? exchangeRateYuan);
 }
 
@@ -35,6 +35,46 @@ public class QuoteService : IQuoteService
     {
         _db = db;
         _permissionService = permissionService;
+    }
+
+    /// <summary>
+    /// Write-access predicate for a quote. Deliberately mirrors the read rules in GetAllAsync/GetByIdAsync:
+    /// an Expert who can see a quote can edit it. Kept in one place so read and write cannot drift apart again.
+    /// Note: promoting a quote to Accepted/Rejected is a separate, admin-only check in UpdateStatusAsync.
+    /// </summary>
+    private async Task<bool> CanEditQuoteAsync(Quote quote, long userId, bool isAdmin, int[]? userBases)
+    {
+        if (isAdmin) return true;              // Admin + SuperAdmin bypass
+        if (quote.UserId == userId) return true;  // the quote's own author
+
+        // Customer base — the same check the list and detail reads use.
+        var customerBase = quote.Customer?.Base
+            ?? await _db.Set<Quote>()
+                .Where(q => q.Id == quote.Id)
+                .Select(q => q.Customer != null ? q.Customer.Base : null)
+                .FirstOrDefaultAsync();
+        if (customerBase == null) return true;
+        if (userBases != null && userBases.Contains(customerBase.Value)) return true;
+
+        // Customer explicitly assigned to the user (UserCustomers).
+        var customerId = quote.CustomerId;
+        var assignedCustomerIds = await GetUserAssignedCustomerIdsAsync(userId);
+        if (assignedCustomerIds.Contains(customerId)) return true;
+
+        // Owner of the parent RFQ.
+        var rfqOwnerId = await _db.Set<RFQHeader>()
+            .Where(r => r.Id == quote.RFQId)
+            .Select(r => r.UserId)
+            .FirstOrDefaultAsync();
+        if (rfqOwnerId == userId) return true;
+
+        // Explicit grant on the quote itself or on its RFQ.
+        var quoteIdStr = quote.Id.ToString();
+        var rfqIdStr = quote.RFQId.ToString();
+        return await _db.Set<EntityPermission>().AnyAsync(p =>
+            p.UserId == userId &&
+            ((p.EntityName == "Quote" && p.EntityId == quoteIdStr) ||
+             (p.EntityName == "RFQ" && p.EntityId == rfqIdStr)));
     }
 
     public async Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null)
@@ -345,7 +385,7 @@ public class QuoteService : IQuoteService
         return true;
     }
 
-    public async Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null)
+    public async Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null)
     {
         var allowedStatuses = new[] { "Draft", "Sent", "Accepted", "Rejected" };
         if (!allowedStatuses.Contains(newStatus)) return false;
@@ -356,8 +396,7 @@ public class QuoteService : IQuoteService
         // Only admin can change to Accepted or Rejected
         if ((newStatus == "Accepted" || newStatus == "Rejected") && !isAdmin) return false;
 
-        // Non-admin can only change their own quotes
-        if (!isAdmin && quote.UserId != userId) return false;
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return false;
 
         quote.Status = newStatus;
         quote.ModifyAt = DateTime.UtcNow;
@@ -393,7 +432,7 @@ public class QuoteService : IQuoteService
         return true;
     }
 
-    public async Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin)
+    public async Task<QuoteResponse?> UpdateAsync(long id, CreateQuoteRequest request, long userId, bool isAdmin, int[]? userBases = null)
     {
         var quote = await _db.Set<Quote>()
             .Include(q => q.QuoteItems)
@@ -404,8 +443,7 @@ public class QuoteService : IQuoteService
         // Create a new quote instead.
         if (quote.Status == "Rejected") return null;
 
-        // Only owner or admin can edit
-        if (!isAdmin && quote.UserId != userId) return null;
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return null;
 
         // Remove old items
         _db.Set<QuoteItem>().RemoveRange(quote.QuoteItems);
@@ -451,18 +489,14 @@ public class QuoteService : IQuoteService
         return await GetByIdAsync(quote.Id, userId, true);
     }
 
-    public async Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin)
+    public async Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin, int[]? userBases = null)
     {
         var quote = await _db.Set<Quote>()
             .Include(q => q.QuoteItems)
             .FirstOrDefaultAsync(q => q.Id == quoteId);
         if (quote == null) return false;
 
-        if (!isAdmin && quote.UserId != userId)
-        {
-            var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
-            if (!hasPermission) return false;
-        }
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return false;
 
         var orderMap = items.ToDictionary(i => i.Id, i => i.SortOrder);
         foreach (var qi in quote.QuoteItems)
@@ -575,14 +609,13 @@ public class QuoteService : IQuoteService
         };
     }
 
-    public async Task<bool> UpdateQuoteTypeAsync(long id, int? newType,string? additional, long userId, bool isAdmin)
+    public async Task<bool> UpdateQuoteTypeAsync(long id, int? newType,string? additional, long userId, bool isAdmin, int[]? userBases = null)
     {
-        
+
         var quote = await _db.Set<Quote>().FindAsync(id);
         if (quote == null) return false;
 
-        // Only owner or admin can change status
-        if (!isAdmin && quote.UserId != userId) return false;
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return false;
 
         quote.Type = newType;
         quote.TypeAdditional = additional;
@@ -591,19 +624,15 @@ public class QuoteService : IQuoteService
         return true;
     }
 
-    public async Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin)
+    public async Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin, int[]? userBases = null)
     {
         var quote = await _db.Set<Quote>()
             .Include(q => q.RFQ)
             .FirstOrDefaultAsync(q => q.Id == quoteId);
-        
+
         if (quote == null || quote.RFQ == null) return false;
 
-        if (!isAdmin && quote.UserId != userId)
-        {
-            var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", quote.RFQId.ToString(), "Edit");
-            if (!hasPermission) return false;
-        }
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return false;
 
         quote.RFQ.ExType = exType;
         quote.RFQ.ModifyAt = DateTime.UtcNow;

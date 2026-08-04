@@ -247,6 +247,11 @@ const conditionOptions = ['NE', 'OH', 'SV', 'AR', 'RP', 'NS', 'FN', 'IN']
 const locationOptions = ['Shop', 'Warehouse']
 
 const item = ref<any>(null)
+
+// Show the part number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(item.value?.partNumberName))
+
 const serials = ref<any[]>([])
 const loading = ref(false)
 const saving = ref(false)

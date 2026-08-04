@@ -385,6 +385,10 @@ const primaryTrack = computed(() =>
   allTracks.value.find(t => t.id === trackId.value) ?? null
 )
 
+// Show the track number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(primaryTrack.value?.trackNumber))
+
 // All tracks in the same shipment group (same trackNumber + warehouseId)
 const groupTracks = computed(() => {
   if (!primaryTrack.value) return []

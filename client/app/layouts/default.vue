@@ -317,6 +317,9 @@
 
     <v-main>
       <v-container fluid class="main-content">
+        <!-- Trail for nested routes (/purchase-orders/12); hidden on top-level pages -->
+        <AppBreadcrumbs />
+
         <slot />
 
         <!-- Rejection Modal on Login -->
@@ -404,7 +407,7 @@ const allNavItems = [
     children:[
       { title: 'Payment Withdraw', icon: 'mdi-cash-multiple', to: '/payment', paymentMenu: true },
       { title: 'Payment Deposit', icon: 'mdi-cash-plus', to: '/payment/customer-payments', paymentMenu: true },
-      { title: 'Wallets', icon: 'mdi-wallet-outline', to: '/payment-control', paymentMenu: true, paymentOnly: true },
+      { title: 'Wallets', icon: 'mdi-wallet-outline', to: '/payment-control', walletMenu: true },
     ]
   },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', ilsMenu: true, ilsOnly: true },
@@ -473,9 +476,9 @@ const navItems = computed(() => {
       return allowed.has(item.to) || (item.children && item.children.some((c: any) => allowed.has(c.to)))
     }
 
-    // If user is strictly in the Payment role, they only see paymentOnly items
+    // The Payment role only ever sees Wallets, and only if granted walletMenu.
     if (authStore.user?.role === 'Payment') {
-      return item.paymentOnly === true
+      return item.walletMenu === true && authStore.walletMenu
     }
 
     // inventoryOnly items: only visible to Inventory role (handled at the start of filterItem)
@@ -483,6 +486,7 @@ const navItems = computed(() => {
 
     // ── Gated menu flags — checked against FeaturePermissions lists ──────────
     if (item.paymentMenu      && !authStore.paymentMenu)      return false
+    if (item.walletMenu       && !authStore.walletMenu)       return false
     if (item.shippingMenu     && !authStore.shippingMenu)     return false
     if (item.ilsMenu          && !authStore.ilsMenu)          return false
     if (item.capList          && !authStore.capList)          return false
@@ -491,8 +495,6 @@ const navItems = computed(() => {
     if (item.actionCenter     && !authStore.actionCenter)     return false
     if (item.taskManager      && !authStore.taskManager)      return false
 
-    // Payment-only items (Wallets): further restricted to Payment role / SuperAdmin
-    if (item.paymentOnly) return authStore.isPayment
     // ILS-only pages: only for users with ilsMenu access
     if (item.ilsOnly && !authStore.ilsMenu) return false
     // Admin-only pages: only for Admin/SuperAdmin

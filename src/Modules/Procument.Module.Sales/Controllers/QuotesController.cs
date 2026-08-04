@@ -112,7 +112,7 @@ public class QuotesController : ControllerBase
         var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);
         if (quote == null) return NotFound();
 
-        var success = await _quoteService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.RejectionNote);
+        var success = await _quoteService.UpdateStatusAsync(id, request.Status, userId, isAdmin, request.RejectionNote, userBases);
         if (!success) return BadRequest("Status change not allowed.");
 
         // Create notifications
@@ -246,7 +246,7 @@ public class QuotesController : ControllerBase
             return StatusCode(502, new { message = $"Failed to send email: {ex.Message}" });
         }
 
-        var success = await _quoteService.UpdateStatusAsync(id, "Sent", userId, isAdmin, null);
+        var success = await _quoteService.UpdateStatusAsync(id, "Sent", userId, isAdmin, null, userBases);
         if (!success) return BadRequest(new { message = "Status change not allowed." });
 
         await NotifyAdminsQuoteSentAsync(id, quote.QuoteNumber);
@@ -306,7 +306,7 @@ public class QuotesController : ControllerBase
     public async Task<ActionResult<QuoteResponse>> Update(long id, [FromBody] CreateQuoteRequest request)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.UpdateAsync(id, request, userId, isAdmin);
+        var result = await _quoteService.UpdateAsync(id, request, userId, isAdmin, userBases);
         return result == null ? NotFound() : Ok(result);
     }
 
@@ -316,7 +316,7 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> UpdateQuoteType(long id, [FromBody] QuoteTypeDTO request)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var success = await _quoteService.UpdateQuoteTypeAsync(id, request.QuoteType,request.TypeAdditional, userId, isAdmin);
+        var success = await _quoteService.UpdateQuoteTypeAsync(id, request.QuoteType,request.TypeAdditional, userId, isAdmin, userBases);
         return success ? Ok() : NotFound();
     }
 
@@ -371,7 +371,7 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> UpdateItemsOrder(long id, [FromBody] UpdateItemsOrderRequest request)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var ok = await _quoteService.UpdateItemsOrderAsync(id, request.Items, userId, isAdmin);
+        var ok = await _quoteService.UpdateItemsOrderAsync(id, request.Items, userId, isAdmin, userBases);
         return ok ? Ok() : NotFound();
     }
 
@@ -381,7 +381,7 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> UpdateRFQExType(long id, [FromBody] int? exType)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var ok = await _quoteService.UpdateRFQExTypeAsync(id, exType, userId, isAdmin);
+        var ok = await _quoteService.UpdateRFQExTypeAsync(id, exType, userId, isAdmin, userBases);
         return ok ? Ok() : NotFound();
     }
 

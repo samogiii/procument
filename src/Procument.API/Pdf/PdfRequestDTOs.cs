@@ -17,6 +17,9 @@ public class InvoicePdfRequest
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
 
+    /// <summary>Visual template: "modern" (default), "classic" or "standard".</summary>
+    public string? Template { get; set; }
+
     // Document meta
     public string? InvoiceNumber { get; set; }
     public string? InvoiceDate { get; set; }
@@ -54,6 +57,8 @@ public class InvoicePdfRequest
     // Totals
     public decimal? Subtotal { get; set; }
     public decimal? Tax { get; set; }
+    /// <summary>Tax rate the Tax amount was computed from — printed as "Tax (13%)" when set.</summary>
+    public decimal? TaxPercent { get; set; }
     public decimal? Shipping { get; set; }
     public decimal? Other { get; set; }
 
@@ -100,6 +105,9 @@ public class PurchaseOrderPdfRequest
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
 
+    /// <summary>Visual template: "modern" (default), "classic" or "standard".</summary>
+    public string? Template { get; set; }
+
     // Document meta
     public string? PoNumber { get; set; }
     public string? PoDate { get; set; }
@@ -125,6 +133,13 @@ public class PurchaseOrderPdfRequest
     public string? DeliverToAddress { get; set; }
     public string? DeliverToPhone { get; set; }
     public string? DeliverToEmail { get; set; }
+
+    // FFW (freight forwarder) — same shape as Deliver To. Entirely optional: the block is
+    // omitted from the PDF unless at least one of these fields is filled in.
+    public string? FfwName { get; set; }
+    public string? FfwAddress { get; set; }
+    public string? FfwPhone { get; set; }
+    public string? FfwEmail { get; set; }
 
     // Shipping Info
     public string? ShippingMethod { get; set; }
@@ -179,6 +194,9 @@ public class FinalInvoicePdfRequest
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
 
+    /// <summary>Visual template: "modern" (default), "classic" or "standard".</summary>
+    public string? Template { get; set; }
+
     // Document meta
     public string? InvoiceNumber { get; set; }
     public string? InvoiceDate { get; set; }
@@ -221,6 +239,8 @@ public class FinalInvoicePdfRequest
     // Totals
     public decimal? Subtotal { get; set; }
     public decimal? Tax { get; set; }
+    /// <summary>Tax rate the Tax amount was computed from — printed as "Tax (13%)" when set.</summary>
+    public decimal? TaxPercent { get; set; }
     public decimal? Other { get; set; }
 
     // Text
@@ -294,6 +314,8 @@ public class PackingListPdfRequest
 public class PackingListPdfItem
 {
     public string? PartNumber { get; set; }
+    /// <summary>Alt part number. When set, this is the effective PN shown to the customer.</summary>
+    public string? Alt { get; set; }
     public string? Description { get; set; }
     public int Qty { get; set; }
     public string? Condition { get; set; }

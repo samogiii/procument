@@ -43,7 +43,7 @@ public class PaymentBoxesController : ControllerBase
     [Authorize(Roles = "SuperAdmin,Admin")]
     public async Task<ActionResult<PaymentBoxSummaryResponse>> RenameBox(long id, [FromBody] RenamePaymentBoxRequest req)
     {
-        var result = await _service.RenameBoxAsync(id, req.Name);
+        var result = await _service.RenameBoxAsync(id, req);
         if (result == null) return NotFound();
         return Ok(result);
     }

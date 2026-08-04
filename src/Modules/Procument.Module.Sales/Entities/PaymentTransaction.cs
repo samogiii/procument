@@ -17,6 +17,8 @@ public class PaymentTransaction
     public long? PaymentRequestId { get; set; }      // RP reference
     public string? Notes { get; set; }
     public bool IsAuto { get; set; }                 // true = system-created
+    /// <summary>Wallet-side tag, "B1".."B7". Unrelated to Customer.Base access control.</summary>
+    public string? Base { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Multi-currency support

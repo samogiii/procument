@@ -12,7 +12,12 @@ namespace Procument.API.Pdf;
 /// </summary>
 public static class PurchaseOrderDocument
 {
+    /// <summary>Routes to the requested template; "modern" (the default) keeps the layout below.</summary>
     public static byte[] Generate(PurchaseOrderPdfRequest req)
+        => PdfTemplateRenderer.TryRenderAlternate(req.Template, () => PdfDocModelBuilders.FromPurchaseOrder(req))
+           ?? GenerateModern(req);
+
+    private static byte[] GenerateModern(PurchaseOrderPdfRequest req)
     {
         var primary = req.PrimaryColor ?? "#92400e";
         var accent  = req.AccentColor  ?? "#d97706";
@@ -69,11 +74,16 @@ public static class PurchaseOrderDocument
                             string.IsNullOrEmpty(req.VendorPhone) ? null : $"Tel: {req.VendorPhone}",
                             string.IsNullOrEmpty(req.VendorEmail) ? null : $"Email: {req.VendorEmail}",
                             accent);
+                        // Ship To — the FFW block is appended inside this same box (below a blank
+                        // line) so the three columns keep identical widths. Nothing is added when
+                        // every FFW field is empty.
                         PdfHelpers.DrawAddressBox(row.RelativeItem(), "Ship To",
                             req.DeliverToName, req.DeliverToAddress,
                             string.IsNullOrEmpty(req.DeliverToPhone) ? null : $"Tel: {req.DeliverToPhone}",
                             string.IsNullOrEmpty(req.DeliverToEmail) ? null : $"Email: {req.DeliverToEmail}",
-                            accent);
+                            accent,
+                            HasFfw(req) ? "FFW" : null,
+                            FfwLines(req));
                     });
 
                     // Items table
@@ -159,6 +169,22 @@ public static class PurchaseOrderDocument
 
         return doc.GeneratePdf();
     }
+
+    /// <summary>True when the freight-forwarder block carries any content worth printing.</summary>
+    internal static bool HasFfw(PurchaseOrderPdfRequest req)
+        => !string.IsNullOrWhiteSpace(req.FfwName)
+        || !string.IsNullOrWhiteSpace(req.FfwAddress)
+        || !string.IsNullOrWhiteSpace(req.FfwPhone)
+        || !string.IsNullOrWhiteSpace(req.FfwEmail);
+
+    /// <summary>FFW lines in display order; empty fields are dropped by the caller.</summary>
+    internal static IEnumerable<string?> FfwLines(PurchaseOrderPdfRequest req) =>
+    [
+        req.FfwName,
+        req.FfwAddress,
+        string.IsNullOrWhiteSpace(req.FfwPhone) ? null : $"Tel: {req.FfwPhone}",
+        string.IsNullOrWhiteSpace(req.FfwEmail) ? null : $"Email: {req.FfwEmail}"
+    ];
 
     private static void ComposeItemsTable(IContainer container, PurchaseOrderPdfRequest req,
         string primary, string sym)

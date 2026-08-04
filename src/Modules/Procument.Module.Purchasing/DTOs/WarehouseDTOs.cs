@@ -112,6 +112,8 @@ public class ShippingTrackResponse
     public long POItemId { get; set; }
     public long POId { get; set; }
     public string? PONumber { get; set; }
+    /// <summary>Supplier the parent PO buys from — shown on the Shipping list.</summary>
+    public string? SupplierName { get; set; }
     public string? PartNumberName { get; set; }
     /// <summary>Original ordered quantity from the PO item — used as the default Expected Qty.</summary>
     public int PoItemQty { get; set; }

@@ -471,6 +471,11 @@ const authStore = useAuthStore()
 const { statusColor } = useStatusColor()
 
 const invoice = ref<any>({})
+
+// Show the sales order number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(invoice.value?.invoiceNumber))
+
 const procurementId = ref<number | null>(null)
 const documentsRef = ref<any>(null)
 const showPermissions = ref(false)

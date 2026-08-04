@@ -546,6 +546,102 @@
       </v-tabs-window>
     </v-card>
 
+    <!-- ══ Company preset picker — asked once, before the PO is created ══
+         The preset decides which of our companies buys: it drives the payment wallet the PO is
+         paid from and the company branding/bank block on the PO & Payment Request PDFs. ══ -->
+    <v-dialog v-model="showPresetPickerDialog" max-width="560" persistent>
+      <v-card class="glass-card">
+        <v-card-title class="d-flex align-center pa-4 gap-2">
+          <v-icon icon="mdi-domain" color="primary" />
+          Create Purchase Order
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <p class="text-body-2 text-medium-emphasis mb-1">
+            Supplier: <strong>{{ pendingCreate.supplierName }}</strong>
+          </p>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            {{ pendingSelectedCount }} item(s) selected. Which company is this PO placed from?
+            Optional — you can create the PO without one.
+          </p>
+
+          <v-select
+            v-model="pendingCreate.presetId"
+            :items="presetOptions"
+            item-title="name"
+            item-value="id"
+            label="Company Preset (optional)"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-domain"
+            :loading="presetsLoading"
+            clearable
+            hide-details
+            class="mb-3"
+          />
+
+          <!-- Only ask for a wallet when the preset actually has more than one -->
+          <v-select
+            v-if="presetWalletOptions.length > 1"
+            v-model="pendingCreate.walletId"
+            :items="presetWalletOptions"
+            item-title="label"
+            item-value="id"
+            label="Pay from Wallet"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-wallet-outline"
+            clearable
+            hide-details
+            class="mb-3"
+          />
+
+          <!-- /companypresets is Admin/SuperAdmin/Expert only — other roles keep the old flow -->
+          <v-alert
+            v-if="!presetsLoading && presetOptions.length === 0"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="text-caption"
+          >
+            No company presets available for your role — the PO will be created without one.
+          </v-alert>
+          <v-alert
+            v-else-if="pendingCreate.presetId && presetWalletOptions.length === 0"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="text-caption"
+          >
+            This preset has no payment wallet yet, so the choice cannot be stored on the PO.
+            Create a wallet for it in Payment Control first.
+          </v-alert>
+          <v-alert
+            v-else-if="presetWalletOptions.length === 1"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="text-caption"
+          >
+            Paid from <strong>{{ presetWalletOptions[0].label }}</strong>
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-btn variant="text" @click="cancelCreate">Cancel</v-btn>
+          <v-spacer />
+          <v-btn
+            color="success"
+            variant="flat"
+            prepend-icon="mdi-plus"
+            :loading="creatingPo"
+            @click="confirmCreate"
+          >
+            Create PO
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- ══ Wallet picker dialog — HIDDEN: bank details now come from company presets ══ -->
     <v-dialog v-if="false" v-model="showWalletPickerDialog" max-width="500" persistent>
       <v-card class="glass-card">
@@ -619,12 +715,48 @@ const activeTab = ref('orders')
 const purchaseOrders = ref<any[]>([])
 const saving = ref(false)
 
-// ── Wallet picker (before creating PO) ───────────────────────────────────────
+// ── Company preset / wallet picker (before creating PO) ──────────────────────
 const walletOptions = ref<{ id: number; label: string; company: string; currency: string }[]>([])
 const showWalletPickerDialog = ref(false)
+const showPresetPickerDialog = ref(false)
 const creatingPo = ref(false)
-const pendingCreate = reactive<{ supplierName: string; group: any[]; walletId: number | null }>({
-  supplierName: '', group: [], walletId: null,
+const pendingCreate = reactive<{ supplierName: string; group: any[]; walletId: number | null; presetId: number | null }>({
+  supplierName: '', group: [], walletId: null, presetId: null,
+})
+
+// ── Company presets — the "which of our companies is buying" choice ──
+const apiPresets = ref<any[]>([])
+const presetsLoading = ref(false)
+
+async function loadPresets() {
+  presetsLoading.value = true
+  try { apiPresets.value = await api.get<any[]>('/companypresets') }
+  catch { apiPresets.value = [] }
+  finally { presetsLoading.value = false }
+}
+
+// Same rule as the PO PDF generator: admins pick any preset, everyone else is on Base 105.
+const presetOptions = computed(() => {
+  const list = apiPresets.value.filter((p: any) => p.isActive !== false)
+  return isAdmin.value ? list : list.filter((p: any) => p.sortOrder === 105)
+})
+
+const selectedPresetName = computed(
+  () => apiPresets.value.find((p: any) => p.id === pendingCreate.presetId)?.name || ''
+)
+
+// Wallets belonging to the chosen preset (simple-list exposes the preset by company name).
+const presetWalletOptions = computed(() => {
+  if (!selectedPresetName.value) return []
+  return walletOptions.value.filter(w => w.company === selectedPresetName.value)
+})
+
+const pendingSelectedCount = computed(() => getSelectedFromGroup(pendingCreate.group).length)
+
+// Reset the wallet whenever the preset changes; auto-pick when there is only one.
+watch(() => pendingCreate.presetId, () => {
+  const wallets = presetWalletOptions.value
+  pendingCreate.walletId = wallets.length === 1 ? wallets[0].id : null
 })
 
 async function loadWallets() {
@@ -632,7 +764,8 @@ async function loadWallets() {
     const list = await api.get<any[]>('/payment-boxes/simple-list')
     walletOptions.value = list.map((w: any) => ({
       id: w.id,
-      label: `${w.companyName} — ${w.name} (${w.currency})`,
+      // Wallets are identified by their own name, not the company preset behind them.
+      label: `${w.name} (${w.currency})`,
       company: w.companyName,
       currency: w.currency,
     }))
@@ -752,7 +885,7 @@ onMounted(() => {
   loadPurchaseOrders()
   loadItems()
   loadWallets()
-  
+  loadPresets()
 })
 
 async function loadItems() {
@@ -824,19 +957,22 @@ async function loadPurchaseOrders() {
   // }
 }
 
-// ── Create PO from selected items — wallet picker hidden; creates directly ──
+// ── Create PO from selected items — ask which company preset to buy from first ──
 function createPOFromGroup(supplierName: string, group: any[]) {
   const selected = getSelectedFromGroup(group)
   if (selected.length === 0) return
   pendingCreate.supplierName = supplierName
   pendingCreate.group = group
   pendingCreate.walletId = null
-  // Skip wallet picker dialog — proceed directly to create
-  confirmCreate()
+  // Default to Base 105, falling back to the only preset the user is allowed to use.
+  const options = presetOptions.value
+  pendingCreate.presetId = (options.find((p: any) => p.sortOrder === 105) || options[0])?.id ?? null
+  showPresetPickerDialog.value = true
 }
 
 function cancelCreate() {
   showWalletPickerDialog.value = false
+  showPresetPickerDialog.value = false
 }
 
 async function confirmCreate() {
@@ -848,11 +984,26 @@ async function confirmCreate() {
       supplierId: selected[0].supplierId || 0,
       invoiceId: selected[0].invoiceId || null,
       poItemIds: selected.map((item: any) => item.id),
+      // The preset is stored through its payment wallet — the backend resolves it when no
+      // explicit wallet is given, so the PO knows which company pays and prints on the PDF.
+      companyPresetId: pendingCreate.presetId || null,
       preferredWalletId: pendingCreate.walletId || null,
     }
     const result = await api.post<any>('/purchase-orders', payload)
-    showSnack(`PO ${result.poNumber} created for ${pendingCreate.supplierName}!`, 'success')
+    if (pendingCreate.presetId && !result.companyPresetId) {
+      showSnack(
+        `PO ${result.poNumber} created, but "${selectedPresetName.value}" has no payment wallet — company not stored on the PO.`,
+        'warning'
+      )
+    } else {
+      const company = result.companyPresetName || selectedPresetName.value
+      showSnack(
+        `PO ${result.poNumber} created for ${pendingCreate.supplierName}${company ? ` (${company})` : ''}!`,
+        'success'
+      )
+    }
     showWalletPickerDialog.value = false
+    showPresetPickerDialog.value = false
     await loadItems()
     await loadPurchaseOrders()
   } catch (e: any) {

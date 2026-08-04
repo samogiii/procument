@@ -123,8 +123,8 @@
                   <div class="d-flex align-center gap-2">
                     <v-icon icon="mdi-bank-outline" color="primary" size="24" />
                     <div>
-                      <div class="text-subtitle-1 font-weight-bold">{{ box.name || box.companyPresetName }}</div>
-                      <div v-if="box.name" class="text-caption text-medium-emphasis">{{ box.companyPresetName }}</div>
+                      <div class="text-subtitle-1 font-weight-bold">{{ boxLabel(box) }}</div>
+                      <div v-if="box.name && box.companyPresetName" class="text-caption text-medium-emphasis">{{ box.companyPresetName }}</div>
                     </div>
                   </div>
                   <div class="d-flex align-center gap-1">
@@ -158,10 +158,11 @@
                   </div>
                 </div>
 
-                <div class="text-center my-4">
-                  <div class="text-caption text-medium-emphasis mb-1">Current Balance</div>
+                <!-- Remaining balance — right-aligned and oversized so it reads at a glance -->
+                <div class="text-right my-4">
+                  <div class="text-caption text-medium-emphasis text-uppercase mb-1">Remaining Balance</div>
                   <div
-                    class="text-h4 font-weight-bold"
+                    class="wallet-balance-amount font-weight-bold"
                     :class="box.balance >= 0 ? 'text-success' : 'text-error'"
                   >
                     {{ currencySymbol(box.currency) }}{{ formatPrice(box.balance) }}
@@ -218,7 +219,16 @@
 
       <!-- ── All Transactions Tab ── -->
       <v-tabs-window-item value="ledger">
-        <div class="d-flex justify-end mb-3">
+        <div class="d-flex justify-end gap-2 mb-3">
+          <v-btn
+            v-if="hasAnyFilter"
+            variant="text"
+            color="error"
+            prepend-icon="mdi-filter-off-outline"
+            @click="clearFilters"
+          >
+            Clear Filters
+          </v-btn>
           <v-btn
             color="success"
             variant="tonal"
@@ -231,11 +241,172 @@
         <v-card class="glass-card" rounded="lg">
           <v-data-table
             :headers="ledgerHeaders"
-            :items="allTransactions"
+            :items="displayedTransactions"
             :loading="ledgerLoading"
             density="comfortable"
             :items-per-page="100"
           >
+            <!-- ── Excel-style filter + sort headers ── -->
+            <template #header.accountName="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="accountName"
+                :label="column.title"
+                :options="cfOptions.accountName"
+                :selected="colFilter.selected['accountName'] || new Set()"
+                :search="colFilter.search['accountName'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('accountName', v)"
+                @select-all="() => colFilter.selectAll('accountName', cfOptions.accountName)"
+                @clear-all="() => colFilter.clearAll('accountName')"
+                @update:search="(v) => colFilter.search['accountName'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.deposit="{ column, toggleSort, isSorted, sortBy }">
+              <ColRangeFilterMenu
+                col-key="deposit"
+                :label="column.title"
+                :min="rangeFilter.get('deposit').min"
+                :max="rangeFilter.get('deposit').max"
+                :bounds="depositBounds"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @update:min="(v) => rangeFilter.setMin('deposit', v)"
+                @update:max="(v) => rangeFilter.setMax('deposit', v)"
+                @select-all="() => rangeFilter.setBounds('deposit', depositBounds?.lo ?? null, depositBounds?.hi ?? null)"
+                @clear-all="() => rangeFilter.clear('deposit')"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.withdraw="{ column, toggleSort, isSorted, sortBy }">
+              <ColRangeFilterMenu
+                col-key="withdraw"
+                :label="column.title"
+                :min="rangeFilter.get('withdraw').min"
+                :max="rangeFilter.get('withdraw').max"
+                :bounds="withdrawBounds"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @update:min="(v) => rangeFilter.setMin('withdraw', v)"
+                @update:max="(v) => rangeFilter.setMax('withdraw', v)"
+                @select-all="() => rangeFilter.setBounds('withdraw', withdrawBounds?.lo ?? null, withdrawBounds?.hi ?? null)"
+                @clear-all="() => rangeFilter.clear('withdraw')"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.balance="{ column, toggleSort, isSorted, sortBy }">
+              <ColRangeFilterMenu
+                col-key="balance"
+                :label="column.title"
+                :min="rangeFilter.get('balance').min"
+                :max="rangeFilter.get('balance').max"
+                :bounds="balanceBounds"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @update:min="(v) => rangeFilter.setMin('balance', v)"
+                @update:max="(v) => rangeFilter.setMax('balance', v)"
+                @select-all="() => rangeFilter.setBounds('balance', balanceBounds?.lo ?? null, balanceBounds?.hi ?? null)"
+                @clear-all="() => rangeFilter.clear('balance')"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.fromName="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="fromName"
+                :label="column.title"
+                :options="cfOptions.fromName"
+                :selected="colFilter.selected['fromName'] || new Set()"
+                :search="colFilter.search['fromName'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('fromName', v)"
+                @select-all="() => colFilter.selectAll('fromName', cfOptions.fromName)"
+                @clear-all="() => colFilter.clearAll('fromName')"
+                @update:search="(v) => colFilter.search['fromName'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.toName="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="toName"
+                :label="column.title"
+                :options="cfOptions.toName"
+                :selected="colFilter.selected['toName'] || new Set()"
+                :search="colFilter.search['toName'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('toName', v)"
+                @select-all="() => colFilter.selectAll('toName', cfOptions.toName)"
+                @clear-all="() => colFilter.clearAll('toName')"
+                @update:search="(v) => colFilter.search['toName'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.piNumber="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="piNumber"
+                :label="column.title"
+                :options="cfOptions.piNumber"
+                :selected="colFilter.selected['piNumber'] || new Set()"
+                :search="colFilter.search['piNumber'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('piNumber', v)"
+                @select-all="() => colFilter.selectAll('piNumber', cfOptions.piNumber)"
+                @clear-all="() => colFilter.clearAll('piNumber')"
+                @update:search="(v) => colFilter.search['piNumber'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.prNumber="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="prNumber"
+                :label="column.title"
+                :options="cfOptions.prNumber"
+                :selected="colFilter.selected['prNumber'] || new Set()"
+                :search="colFilter.search['prNumber'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('prNumber', v)"
+                @select-all="() => colFilter.selectAll('prNumber', cfOptions.prNumber)"
+                @clear-all="() => colFilter.clearAll('prNumber')"
+                @update:search="(v) => colFilter.search['prNumber'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.base="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="base"
+                :label="column.title"
+                :options="cfOptions.base"
+                :all-options="allBaseOptions"
+                :selected="colFilter.selected['base'] || new Set()"
+                :search="colFilter.search['base'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('base', v)"
+                @select-all="() => colFilter.selectAll('base', cfOptions.base)"
+                @clear-all="() => colFilter.clearAll('base')"
+                @update:search="(v) => colFilter.search['base'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <!-- Base -->
+            <template #item.base="{ item }">
+              <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+
             <!-- Account -->
             <template #item.accountName="{ item }">
               <v-chip
@@ -243,7 +414,7 @@
                 color="primary"
                 variant="tonal"
                 class="cursor-pointer"
-                @click="navigateTo('/payment-control/' + getBoxId(item.accountName))"
+                @click="navigateTo('/payment-control/' + item.boxId)"
               >
                 {{ item.accountName }}
               </v-chip>
@@ -346,6 +517,31 @@
                 @click="navigateTo(`/payment-control/${item.boxId}?edit=${item.id}`)"
               />
             </template>
+
+            <!-- Totals footer — sums the rows currently shown (filters applied) -->
+            <template #body.append="{ columns }">
+              <tr class="tx-total-row">
+                <td v-for="col in columns" :key="String(col.key ?? col.title)">
+                  <template v-if="col.key === 'accountName'">
+                    <span class="text-caption text-medium-emphasis">
+                      Totals · {{ displayedTransactions.length }} row{{ displayedTransactions.length === 1 ? '' : 's' }}
+                    </span>
+                  </template>
+                  <template v-else-if="col.key === 'deposit'">
+                    <div v-if="depositTotals.length === 0" class="text-medium-emphasis">—</div>
+                    <div v-for="t in depositTotals" :key="t.currency" class="text-success font-weight-bold text-no-wrap">
+                      +{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+                    </div>
+                  </template>
+                  <template v-else-if="col.key === 'withdraw'">
+                    <div v-if="withdrawTotals.length === 0" class="text-medium-emphasis">—</div>
+                    <div v-for="t in withdrawTotals" :key="t.currency" class="text-error font-weight-bold text-no-wrap">
+                      -{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+                    </div>
+                  </template>
+                </td>
+              </tr>
+            </template>
           </v-data-table>
         </v-card>
       </v-tabs-window-item>
@@ -371,9 +567,10 @@
             :items="presets"
             item-title="name"
             item-value="id"
-            label="Company Preset"
+            label="Company Preset (optional)"
             variant="outlined"
             density="comfortable"
+            clearable
             class="mb-3"
           />
           <v-select
@@ -480,26 +677,43 @@
       </v-card>
     </v-dialog>
 
-    <!-- Rename Wallet Dialog -->
-    <v-dialog v-model="renameDialog" max-width="420">
+    <!-- Edit Wallet Dialog -->
+    <v-dialog v-model="renameDialog" max-width="460">
       <v-card rounded="lg">
-        <v-card-title class="pa-4 text-h6">Rename Wallet</v-card-title>
+        <v-card-title class="pa-4 text-h6">Edit Wallet</v-card-title>
         <v-divider />
         <v-card-text class="pa-4">
           <v-text-field
             v-model="renameValue"
-            label="New Wallet Name"
+            label="Wallet Name"
             variant="outlined"
             density="comfortable"
             autofocus
+            class="mb-3"
             prepend-inner-icon="mdi-pencil-outline"
             @keyup.enter="doRename"
           />
+          <v-autocomplete
+            v-model="renamePresetId"
+            :items="presets"
+            item-title="name"
+            item-value="id"
+            label="Company Preset"
+            placeholder="No company"
+            variant="outlined"
+            density="comfortable"
+            clearable
+            hide-details
+            prepend-inner-icon="mdi-domain"
+          />
+          <div class="text-caption text-medium-emphasis mt-2">
+            Clear this field to detach the wallet from any company.
+          </div>
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="renameDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="renaming" :disabled="!renameValue.trim()" @click="doRename">Rename</v-btn>
+          <v-btn color="primary" :loading="renaming" :disabled="!renameValue.trim()" @click="doRename">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -513,7 +727,7 @@
           <v-autocomplete
             v-model="exportForm.boxIds"
             :items="boxes"
-            :item-title="(b) => `${b.companyPresetName} (${b.currency})`"
+            :item-title="(b) => `${boxLabel(b)} (${b.currency})`"
             item-value="id"
             label="Wallets (leave empty for all)"
             variant="outlined"
@@ -573,7 +787,7 @@
       <v-card rounded="lg">
         <v-card-title class="pa-4 text-h6">Delete Wallet?</v-card-title>
         <v-card-text class="pa-4">
-          Are you sure you want to delete the <strong>{{ deleteTarget?.companyPresetName }}</strong> wallet and all its transactions?
+          Are you sure you want to delete the <strong>{{ deleteTarget ? boxLabel(deleteTarget) : '' }}</strong> wallet and all its transactions?
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
@@ -637,6 +851,7 @@ interface AllTransactionRow {
   balance: number
   txCurrency: string | null
   exchangeRate: number | null
+  base: string | null
 }
 
 interface CompanyPreset {
@@ -686,6 +901,7 @@ const form = ref({
 const renameDialog = ref(false)
 const renameTarget = ref<PaymentBox | null>(null)
 const renameValue = ref('')
+const renamePresetId = ref<number | null>(null)
 const renaming = ref(false)
 
 // Edit bank details state
@@ -729,7 +945,11 @@ async function saveBankDetails() {
 
 function openRename(box: PaymentBox) {
   renameTarget.value = box
-  renameValue.value = box.name || box.companyPresetName
+  renameValue.value = box.name || boxLabel(box)
+  // Preset-less wallets sit on a hidden placeholder, which the picker never lists — show them as empty.
+  renamePresetId.value = box.companyPresetName ? box.companyPresetId : null
+  // Admins can reach this dialog but don't preload presets on mount.
+  if (presets.value.length === 0) loadPresets()
   renameDialog.value = true
 }
 
@@ -737,7 +957,10 @@ async function doRename() {
   if (!renameTarget.value || !renameValue.value.trim()) return
   renaming.value = true
   try {
-    const updated = await api.patch<PaymentBox>(`/payment-boxes/${renameTarget.value.id}/rename`, { name: renameValue.value.trim() })
+    const updated = await api.patch<PaymentBox>(`/payment-boxes/${renameTarget.value.id}/rename`, {
+      name: renameValue.value.trim(),
+      companyPresetId: renamePresetId.value ?? null,
+    })
     const idx = boxes.value.findIndex(b => b.id === renameTarget.value!.id)
     if (idx >= 0) boxes.value[idx] = updated
     renameDialog.value = false
@@ -779,18 +1002,100 @@ const totalBalanceByCurrency = computed(() => {
 
 const ledgerHeaders = [
   { title: 'Account', key: 'accountName', sortable: true },
-  { title: 'Deposit', key: 'deposit', sortable: false, width: '120px' },
-  { title: 'Withdraw', key: 'withdraw', sortable: false, width: '120px' },
-  { title: 'From', key: 'fromName', sortable: false },
-  { title: 'To', key: 'toName', sortable: false },
-  { title: 'PI#', key: 'piNumber', sortable: false, width: '100px' },
-  { title: 'PR#', key: 'prNumber', sortable: false, width: '100px' },
-  { title: 'Balance', key: 'balance', sortable: false, width: '120px' },
+  { title: 'Deposit', key: 'deposit', sortable: true, width: '120px' },
+  { title: 'Withdraw', key: 'withdraw', sortable: true, width: '120px' },
+  { title: 'From', key: 'fromName', sortable: true },
+  { title: 'To', key: 'toName', sortable: true },
+  { title: 'PI#', key: 'piNumber', sortable: true, width: '100px' },
+  { title: 'PR#', key: 'prNumber', sortable: true, width: '100px' },
+  { title: 'Base', key: 'base', sortable: true, width: '90px' },
+  { title: 'Balance', key: 'balance', sortable: true, width: '120px' },
   { title: '', key: 'actions', sortable: false, width: '50px' },
 ]
 
-function getBoxId(accountName: string) {
-  return boxes.value.find(b => b.companyPresetName === accountName)?.id
+// ── Excel-style column filters (All Transactions tab) ─────────────────────────
+const colFilter = useColFilter()
+const rangeFilter = useRangeFilter()
+
+/** Value-list columns, each paired with the label rendered in its cell. */
+const LIST_COLS = {
+  accountName: (t: AllTransactionRow) => t.accountName || '—',
+  fromName: (t: AllTransactionRow) => (t.deposit != null ? (t.fromName ?? '—') : '—'),
+  toName: (t: AllTransactionRow) => (t.withdraw != null ? (t.toName ?? '—') : '—'),
+  piNumber: (t: AllTransactionRow) => t.piNumber ?? '—',
+  prNumber: (t: AllTransactionRow) => t.prNumber ?? '—',
+  base: (t: AllTransactionRow) => t.base ?? '—',
+} satisfies Record<string, (t: AllTransactionRow) => string>
+
+/** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
+const allBaseOptions = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', '—']
+
+type ListColKey = keyof typeof LIST_COLS
+const LIST_KEYS = Object.keys(LIST_COLS) as ListColKey[]
+const RANGE_KEYS = ['deposit', 'withdraw', 'balance'] as const
+
+function uniq(vals: string[]) {
+  return [...new Set(vals)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+}
+
+const cfOptions = computed(() => {
+  const out = {} as Record<ListColKey, string[]>
+  for (const key of LIST_KEYS) out[key] = uniq(allTransactions.value.map(LIST_COLS[key]))
+  return out
+})
+
+function bounds(values: number[]) {
+  if (values.length === 0) return null
+  return { lo: Math.min(...values), hi: Math.max(...values) }
+}
+
+const depositBounds = computed(() => bounds(allTransactions.value.filter(t => t.deposit != null).map(t => t.deposit!)))
+const withdrawBounds = computed(() => bounds(allTransactions.value.filter(t => t.withdraw != null).map(t => t.withdraw!)))
+const balanceBounds = computed(() => bounds(allTransactions.value.map(t => t.balance)))
+
+const displayedTransactions = computed(() =>
+  allTransactions.value.filter(t => {
+    for (const key of LIST_KEYS) {
+      const sel = colFilter.selected[key]
+      if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
+    }
+    if (!rangeFilter.matches('deposit', t.deposit)) return false
+    if (!rangeFilter.matches('withdraw', t.withdraw)) return false
+    if (!rangeFilter.matches('balance', t.balance)) return false
+    return true
+  })
+)
+
+const hasAnyFilter = computed(() =>
+  LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+)
+
+function clearFilters() {
+  for (const k of LIST_KEYS) colFilter.clearAll(k)
+  for (const k of RANGE_KEYS) rangeFilter.clear(k)
+}
+
+/**
+ * The ledger mixes wallets and currencies, so deposits/withdrawals are summed
+ * per currency instead of being added into one meaningless figure.
+ */
+function sumByCurrency(rows: AllTransactionRow[], field: 'deposit' | 'withdraw') {
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    const v = r[field]
+    if (v == null) continue
+    const c = r.txCurrency || r.currency || ''
+    map.set(c, (map.get(c) ?? 0) + v)
+  }
+  return [...map].map(([currency, total]) => ({ currency, total }))
+}
+
+const depositTotals = computed(() => sumByCurrency(displayedTransactions.value, 'deposit'))
+const withdrawTotals = computed(() => sumByCurrency(displayedTransactions.value, 'withdraw'))
+
+/** Wallets are identified by their own name; fall back to the company preset when unnamed. */
+function boxLabel(box: { id?: number; name?: string | null; companyPresetName?: string | null }) {
+  return box.name?.trim() || box.companyPresetName || `Wallet ${box.id ?? ''}`.trim()
 }
 
 async function loadBoxes() {
@@ -830,11 +1135,11 @@ watch(tab, (val) => {
 })
 
 async function saveBox() {
-  if (!form.value.companyPresetId) return
   saving.value = true
   try {
+    // Company preset is optional — the backend files preset-less wallets under a hidden placeholder.
     const created = await api.post<PaymentBox>('/payment-boxes', {
-      companyPresetId: form.value.companyPresetId,
+      companyPresetId: form.value.companyPresetId || null,
       currency: form.value.currency,
       name: form.value.name,
       bankName: form.value.bankName || null,
@@ -878,7 +1183,8 @@ async function doExport() {
   const from = fromDate ? new Date(fromDate) : null
   const to = toDate ? new Date(toDate + 'T23:59:59') : null
 
-  const rows = allTransactions.value.filter(t => {
+  // Exports what the table currently shows — the column filters carry over.
+  const rows = displayedTransactions.value.filter(t => {
     if (boxIds.length > 0 && !boxIds.includes(t.boxId)) return false
     if (type === 'Deposit' && t.deposit == null) return false
     if (type === 'Withdraw' && t.withdraw == null) return false
@@ -895,6 +1201,7 @@ async function doExport() {
     To: t.toName ?? '',
     'PI#': t.piNumber ?? '',
     'PR#': t.prNumber ?? '',
+    Base: t.base ?? '',
     Notes: t.notes ?? '',
     Source: t.isAuto ? 'Auto' : 'Manual',
     Date: new Date(t.createdAt).toLocaleDateString(),
@@ -910,3 +1217,22 @@ onMounted(() => {
   if (authStore.isSuperAdmin) loadPresets()
 })
 </script>
+
+<style scoped>
+/* Remaining balance: the one number the user scans for, so it outsizes everything else. */
+.wallet-balance-amount {
+  font-size: 2.25rem;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+}
+@media (max-width: 600px) {
+  .wallet-balance-amount { font-size: 1.85rem; }
+}
+
+.tx-total-row {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.tx-total-row td {
+  border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+</style>

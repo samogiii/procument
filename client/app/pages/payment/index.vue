@@ -548,30 +548,16 @@
             density="comfortable"
             class="mb-3"
           />
-          <v-row dense>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="createWt.withdrawAmount"
-                label="Withdraw Amount *"
-                type="number"
-                min="0"
-                variant="outlined"
-                density="comfortable"
-                :suffix="fromBoxCurrency"
-              />
-            </v-col>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="createWt.depositAmount"
-                label="Deposit Amount *"
-                type="number"
-                min="0"
-                variant="outlined"
-                density="comfortable"
-                :suffix="toBoxCurrency"
-              />
-            </v-col>
-          </v-row>
+          <v-text-field
+            v-model.number="createWt.withdrawAmount"
+            label="Withdraw Amount *"
+            type="number"
+            min="0"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            :suffix="fromBoxCurrency"
+          />
           <v-text-field
             v-model.number="createWt.exchangeRate"
             label="Exchange Rate (optional)"
@@ -582,6 +568,19 @@
             density="comfortable"
             class="mb-3"
             hint="Leave blank if same currency"
+            persistent-hint
+          />
+          <!-- Deposited amount is derived: Exchange Rate × Withdraw Amount -->
+          <v-text-field
+            v-if="createWt.exchangeRate"
+            :model-value="wtRealAmount"
+            label="Real Amount"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            readonly
+            :suffix="toBoxCurrency"
+            hint="Exchange Rate × Withdraw Amount — the amount deposited into the target wallet"
             persistent-hint
           />
           <v-textarea
@@ -662,7 +661,7 @@
             class="mb-3"
             icon="mdi-star-outline"
           >
-            Preferred: <strong>{{ selectedPo.preferredWalletCompany }} — {{ selectedPo.preferredWalletName }}</strong>
+            Preferred: <strong>{{ selectedPo.preferredWalletName }}</strong>
           </v-alert>
           <v-select
             v-model="pickerWalletId"
@@ -818,10 +817,14 @@ const wtPopInputRef = ref<HTMLInputElement | null>(null)
 // ── Create transfer dialog ────────────────────────────────────────────────────
 const showCreateWt = ref(false)
 const wtCreating = ref(false)
-const createWt = reactive({ fromBoxId: null as number | null, toBoxId: null as number | null, withdrawAmount: 0, depositAmount: 0, exchangeRate: null as number | null, notes: '' })
+const createWt = reactive({ fromBoxId: null as number | null, toBoxId: null as number | null, withdrawAmount: 0, exchangeRate: null as number | null, notes: '' })
 const fromBoxCurrency = computed(() => walletBoxes.value.find(b => b.id === createWt.fromBoxId)?.currency ?? '')
 const toBoxCurrency = computed(() => walletBoxes.value.find(b => b.id === createWt.toBoxId)?.currency ?? '')
-const createWtValid = computed(() => !!createWt.fromBoxId && !!createWt.toBoxId && createWt.withdrawAmount > 0 && createWt.depositAmount > 0)
+// Amount that actually lands in the target wallet: rate × withdraw (1:1 when no rate given).
+const wtRealAmount = computed(() =>
+  Math.round(createWt.withdrawAmount * (createWt.exchangeRate || 1) * 100) / 100
+)
+const createWtValid = computed(() => !!createWt.fromBoxId && !!createWt.toBoxId && createWt.withdrawAmount > 0)
 
 // ── Table headers ─────────────────────────────────────────────────────────────
 const acceptanceHeaders = [
@@ -885,7 +888,8 @@ async function loadWalletBoxes() {
     const boxes = await api.get<any[]>('/payment-boxes/simple-list')
     walletBoxes.value = boxes.map((b: any) => ({
       id: b.id,
-      label: `${b.companyName} — ${b.name} (${b.currency})`,
+      // Wallets are identified by their own name, not the company preset behind them.
+      label: `${b.name} (${b.currency})`,
       currency: b.currency,
       company: b.companyName,
     }))
@@ -1033,7 +1037,6 @@ function openCreateTransfer() {
   createWt.fromBoxId = null
   createWt.toBoxId = null
   createWt.withdrawAmount = 0
-  createWt.depositAmount = 0
   createWt.exchangeRate = null
   createWt.notes = ''
   showCreateWt.value = true
@@ -1046,7 +1049,7 @@ async function submitCreateTransfer() {
       fromBoxId: createWt.fromBoxId,
       toBoxId: createWt.toBoxId,
       withdrawAmount: createWt.withdrawAmount,
-      depositAmount: createWt.depositAmount,
+      depositAmount: wtRealAmount.value,
       exchangeRate: createWt.exchangeRate || null,
       notes: createWt.notes || null,
     })

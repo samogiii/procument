@@ -5,6 +5,17 @@
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">Purchase Order PDF — {{ pdfData.poNumber || '' }}</v-toolbar-title>
         <v-spacer />
+        <v-select
+          v-model="pdfTemplate"
+          :items="PDF_TEMPLATE_OPTIONS"
+          label="Template"
+          variant="outlined"
+          density="compact"
+          hide-details
+          class="mr-3"
+          style="max-width:210px;"
+          prepend-inner-icon="mdi-file-document-outline"
+        />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
@@ -32,7 +43,7 @@
           <template v-if="sections[0].open">
             <div class="section-label">Company</div>
             <v-row dense align="center">
-              <v-col cols="12"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company Preset" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" /></v-col>
+              <v-col cols="12"><v-select v-model="selectedPreset" :items="companyPresetOptions" label="Company Preset" variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-domain" :loading="presetsLoading" @update:model-value="presetTouched = true" /></v-col>
               <v-col cols="12">
                 <div class="d-flex align-center gap-2">
                   <v-file-input label="Company Logo" variant="outlined" density="compact" hide-details accept="image/*" prepend-icon="mdi-image" class="flex-grow-1" @update:model-value="onLogoUpload" />
@@ -123,6 +134,20 @@
               <v-col cols="6"><v-text-field v-model="deliverToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="deliverToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
             </v-row>
+
+            <!-- FFW — all optional; printed inside the Ship To box only when something is filled in -->
+            <div class="d-flex align-center mt-3 mb-1 gap-2">
+              <span class="section-label mb-0">FFW Info</span>
+              <span class="text-caption text-medium-emphasis">(optional — shown under Ship To)</span>
+              <v-spacer />
+              <v-btn v-if="hasFfw" size="x-small" variant="text" color="error" prepend-icon="mdi-close" @click="clearFfw">Clear</v-btn>
+            </div>
+            <v-row dense align="center">
+              <v-col cols="12"><v-text-field v-model="ffwName" label="Company Name" variant="outlined" density="compact" hide-details clearable /></v-col>
+              <v-col cols="12"><v-textarea v-model="ffwAddress" label="Address" variant="outlined" rows="2" density="compact" hide-details clearable /></v-col>
+              <v-col cols="6"><v-text-field v-model="ffwPhone" label="Phone" variant="outlined" density="compact" hide-details clearable /></v-col>
+              <v-col cols="6"><v-text-field v-model="ffwEmail" label="Email" variant="outlined" density="compact" hide-details clearable /></v-col>
+            </v-row>
             <v-divider class="my-3" />
           </template>
 
@@ -212,11 +237,12 @@ async function loadPresets() {
   finally { presetsLoading.value = false }
 }
 
-// PO PDF: admins see every preset; non-admins see only the sortOrder=105 preset + Custom.
+// PO PDF: admins see every preset; non-admins see the sortOrder=105 preset, the PO's own
+// preset (the company it was created from) and Custom.
 const companyPresetOptions = computed(() => {
   const list = isAdmin.value
     ? apiPresets.value
-    : apiPresets.value.filter((p: any) => p.sortOrder === 105)
+    : apiPresets.value.filter((p: any) => p.sortOrder === 105 || p.name === poPresetName.value)
   return [...list.map((p: any) => p.name), 'Custom']
 })
 
@@ -228,19 +254,31 @@ const theme = computed(() => {
   }
 })
 
-watch(apiPresets, (presets) => {
-  if (!presets.length) return
+const pdfData = ref<any>({})
+// Company preset the PO was created from (resolved server-side from its payment wallet).
+const poPresetName = computed<string>(() => pdfData.value?.companyPresetName || '')
+// Set once the user picks a preset by hand, so the default never overrides their choice.
+const presetTouched = ref(false)
+
+/** Default the preset to the one chosen at PO creation, then Base 105. */
+function applyDefaultPreset() {
+  const presets = apiPresets.value
+  if (!presets.length || presetTouched.value) return
+  const poPreset = poPresetName.value ? presets.find((p: any) => p.name === poPresetName.value) : null
   const base105 = presets.find((p: any) => p.sortOrder === 105)
   if (!isAdmin.value) {
-    // Non-admins are locked to the Base-105 preset (or Custom).
-    selectedPreset.value = base105 ? base105.name : 'Custom'
+    // Non-admins are locked to the PO's own preset, else Base 105 (or Custom).
+    selectedPreset.value = (poPreset || base105)?.name || 'Custom'
     return
   }
-  // Admins: prefer Base 105, otherwise fall back to the first preset.
-  if (selectedPreset.value === 'Custom') {
-    selectedPreset.value = base105 ? base105.name : presets[0].name
+  // Admins: the PO's preset wins, then Base 105, then the first preset.
+  if (poPreset || selectedPreset.value === 'Custom') {
+    selectedPreset.value = (poPreset || base105 || presets[0]).name
   }
-})
+}
+
+watch(apiPresets, applyDefaultPreset)
+watch(poPresetName, applyDefaultPreset)
 
 watch(selectedPreset, (val) => {
   const preset = apiPresets.value.find((p: any) => p.name === val)
@@ -276,7 +314,6 @@ const footerText = ref('If you have any questions about this purchase order, ple
 const logoDataUrl = ref('')
 const generating = ref(false)
 const loadingData = ref(false)
-const pdfData = ref<any>({})
 const taxAmount = ref(0)
 const otherAmount = ref(0)
 // PO-level cost adjustments — pre-filled from PurchaseOrder.{ProcessingFee,Shipping,Tax}.
@@ -340,6 +377,21 @@ const deliverToPhone = ref('')
 const deliverToEmail = ref('')
 const selectedWarehouseId = ref<number | null>(null)
 const presetWarehouses = ref<any[]>([])
+
+// FFW (freight forwarder) — all nullable, edited by hand. When every field is empty the block
+// is left out of both the preview and the PDF payload entirely.
+const ffwName = ref('')
+const ffwAddress = ref('')
+const ffwPhone = ref('')
+const ffwEmail = ref('')
+const hasFfw = computed(() =>
+  !!(ffwName.value?.trim() || ffwAddress.value?.trim() || ffwPhone.value?.trim() || ffwEmail.value?.trim()))
+function clearFfw() {
+  ffwName.value = ''; ffwAddress.value = ''; ffwPhone.value = ''; ffwEmail.value = ''
+}
+
+// Which of the three PDF templates to render — mirrored by the live preview.
+const pdfTemplate = ref<PdfTemplateKey>('modern')
 
 // Bill To — starts same as Ship To but user can edit independently
 const billToName = ref('')
@@ -479,9 +531,125 @@ watch(model, async (open) => {
 
 const fmt = (n: number) => formatPrice(n)
 
+/** Ship To block, with the FFW section appended inside it when the user filled anything in. */
+function shipToBlock(): PdfPreviewAddress {
+  const block: PdfPreviewAddress = {
+    title: 'Ship To',
+    name: deliverToName.value,
+    address: deliverToAddress.value,
+    fields: [{ label: 'Tel', value: deliverToPhone.value }, { label: 'Email', value: deliverToEmail.value }],
+  }
+  if (hasFfw.value) {
+    block.appended = {
+      title: 'FFW',
+      name: ffwName.value,
+      address: ffwAddress.value,
+      fields: [{ label: 'Tel', value: ffwPhone.value }, { label: 'Email', value: ffwEmail.value }],
+    }
+  }
+  return block
+}
+
+/** Template-neutral model — mirrors PdfDocModelBuilders.FromPurchaseOrder on the server. */
+function buildPreviewModel(): PdfPreviewModel {
+  const d = pdfData.value
+  const items: any[] = d.items || []
+  const subtotal = Number(d.totalAmount) || 0
+  const shipping = shippingAmount.value || 0
+  const tax = taxAmount.value || 0
+  const fee = processingFeeAmount.value || 0
+  const money = (n: number) => `$${fmt(n)}`
+
+  return {
+    docTitle: 'Purchase Order',
+    docNumber: d.poNumber,
+    logoDataUrl: logoDataUrl.value,
+    companyName: companyName.value,
+    companyLocation: companyLocation.value,
+    companyPhone: companyPhone.value,
+    companyWebsite: companyWebsite.value,
+    companyEmail: companyEmail.value,
+    primary: theme.value.primary,
+    accent: theme.value.accent,
+    meta: [
+      { label: 'Date', value: poDate.value },
+      { label: 'Currency', value: currency.value },
+    ],
+    addresses: [
+      {
+        title: 'Purchase From',
+        name: purchaseFromName.value,
+        address: purchaseFromAddress.value,
+        fields: [{ label: 'Tel', value: purchaseFromPhone.value }, { label: 'Email', value: purchaseFromEmail.value }],
+      },
+      {
+        title: 'Bill To',
+        name: billToName.value,
+        address: billToAddress.value,
+        fields: [{ label: 'Tel', value: billToPhone.value }, { label: 'Email', value: billToEmail.value }],
+      },
+      shipToBlock(),
+    ],
+    columns: [
+      { header: '#', width: 22 },
+      { header: 'Part No.', relative: 2 },
+      { header: 'Description', relative: 2.5, align: 'left' },
+      { header: 'Qty', width: 28 },
+      { header: 'CD', width: 28 },
+      { header: 'Cert', width: 60 },
+      { header: 'Buy Price', width: 60, align: 'right' },
+      { header: 'Amount', width: 65, align: 'right' },
+      { header: 'Note', relative: 1.5, align: 'left' },
+    ],
+    rows: items.map((it: any, i: number) => ({
+      cells: [
+        { text: String(i + 1) },
+        { text: it.partNumber, bold: true },
+        { text: it.description },
+        { text: String(it.qty), bold: true },
+        { text: it.condition },
+        { text: it.certification },
+        { text: money(Number(it.unitPrice) || 0) },
+        { text: money(Number(it.totalPrice) || 0), bold: true },
+        { text: it.note },
+      ],
+    })),
+    infoBlocks: [
+      {
+        title: 'FedEx Account Information',
+        fields: [
+          { label: 'Account Number', value: fedExAccount.value },
+          { label: 'Service Priority', value: servicePriority.value },
+        ],
+      },
+      {
+        title: 'Shipping Information',
+        fields: [
+          { label: 'Shipping Method', value: shippingMethod.value },
+          { label: 'Incoterms', value: incoterms.value },
+        ],
+      },
+    ],
+    totals: [
+      { label: 'Subtotal', amount: money(subtotal) },
+      { label: 'Tax', amount: money(tax) },
+      { label: 'Shipping', amount: money(shipping) },
+      { label: 'Processing Fee', amount: money(fee) },
+      { label: 'Total', amount: money(subtotal + tax + shipping + fee), isGrand: true },
+    ],
+    comments: comments.value,
+    terms: companyTerms.value,
+    footerText: footerText.value,
+    showSignature: true,
+  }
+}
+
 const renderedHtml = computed(() => {
   const d = pdfData.value
   if (!d.poNumber) return ''
+
+  if (pdfTemplate.value === 'classic') return renderClassicPreview(buildPreviewModel())
+  if (pdfTemplate.value === 'standard') return renderStandardPreview(buildPreviewModel())
 
   const items: any[] = d.items || []
   // FedEx / shipping/incoterms now come from the editable refs (fedExAccount, shippingMethod, etc.)
@@ -569,6 +737,13 @@ const renderedHtml = computed(() => {
           ${deliverToAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${deliverToAddress.value}</div>` : ''}
           ${deliverToPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${deliverToPhone.value}</div>` : ''}
           ${deliverToEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${deliverToEmail.value}</div>` : ''}
+          ${hasFfw.value ? `
+            <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin:14px 0 6px 0;">FFW</div>
+            ${ffwName.value ? `<div style="font-size:12px; font-weight:700; color:${primary}; margin-bottom:3px;">${ffwName.value}</div>` : ''}
+            ${ffwAddress.value ? `<div style="font-size:10.5px; color:#4b5563; line-height:1.5;">${ffwAddress.value}</div>` : ''}
+            ${ffwPhone.value ? `<div style="font-size:10.5px; color:#4b5563; margin-top:4px;">Tel: ${ffwPhone.value}</div>` : ''}
+            ${ffwEmail.value ? `<div style="font-size:10.5px; color:#4b5563;">Email: ${ffwEmail.value}</div>` : ''}
+          ` : ''}
         </div>
       </div>
 
@@ -722,6 +897,12 @@ async function downloadPdf() {
       deliverToAddress: deliverToAddress.value || null,
       deliverToPhone: deliverToPhone.value || null,
       deliverToEmail: deliverToEmail.value || null,
+      // FFW — rendered inside the Ship To box; omitted entirely when blank
+      ffwName: ffwName.value || null,
+      ffwAddress: ffwAddress.value || null,
+      ffwPhone: ffwPhone.value || null,
+      ffwEmail: ffwEmail.value || null,
+      template: pdfTemplate.value,
       shippingMethod: shippingMethod.value || null,
       incoterms: incoterms.value || null,
       fedExAccount: fedExAccount.value || null,

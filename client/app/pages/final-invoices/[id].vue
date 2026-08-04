@@ -107,6 +107,11 @@ const route = useRoute()
 const api = useApi()
 const authStore = useAuthStore()
 const inv = ref<any>({})
+
+// Show the invoice number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(inv.value?.invoiceNumber))
+
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')

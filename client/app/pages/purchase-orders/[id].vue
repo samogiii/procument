@@ -3,6 +3,17 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-1 flex-shrink-0" size="small" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">PO {{ po.poNumber || `#${route.params.id}` }}</h1>
+      <!-- Company preset picked at PO creation — drives the paying wallet and the PDF branding -->
+      <v-chip
+        v-if="po.companyPresetName"
+        size="small"
+        color="primary"
+        variant="tonal"
+        prepend-icon="mdi-domain"
+        :title="po.preferredWalletName ? `Paid from wallet: ${po.preferredWalletName}` : undefined"
+      >
+        {{ po.companyPresetName }}
+      </v-chip>
       <v-spacer />
       <v-menu :disabled="isLocked">
         <template #activator="{ props: menuProps }">
@@ -1136,6 +1147,11 @@ const api = useApi()
 const authStore = useAuthStore()
 const docPreview = useDocPreview()
 const po = ref<any>({})
+
+// Show the PO number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(po.value?.poNumber))
+
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')

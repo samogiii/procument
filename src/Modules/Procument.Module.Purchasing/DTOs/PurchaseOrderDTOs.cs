@@ -10,6 +10,12 @@ public class CreatePORequest
     public List<long> POItemIds { get; set; } = new();
     /// <summary>Wallet chosen at creation time — used as the default debit wallet on payment acceptance.</summary>
     public long? PreferredWalletId { get; set; }
+    /// <summary>
+    /// Company preset chosen at creation time (which of our companies buys / pays / appears on the PDF).
+    /// Persisted indirectly: the preset's payment wallet becomes <see cref="PreferredWalletId"/>, so the
+    /// preset can always be resolved back from the PO without any extra column.
+    /// </summary>
+    public long? CompanyPresetId { get; set; }
 }
 
 /// <summary>Update a single POItem (supplier, qty, unitPrice).</summary>
@@ -61,6 +67,9 @@ public class POResponse
     public long? PreferredWalletId { get; set; }
     public string? PreferredWalletName { get; set; }
     public string? PreferredWalletCompany { get; set; }
+    /// <summary>Company preset behind the preferred wallet — the company this PO is placed / paid from.</summary>
+    public long? CompanyPresetId { get; set; }
+    public string? CompanyPresetName { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
     public int AcceptedTrackItems { get; set; }
     public int TotalTrackItems { get; set; }

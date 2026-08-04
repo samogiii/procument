@@ -5,8 +5,19 @@
         <v-btn icon="mdi-close" @click="model = false" />
         <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ pdfData.invoiceNumber || '' }}</v-toolbar-title>
         <v-spacer />
-        <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" class="mr-2" @click="openPackingListDialog">Packing List</v-btn>
-        <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
+        <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" :disabled="!selectedItemsList.length" class="mr-2" @click="openPackingListDialog">Packing List</v-btn>
+        <v-select
+          v-model="pdfTemplate"
+          :items="PDF_TEMPLATE_OPTIONS"
+          label="Template"
+          variant="outlined"
+          density="compact"
+          hide-details
+          class="mr-3"
+          style="max-width:210px;"
+          prepend-inner-icon="mdi-file-document-outline"
+        />
+        <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" :disabled="!selectedItemsList.length" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
       <!-- Section toggle chips -->
@@ -61,11 +72,29 @@
               <v-col v-if="currency === 'China Yuan (CNY)'" cols="6">
                 <v-text-field v-model.number="exchangeRate" label="Exchange Rate" variant="outlined" density="compact" hide-details type="number" step="0.0001" />
               </v-col>
-              <v-col cols="6">
-                <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
+              <!-- Tax %, Tax amount and the final total stay in sync: type any one and
+                   the other two follow. Tax applies to the items after discount. -->
+              <v-col cols="4">
+                <v-text-field v-model.number="taxPercent" label="Tax %" variant="outlined" density="compact" hide-details type="number" step="0.01" suffix="%" prepend-inner-icon="mdi-percent-outline" @update:model-value="onTaxPercentInput" />
               </v-col>
-              <v-col cols="6">
+              <v-col cols="4">
+                <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" @update:model-value="onTaxAmountInput" />
+              </v-col>
+              <v-col cols="4">
                 <v-text-field v-model.number="otherAmount" label="Other" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field
+                  :model-value="targetTotalInput"
+                  label="Final Total (override — derives the tax %)"
+                  variant="outlined"
+                  density="compact"
+                  type="number"
+                  :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'"
+                  persistent-hint
+                  :hint="`Current total: ${currency === 'China Yuan (CNY)' ? '¥' : '$'}${formatPrice(grandTotalDisplay)}`"
+                  @update:model-value="onTargetTotalInput"
+                />
               </v-col>
               <v-col cols="12"><v-textarea v-model="comments" label="Comments" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
               <v-col cols="12"><v-textarea v-model="companyTerms" label="Terms & Conditions" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
@@ -137,6 +166,31 @@
               <v-col cols="6"><v-text-field v-model="bankAccount" label="Bank Account" variant="outlined" density="compact" hide-details /></v-col>
               <v-col cols="6"><v-text-field v-model="swiftCode" label="Swift Code" variant="outlined" density="compact" hide-details /></v-col>
             </v-row>
+            <v-divider class="my-3" />
+          </template>
+
+          <!-- ITEMS (pick which parts appear in the PDF / packing list) -->
+          <template v-if="sections[4].open">
+            <div class="d-flex align-center mb-2 gap-2">
+              <span class="section-label mb-0">Items</span>
+              <v-spacer />
+              <v-btn size="x-small" variant="tonal" @click="selectAllItems">Select All</v-btn>
+              <v-btn size="x-small" variant="tonal" color="error" @click="selectedItems = []">Clear</v-btn>
+            </div>
+            <div class="d-flex flex-column gap-1">
+              <v-checkbox
+                v-for="it in itemRows"
+                :key="it._key"
+                v-model="selectedItems"
+                :value="it._key"
+                :label="`${it.alt || it.partNumber || '—'} × ${it.qty}`"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+            <div v-if="!itemRows.length" class="text-caption text-medium-emphasis">No items on this invoice.</div>
+            <v-divider class="my-3" />
           </template>
 
         </div>
@@ -166,6 +220,14 @@
           <p class="text-caption text-medium-emphasis mb-4">
             Add one or more packages with their total weight and dimensions. These will appear in the Shipping Details section of the packing list.
           </p>
+
+          <v-alert
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-4 text-caption"
+            :text="`Includes ${selectedItemsList.length} of ${itemRows.length} item(s) — same selection as the invoice PDF.`"
+          />
 
           <div v-for="(pkg, i) in packages" :key="i" class="d-flex align-center gap-2 mb-2">
             <span class="text-caption text-medium-emphasis" style="min-width:24px;">{{ i + 1 }}.</span>
@@ -212,7 +274,7 @@
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="showPackingDialog = false">Cancel</v-btn>
-          <v-btn variant="tonal" color="info" prepend-icon="mdi-download" :loading="generatingPacking" @click="downloadPackingList">Download Packing List</v-btn>
+          <v-btn variant="tonal" color="info" prepend-icon="mdi-download" :loading="generatingPacking" :disabled="!selectedItemsList.length" @click="downloadPackingList">Download Packing List</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -231,6 +293,7 @@ const sections = reactive([
   { key: 'details',  label: 'Invoice Details',  open: true },
   { key: 'addresses',label: 'Bill To / Ship To',open: true },
   { key: 'bank',     label: 'Bank Details',     open: true },
+  { key: 'items',    label: 'Items',            open: true },
 ])
 
 // ── Presets ──
@@ -381,6 +444,75 @@ function applyBankAccount(id: number | null) {
   }
 }
 
+// ── Item selection (drives the invoice PDF, its totals, and the packing list) ──
+const selectedItems = ref<(number | string)[]>([])
+
+// Stable key per item: the DB id when present, otherwise the position in the list.
+const itemRows = computed<any[]>(() =>
+  (pdfData.value?.items || []).map((it: any, i: number) => ({ ...it, _key: it.id ?? i })))
+
+const selectedItemsList = computed<any[]>(() =>
+  itemRows.value.filter(it => selectedItems.value.includes(it._key)))
+
+function selectAllItems() {
+  selectedItems.value = itemRows.value.map(it => it._key)
+}
+
+// Subtotal follows the selection; falls back to the stored total when the
+// invoice carries no line items.
+const subtotalBase = computed(() => {
+  if (!itemRows.value.length) return Number(pdfData.value?.totalAmount) || 0
+  return selectedItemsList.value.reduce((sum: number, it: any) => sum + (Number(it.totalPrice) || 0), 0)
+})
+
+// ── Tax: percentage ⇄ amount ⇄ final total ──────────────────────────────────
+// The tax base is the goods after discount; shipping and "Other" sit on top of it.
+// Amounts are held in the invoice's base currency and scaled for display, so the
+// percentage itself is currency-independent.
+const totalDiscountBase = computed(() =>
+  selectedItemsList.value.reduce((sum: number, it: any) => sum + (Number(it.discount) || 0), 0))
+const taxableBase = computed(() => Math.max(0, subtotalBase.value - totalDiscountBase.value))
+const displayRate = computed(() => currency.value === 'China Yuan (CNY)' ? (exchangeRate.value || 1) : 1)
+const grandTotalDisplay = computed(() =>
+  (taxableBase.value
+    + (Number(pdfData.value?.shippingCost) || 0)
+    + (Number(taxAmount.value) || 0)
+    + (Number(otherAmount.value) || 0)) * displayRate.value)
+
+const taxPercent = ref(0)
+const targetTotalInput = ref<number | null>(null)
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** Tax % typed → tax amount follows. */
+function onTaxPercentInput() {
+  taxAmount.value = round2(taxableBase.value * (Number(taxPercent.value) || 0) / 100)
+  targetTotalInput.value = null
+}
+
+/** Tax amount typed → the matching rate is shown. */
+function onTaxAmountInput() {
+  taxPercent.value = taxableBase.value
+    ? round2((Number(taxAmount.value) || 0) / taxableBase.value * 100)
+    : 0
+  targetTotalInput.value = null
+}
+
+/** Final price typed (in the displayed currency) → back out the tax and its rate. */
+function onTargetTotalInput(val: string | number | null) {
+  const target = Number(val)
+  if (val === '' || val === null || Number.isNaN(target)) { targetTotalInput.value = null; return }
+  targetTotalInput.value = target
+
+  const rest = taxableBase.value
+    + (Number(pdfData.value?.shippingCost) || 0)
+    + (Number(otherAmount.value) || 0)
+  taxAmount.value = round2(Math.max(0, target / (displayRate.value || 1) - rest))
+  taxPercent.value = taxableBase.value ? round2(taxAmount.value / taxableBase.value * 100) : 0
+}
+
+// Selecting/deselecting items moves the base — keep the amount true to the rate.
+watch(taxableBase, () => { if (taxPercent.value) onTaxPercentInput() })
+
 // ── Packing List dialog ──
 const showPackingDialog = ref(false)
 interface PackageEntry { weight: string; dimensions: string }
@@ -408,6 +540,7 @@ watch(model, async (open) => {
       try {
         const data = await api.get<any>(`/final-invoices/${props.invoiceId}/pdf-data`)
         pdfData.value = data
+        selectAllItems()
         if (data.notes) comments.value = data.notes
         if (data.customerBase == 3) {
           const currencyType = data.customerCurrencyType || 'Dollar'
@@ -456,11 +589,133 @@ const currencyLocked = computed(() => {
   return currencyType !== 'Both'
 })
 
+// Which of the three PDF templates to render — mirrored by the live preview.
+const pdfTemplate = ref<PdfTemplateKey>('modern')
+
+/** Template-neutral model — mirrors PdfDocModelBuilders.FromFinalInvoice on the server. */
+function buildPreviewModel(): PdfPreviewModel {
+  const d = pdfData.value
+  const items: any[] = selectedItemsList.value
+  const isYuan = currency.value === 'China Yuan (CNY)'
+  const sym = isYuan ? '¥' : '$'
+  const rate = isYuan ? (exchangeRate.value || 1) : 1
+  const money = (n: number) => `${sym}${fmt(n)}`
+
+  const subtotal = subtotalBase.value * rate
+  const totalDiscount = items.reduce((s: number, it: any) => s + (Number(it.discount) || 0), 0) * rate
+  const tax = (taxAmount.value || 0) * rate
+  const shipping = (Number(d.shippingCost) || 0) * rate
+  const fee = (otherAmount.value || 0) * rate
+
+  return {
+    docTitle: 'Invoice',
+    docNumber: d.invoiceNumber,
+    logoDataUrl: logoDataUrl.value,
+    companyName: companyName.value,
+    companyLocation: companyLocation.value,
+    companyPhone: companyPhone.value,
+    companyWebsite: companyWebsite.value,
+    companyEmail: companyEmail.value,
+    primary: theme.value.primary,
+    accent: theme.value.accent,
+    meta: [
+      { label: 'Date', value: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '' },
+      { label: 'Customer PO', value: d.customerPONumber },
+      { label: 'PI Ref', value: d.proformaInvoiceNumber },
+      { label: 'Currency', value: currency.value },
+    ],
+    addresses: [
+      {
+        title: 'Bill To',
+        name: billToName.value || d.customerName,
+        address: billTo.value || d.customerBillTo,
+        fields: [
+          { label: 'Contact Person', value: billToContactPerson.value || d.customerContactPerson },
+          { label: 'Email', value: billToEmail.value || d.customerBillToEmail },
+          { label: 'Phone', value: billToPhone.value || d.customerBillToPhone },
+        ],
+      },
+      {
+        title: 'Ship To',
+        name: shipToName.value || d.customerName,
+        address: shipTo.value || d.customerShipTo || d.customerBillTo,
+        fields: [
+          { label: 'Contact Person', value: shipToContactPerson.value || d.customerContactPerson },
+          { label: 'Email', value: shipToEmail.value || d.customerShipToEmail },
+          { label: 'Phone', value: shipToPhone.value || d.customerShipToPhone },
+          { label: 'Account', value: d.customerShipToAccount },
+        ],
+      },
+    ],
+    columns: [
+      { header: '#', width: 18 },
+      { header: 'Part No.', relative: 1.6 },
+      { header: 'Description', relative: 1.8, align: 'left' },
+      { header: 'Qty', width: 24 },
+      { header: 'CD', width: 24 },
+      { header: 'Cert', width: 46 },
+      { header: 'Unit Price', width: 50, align: 'right' },
+      { header: 'Total', width: 54, align: 'right' },
+      { header: 'Discount', width: 50, align: 'right' },
+      { header: 'Track #', relative: 1.1 },
+      { header: 'Carrier', relative: 1.1 },
+    ],
+    rows: items.map((it: any, i: number) => ({
+      cells: [
+        { text: String(i + 1) },
+        {
+          text: it.alt || it.partNumber,
+          subText: it.alt ? `(Alt to: ${it.partNumber || '—'})` : null,
+          highlight: !!it.alt,
+          bold: true,
+        },
+        { text: it.description },
+        { text: String(it.qty), bold: true },
+        { text: it.condition },
+        { text: it.certification },
+        { text: money((Number(it.unitPrice) || 0) * rate) },
+        { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
+        it.discount > 0
+          ? { text: `-${money(Number(it.discount) * rate)}`, negative: true }
+          : { text: '—' },
+        { text: it.trackNumber },
+        { text: it.carrier },
+      ],
+    })),
+    infoBlocks: [{
+      title: 'Bank Information',
+      fields: [
+        { label: 'Beneficiary Name', value: beneficiaryName.value },
+        { label: 'Beneficiary Address', value: beneficiaryAddress.value },
+        { label: 'Bank Name', value: bankName.value },
+        { label: 'Bank Address', value: bankAddress.value },
+        { label: 'Account Number', value: bankAccount.value },
+        { label: 'SWIFT Code', value: swiftCode.value },
+      ],
+    }],
+    totals: [
+      { label: 'Subtotal', amount: money(subtotal) },
+      ...(totalDiscount > 0 ? [{ label: 'Discount', amount: money(totalDiscount), isNegative: true }] : []),
+      { label: taxPercent.value > 0 ? `Tax (${taxPercent.value}%)` : 'Tax', amount: money(tax) },
+      { label: 'Shipping', amount: money(shipping) },
+      { label: 'Processing Fee', amount: money(fee) },
+      { label: 'Total', amount: money(subtotal - totalDiscount + tax + shipping + fee), isGrand: true },
+    ],
+    comments: comments.value,
+    terms: companyTerms.value,
+    footerText: footerText.value,
+    showSignature: true,
+  }
+}
+
 const renderedHtml = computed(() => {
   const d = pdfData.value
   if (!d.invoiceNumber) return ''
 
-  const items: any[] = d.items || []
+  if (pdfTemplate.value === 'classic') return renderClassicPreview(buildPreviewModel())
+  if (pdfTemplate.value === 'standard') return renderStandardPreview(buildPreviewModel())
+
+  const items: any[] = selectedItemsList.value
   const logo = logoDataUrl.value
   const logoImg = logo ? `<img src="${logo}" style="max-height:48px; max-width:160px; object-fit:contain;" />` : ''
 
@@ -469,7 +724,7 @@ const renderedHtml = computed(() => {
   const isYuan = currency.value === 'China Yuan (CNY)'
   const sym = isYuan ? '¥' : '$'
   const rate = isYuan ? (exchangeRate.value || 1) : 1
-  const subtotal = (Number(d.totalAmount) || 0) * rate
+  const subtotal = subtotalBase.value * rate
   const shippingCost = (Number(d.shippingCost) || 0) * rate
   const tax = (taxAmount.value || 0) * rate
   const other = (otherAmount.value || 0) * rate
@@ -594,7 +849,7 @@ const renderedHtml = computed(() => {
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
             <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal)}</td></tr>
             ${totalDiscount > 0 ? `<tr><td style="padding:8px 14px; color:#e53935; font-weight:600; border-bottom:1px solid #eef0f3;">Discount</td><td style="padding:8px 14px; text-align:right; font-weight:600; color:#e53935; border-bottom:1px solid #eef0f3;">-${sym}${fmt(totalDiscount)}</td></tr>` : ''}
-            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
+            <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax${taxPercent.value > 0 ? ` (${taxPercent.value}%)` : ''}</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shippingCost)}</td></tr>
             <tr style="background:#f7f8fa;"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
             <tr style="background:#1a2744;"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(grandTotal)}</td></tr>
@@ -631,7 +886,7 @@ async function downloadPdf() {
   try {
     const authStore = useAuthStore()
     const d = pdfData.value
-    const items: any[] = d.items || []
+    const items: any[] = selectedItemsList.value
 
     const currencyType = pdfData.value.customerCurrencyType || 'Dollar'
     const isBoth = pdfData.value.customerBase === 3 && currencyType === 'Both'
@@ -694,12 +949,15 @@ async function downloadPdf() {
           trackNumber: it.trackNumber || null,
           carrier: it.carrier || null,
         })),
-        subtotal: (Number(d.totalAmount) || 0) * curr.rate,
+        subtotal: subtotalBase.value * curr.rate,
         tax: (taxAmount.value || 0) * curr.rate,
+        // Rate is currency-independent — printed as "Tax (13%)" on the PDF.
+        taxPercent: taxPercent.value || null,
         other: (otherAmount.value || 0) * curr.rate,
         comments: comments.value || null,
         terms: companyTerms.value || null,
         footerText: footerText.value || null,
+        template: pdfTemplate.value,
       }
 
       const response = await $fetch<Blob>(`${api.baseURL}/pdf/final-invoice`, {
@@ -755,8 +1013,10 @@ async function downloadPackingList() {
       customerShipToEmail: shipToEmail.value || d.customerShipToEmail || null,
       customerShipToPhone: shipToPhone.value || d?.customerShipToPhone || null,
       customerShipToAccount: d.customerShipToAccount || null,
-      items: (pdfData.value?.items || []).map((it: any) => ({
+      // Mirrors the invoice PDF selection — no separate picker needed.
+      items: selectedItemsList.value.map((it: any) => ({
         partNumber:    it.partNumber    || null,
+        alt:           it.alt           || null,
         description:   it.description   || null,
         qty:           it.qty           || 0,
         condition:     it.condition     || null,

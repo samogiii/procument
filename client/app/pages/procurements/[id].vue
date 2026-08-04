@@ -559,6 +559,11 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const loading = ref(true)
 const procurement = ref<any>(null)
+
+// Show the procurement number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(procurement.value?.procurementNumber))
+
 const expanded = ref(new Set<number>())
 const snackbar = ref(false)
 const snackbarText = ref('')

@@ -305,9 +305,35 @@ public class PurchaseOrderService : IPurchaseOrderService
         return MapToResponse(po, invoiceNumber, overriddenSuppliers);
     }
 
+    /// <summary>
+    /// Resolve the payment wallet (PaymentBox) that belongs to a company preset. USD boxes win,
+    /// then the lowest Id. Raw SQL keeps PaymentBox (Sales module) out of this module's model.
+    /// </summary>
+    private async Task<long?> ResolveWalletForPresetAsync(long companyPresetId)
+    {
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT TOP 1 Id FROM PaymentBoxes
+                            WHERE CompanyPresetId = @presetId
+                            ORDER BY CASE WHEN Currency = 'USD' THEN 0 ELSE 1 END, Id";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@presetId";
+        p.Value = companyPresetId;
+        cmd.Parameters.Add(p);
+        var result = await cmd.ExecuteScalarAsync();
+        return result == null || result == DBNull.Value ? null : Convert.ToInt64(result);
+    }
+
     /// <summary>Create PO and assign existing unassigned POItems to it.</summary>
     public async Task<POResponse> CreateAsync(CreatePORequest request)
     {
+        // The company preset picked at creation time is stored through its payment wallet:
+        // PreferredWalletId → PaymentBox → CompanyPreset. An explicit wallet always wins.
+        var walletId = request.PreferredWalletId;
+        if (walletId == null && request.CompanyPresetId.HasValue)
+            walletId = await ResolveWalletForPresetAsync(request.CompanyPresetId.Value);
+
         var po = new PurchaseOrder
         {
             PONumber = "", // Will be set after getting Id
@@ -315,7 +341,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             InvoiceId = request.InvoiceId,
             Status = "Waiting For Admin Approval",
             CreatedAt = DateTime.UtcNow,
-            PreferredWalletId = request.PreferredWalletId,
+            PreferredWalletId = walletId,
         };
 
         _db.Set<PurchaseOrder>().Add(po);
@@ -938,6 +964,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         ProcessingFee = po.ProcessingFee,
         Shipping = po.Shipping,
         Tax = po.Tax,
+        // Wallet chosen at creation time — carries the company preset (resolved by the controller).
+        PreferredWalletId = po.PreferredWalletId,
         Items = po.POItems.Select(i => {
             string? sName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))

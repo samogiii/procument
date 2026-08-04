@@ -10,6 +10,17 @@
           <div :style="`width:14px;height:14px;border-radius:3px;background:${theme.primary};`" />
           <div :style="`width:14px;height:14px;border-radius:3px;background:${theme.accent};`" />
         </div>
+        <v-select
+          v-model="pdfTemplate"
+          :items="PDF_TEMPLATE_OPTIONS"
+          label="Template"
+          variant="outlined"
+          density="compact"
+          hide-details
+          class="mr-3"
+          style="max-width:210px;"
+          prepend-inner-icon="mdi-file-document-outline"
+        />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
@@ -246,8 +257,114 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
   </table>`
 }
 
+// Which of the three PDF templates to render — mirrored by the live preview.
+const pdfTemplate = ref<PdfTemplateKey>('modern')
+
+/** Items in the same order the PDF prints them (RFQ item, then supplier order). */
+function sortedItems(): any[] {
+  return [...(props.quote?.items || [])].sort((a: any, b: any) => {
+    const aRef = typeof a.rfqReference === 'string' ? a.rfqReference : (typeof a.rfqItemId === 'number' ? a.rfqItemId.toString() : '999')
+    const bRef = typeof b.rfqReference === 'string' ? b.rfqReference : (typeof b.rfqItemId === 'number' ? b.rfqItemId.toString() : '999')
+    if (aRef !== bRef) return aRef.localeCompare(bRef, undefined, { numeric: true, sensitivity: 'base' })
+    const aProcSo = typeof a.procumentRecordSortOrder === 'number' ? a.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    const bProcSo = typeof b.procumentRecordSortOrder === 'number' ? b.procumentRecordSortOrder : Number.MAX_SAFE_INTEGER
+    if (aProcSo !== bProcSo) return aProcSo - bProcSo
+    return 0
+  })
+}
+
+/** Template-neutral model — mirrors PdfDocModelBuilders.FromQuote on the server. */
+function buildPreviewModel(): PdfPreviewModel {
+  const q = props.quote
+  const items = sortedItems()
+  const isYuan = currency.value === 'China Yuan (CNY)'
+  const isEuro = currency.value === 'Euro (EUR)'
+  const isGbp = currency.value === 'GBP'
+  const sym = isYuan ? '¥' : isEuro ? '€' : isGbp ? '£' : '$'
+  const rate = (isYuan || isEuro || isGbp) ? (exchangeRate.value || 1) : 1
+  const money = (n: number) => `${sym}${fmt(n)}`
+
+  const subtotal = (Number(q.totalAmount) || 0) * rate
+  const tax = (taxAmount.value || 0) * rate
+  const shipping = (shippingAmount.value || 0) * rate
+  const other = (otherAmount.value || 0) * rate
+
+  return {
+    docTitle: 'Quotation',
+    docNumber: q.quoteNumber,
+    logoDataUrl: logoDataUrl.value,
+    companyName: companyName.value,
+    companyLocation: companyLocation.value,
+    companyPhone: companyPhone.value,
+    companyWebsite: companyWebsite.value,
+    companyEmail: companyEmail.value,
+    primary: theme.value.primary,
+    accent: theme.value.accent,
+    meta: [
+      { label: 'Date', value: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '' },
+      { label: 'Valid Until', value: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '' },
+      { label: 'RFQ', value: q.rfqName },
+      { label: 'Currency', value: currency.value },
+    ],
+    addresses: [
+      { title: 'Bill To', name: q.customerName, address: q.customerBillTo },
+      { title: 'Ship To', name: q.customerName, address: q.customerShipTo || q.customerBillTo },
+    ],
+    columns: [
+      { header: '#', width: 22 },
+      { header: 'Ref', width: 30 },
+      { header: 'Part No.', relative: 3 },
+      { header: 'Description', relative: 2.5, align: 'left' },
+      { header: 'Qty', width: 30 },
+      { header: 'CD', width: 30 },
+      { header: 'Lead Time', width: 55 },
+      { header: 'Unit Price', width: 60, align: 'right' },
+      { header: 'Total', width: 65, align: 'right' },
+    ],
+    rows: items.map((it: any, i: number) => {
+      const details: string[] = []
+      if (it.certName) details.push(`Cert: ${it.certName}`)
+      if (it.tagDate) details.push(`Tag Date: ${new Date(it.tagDate).getFullYear()}`)
+      if (it.note) details.push(`Note: ${it.note}`)
+      return {
+        note: details.length ? details.join('   ') : null,
+        cells: [
+          { text: String(i + 1) },
+          { text: it.rfqReference },
+          {
+            text: it.alt || it.partNumberName,
+            subText: it.alt ? `(Alt to: ${it.partNumberName || '—'})` : null,
+            highlight: !!it.alt,
+            bold: true,
+          },
+          { text: it.description },
+          { text: String(it.qty), bold: true },
+          { text: it.condition },
+          { text: it.leadTime },
+          { text: money((Number(it.unitPrice) || 0) * rate) },
+          { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
+        ],
+      }
+    }),
+    totals: [
+      { label: 'Subtotal', amount: money(subtotal) },
+      { label: 'Tax', amount: money(tax) },
+      { label: 'Shipping', amount: money(shipping) },
+      { label: 'Other', amount: money(other) },
+      { label: 'Total', amount: money(subtotal + tax + shipping + other), isGrand: true },
+    ],
+    comments: comments.value,
+    terms: companyTerms.value,
+    footerText: footerText.value,
+    showSignature: true,
+  }
+}
+
 const renderedHtml = computed(() => {
   const q = props.quote
+  if (pdfTemplate.value === 'classic') return renderClassicPreview(buildPreviewModel())
+  if (pdfTemplate.value === 'standard') return renderStandardPreview(buildPreviewModel())
+
   const rawItems = q.items || []
   console.log('Raw items with procSortOrder:', rawItems.map((i: any) => ({
     id: i.id,
@@ -556,6 +673,7 @@ async function downloadPdf() {
         comments: comments.value || null,
         terms: companyTerms.value || null,
         footerText: footerText.value || null,
+        template: pdfTemplate.value,
       }
 
       const response = await $fetch<Blob>(`${api.baseURL}/pdf/generate`, {

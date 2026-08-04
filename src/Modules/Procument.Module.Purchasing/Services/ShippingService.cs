@@ -70,7 +70,7 @@ public class ShippingService : IShippingService
         IQueryable<POItemTrackNumber> query = _db.Set<POItemTrackNumber>()
             .AsNoTracking()
             .Include(t => t.Warehouse)
-            .Include(t => t.POItem).ThenInclude(i => i.PurchaseOrder)
+            .Include(t => t.POItem).ThenInclude(i => i.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(t => t.POItem).ThenInclude(i => i.PartNumber)
             .Include(t => t.Items).ThenInclude(i => i.ReviewedBy)
             .Include(t => t.Documents).ThenInclude(d => d.UploadedBy)
@@ -495,7 +495,7 @@ public class ShippingService : IShippingService
         var track = await _db.Set<POItemTrackNumber>()
             .AsNoTracking()
             .Include(t => t.Warehouse)
-            .Include(t => t.POItem).ThenInclude(i => i.PurchaseOrder)
+            .Include(t => t.POItem).ThenInclude(i => i.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(t => t.POItem).ThenInclude(i => i.PartNumber)
             .Include(t => t.Items).ThenInclude(i => i.ReviewedBy)
             .Include(t => t.Documents).ThenInclude(d => d.UploadedBy)
@@ -565,6 +565,7 @@ public class ShippingService : IShippingService
         POItemId = t.POItemId,
         POId = t.POItem?.POId ?? 0,
         PONumber = t.POItem?.PurchaseOrder?.PONumber,
+        SupplierName = t.POItem?.PurchaseOrder?.Supplier?.Name,
         PartNumberName = t.POItem?.PartNumber?.Name,
         PoItemQty = t.POItem?.Qty ?? 0,
         CreatedAt = t.CreatedAt,

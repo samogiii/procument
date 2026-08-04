@@ -9,7 +9,7 @@ public interface IPaymentBoxService : IPaymentLedgerService
     Task<PaymentBoxDetailResponse?> GetByIdAsync(long id);
     Task<List<AllTransactionRow>> GetAllTransactionsAsync();
     Task<PaymentBoxSummaryResponse> CreateBoxAsync(CreatePaymentBoxRequest req);
-    Task<PaymentBoxSummaryResponse?> RenameBoxAsync(long id, string name);
+    Task<PaymentBoxSummaryResponse?> RenameBoxAsync(long id, RenamePaymentBoxRequest req);
     Task<PaymentBoxSummaryResponse?> UpdateBankDetailsAsync(long id, UpdateWalletBankDetailsRequest req);
     Task<bool> DeleteBoxAsync(long id);
     Task<PaymentTransactionRow?> AddTransactionAsync(long boxId, CreateTransactionRequest req);

@@ -42,7 +42,9 @@ public record PaymentTransactionRow(
     DateTime CreatedAt,
     decimal Balance,
     string? TxCurrency,
-    decimal? ExchangeRate);
+    decimal? ExchangeRate,
+    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    string? Base = null);
 
 public record PaymentBoxDetailResponse(
     long Id,
@@ -51,7 +53,9 @@ public record PaymentBoxDetailResponse(
     decimal TotalDeposit,
     decimal TotalWithdraw,
     decimal Balance,
-    List<PaymentTransactionRow> Transactions);
+    List<PaymentTransactionRow> Transactions,
+    /// <summary>The wallet's own name — how wallets are labelled in the UI.</summary>
+    string? Name = null);
 
 public record AllTransactionRow(
     long Id,
@@ -76,9 +80,12 @@ public record AllTransactionRow(
     DateTime CreatedAt,
     decimal Balance,
     string? TxCurrency,
-    decimal? ExchangeRate);
+    decimal? ExchangeRate,
+    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    string? Base = null);
 
-public record CreatePaymentBoxRequest(long CompanyPresetId, string Currency, string Name = "",
+/// <summary>CompanyPresetId is optional — omit it for a wallet that belongs to no company.</summary>
+public record CreatePaymentBoxRequest(long? CompanyPresetId, string Currency, string Name = "",
     string? BankName = null, string? BankAddress = null, string? AccountNumber = null,
     string? BeneficiaryName = null, string? SwiftCode = null);
 
@@ -86,7 +93,8 @@ public record UpdateWalletBankDetailsRequest(
     string? BankName, string? BankAddress, string? AccountNumber,
     string? BeneficiaryName, string? SwiftCode);
 
-public record RenamePaymentBoxRequest(string Name);
+/// <summary>A null CompanyPresetId detaches the wallet from any company.</summary>
+public record RenamePaymentBoxRequest(string Name, long? CompanyPresetId = null);
 
 public record CreateTransactionRequest(
     string Type,
@@ -100,7 +108,9 @@ public record CreateTransactionRequest(
     string? Notes,
     string? Currency,
     decimal? ExchangeRate,
-    long? ToPaymentBoxId);
+    long? ToPaymentBoxId,
+    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    string? Base = null);
 
 public record UpdateTransactionRequest(
     string Type,
@@ -115,7 +125,9 @@ public record UpdateTransactionRequest(
     string? Currency,
     decimal? ExchangeRate,
     long? ToPaymentBoxId,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    string? Base = null);
 
 public record WalletTransferRequest(
     long ToBoxId,

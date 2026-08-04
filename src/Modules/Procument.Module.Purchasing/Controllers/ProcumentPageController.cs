@@ -129,6 +129,15 @@ public class ProcumentPageController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Full read-only history for a part number: experts, suppliers and every cost row ever recorded.</summary>
+    [HttpGet("part-history")]
+    public async Task<ActionResult<PartHistoryResponse>> GetPartHistory([FromQuery] long partNumberId)
+    {
+        if (partNumberId <= 0) return BadRequest("partNumberId is required.");
+        var result = await _service.GetPartHistoryAsync(partNumberId);
+        return Ok(result);
+    }
+
     private (long userId, bool isSuperAdmin, int[] userBases) GetUserContext()
     {
         var idClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);

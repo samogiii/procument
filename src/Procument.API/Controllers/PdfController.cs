@@ -27,9 +27,10 @@ public class PdfController : ControllerBase
 
     // ─── Proforma Invoice ───────────────────────────────
     [HttpPost("invoice")]
-    public IActionResult GenerateInvoice([FromBody] InvoicePdfRequest req)
+    public IActionResult GenerateInvoice([FromBody] InvoicePdfRequest req, [FromQuery] string? template = null)
     {
         QuestPDF.Settings.License = LicenseType.Community;
+        if (!string.IsNullOrWhiteSpace(template)) req.Template = template;
         var pdf = InvoiceDocument.Generate(req);
         return File(pdf, "application/pdf", $"{req.InvoiceNumber ?? "Invoice"}.pdf");
     }
@@ -38,8 +39,11 @@ public class PdfController : ControllerBase
     [HttpPost("po")]
     public async Task<IActionResult> GeneratePo(
         [FromBody] PurchaseOrderPdfRequest req,
-        [FromQuery] long? warehouseId = null)
+        [FromQuery] long? warehouseId = null,
+        [FromQuery] string? template = null)
     {
+        if (!string.IsNullOrWhiteSpace(template)) req.Template = template;
+
         // If a warehouse is selected for "Ship To", override the DeliverTo fields
         if (warehouseId.HasValue)
         {
@@ -131,9 +135,10 @@ public class PdfController : ControllerBase
 
     // ─── Final Invoice ───────────────────────────────────
     [HttpPost("final-invoice")]
-    public IActionResult GenerateFinalInvoice([FromBody] FinalInvoicePdfRequest req)
+    public IActionResult GenerateFinalInvoice([FromBody] FinalInvoicePdfRequest req, [FromQuery] string? template = null)
     {
         QuestPDF.Settings.License = LicenseType.Community;
+        if (!string.IsNullOrWhiteSpace(template)) req.Template = template;
         var pdf = FinalInvoiceDocument.Generate(req);
         var customerName = string.IsNullOrWhiteSpace(req.CustomerName) ? "" : req.CustomerName.Replace(" ", "_");
         return File(pdf, "application/pdf", $"INV-{req.InvoiceNumber ?? "FinalInvoice"}-{customerName}.pdf");
@@ -179,9 +184,16 @@ public class PdfController : ControllerBase
 
     // ─── Quote (existing) ────────────────────────────────
     [HttpPost("generate")]
-    public IActionResult Generate([FromBody] QuotePdfRequest req)
+    public IActionResult Generate([FromBody] QuotePdfRequest req, [FromQuery] string? template = null)
     {
         QuestPDF.Settings.License = LicenseType.Community;
+        if (!string.IsNullOrWhiteSpace(template)) req.Template = template;
+
+        // Classic / Standard templates render from the shared document model;
+        // "modern" (the default) falls through to the original layout below.
+        var alternate = PdfTemplateRenderer.TryRenderAlternate(req.Template, () => PdfDocModelBuilders.FromQuote(req));
+        if (alternate != null)
+            return File(alternate, "application/pdf", $"{req.QuoteNumber ?? "Quote"}.pdf");
 
         var primary = req.PrimaryColor ?? "#1a2744";
         var accent = req.AccentColor ?? "#2563eb";
@@ -501,6 +513,9 @@ public class QuotePdfRequest
     // Theme
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
+
+    /// <summary>Visual template: "modern" (default), "classic" or "standard".</summary>
+    public string? Template { get; set; }
 
     // Quote meta
     public string? QuoteNumber { get; set; }

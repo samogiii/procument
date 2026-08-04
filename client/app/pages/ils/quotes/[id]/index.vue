@@ -356,6 +356,11 @@ const isAdmin = computed(() => authStore.isAdmin)
 const id = computed(() => route.params.id as string)
 
 const quote = ref<any>(null)
+
+// Show the quote number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(quote.value?.quoteNumber))
+
 const loading = ref(true)
 const snackbar = ref(false)
 const snackbarText = ref('')

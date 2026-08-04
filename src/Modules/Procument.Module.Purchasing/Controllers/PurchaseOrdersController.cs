@@ -70,6 +70,32 @@ public class PurchaseOrdersController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Resolve the company preset behind a PO's preferred wallet. The preset picked when the PO was
+    /// created is stored as PreferredWalletId → PaymentBox → CompanyPreset; raw SQL keeps PaymentBox
+    /// (Sales module) out of this module's model.
+    /// </summary>
+    private async Task<(long PresetId, string PresetName, string WalletName)?> ResolvePresetForWalletAsync(long? walletId)
+    {
+        if (!walletId.HasValue) return null;
+
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT cp.Id, cp.Name, COALESCE(NULLIF(pb.Name,''), cp.Name)
+                            FROM PaymentBoxes pb
+                            JOIN CompanyPresets cp ON cp.Id = pb.CompanyPresetId
+                            WHERE pb.Id = @walletId";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@walletId";
+        p.Value = walletId.Value;
+        cmd.Parameters.Add(p);
+
+        using var rdr = await cmd.ExecuteReaderAsync();
+        if (!await rdr.ReadAsync()) return null;
+        return (rdr.GetInt64(0), rdr.GetString(1), rdr.GetString(2));
+    }
+
     /// <summary>Get a purchase order by ID.</summary>
     [HttpGet("{id:long}")]
     public async Task<ActionResult<POResponse>> GetById(long id)
@@ -77,7 +103,20 @@ public class PurchaseOrdersController : ControllerBase
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         if (!await _poService.UserCanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)) return Forbid();
         var result = await _poService.GetByIdAsync(id);
-        return result == null ? NotFound() : Ok(result);
+        if (result == null) return NotFound();
+        await FillCompanyPresetAsync(result);
+        return Ok(result);
+    }
+
+    /// <summary>Fill CompanyPresetId / CompanyPresetName / PreferredWalletName from the PO's preferred wallet.</summary>
+    private async Task FillCompanyPresetAsync(POResponse po)
+    {
+        var preset = await ResolvePresetForWalletAsync(po.PreferredWalletId);
+        if (preset == null) return;
+        po.CompanyPresetId = preset.Value.PresetId;
+        po.CompanyPresetName = preset.Value.PresetName;
+        po.PreferredWalletName = preset.Value.WalletName;
+        po.PreferredWalletCompany = preset.Value.PresetName;
     }
 
     /// <summary>Create a new purchase order.</summary>
@@ -118,6 +157,10 @@ public class PurchaseOrdersController : ControllerBase
         }
 
         var result = await _poService.CreateAsync(request);
+
+        // Echo back which company preset the PO ended up on, so the caller can warn when the
+        // chosen preset had no payment wallet to anchor the choice to.
+        await FillCompanyPresetAsync(result);
 
         // If a non-admin created the PO (they had Procurement-level access), grant them
         // an EntityPermission on the new PO so it shows up in their /purchase-orders list.
@@ -394,6 +437,10 @@ public class PurchaseOrdersController : ControllerBase
             note = i.ProcumentRecord?.Note ?? "",
         }).ToList();
 
+        // Company preset chosen when the PO was created (via its payment wallet) — the PDF
+        // generator pre-selects it so the printed PO carries the buying company's branding.
+        var poPreset = await ResolvePresetForWalletAsync(po.PreferredWalletId);
+
         return Ok(new
         {
             poNumber = po.PONumber,
@@ -401,6 +448,8 @@ public class PurchaseOrdersController : ControllerBase
             createdAt = po.CreatedAt,
             totalAmount = po.TotalAmount,
             orderedBy,
+            companyPresetId = poPreset?.PresetId,
+            companyPresetName = poPreset?.PresetName,
             supplier = new
             {
                 id = po.SupplierId,

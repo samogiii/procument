@@ -91,7 +91,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 t.CreatedAt,
                 running,
                 t.TxCurrency,
-                t.ExchangeRate);
+                t.ExchangeRate,
+                t.Base);
         }).ToList();
 
         var totalDeposit = ordered.Where(t => t.Type == "Deposit").Sum(t => t.Amount * (t.ExchangeRate ?? 1m));
@@ -99,12 +100,13 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
 
         return new PaymentBoxDetailResponse(
             box.Id,
-            box.CompanyPreset?.Name ?? "",
+            PresetNameOrNull(box) ?? "",
             box.Currency,
             totalDeposit,
             totalWithdraw,
             totalDeposit - totalWithdraw,
-            rows);
+            rows,
+            box.Name);
     }
 
     public async Task<List<AllTransactionRow>> GetAllTransactionsAsync()
@@ -121,7 +123,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 .ThenInclude(t => t.PaymentRequest)
             .ToListAsync();
 
-        var allBoxNames = boxes.ToDictionary(b => b.Id, b => b.CompanyPreset?.Name ?? $"Wallet {b.Id}");
+        // Wallets are identified by their own name; the company preset is only a fallback.
+        var allBoxNames = boxes.ToDictionary(b => b.Id, DisplayName);
         var result = new List<AllTransactionRow>();
 
         foreach (var box in boxes)
@@ -135,7 +138,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 result.Add(new AllTransactionRow(
                     t.Id,
                     box.Id,
-                    box.CompanyPreset?.Name ?? "",
+                    DisplayName(box),
                     box.Currency,
                     t.Type == "Deposit" ? t.Amount : null,
                     t.Type == "Withdraw" ? t.Amount : null,
@@ -163,7 +166,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                     t.CreatedAt,
                     running,
                     t.TxCurrency,
-                    t.ExchangeRate));
+                    t.ExchangeRate,
+                    t.Base));
             }
         }
 
@@ -172,11 +176,41 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
 
     // ── Mutations ────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Name of the placeholder preset used by wallets that belong to no company. PaymentBoxes.CompanyPresetId
+    /// is a required FK, so "no company" is represented by an inactive preset row instead of a schema change.
+    /// It is inactive, so it never shows up in the company-preset pickers (they only list active presets).
+    /// </summary>
+    public const string NoCompanyPresetName = "(No Company)";
+
+    /// <summary>Get — or create once — the placeholder preset that stands for "no company".</summary>
+    private async Task<long> GetNoCompanyPresetIdAsync()
+    {
+        var existing = await _db.Set<CompanyPreset>()
+            .FirstOrDefaultAsync(p => p.Name == NoCompanyPresetName);
+        if (existing != null) return existing.Id;
+
+        var placeholder = new CompanyPreset
+        {
+            Name = NoCompanyPresetName,
+            IsActive = false,
+            SortOrder = 0,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.Set<CompanyPreset>().Add(placeholder);
+        await _db.SaveChangesAsync();
+        return placeholder.Id;
+    }
+
     public async Task<PaymentBoxSummaryResponse> CreateBoxAsync(CreatePaymentBoxRequest req)
     {
+        var presetId = req.CompanyPresetId is > 0
+            ? req.CompanyPresetId.Value
+            : await GetNoCompanyPresetIdAsync();
+
         var box = new PaymentBox
         {
-            CompanyPresetId = req.CompanyPresetId,
+            CompanyPresetId = presetId,
             Currency = req.Currency,
             Name = req.Name,
             CreatedAt = DateTime.UtcNow,
@@ -193,15 +227,30 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         return ToSummary(box);
     }
 
-    public async Task<PaymentBoxSummaryResponse?> RenameBoxAsync(long id, string name)
+    public async Task<PaymentBoxSummaryResponse?> RenameBoxAsync(long id, RenamePaymentBoxRequest req)
     {
         var box = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
             .Include(b => b.Transactions)
             .FirstOrDefaultAsync(b => b.Id == id);
         if (box == null) return null;
-        box.Name = name;
+
+        box.Name = req.Name;
+        // CompanyPresetId is a required FK, so "no company" maps to the placeholder preset.
+        box.CompanyPresetId = req.CompanyPresetId is > 0
+            ? req.CompanyPresetId.Value
+            : await GetNoCompanyPresetIdAsync();
+
         await _db.SaveChangesAsync();
+
+        // Changing the FK leaves the tracked navigation pointing at the old company unless the new
+        // preset happens to be tracked already, so refresh it explicitly before projecting.
+        if (box.CompanyPreset?.Id != box.CompanyPresetId)
+        {
+            var preset = await _db.Set<CompanyPreset>().FirstOrDefaultAsync(p => p.Id == box.CompanyPresetId);
+            if (preset != null) box.CompanyPreset = preset;
+        }
+
         return ToSummary(box);
     }
 
@@ -242,8 +291,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .ThenBy(b => b.Name)
             .Select(b => new WalletSelectionResponse(
                 b.Id,
-                string.IsNullOrWhiteSpace(b.Name) ? b.CompanyPreset.Name : b.Name,
-                b.CompanyPreset.Name,
+                !string.IsNullOrWhiteSpace(b.Name)
+                    ? b.Name
+                    : (b.CompanyPreset.Name == NoCompanyPresetName ? "Wallet " + b.Id : b.CompanyPreset.Name),
+                b.CompanyPreset.Name == NoCompanyPresetName ? "" : b.CompanyPreset.Name,
                 b.Currency))
             .ToListAsync();
     }
@@ -275,6 +326,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             PaymentRequestId = req.PaymentRequestId,
             Notes = req.Notes,
             IsAuto = false,
+            Base = NormalizeBase(req.Base),
             TxCurrency = req.Currency,
             ExchangeRate = req.ExchangeRate,
             ToPaymentBoxId = req.ToPaymentBoxId,
@@ -326,7 +378,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             tx.CreatedAt,
             running,
             tx.TxCurrency,
-            tx.ExchangeRate);
+            tx.ExchangeRate,
+            tx.Base);
     }
 
     public async Task<PaymentTransactionRow?> UpdateTransactionAsync(long txId, UpdateTransactionRequest req)
@@ -343,6 +396,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         tx.InvoiceId = req.InvoiceId;
         tx.PaymentRequestId = req.PaymentRequestId;
         tx.Notes = req.Notes;
+        tx.Base = NormalizeBase(req.Base);
         tx.TxCurrency = req.Currency;
         tx.ExchangeRate = req.ExchangeRate;
         tx.ToPaymentBoxId = req.ToPaymentBoxId;
@@ -393,7 +447,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             tx.CreatedAt,
             running,
             tx.TxCurrency,
-            tx.ExchangeRate);
+            tx.ExchangeRate,
+            tx.Base);
     }
 
     public async Task<bool> DeleteTransactionAsync(long txId)
@@ -541,6 +596,27 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>The wallet's company, or null when it is the "no company" placeholder.</summary>
+    private static string? PresetNameOrNull(PaymentBox box) =>
+        box.CompanyPreset == null || box.CompanyPreset.Name == NoCompanyPresetName
+            ? null
+            : box.CompanyPreset.Name;
+
+    /// <summary>Accepts only "B1".."B7"; anything else is stored as no base.</summary>
+    private static string? NormalizeBase(string? value)
+    {
+        var v = value?.Trim().ToUpperInvariant();
+        return !string.IsNullOrEmpty(v) && v.Length == 2 && v[0] == 'B' && v[1] >= '1' && v[1] <= '7'
+            ? v
+            : null;
+    }
+
+    /// <summary>How a wallet is labelled: its own name, falling back to the company preset.</summary>
+    private static string DisplayName(PaymentBox box) =>
+        string.IsNullOrWhiteSpace(box.Name)
+            ? (PresetNameOrNull(box) ?? $"Wallet {box.Id}")
+            : box.Name;
+
     private static PaymentBoxSummaryResponse ToSummary(PaymentBox box)
     {
         var deposits = box.Transactions.Where(t => t.Type == "Deposit").ToList();
@@ -565,7 +641,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         return new PaymentBoxSummaryResponse(
             box.Id,
             box.CompanyPresetId,
-            box.CompanyPreset?.Name ?? "",
+            PresetNameOrNull(box) ?? "",
             box.Name,
             box.Currency,
             totalDeposit,

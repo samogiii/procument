@@ -293,6 +293,8 @@ public class FinalInvoicesController : ControllerBase
 
             {
 
+                id = i.Id,
+
                 partNumber = i.PartNumberName,
 
                 alt = i.Alt,

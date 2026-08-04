@@ -1,60 +1,284 @@
 <template>
   <v-container fluid class="pa-4">
     <!-- Header -->
-    <div class="d-flex align-center gap-3 mb-6">
+    <div class="d-flex align-start gap-3 mb-6 flex-wrap">
       <v-btn icon="mdi-arrow-left" variant="text" @click="navigateTo('/payment-control')" />
       <div class="flex-1-1">
         <div class="d-flex align-center gap-2">
-          <span class="text-h5 font-weight-bold">{{ detail?.companyPresetName }}</span>
+          <span class="text-h5 font-weight-bold">{{ detail ? boxLabel(detail) : '' }}</span>
           <v-chip v-if="detail" size="small" color="primary" variant="tonal">{{ detail.currency }}</v-chip>
         </div>
-        <div class="text-caption text-medium-emphasis">Transaction ledger</div>
+        <div class="text-caption text-medium-emphasis mb-2">Transaction ledger</div>
+
+        <!-- Stat chips -->
+        <div v-if="detail" class="d-flex gap-2 flex-wrap">
+          <v-chip color="success" variant="tonal" prepend-icon="mdi-arrow-down-circle">
+            +{{ formatPrice(detail.totalDeposit) }}
+          </v-chip>
+          <v-chip color="error" variant="tonal" prepend-icon="mdi-arrow-up-circle">
+            -{{ formatPrice(detail.totalWithdraw) }}
+          </v-chip>
+        </div>
       </div>
 
-      <!-- Stat chips -->
-      <div v-if="detail" class="d-flex gap-2 flex-wrap">
-        <v-chip color="success" variant="tonal" prepend-icon="mdi-arrow-down-circle">
-          +{{ formatPrice(detail.totalDeposit) }}
-        </v-chip>
-        <v-chip color="error" variant="tonal" prepend-icon="mdi-arrow-up-circle">
-          -{{ formatPrice(detail.totalWithdraw) }}
-        </v-chip>
-        <v-chip
-          :color="detail.balance >= 0 ? 'success' : 'error'"
-          variant="flat"
-          prepend-icon="mdi-scale-balance"
+      <div class="d-flex align-center gap-2">
+        <v-btn
+          v-if="hasAnyFilter"
+          variant="text"
+          color="error"
+          prepend-icon="mdi-filter-off-outline"
+          @click="clearFilters"
         >
-          {{ formatPrice(detail.balance) }}
-        </v-chip>
+          Clear Filters
+        </v-btn>
+        <v-btn
+          color="success"
+          variant="tonal"
+          prepend-icon="mdi-microsoft-excel"
+          @click="exportDialog = true"
+        >
+          Export
+        </v-btn>
+        <v-btn
+          v-if="authStore.isSuperAdmin"
+          color="primary"
+          prepend-icon="mdi-plus"
+          @click="openAddTx"
+        >
+          Add Transaction
+        </v-btn>
       </div>
 
-      <v-btn
-        color="success"
-        variant="tonal"
-        prepend-icon="mdi-microsoft-excel"
-        @click="exportDialog = true"
-      >
-        Export
-      </v-btn>
-      <v-btn
-        v-if="authStore.isSuperAdmin"
-        color="primary"
-        prepend-icon="mdi-plus"
-        @click="openAddTx"
-      >
-        Add Transaction
-      </v-btn>
+      <!-- Remaining balance — the headline figure, kept far right and oversized -->
+      <v-card v-if="detail" class="glass-card wallet-balance-panel px-6 py-4" rounded="lg">
+        <div class="text-caption text-medium-emphasis text-right text-uppercase">Remaining Balance</div>
+        <div
+          class="wallet-balance-amount font-weight-bold text-right"
+          :class="detail.balance >= 0 ? 'text-success' : 'text-error'"
+        >
+          {{ currencySymbol(detail.currency) }}{{ formatPrice(detail.balance) }}
+        </div>
+      </v-card>
     </div>
 
     <!-- Table -->
     <v-card class="glass-card" rounded="lg">
       <v-data-table
         :headers="headers"
-        :items="detail?.transactions ?? []"
+        :items="displayedTransactions"
         :loading="loading"
         density="comfortable"
         :items-per-page="50"
       >
+        <!-- ── Excel-style filter + sort headers ── -->
+        <template #header.deposit="{ column, toggleSort, isSorted, sortBy }">
+          <ColRangeFilterMenu
+            col-key="deposit"
+            :label="column.title"
+            :min="rangeFilter.get('deposit').min"
+            :max="rangeFilter.get('deposit').max"
+            :bounds="depositBounds"
+            :prefix="currencySymbol(detail?.currency ?? '')"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @update:min="(v) => rangeFilter.setMin('deposit', v)"
+            @update:max="(v) => rangeFilter.setMax('deposit', v)"
+            @select-all="() => rangeFilter.setBounds('deposit', depositBounds?.lo ?? null, depositBounds?.hi ?? null)"
+            @clear-all="() => rangeFilter.clear('deposit')"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.withdraw="{ column, toggleSort, isSorted, sortBy }">
+          <ColRangeFilterMenu
+            col-key="withdraw"
+            :label="column.title"
+            :min="rangeFilter.get('withdraw').min"
+            :max="rangeFilter.get('withdraw').max"
+            :bounds="withdrawBounds"
+            :prefix="currencySymbol(detail?.currency ?? '')"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @update:min="(v) => rangeFilter.setMin('withdraw', v)"
+            @update:max="(v) => rangeFilter.setMax('withdraw', v)"
+            @select-all="() => rangeFilter.setBounds('withdraw', withdrawBounds?.lo ?? null, withdrawBounds?.hi ?? null)"
+            @clear-all="() => rangeFilter.clear('withdraw')"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.balance="{ column, toggleSort, isSorted, sortBy }">
+          <ColRangeFilterMenu
+            col-key="balance"
+            :label="column.title"
+            :min="rangeFilter.get('balance').min"
+            :max="rangeFilter.get('balance').max"
+            :bounds="balanceBounds"
+            :prefix="currencySymbol(detail?.currency ?? '')"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @update:min="(v) => rangeFilter.setMin('balance', v)"
+            @update:max="(v) => rangeFilter.setMax('balance', v)"
+            @select-all="() => rangeFilter.setBounds('balance', balanceBounds?.lo ?? null, balanceBounds?.hi ?? null)"
+            @clear-all="() => rangeFilter.clear('balance')"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.fromName="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="fromName"
+            :label="column.title"
+            :options="cfOptions.fromName"
+            :selected="colFilter.selected['fromName'] || new Set()"
+            :search="colFilter.search['fromName'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('fromName', v)"
+            @select-all="() => colFilter.selectAll('fromName', cfOptions.fromName)"
+            @clear-all="() => colFilter.clearAll('fromName')"
+            @update:search="(v) => colFilter.search['fromName'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.toName="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="toName"
+            :label="column.title"
+            :options="cfOptions.toName"
+            :selected="colFilter.selected['toName'] || new Set()"
+            :search="colFilter.search['toName'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('toName', v)"
+            @select-all="() => colFilter.selectAll('toName', cfOptions.toName)"
+            @clear-all="() => colFilter.clearAll('toName')"
+            @update:search="(v) => colFilter.search['toName'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.piNumber="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="piNumber"
+            :label="column.title"
+            :options="cfOptions.piNumber"
+            :selected="colFilter.selected['piNumber'] || new Set()"
+            :search="colFilter.search['piNumber'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('piNumber', v)"
+            @select-all="() => colFilter.selectAll('piNumber', cfOptions.piNumber)"
+            @clear-all="() => colFilter.clearAll('piNumber')"
+            @update:search="(v) => colFilter.search['piNumber'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.prNumber="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="prNumber"
+            :label="column.title"
+            :options="cfOptions.prNumber"
+            :selected="colFilter.selected['prNumber'] || new Set()"
+            :search="colFilter.search['prNumber'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('prNumber', v)"
+            @select-all="() => colFilter.selectAll('prNumber', cfOptions.prNumber)"
+            @clear-all="() => colFilter.clearAll('prNumber')"
+            @update:search="(v) => colFilter.search['prNumber'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.base="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="base"
+            :label="column.title"
+            :options="cfOptions.base"
+            :selected="colFilter.selected['base'] || new Set()"
+            :search="colFilter.search['base'] || ''"
+            :all-options="allBaseOptions"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('base', v)"
+            @select-all="() => colFilter.selectAll('base', cfOptions.base)"
+            @clear-all="() => colFilter.clearAll('base')"
+            @update:search="(v) => colFilter.search['base'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.exchangeRate="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="exchangeRate"
+            :label="column.title"
+            :options="cfOptions.exchangeRate"
+            :selected="colFilter.selected['exchangeRate'] || new Set()"
+            :search="colFilter.search['exchangeRate'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('exchangeRate', v)"
+            @select-all="() => colFilter.selectAll('exchangeRate', cfOptions.exchangeRate)"
+            @clear-all="() => colFilter.clearAll('exchangeRate')"
+            @update:search="(v) => colFilter.search['exchangeRate'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.notes="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="notes"
+            :label="column.title"
+            :options="cfOptions.notes"
+            :selected="colFilter.selected['notes'] || new Set()"
+            :search="colFilter.search['notes'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('notes', v)"
+            @select-all="() => colFilter.selectAll('notes', cfOptions.notes)"
+            @clear-all="() => colFilter.clearAll('notes')"
+            @update:search="(v) => colFilter.search['notes'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.isAuto="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="isAuto"
+            :label="column.title"
+            :options="cfOptions.isAuto"
+            :selected="colFilter.selected['isAuto'] || new Set()"
+            :search="colFilter.search['isAuto'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('isAuto', v)"
+            @select-all="() => colFilter.selectAll('isAuto', cfOptions.isAuto)"
+            @clear-all="() => colFilter.clearAll('isAuto')"
+            @update:search="(v) => colFilter.search['isAuto'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
+        <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
+          <ColFilterMenu
+            col-key="createdAt"
+            :label="column.title"
+            :options="cfOptions.createdAt"
+            :selected="colFilter.selected['createdAt'] || new Set()"
+            :search="colFilter.search['createdAt'] || ''"
+            :is-sorted="isSorted(column)"
+            :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+            @toggle="(v) => colFilter.toggle('createdAt', v)"
+            @select-all="() => colFilter.selectAll('createdAt', cfOptions.createdAt)"
+            @clear-all="() => colFilter.clearAll('createdAt')"
+            @update:search="(v) => colFilter.search['createdAt'] = v"
+            @sort-click="toggleSort(column)"
+          />
+        </template>
+
         <!-- Deposit -->
         <template #item.deposit="{ item }">
           <span v-if="item.deposit != null" class="text-success font-weight-medium text-no-wrap">
@@ -131,6 +355,12 @@
           <span v-else class="text-medium-emphasis">—</span>
         </template>
 
+        <!-- Base -->
+        <template #item.base="{ item }">
+          <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
+          <span v-else class="text-medium-emphasis">—</span>
+        </template>
+
         <!-- Exchange Rate -->
         <template #item.exchangeRate="{ item }">
           <div v-if="item.exchangeRate != null" class="text-caption">
@@ -189,6 +419,31 @@
               @click="confirmDeleteTx(item)"
             />
           </div>
+        </template>
+
+        <!-- Totals footer — sums the rows currently shown (filters applied) -->
+        <template #body.append="{ columns }">
+          <tr class="tx-total-row">
+            <td v-for="col in columns" :key="String(col.key ?? col.title)" :class="totalCellClass(col.key)">
+              <template v-if="col.key === 'deposit'">
+                <div v-if="depositTotals.length === 0" class="text-medium-emphasis">—</div>
+                <div v-for="t in depositTotals" :key="t.currency" class="text-success font-weight-bold text-no-wrap">
+                  +{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+                </div>
+              </template>
+              <template v-else-if="col.key === 'withdraw'">
+                <div v-if="withdrawTotals.length === 0" class="text-medium-emphasis">—</div>
+                <div v-for="t in withdrawTotals" :key="t.currency" class="text-error font-weight-bold text-no-wrap">
+                  -{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+                </div>
+              </template>
+              <template v-else-if="col.key === 'fromName'">
+                <span class="text-caption text-medium-emphasis">
+                  Totals · {{ displayedTransactions.length }} row{{ displayedTransactions.length === 1 ? '' : 's' }}
+                </span>
+              </template>
+            </td>
+          </tr>
         </template>
       </v-data-table>
     </v-card>
@@ -270,37 +525,24 @@
             <v-autocomplete
               v-model="txForm.toBoxId"
               :items="allBoxes"
-              :item-title="(b) => `${b.companyPresetName} (${b.currency})`"
+              :item-title="(b) => `${boxLabel(b)} (${b.currency})`"
               item-value="id"
               label="Transfer To Wallet"
               variant="outlined"
               density="comfortable"
               class="mb-3"
               clearable
-              @update:model-value="txForm.depositAmount = 0; txForm.transferExchangeRate = null"
+              @update:model-value="txForm.transferExchangeRate = null"
             />
-            <v-row dense class="mb-3">
-              <v-col cols="6">
-                <v-text-field
-                  v-model.number="txForm.amount"
-                  label="Withdraw Amount"
-                  type="number"
-                  variant="outlined"
-                  density="comfortable"
-                  :prefix="currencySymbol(detail?.currency ?? '')"
-                />
-              </v-col>
-              <v-col cols="6">
-                <v-text-field
-                  v-model.number="txForm.depositAmount"
-                  label="Deposit Amount"
-                  type="number"
-                  variant="outlined"
-                  density="comfortable"
-                  :prefix="currencySymbol(toBoxCurrency)"
-                />
-              </v-col>
-            </v-row>
+            <v-text-field
+              v-model.number="txForm.amount"
+              label="Withdraw Amount"
+              type="number"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              :prefix="currencySymbol(detail?.currency ?? '')"
+            />
             <v-text-field
               v-if="showTransferRate"
               v-model.number="txForm.transferExchangeRate"
@@ -309,6 +551,19 @@
               variant="outlined"
               density="comfortable"
               class="mb-3"
+            />
+            <!-- Deposited amount is derived: Exchange Rate × Withdraw Amount -->
+            <v-text-field
+              v-if="showTransferRate && txForm.transferExchangeRate"
+              :model-value="transferRealAmount"
+              label="Real Amount"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              readonly
+              :prefix="currencySymbol(toBoxCurrency)"
+              hint="Exchange Rate × Withdraw Amount — the amount deposited into the target wallet"
+              persistent-hint
             />
             <v-text-field
               v-model="txForm.notes"
@@ -344,6 +599,18 @@
               />
             </v-col>
           </v-row>
+
+          <!-- Base tag -->
+          <v-select
+            v-model="txForm.base"
+            :items="bases"
+            label="Base (optional)"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            clearable
+            prepend-inner-icon="mdi-tag-outline"
+          />
 
           <!-- Exchange Rate (only when currency differs from box currency) -->
           <v-text-field
@@ -535,10 +802,12 @@ interface TransactionRow {
   balance: number
   txCurrency: string | null
   exchangeRate: number | null
+  base: string | null
 }
 
 interface BoxDetail {
   id: number
+  name: string | null
   companyPresetName: string
   currency: string
   totalDeposit: number
@@ -559,6 +828,10 @@ const api = useApi()
 const id = computed(() => Number(route.params.id))
 const detail = ref<BoxDetail | null>(null)
 const loading = ref(true)
+
+// Show the wallet name instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(detail.value ? boxLabel(detail.value) : null))
 
 const exportDialog = ref(false)
 const exportForm = ref({
@@ -584,7 +857,7 @@ const customers = ref<Customer[]>([])
 const suppliers = ref<Supplier[]>([])
 const invoices = ref<Invoice[]>([])
 const paymentRequests = ref<PR[]>([])
-const allBoxes = ref<{ id: number; companyPresetName: string; currency: string }[]>([])
+const allBoxes = ref<{ id: number; name: string | null; companyPresetName: string; currency: string }[]>([])
 
 const txForm = ref({
   id: null as number | null,
@@ -600,8 +873,8 @@ const txForm = ref({
   paymentRequestId: null as number | null,
   // Wallet-to-wallet
   toBoxId: null as number | null,
-  depositAmount: 0,
   transferExchangeRate: null as number | null,
+  base: null as string | null,
   notes: '',
   createdAt: '',
 })
@@ -620,24 +893,118 @@ const filteredPaymentRequests = computed(() =>
 
 const currencies = ['USD', 'EUR', 'CNY', 'GBP', 'AED', 'RUB']
 
+/** Wallet-side base tag options. */
+const bases = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7']
+/** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
+const allBaseOptions = [...bases, '—']
+
 function currencySymbol(c: string) {
   return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[c] ?? c
 }
 
 const headers = [
-  { title: 'Deposit', key: 'deposit', sortable: false, width: '130px' },
-  { title: 'Withdraw', key: 'withdraw', sortable: false, width: '130px' },
-  { title: 'From', key: 'fromName', sortable: false },
-  { title: 'To', key: 'toName', sortable: false },
-  { title: 'PI#', key: 'piNumber', sortable: false, width: '100px' },
-  { title: 'PR#', key: 'prNumber', sortable: false, width: '100px' },
-  { title: 'Rate', key: 'exchangeRate', sortable: false, width: '90px' },
-  { title: 'Notes', key: 'notes', sortable: false },
-  { title: 'Source', key: 'isAuto', sortable: false, width: '90px' },
+  { title: 'Deposit', key: 'deposit', sortable: true, width: '130px' },
+  { title: 'Withdraw', key: 'withdraw', sortable: true, width: '130px' },
+  { title: 'From', key: 'fromName', sortable: true },
+  { title: 'To', key: 'toName', sortable: true },
+  { title: 'PI#', key: 'piNumber', sortable: true, width: '100px' },
+  { title: 'PR#', key: 'prNumber', sortable: true, width: '100px' },
+  { title: 'Base', key: 'base', sortable: true, width: '90px' },
+  { title: 'Rate', key: 'exchangeRate', sortable: true, width: '90px' },
+  { title: 'Notes', key: 'notes', sortable: true },
+  { title: 'Source', key: 'isAuto', sortable: true, width: '90px' },
   { title: 'Date', key: 'createdAt', sortable: true, width: '100px' },
-  { title: 'Balance', key: 'balance', sortable: false, width: '120px' },
+  { title: 'Balance', key: 'balance', sortable: true, width: '120px' },
   { title: '', key: 'actions', sortable: false, width: '70px' },
 ]
+
+// ── Excel-style column filters ────────────────────────────────────────────────
+const colFilter = useColFilter()
+const rangeFilter = useRangeFilter()
+
+/** Column keys carrying a value-list filter, paired with the label shown in the cell. */
+const LIST_COLS = {
+  fromName: (t: TransactionRow) => (t.type === 'Deposit' ? (t.fromName ?? 'Mother Wallet') : '—'),
+  toName: (t: TransactionRow) => (t.type === 'Withdraw' ? (t.toName ?? 'Mother Wallet') : '—'),
+  piNumber: (t: TransactionRow) => t.piNumber ?? '—',
+  prNumber: (t: TransactionRow) => t.prNumber ?? '—',
+  base: (t: TransactionRow) => t.base ?? '—',
+  exchangeRate: (t: TransactionRow) =>
+    t.exchangeRate != null ? `${t.txCurrency ?? detail.value?.currency ?? ''} ×${t.exchangeRate}` : '—',
+  notes: (t: TransactionRow) => t.notes?.trim() || '—',
+  isAuto: (t: TransactionRow) => (t.isAuto ? 'Auto' : 'Manual'),
+  createdAt: (t: TransactionRow) => new Date(t.createdAt).toLocaleDateString(),
+} satisfies Record<string, (t: TransactionRow) => string>
+
+type ListColKey = keyof typeof LIST_COLS
+const LIST_KEYS = Object.keys(LIST_COLS) as ListColKey[]
+const RANGE_KEYS = ['deposit', 'withdraw', 'balance'] as const
+
+function uniq(vals: string[]) {
+  return [...new Set(vals)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+}
+
+const allTx = computed(() => detail.value?.transactions ?? [])
+
+const cfOptions = computed(() => {
+  const out = {} as Record<ListColKey, string[]>
+  for (const key of LIST_KEYS) out[key] = uniq(allTx.value.map(LIST_COLS[key]))
+  return out
+})
+
+function bounds(values: number[]) {
+  if (values.length === 0) return null
+  return { lo: Math.min(...values), hi: Math.max(...values) }
+}
+
+const depositBounds = computed(() => bounds(allTx.value.filter(t => t.deposit != null).map(t => t.deposit!)))
+const withdrawBounds = computed(() => bounds(allTx.value.filter(t => t.withdraw != null).map(t => t.withdraw!)))
+const balanceBounds = computed(() => bounds(allTx.value.map(t => t.balance)))
+
+const displayedTransactions = computed(() =>
+  allTx.value.filter(t => {
+    for (const key of LIST_KEYS) {
+      const sel = colFilter.selected[key]
+      if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
+    }
+    if (!rangeFilter.matches('deposit', t.deposit)) return false
+    if (!rangeFilter.matches('withdraw', t.withdraw)) return false
+    if (!rangeFilter.matches('balance', t.balance)) return false
+    return true
+  })
+)
+
+const hasAnyFilter = computed(() =>
+  LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+)
+
+function clearFilters() {
+  for (const k of LIST_KEYS) colFilter.clearAll(k)
+  for (const k of RANGE_KEYS) rangeFilter.clear(k)
+}
+
+// ── Footer totals ─────────────────────────────────────────────────────────────
+/**
+ * Deposits and withdrawals are recorded in the transaction's own currency, so
+ * they are summed per currency rather than added into one misleading figure.
+ */
+function sumByCurrency(rows: TransactionRow[], field: 'deposit' | 'withdraw') {
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    const v = r[field]
+    if (v == null) continue
+    const c = r.txCurrency || detail.value?.currency || ''
+    map.set(c, (map.get(c) ?? 0) + v)
+  }
+  return [...map].map(([currency, total]) => ({ currency, total }))
+}
+
+const depositTotals = computed(() => sumByCurrency(displayedTransactions.value, 'deposit'))
+const withdrawTotals = computed(() => sumByCurrency(displayedTransactions.value, 'withdraw'))
+
+function totalCellClass(key: unknown) {
+  return key === 'deposit' || key === 'withdraw' ? 'tx-total-cell' : ''
+}
 
 async function loadDetail() {
   loading.value = true
@@ -684,8 +1051,8 @@ function openEditTx(tx: TransactionRow) {
     invoiceId: tx.piId,
     paymentRequestId: tx.prId,
     toBoxId: null,
-    depositAmount: 0,
     transferExchangeRate: null,
+    base: tx.base,
     notes: tx.notes || '',
     createdAt: tx.createdAt ? new Date(tx.createdAt).toISOString().slice(0, 16) : '',
   }
@@ -700,7 +1067,8 @@ function buildSubmitFn(): (() => Promise<void>) | null {
       fromBoxId: id.value,
       toBoxId: form.toBoxId,
       withdrawAmount: form.amount,
-      depositAmount: form.depositAmount > 0 ? form.depositAmount : form.amount,
+      // Deposited amount is always derived from the rate — 1:1 when no exchange is involved.
+      depositAmount: transferRealAmount.value,
       exchangeRate: form.transferExchangeRate || null,
       notes: form.notes || null,
     }
@@ -719,6 +1087,7 @@ function buildSubmitFn(): (() => Promise<void>) | null {
       invoiceId: form.type === 'Deposit' ? form.invoiceId : null,
       paymentRequestId: form.type === 'Withdraw' ? form.paymentRequestId : null,
       notes: form.notes || null,
+      base: form.base || null,
       currency: isSameCurrency ? null : form.currency,
       exchangeRate: isSameCurrency ? null : form.exchangeRate,
       toPaymentBoxId: null,
@@ -804,8 +1173,8 @@ function resetForm() {
     invoiceId: null,
     paymentRequestId: null,
     toBoxId: null,
-    depositAmount: 0,
     transferExchangeRate: null,
+    base: null,
     notes: '',
     createdAt: '',
   }
@@ -825,12 +1194,15 @@ const showTransferRate = computed(() =>
   toBoxCurrency.value !== (detail.value?.currency ?? 'USD')
 )
 
-// Auto-calculate deposit amount when exchange rate or withdraw amount changes
-watch([() => txForm.value.transferExchangeRate, () => txForm.value.amount], ([rate, amount]) => {
-  if (txForm.value.type === 'Transfer' && rate && amount > 0) {
-    txForm.value.depositAmount = Math.round(amount * rate * 100) / 100
-  }
-})
+// Amount that actually lands in the target wallet: rate × withdraw (1:1 when no exchange).
+const transferRealAmount = computed(() =>
+  Math.round(txForm.value.amount * (txForm.value.transferExchangeRate || 1) * 100) / 100
+)
+
+/** Wallets are identified by their own name; fall back to the company preset when unnamed. */
+function boxLabel(box: { id?: number; name?: string | null; companyPresetName?: string | null }) {
+  return box.name?.trim() || box.companyPresetName || `Wallet ${box.id ?? ''}`.trim()
+}
 
 function confirmDeleteTx(tx: TransactionRow) {
   deleteTxTarget.value = tx
@@ -855,9 +1227,10 @@ function doExport() {
   const { type, fromDate, toDate } = exportForm.value
   const from = fromDate ? new Date(fromDate) : null
   const to = toDate ? new Date(toDate + 'T23:59:59') : null
-  const walletName = detail.value?.companyPresetName ?? 'wallet'
+  const walletName = detail.value ? boxLabel(detail.value) : 'wallet'
 
-  const rows = (detail.value?.transactions ?? []).filter(t => {
+  // Exports what the table currently shows — the column filters carry over.
+  const rows = displayedTransactions.value.filter(t => {
     if (type === 'Deposit' && t.deposit == null) return false
     if (type === 'Withdraw' && t.withdraw == null) return false
     const d = new Date(t.createdAt)
@@ -871,6 +1244,7 @@ function doExport() {
     To: t.toName ?? '',
     'PI#': t.piNumber ?? '',
     'PR#': t.prNumber ?? '',
+    Base: t.base ?? '',
     Currency: t.txCurrency ?? detail.value?.currency ?? '',
     'Exchange Rate': t.exchangeRate ?? '',
     Notes: t.notes ?? '',
@@ -902,3 +1276,30 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+/* Remaining balance: the one number the user scans for, so it outsizes everything else. */
+.wallet-balance-panel {
+  min-width: 260px;
+  margin-left: auto;
+}
+.wallet-balance-amount {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+}
+@media (max-width: 960px) {
+  .wallet-balance-panel { min-width: 100%; }
+  .wallet-balance-amount { font-size: 1.85rem; }
+}
+
+.tx-total-row {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.tx-total-row td {
+  border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.tx-total-cell {
+  white-space: nowrap;
+}
+</style>

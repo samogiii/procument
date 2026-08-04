@@ -165,10 +165,24 @@ const bankFeeItems = [
 async function loadPresets() {
   try {
     apiPresets.value = await api.get('/companypresets')
-    const match = apiPresets.value.find(p => p.sortOrder === 105)
-    if (match) selectedPresetId.value = match.id
+    applyDefaultPreset()
   } catch {}
 }
+
+/**
+ * Default the paying company to the preset chosen when the PO was created
+ * (PO.PreferredWalletId → PaymentBox → CompanyPreset), else Base 105.
+ */
+function applyDefaultPreset() {
+  if (!apiPresets.value.length) return
+  const poPresetId = props.po?.companyPresetId
+  const match = (poPresetId ? apiPresets.value.find(p => p.id === poPresetId) : null)
+    || apiPresets.value.find(p => p.sortOrder === 105)
+  if (match) selectedPresetId.value = match.id
+}
+
+// The PO is often loaded after this dialog mounts — re-apply once it arrives.
+watch(() => props.po?.companyPresetId, () => applyDefaultPreset())
 
 onMounted(() => {
   loadPresets()

@@ -127,6 +127,11 @@ const isAdmin = computed(() => authStore.isAdmin)
 const id = computed(() => route.params.id as string)
 
 const pi = ref<any>(null)
+
+// Show the PI number instead of the raw id in the breadcrumb trail
+const { setBreadcrumbLabel } = useBreadcrumb()
+watchEffect(() => setBreadcrumbLabel(pi.value?.piNumber))
+
 const loading = ref(true)
 const showPdf = ref(false)
 const statusUpdating = ref(false)

@@ -37,6 +37,14 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     taskManager:     [],
 }
 
+/**
+ * Wallets (/payment-control) — hardcoded allowlist, deliberately NOT part of the
+ * MenuPermission table and NOT manageable from the Menu Access page.
+ * There is no SuperAdmin bypass: only these names see the nav item or the route.
+ * Changing who has access means changing this list.
+ */
+const WALLET_MENU_USERS = ['KZM', 'ASD', 'MA','System Admin'] as const
+
 function getTokenExpiry(token: string): number | null {
     try {
         const parts = token.split('.')
@@ -97,6 +105,12 @@ export const useAuthStore = defineStore('auth', {
 
         // Gated menu getters
         paymentMenu():      boolean { return (this as any).isSuperAdmin || this.can('paymentMenu') || (this as any).isPayment },
+        /**
+         * Wallets (/payment-control). Hardcoded allowlist — no role grants it and
+         * SuperAdmin does NOT bypass. See WALLET_MENU_USERS.
+         */
+        walletMenu: (state): boolean =>
+            !!state.user?.name && WALLET_MENU_USERS.includes(state.user.name as typeof WALLET_MENU_USERS[number]),
         companyPresets():   boolean { return (this as any).isSuperAdmin || this.can('companyPresets') },
         syncApp():          boolean { return (this as any).isSuperAdmin || this.can('syncApp') },
         systemActivity():   boolean { return (this as any).isSuperAdmin || this.can('systemActivity') },

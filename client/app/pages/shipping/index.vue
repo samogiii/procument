@@ -118,6 +118,12 @@
           <span class="font-weight-bold text-pn">{{ item.trackNumber }}</span>
         </template>
 
+        <!-- Supplier(s) the PO(s) behind this track buy from -->
+        <template #item.supplierName="{ item }">
+          <span v-if="item.supplierNames.length" class="text-body-2">{{ item.supplierText }}</span>
+          <span v-else class="text-caption text-medium-emphasis">—</span>
+        </template>
+
         <!-- Parts chips -->
         <template #item.parts="{ item }">
           <div class="d-flex gap-1 flex-wrap py-1">
@@ -196,7 +202,13 @@ const router = useRouter()
 // so those three sort through sortRaw on the row rather than on the column key.
 const headers = [
   { title: 'Track Number', key: 'trackNumber', sortable: true },
-  { title: 'Carrier', key: 'carrier', sortable: false },
+  // A group can span several POs, so Supplier holds a list and sorts through sortRaw.
+  {
+    title: 'Supplier',
+    key: 'supplierName',
+    sortable: true,
+    sortRaw: (a: any, b: any) => a.supplierText.localeCompare(b.supplierText),
+  },
   { title: 'Warehouse', key: 'warehouseName', sortable: true },
   {
     title: 'Parts',
@@ -271,9 +283,10 @@ const grouped = computed(() => {
         warehouseId: t.warehouseId,
         warehouseName: t.warehouseName,
         parts: [],
-        // Rows in a group can belong to different POs, so assignees are merged
-        // by user id rather than taken from the first row.
+        // Rows in a group can belong to different POs, so assignees and suppliers
+        // are merged across rows rather than taken from the first one.
         peopleById: new Map<number, any>(),
+        supplierSet: new Set<string>(),
         worstStatus: t.status,
       })
     }
@@ -286,6 +299,7 @@ const grouped = computed(() => {
     for (const u of t.assignedUsers ?? []) {
       if (!group.peopleById.has(u.id)) group.peopleById.set(u.id, u)
     }
+    if (t.supplierName) group.supplierSet.add(t.supplierName)
     // Keep worst (lowest rank) shipping status
     if ((statusRank[t.status] ?? 99) < (statusRank[group.worstStatus] ?? 99)) {
       group.worstStatus = t.status
@@ -294,6 +308,7 @@ const grouped = computed(() => {
   return [...map.values()].map(g => {
     const partNames = g.parts.map((p: any) => p.partName || '—')
     const reviewStatuses = g.parts.map((p: any) => p.reviewStatus || 'Not submitted')
+    const supplierNames = [...g.supplierSet].sort((a: string, b: string) => a.localeCompare(b))
     return {
       ...g,
       people: [...g.peopleById.values()].sort((a: any, b: any) => a.name.localeCompare(b.name)),
@@ -301,8 +316,10 @@ const grouped = computed(() => {
       // so a row always filters and sorts on exactly what the cell renders.
       partNames,
       reviewStatuses,
+      supplierNames,
       partsText: [...partNames].sort().join(', '),
       reviewText: [...reviewStatuses].sort().join(', '),
+      supplierText: supplierNames.join(', '),
     }
   })
 })

@@ -1059,6 +1059,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Notes).HasMaxLength(1000);
       entity.Property(e => e.TxCurrency).HasMaxLength(10).IsRequired(false);
       entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
+      entity.Property(e => e.Base).HasMaxLength(10).IsRequired(false);
 
       entity.HasOne(e => e.FromCustomer)
                 .WithMany()

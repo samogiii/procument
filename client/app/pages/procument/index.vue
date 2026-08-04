@@ -539,15 +539,27 @@
                     <span class="text-caption text-uppercase font-weight-bold letter-spacing-wide" style="color: #60a5fa;">
                       Supplier Quotes for {{ item.partNumberName }}
                     </span>
-                    <v-btn
-                      size="x-small"
-                      color="primary"
-                      variant="flat"
-                      prepend-icon="mdi-plus"
-                      @click.stop="addQuoteRow(item)"
-                    >
-                      Add Supplier
-                    </v-btn>
+                    <div class="d-flex align-center gap-2">
+                      <v-btn
+                        size="x-small"
+                        color="blue-grey"
+                        variant="tonal"
+                        prepend-icon="mdi-history"
+                        title="Who worked on this part, and every supplier / price ever recorded for it"
+                        @click.stop="openPartHistory(item.partNumberId)"
+                      >
+                        History
+                      </v-btn>
+                      <v-btn
+                        size="x-small"
+                        color="primary"
+                        variant="flat"
+                        prepend-icon="mdi-plus"
+                        @click.stop="addQuoteRow(item)"
+                      >
+                        Add Supplier
+                      </v-btn>
+                    </div>
                   </div>
 
                   <!-- Supplier Suggestions -->
@@ -1163,6 +1175,8 @@
       message="Are you sure you want to remove this shop record?"
       @confirm="doRemoveShop"
     />
+
+    <PartHistoryDialog v-model="showPartHistory" :part-number-id="historyPartNumberId" />
   </div>
 </template>
 
@@ -1364,6 +1378,14 @@ const focusedField = ref('')
 const supplierSuggestions = ref<{ id: number; name: string; status: string }[]>([])
 const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 const partAvailability = ref<Record<number, any>>({})
+
+// Part history modal — read-only view of every expert, supplier and price ever recorded for a part
+const showPartHistory = ref(false)
+const historyPartNumberId = ref<number | null>(null)
+function openPartHistory(partNumberId: number) {
+  historyPartNumberId.value = partNumberId
+  showPartHistory.value = true
+}
 
 const snackbar = ref(false)
 const snackbarText = ref('')

@@ -9,6 +9,17 @@
           <div :style="`width:14px;height:14px;border-radius:3px;background:${theme.primary};`" />
           <div :style="`width:14px;height:14px;border-radius:3px;background:${theme.accent};`" />
         </div>
+        <v-select
+          v-model="pdfTemplate"
+          :items="PDF_TEMPLATE_OPTIONS"
+          label="Template"
+          variant="outlined"
+          density="compact"
+          hide-details
+          class="mr-3"
+          style="max-width:210px;"
+          prepend-inner-icon="mdi-file-document-outline"
+        />
         <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
 
@@ -179,9 +190,90 @@ function displayItems() {
   }))
 }
 
+// Which of the three PDF templates to render — mirrored by the live preview.
+const pdfTemplate = ref<PdfTemplateKey>('modern')
+
+/** Template-neutral model — mirrors PdfDocModelBuilders.FromQuote on the server. */
+function buildPreviewModel(): PdfPreviewModel {
+  const q = props.quote
+  const items = displayItems()
+  const sym = currencySymbol.value
+  const rate = currency.value === 'Dollar (USD)' || currency.value === 'MYR' || currency.value === 'HKD'
+    ? 1 : (exchangeRate.value || 1)
+  const money = (n: number) => `${sym}${fmt(n)}`
+
+  const subtotal = (Number(q.totalAmount) || 0) * rate
+  const tax = (taxAmount.value || 0) * rate
+  const shipping = (shippingAmount.value || 0) * rate
+  const other = (otherAmount.value || 0) * rate
+
+  return {
+    docTitle: docTitle.value,
+    docNumber: docNumber.value,
+    logoDataUrl: logoDataUrl.value,
+    companyName: companyName.value,
+    companyLocation: companyLocation.value,
+    companyPhone: companyPhone.value,
+    companyWebsite: companyWebsite.value,
+    companyEmail: companyEmail.value,
+    primary: theme.value.primary,
+    accent: theme.value.accent,
+    meta: [
+      { label: 'Date', value: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '' },
+      { label: 'RFQ', value: q.rfqReference },
+      { label: 'Currency', value: currency.value },
+    ],
+    addresses: [
+      { title: 'Bill To', name: q.ilsCustomerName, address: q.billTo },
+      { title: 'Ship To', name: q.ilsCustomerName, address: q.shipTo || q.billTo },
+    ],
+    columns: [
+      { header: '#', width: 22 },
+      { header: 'Part No.', relative: 3 },
+      { header: 'Serial', relative: 2, align: 'left' },
+      { header: 'Qty', width: 30 },
+      { header: 'CD', width: 30 },
+      { header: 'Lead Time', width: 55 },
+      { header: 'Unit Price', width: 60, align: 'right' },
+      { header: 'Total', width: 65, align: 'right' },
+    ],
+    rows: items.map((it: any, i: number) => ({
+      note: it.certName ? `Cert: ${it.certName}` : null,
+      cells: [
+        { text: String(i + 1) },
+        {
+          text: it.alt || it.partNumberName,
+          subText: it.alt ? `(Alt to: ${it.partNumberName || '—'})` : null,
+          highlight: !!it.alt,
+          bold: true,
+        },
+        { text: it.serialNumber },
+        { text: String(it.qty), bold: true },
+        { text: it.condition },
+        { text: it.leadTime },
+        { text: money(it.unitPrice * rate) },
+        { text: money(it.totalPrice * rate), bold: true },
+      ],
+    })),
+    totals: [
+      { label: 'Subtotal', amount: money(subtotal) },
+      { label: 'Tax', amount: money(tax) },
+      { label: 'Shipping', amount: money(shipping) },
+      { label: 'Other', amount: money(other) },
+      { label: 'Total', amount: money(subtotal + tax + shipping + other), isGrand: true },
+    ],
+    comments: comments.value,
+    terms: companyTerms.value,
+    footerText: footerText.value,
+    showSignature: true,
+  }
+}
+
 const renderedHtml = computed(() => {
   const q = props.quote
   if (!q) return ''
+  if (pdfTemplate.value === 'classic') return renderClassicPreview(buildPreviewModel())
+  if (pdfTemplate.value === 'standard') return renderStandardPreview(buildPreviewModel())
   const items = displayItems()
 
   const logo = logoDataUrl.value
@@ -409,6 +501,7 @@ async function downloadPdf() {
       comments: comments.value || null,
       terms: companyTerms.value || null,
       footerText: footerText.value || null,
+      template: pdfTemplate.value,
     }
 
     const response = await $fetch<Blob>(`${api.baseURL}/pdf/generate`, {
