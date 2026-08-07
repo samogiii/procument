@@ -146,109 +146,97 @@
                   <tr>
                     <th style="width: 60px;">#</th>
                     <th>
-                      <div class="po-th-inner">
-                        <span>Supplier PO#</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['poNumber']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['poNumber']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['poNumber']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueValues('poNumber')" :key="val" :label="val" :model-value="poColFilters['poNumber']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('poNumber', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['poNumber']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['poNumber'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="poNumber"
+                          label="Supplier PO#"
+                          :sortable="false"
+                          :options="poAvailableValues('poNumber')"
+                          :all-options="poAllValues('poNumber')"
+                          :selected="poSelected('poNumber')"
+                          :search="poFilterSearch['poNumber'] || ''"
+                          @toggle="(v) => togglePoFilter('poNumber', v)"
+                          @select-all="(vals) => setPoFilter('poNumber', vals)"
+                          @clear-all="() => setPoFilter('poNumber', [])"
+                          @update:search="(v) => poFilterSearch['poNumber'] = v"
+                        />
                     </th>
                     <th v-if="isAdmin" style="width: 120px;">
-                      <div class="po-th-inner">
-                        <span>PI</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['invoiceNumber']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['invoiceNumber']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['invoiceNumber']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueValues('invoiceNumber')" :key="val" :label="val" :model-value="poColFilters['invoiceNumber']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('invoiceNumber', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['invoiceNumber']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['invoiceNumber'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="invoiceNumber"
+                          label="PI"
+                          :sortable="false"
+                          :options="poAvailableValues('invoiceNumber')"
+                          :all-options="poAllValues('invoiceNumber')"
+                          :selected="poSelected('invoiceNumber')"
+                          :search="poFilterSearch['invoiceNumber'] || ''"
+                          @toggle="(v) => togglePoFilter('invoiceNumber', v)"
+                          @select-all="(vals) => setPoFilter('invoiceNumber', vals)"
+                          @clear-all="() => setPoFilter('invoiceNumber', [])"
+                          @update:search="(v) => poFilterSearch['invoiceNumber'] = v"
+                        />
                     </th>
                     <th>
-                      <div class="po-th-inner">
-                        <span>Supplier</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['supplierName']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['supplierName']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['supplierName']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueValues('supplierName')" :key="val" :label="val" :model-value="poColFilters['supplierName']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('supplierName', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['supplierName']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['supplierName'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="supplierName"
+                          label="Supplier"
+                          :sortable="false"
+                          :options="poAvailableValues('supplierName')"
+                          :all-options="poAllValues('supplierName')"
+                          :selected="poSelected('supplierName')"
+                          :search="poFilterSearch['supplierName'] || ''"
+                          @toggle="(v) => togglePoFilter('supplierName', v)"
+                          @select-all="(vals) => setPoFilter('supplierName', vals)"
+                          @clear-all="() => setPoFilter('supplierName', [])"
+                          @update:search="(v) => poFilterSearch['supplierName'] = v"
+                        />
                     </th>
                     <th style="width: 160px;">
-                      <div class="po-th-inner">
-                        <span>Subject</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['subject']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['subject']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['subject']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueValues('subject')" :key="val" :label="val" :model-value="poColFilters['subject']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('subject', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['subject']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['subject'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="subject"
+                          label="Subject"
+                          :sortable="false"
+                          :options="poAvailableValues('subject')"
+                          :all-options="poAllValues('subject')"
+                          :selected="poSelected('subject')"
+                          :search="poFilterSearch['subject'] || ''"
+                          @toggle="(v) => togglePoFilter('subject', v)"
+                          @select-all="(vals) => setPoFilter('subject', vals)"
+                          @clear-all="() => setPoFilter('subject', [])"
+                          @update:search="(v) => poFilterSearch['subject'] = v"
+                        />
                     </th>
                     <th style="width: 120px;">Total Amount</th>
                     <th style="width: 180px;">
-                      <div class="po-th-inner">
-                        <span>Status</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['status']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['status']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['status']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueValues('status')" :key="val" :label="val" :model-value="poColFilters['status']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('status', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['status']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['status'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="status"
+                          label="Status"
+                          :sortable="false"
+                          :options="poAvailableValues('status')"
+                          :all-options="poAllValues('status')"
+                          :selected="poSelected('status')"
+                          :search="poFilterSearch['status'] || ''"
+                          @toggle="(v) => togglePoFilter('status', v)"
+                          @select-all="(vals) => setPoFilter('status', vals)"
+                          @clear-all="() => setPoFilter('status', [])"
+                          @update:search="(v) => poFilterSearch['status'] = v"
+                        />
                     </th>
                     <th style="width: 100px;">Items</th>
                     <th style="width: 110px;">Track Status</th>
                     <th v-if="isAdmin" style="width: 200px;">
-                      <div class="po-th-inner">
-                        <span>Assigned Users</span>
-                        <v-menu :close-on-content-click="false" max-width="260">
-                          <template #activator="{ props: mp }">
-                            <v-btn v-bind="mp" :icon="poColFilters['assignedUsers']?.size ? 'mdi-filter' : 'mdi-filter-outline'" size="x-small" variant="text" :color="poColFilters['assignedUsers']?.size ? 'primary' : undefined" class="po-filter-btn" @click.stop />
-                          </template>
-                          <v-card class="pa-2" min-width="220">
-                            <v-text-field v-model="poFilterSearch['assignedUsers']" placeholder="Search…" density="compact" variant="outlined" hide-details clearable class="mb-2" />
-                            <div style="max-height:220px;overflow-y:auto;">
-                              <v-checkbox v-for="val in poUniqueAssignedUsers" :key="val" :label="val" :model-value="poColFilters['assignedUsers']?.has(val)" density="compact" hide-details @update:model-value="togglePoFilter('assignedUsers', val)" />
-                            </div>
-                            <v-btn v-if="poColFilters['assignedUsers']?.size" size="x-small" variant="text" color="error" class="mt-1" @click="poColFilters['assignedUsers'] = new Set()">Clear</v-btn>
-                          </v-card>
-                        </v-menu>
-                      </div>
+                      <ColFilterMenu
+                          col-key="assignedUsers"
+                          label="Assigned Users"
+                          :sortable="false"
+                          :options="poAvailableAssignedUsers"
+                          :all-options="poAllAssignedUsers"
+                          :selected="poSelected('assignedUsers')"
+                          :search="poFilterSearch['assignedUsers'] || ''"
+                          @toggle="(v) => togglePoFilter('assignedUsers', v)"
+                          @select-all="(vals) => setPoFilter('assignedUsers', vals)"
+                          @clear-all="() => setPoFilter('assignedUsers', [])"
+                          @update:search="(v) => poFilterSearch['assignedUsers'] = v"
+                        />
                     </th>
                     <th style="width: 140px;">Created</th>
                     <th style="width: 80px;"></th>
@@ -1057,28 +1045,56 @@ const PO_FILTER_COLS = [
   { key: 'status',        field: (r: any) => r.status },
 ]
 
-function poUniqueValues(key: string) {
+/** Every value in the column, regardless of what else is filtered — the "Show all" list. */
+function poAllValues(key: string) {
   const col = PO_FILTER_COLS.find(c => c.key === key)!
-  const search = (poFilterSearch[key] || '').toLowerCase()
-  const vals = [...new Set(purchaseOrders.value.map(col.field).filter(Boolean))] as string[]
-  return vals.filter(v => v.toLowerCase().includes(search)).sort()
+  return ([...new Set(purchaseOrders.value.map(col.field).filter(Boolean))] as string[]).sort()
 }
 
-const poUniqueAssignedUsers = computed(() => {
-  const search = (poFilterSearch['assignedUsers'] || '').toLowerCase()
+/**
+ * Values still selectable in this column: computed from the rows that survive every
+ * *other* filter. Excluding the column's own filter is what keeps its remaining values
+ * reachable instead of collapsing the menu to what is already ticked.
+ */
+function poAvailableValues(key: string) {
+  const col = PO_FILTER_COLS.find(c => c.key === key)!
+  return ([...new Set(applyPoFilters(purchaseOrders.value, key).map(col.field).filter(Boolean))] as string[]).sort()
+}
+
+const poAllAssignedUsers = computed(() => {
   const names = new Set<string>()
   for (const po of purchaseOrders.value) {
     for (const p of po._assignedUsers || []) {
       if (p.user?.name) names.add(p.user.name)
     }
   }
-  return [...names].filter(n => n.toLowerCase().includes(search)).sort()
+  return [...names].sort()
+})
+
+const poAvailableAssignedUsers = computed(() => {
+  const names = new Set<string>()
+  for (const po of applyPoFilters(purchaseOrders.value, 'assignedUsers')) {
+    for (const p of po._assignedUsers || []) {
+      if (p.user?.name) names.add(p.user.name)
+    }
+  }
+  return [...names].sort()
 })
 
 function togglePoFilter(key: string, val: string) {
   if (!poColFilters[key]) poColFilters[key] = new Set()
-  if (poColFilters[key].has(val)) poColFilters[key].delete(val)
-  else poColFilters[key].add(val)
+  const next = new Set(poColFilters[key])
+  if (next.has(val)) next.delete(val)
+  else next.add(val)
+  poColFilters[key] = next
+}
+
+function setPoFilter(key: string, vals: string[]) {
+  poColFilters[key] = new Set(vals)
+}
+
+function poSelected(key: string): Set<string> {
+  return poColFilters[key] || new Set()
 }
 
 const poSupplierOptions = computed(() =>
@@ -1104,8 +1120,12 @@ function clearAllPoFilters() {
   poDateTo.value = ''
 }
 
-const filteredPOs = computed(() => {
-  let rows = purchaseOrders.value
+/**
+ * Applies the PO filter bar + column filters. Pass `exclude` to leave one column's own
+ * filter out — that is how each filter menu works out which values are still available.
+ */
+function applyPoFilters(source: any[], exclude?: string) {
+  let rows = source
   const q = poSearch.value.trim().toLowerCase()
   if (q) {
     rows = rows.filter(r =>
@@ -1139,6 +1159,7 @@ const filteredPOs = computed(() => {
   }
   // Apply column filters (status, supplier, etc.)
   for (const col of PO_FILTER_COLS) {
+    if (col.key === exclude) continue
     const active = poColFilters[col.key]
     if (active && active.size > 0) {
       rows = rows.filter(r => active.has(col.field(r)))
@@ -1146,18 +1167,20 @@ const filteredPOs = computed(() => {
   }
   // Hide Cancelled POs by default unless the user has explicitly filtered for Cancelled
   const statusFilter = poColFilters['status']
-  if (!statusFilter || statusFilter.size === 0) {
+  if (exclude !== 'status' && (!statusFilter || statusFilter.size === 0)) {
     rows = rows.filter(r => r.status !== 'Cancelled')
   }
   // Assigned users is multi-value: keep row if it has ANY selected user
   const activeUsers = poColFilters['assignedUsers']
-  if (activeUsers && activeUsers.size > 0) {
+  if (exclude !== 'assignedUsers' && activeUsers && activeUsers.size > 0) {
     rows = rows.filter(r =>
       (r._assignedUsers || []).some((p: any) => activeUsers.has(p.user?.name))
     )
   }
   return rows
-})
+}
+
+const filteredPOs = computed(() => applyPoFilters(purchaseOrders.value))
 </script>
 
 <style scoped>
@@ -1251,18 +1274,4 @@ const filteredPOs = computed(() => {
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 
-.po-th-inner {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  white-space: nowrap;
-}
-.po-filter-btn {
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-.po-filter-btn:hover,
-.po-filter-btn.v-btn--active {
-  opacity: 1;
-}
 </style>

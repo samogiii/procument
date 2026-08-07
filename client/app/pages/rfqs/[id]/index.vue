@@ -385,6 +385,19 @@
           <v-btn
             size="small"
             variant="tonal"
+            color="deep-orange"
+            prepend-icon="mdi-content-copy"
+            :disabled="itemsWithoutSuppliers.length === 0"
+            :title="itemsWithoutSuppliers.length === 0
+              ? 'Every part already has at least one supplier'
+              : 'Copy the part numbers that still have no supplier quote'"
+            @click="copyPartNumbersWithoutSuppliers"
+          >
+            Copy No-Supplier P/N ({{ itemsWithoutSuppliers.length }})
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="tonal"
             :color="rfq.isUnread ? 'blue' : 'grey'"
             :prepend-icon="rfq.isUnread ? 'mdi-email-mark-as-unread' : 'mdi-email-open-outline'"
             @click="toggleUnread"
@@ -2694,6 +2707,21 @@ function copyAllPartNumbers() {
   const allPNs = editableItems.value.map(i => i.partNumberName).join('\n')
   copyToClipboard(allPNs)
   showSnack(`Copied ${editableItems.value.length} part numbers`, 'success')
+}
+
+// Items still waiting on sourcing — no supplier cost row recorded against them yet.
+const itemsWithoutSuppliers = computed(() =>
+  editableItems.value.filter(i => getQuoteCount(i.id) === 0)
+)
+
+function copyPartNumbersWithoutSuppliers() {
+  const items = itemsWithoutSuppliers.value
+  if (items.length === 0) {
+    showSnack('Every part already has at least one supplier', 'info')
+    return
+  }
+  copyToClipboard(items.map(i => i.partNumberName).join('\n'))
+  showSnack(`Copied ${items.length} part number${items.length !== 1 ? 's' : ''} without suppliers`, 'success')
 }
 
 // ──── Helpers ────

@@ -24,4 +24,8 @@ public class Customer : AuditableEntity
     public string? Website { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
+    /// <summary>Customer-specific quote coefficients. When set, they take priority over the base/currency defaults on the create-quote page. SuperAdmin only.</summary>
+    public decimal? Coef1 { get; set; }
+    public decimal? Coef2 { get; set; }
+    public decimal? Coef3 { get; set; }
 }

@@ -191,8 +191,9 @@
               :all-options="cfIdOptions"
               :selected="colFilter.selected['id'] || new Set()"
               :search="colFilter.search['id'] || ''"
+              :loading="cfLoading"
               @toggle="(v) => { colFilter.toggle('id', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('id', cfIdOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('id', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('id'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['id'] = v"
               @sort-click="toggleSort(column)"
@@ -208,8 +209,9 @@
               :all-options="cfNameOptions"
               :selected="colFilter.selected['name'] || new Set()"
               :search="colFilter.search['name'] || ''"
+              :loading="cfLoading"
               @toggle="(v) => { colFilter.toggle('name', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('name', cfNameOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('name', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('name'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['name'] = v"
               @sort-click="toggleSort(column)"
@@ -225,8 +227,9 @@
               :all-options="cfCustomerOptions"
               :selected="colFilter.selected['customerName'] || new Set()"
               :search="colFilter.search['customerName'] || ''"
+              :loading="cfLoading"
               @toggle="(v) => { colFilter.toggle('customerName', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('customerName', cfCustomerOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('customerName', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('customerName'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['customerName'] = v"
               @sort-click="toggleSort(column)"
@@ -242,8 +245,9 @@
               :all-options="cfStatusOptions"
               :selected="colFilter.selected['status'] || new Set()"
               :search="colFilter.search['status'] || ''"
+              :loading="cfLoading"
               @toggle="(v) => { colFilter.toggle('status', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('status', cfStatusOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('status', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('status'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['status'] = v"
               @sort-click="toggleSort(column)"
@@ -259,10 +263,11 @@
               :all-options="cfDeadlineOptions"
               :selected="colFilter.selected['leadTime'] || new Set()"
               :search="colFilter.search['leadTime'] || ''"
+              :loading="cfLoading"
               :is-sorted="sortBy?.some((s: any) => s.key === 'leadTime')"
               :sort-desc="sortBy?.find((s: any) => s.key === 'leadTime')?.order === 'desc'"
               @toggle="(v) => { colFilter.toggle('leadTime', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('leadTime', cfDeadlineOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('leadTime', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('leadTime'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['leadTime'] = v"
               @sort-click="toggleSort(column)"
@@ -278,8 +283,9 @@
               :all-options="cfUserOptions"
               :selected="colFilter.selected['assignedUsers'] || new Set()"
               :search="colFilter.search['assignedUsers'] || ''"
+              :loading="cfLoading"
               @toggle="(v) => { colFilter.toggle('assignedUsers', v); debouncedCfLoad() }"
-              @select-all="() => { colFilter.selectAll('assignedUsers', cfUserOptions); debouncedCfLoad() }"
+              @select-all="(vals) => { colFilter.selectAll('assignedUsers', vals); debouncedCfLoad() }"
               @clear-all="() => { colFilter.clearAll('assignedUsers'); debouncedCfLoad() }"
               @update:search="(v) => colFilter.search['assignedUsers'] = v"
               @sort-click="() => {}"
@@ -1115,7 +1121,7 @@ const route = useRoute()
 
 const today = new Date().toISOString().split('T')[0]
 const { statusColor: rfqStatusColor } = useStatusColor()
-const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('rfqs', {
+const { filters: pf, clearFilters: clearPageFilters, hasActiveFilters: hasPageFilters } = usePageFilters('rfqs', {
   search: '',
   status: [] as string[],
   user: [] as number[],
@@ -1232,10 +1238,78 @@ function assignedOf(item: any): { id: number; name: string }[] {
 }
 
 const ALL_RFQ_STATUSES = ['Open', 'In Progress', 'Waiting For Admin', 'Ready To Quote', 'Sent', 'Accepted', 'Rejected', 'No Quote']
-const rfqStatusOptions = ref<string[]>([...ALL_RFQ_STATUSES])
 const showAllStatuses = ref(false)
+const showAllUsers = ref(false)
+const showAllCustomers = ref(false)
+
+// ── Column filters (header menus) ──
+const colFilter = useColFilterPersisted('rfqs')
+
+/**
+ * Two option snapshots per column: `available` respects every *other* active filter
+ * (so the 2nd and 3rd filter a user opens only offer values that still return rows)
+ * and `all` is the unfiltered list, reachable through ColFilterMenu's "Show all".
+ */
+type RfqOptions = {
+  statuses: string[]
+  customers: { name: string; code: string | null }[]
+  users: { id: number; name: string }[]
+  rfqIds: string[]
+  rfqNames: string[]
+  deadlines: string[]
+}
+const EMPTY_RFQ_OPTIONS: RfqOptions = { statuses: [], customers: [], users: [], rfqIds: [], rfqNames: [], deadlines: [] }
+
+const cfOptions = useCascadingOptions<RfqOptions>(
+  async (cascading) => {
+    const qs = cascading ? `?${buildFilterParams()}` : ''
+    const res = await api.get<any>(`/rfqs/filter-options${qs}`)
+    return {
+      statuses: res.statuses || [],
+      customers: res.customers || [],
+      users: (res.users || []).map((u: any) => ({ id: u.id, name: u.name })),
+      rfqIds: res.rfqIds || [],
+      rfqNames: res.rfqNames || [],
+      deadlines: res.deadlines || [],
+    }
+  },
+  EMPTY_RFQ_OPTIONS,
+)
+const cfAvail = cfOptions.available
+const cfAll = cfOptions.all
+const cfLoading = cfOptions.loading
+
+function customerTitles(list: { name: string; code: string | null }[]) {
+  return [...new Set(list.map(c => c.code || '-'))].sort()
+}
+function userNames(list: { id: number; name: string }[]) {
+  return [...new Set(list.map(u => u.name).filter(Boolean))].sort()
+}
+
+// "All" options — the unconstrained lists, shown behind ColFilterMenu's "Show all".
+const cfStatusOptions = computed(() => ALL_RFQ_STATUSES)
+const cfCustomerOptions = computed(() => customerTitles(cfAll.value.customers))
+const cfUserOptions = computed(() => userNames(cfAll.value.users))
+const cfIdOptions = computed(() => cfAll.value.rfqIds)
+const cfNameOptions = computed(() => cfAll.value.rfqNames)
+const cfDeadlineOptions = computed(() => cfAll.value.deadlines)
+
+// "Available" options — what the other active filters still leave selectable.
+const cfStatusOptionsPage = computed(() => ALL_RFQ_STATUSES.filter(s => cfAvail.value.statuses.includes(s)))
+const cfCustomerOptionsPage = computed(() => customerTitles(cfAvail.value.customers))
+const cfUserOptionsPage = computed(() => userNames(cfAvail.value.users))
+const cfIdOptionsPage = computed(() => cfAvail.value.rfqIds)
+const cfNameOptionsPage = computed(() => cfAvail.value.rfqNames)
+const cfDeadlineOptionsPage = computed(() => cfAvail.value.deadlines)
+
+// Top-bar dropdowns reuse the same two snapshots.
+const allUserOptions = computed(() => cfAll.value.users)
+const allCustomerOptions = computed(() => cfAll.value.customers.map(c => ({ title: c.code || '-', value: c.name })))
+const userOptions = computed(() => cfAvail.value.users)
+const customerOptions = computed(() => cfAvail.value.customers.map(c => ({ title: c.code || '-', value: c.name })))
+
 const statusSelectItems = computed(() => {
-  const available = new Set(rfqStatusOptions.value)
+  const available = new Set(cfAvail.value.statuses)
   if (showAllStatuses.value) {
     return ALL_RFQ_STATUSES.map(s => ({ label: s, value: s, available: available.has(s) }))
   }
@@ -1243,108 +1317,34 @@ const statusSelectItems = computed(() => {
     .filter(s => available.has(s) || (statusFilter.value as string[]).includes(s))
     .map(s => ({ label: s, value: s, available: true }))
 })
-const userOptions = ref<{ id: number; name: string }[]>([])
-const customerOptions = ref<{ title: string; value: string }[]>([])
-const allUserOptions = ref<{ id: number; name: string }[]>([])
-const allCustomerOptions = ref<{ title: string; value: string }[]>([])
-const showAllUsers = ref(false)
-const showAllCustomers = ref(false)
 
-// ── Column filters (header menus) ──
-const colFilter = useColFilterPersisted('rfqs')
-// "All" options — full DB / hardcoded lists (shown when showAll=true in ColFilterMenu)
-const cfStatusOptions = computed(() => ALL_RFQ_STATUSES)
-const cfCustomerOptions = computed(() => allCustomerOptions.value.map((c: any) => c.title).sort())
-const cfUserOptions = computed(() => allUserOptions.value.map((u: any) => u.name).sort())
-const cfIdOptions = computed(() => [...new Set(items.value.map((i: any) => String(i.id)).filter(Boolean))].sort((a, b) => Number(b) - Number(a)))
-const cfNameOptions = computed(() => [...new Set(items.value.map((i: any) => i.name).filter(Boolean))].sort())
+const userSelectItems = computed(() => showAllUsers.value ? allUserOptions.value : userOptions.value)
+const customerSelectItems = computed(() => {
+  const list = showAllCustomers.value ? allCustomerOptions.value : customerOptions.value
+  // Never drop a customer the user has already picked, or the chip becomes unremovable.
+  const picked = (customerFilter.value as string[]) || []
+  const missing = allCustomerOptions.value.filter(c => picked.includes(c.value) && !list.some(o => o.value === c.value))
+  return missing.length ? [...list, ...missing] : list
+})
 
-// "Available" options — only values present in the current 50-row page (shown by default)
-const cfStatusOptionsPage = computed(() =>
-  [...new Set(items.value.map((i: any) => i.status).filter(Boolean))].sort() as string[]
-)
-const cfCustomerOptionsPage = computed(() =>
-  [...new Set(items.value.map((i: any) => i.customerCode || '-').filter(Boolean))].sort() as string[]
-)
-const cfUserOptionsPage = computed(() =>
-  [...new Set(
-    items.value.flatMap((i: any) => [...(i.views || []), ...(i.edits || [])])
-      .map((u: any) => u.name).filter(Boolean)
-  )].sort() as string[]
-)
-const cfIdOptionsPage = computed(() => cfIdOptions.value)
-const cfNameOptionsPage = computed(() => cfNameOptions.value)
-
-// Deadline (leadTime) column filter — ISO date part (YYYY-MM-DD) as option value
-const cfDeadlineOptions = computed(() =>
-  [...new Set(items.value.map((i: any) => i.leadTime ? new Date(i.leadTime).toISOString().substring(0, 10) : null).filter(Boolean))].sort() as string[]
-)
-const cfDeadlineOptionsPage = computed(() => cfDeadlineOptions.value)
-
-function collectCfOptions(_loadedItems: any[]) {
-  // No-op: page-level options are computed reactively from items.value
+// Column filters persist in localStorage, so "Clear" has to drop them too — otherwise a
+// forgotten column filter keeps narrowing every other menu after the top bar is cleared.
+const hasActiveFilters = computed(() => hasPageFilters.value || colFilter.hasAny())
+function clearFilters() {
+  // Resetting a top-bar filter already triggers a reload through its watcher; only
+  // reload here when column filters were the sole thing cleared.
+  const hadPageFilters = hasPageFilters.value
+  colFilter.clearAllFilters()
+  clearPageFilters()
+  if (!hadPageFilters) loadServerPage({ ...lastServerOpts.value, page: 1 })
 }
 
+/** Reload the list and, alongside it, recompute which values each column can still offer. */
 let cfDebounce: any = null
 function debouncedCfLoad() {
   clearTimeout(cfDebounce)
   cfDebounce = setTimeout(() => loadServerPage({ ...lastServerOpts.value, page: 1 }), 200)
 }
-
-const userSelectItems = computed(() => showAllUsers.value ? allUserOptions.value : userOptions.value)
-const customerSelectItems = computed(() => showAllCustomers.value ? allCustomerOptions.value : customerOptions.value)
-
-// ── Filter-options loading (cascading) ──
-let filterOptsDebounce: any = null
-
-async function loadFilterOptions() {
-  try {
-    const params = new URLSearchParams()
-    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach(s => params.append('statuses', s))
-    if (userFilter.value?.length) (userFilter.value as number[]).forEach(id => params.append('userIds', String(id)))
-    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach(c => params.append('customerSearch', c))
-    const res = await api.get<any>(`/rfqs/filter-options?${params}`)
-
-    rfqStatusOptions.value = res.statuses?.length
-      ? [...new Set([...ALL_RFQ_STATUSES, ...res.statuses])]
-      : [...ALL_RFQ_STATUSES]
-
-    userOptions.value = (res.users || [])
-      .map((u: any) => ({ id: u.id, name: u.name }))
-      .sort((a: any, b: any) => a.name.localeCompare(b.name))
-
-    customerOptions.value = (res.customers || [])
-      .map((c: any) => ({ title: c.code || '-', value: c.name }))
-      .sort((a: any, b: any) => a.title.localeCompare(b.title))
-
-    // Cache the full list from the first (no-filter) call
-    if (!allUserOptions.value.length) allUserOptions.value = [...userOptions.value]
-    if (!allCustomerOptions.value.length) allCustomerOptions.value = [...customerOptions.value]
-  } catch {}
-}
-
-/** Unconstraint call — always loads ALL customers and users from the full DB. */
-async function loadAllFilterOptions() {
-  try {
-    const res = await api.get<any>('/rfqs/filter-options')
-    userOptions.value = (res.users || [])
-      .map((u: any) => ({ id: u.id, name: u.name }))
-      .sort((a: any, b: any) => a.name.localeCompare(b.name))
-    allUserOptions.value = [...userOptions.value]
-    customerOptions.value = (res.customers || [])
-      .map((c: any) => ({ title: c.code || '-', value: c.name }))
-      .sort((a: any, b: any) => a.title.localeCompare(b.title))
-    allCustomerOptions.value = [...customerOptions.value]
-  } catch {}
-}
-
-function debouncedFilterOptions() {
-  clearTimeout(filterOptsDebounce)
-  filterOptsDebounce = setTimeout(loadFilterOptions, 200)
-}
-
-watch(statusFilter, debouncedFilterOptions, { deep: true })
-watch(userFilter, debouncedFilterOptions, { deep: true })
 
 const headers = [
   { title: 'ID', key: 'id', width: '80px' },
@@ -1361,6 +1361,37 @@ const headers = [
 
 const lastServerOpts = ref<any>({ page: pf.page.value, itemsPerPage: pf.itemsPerPage.value })
 
+/**
+ * Every active filter as query params — shared by the list request and the
+ * filter-options request so the two can never disagree about what is filtered.
+ */
+function buildFilterParams(): URLSearchParams {
+  const params = new URLSearchParams()
+  if (search.value?.trim()) params.set('search', search.value.trim())
+  if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
+  if (statusFilter.value?.length)
+    (statusFilter.value as string[]).forEach((s: string) => params.append('statuses', s))
+  if (showNoQuote.value) params.set('includeNoQuote', 'true')
+  if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
+  if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
+  // Column header filters
+  if (colFilter.isActive('customerName')) colFilter.getSelected('customerName').forEach(v => params.append('customerSearch', v))
+  if (colFilter.isActive('status')) colFilter.getSelected('status').forEach(v => params.append('statuses', v))
+  if (colFilter.isActive('assignedUsers')) {
+    // Map user names to IDs using the full user list
+    const nameToId = new Map(allUserOptions.value.map(u => [u.name, u.id]))
+    colFilter.getSelected('assignedUsers').forEach(name => {
+      const id = nameToId.get(name)
+      if (id) params.append('userIds', String(id))
+    })
+  }
+  if (colFilter.isActive('id')) colFilter.getSelected('id').forEach(v => params.append('rfqIds', v))
+  if (colFilter.isActive('name')) colFilter.getSelected('name').forEach(v => params.append('rfqNames', v))
+  if (colFilter.isActive('leadTime')) colFilter.getSelected('leadTime').forEach(v => params.append('deadlines', v))
+  if (daysFilter.value !== null) params.set('maxDays', String(daysFilter.value))
+  return params
+}
+
 async function loadServerPage(opts?: any) {
   if (opts) {
     sort.capture(opts)
@@ -1373,36 +1404,17 @@ async function loadServerPage(opts?: any) {
   const { page, itemsPerPage } = lastServerOpts.value
   loading.value = true
   try {
-    const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
+    const params = buildFilterParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(itemsPerPage))
     sort.appendTo(params)
-    if (search.value?.trim()) params.set('search', search.value.trim())
-    if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
-    if (statusFilter.value?.length)
-      (statusFilter.value as string[]).forEach((s: string) => params.append('statuses', s))
-    if (showNoQuote.value) params.set('includeNoQuote', 'true')
-    if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
-    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
-    // Column header filters
-    if (colFilter.isActive('customerName')) colFilter.getSelected('customerName').forEach(v => params.append('customerSearch', v))
-    if (colFilter.isActive('status')) colFilter.getSelected('status').forEach(v => params.append('statuses', v))
-    if (colFilter.isActive('assignedUsers')) {
-      // Map user names to IDs using allUserOptions
-      const nameToId = new Map(allUserOptions.value.map(u => [u.name, u.id]))
-      colFilter.getSelected('assignedUsers').forEach(name => {
-        const id = nameToId.get(name)
-        if (id) params.append('userIds', String(id))
-      })
-    }
-    if (colFilter.isActive('id')) colFilter.getSelected('id').forEach(v => params.append('rfqIds', v))
-    if (colFilter.isActive('name')) colFilter.getSelected('name').forEach(v => params.append('rfqNames', v))
-    if (colFilter.isActive('leadTime')) colFilter.getSelected('leadTime').forEach(v => params.append('deadlines', v))
-    if (daysFilter.value !== null) params.set('maxDays', String(daysFilter.value))
     const res = await api.get<any>(`/rfqs?${params.toString()}`)
     items.value = res.items ?? res.Items ?? []
     totalItems.value = res.totalCount ?? res.TotalCount ?? items.value.length
-    collectCfOptions(items.value)
   } catch {}
   finally { loading.value = false }
+  // Recompute which values the *other* columns can still offer.
+  cfOptions.refreshDebounced()
 }
 
 let rfqDebounce: any = null
@@ -1436,8 +1448,8 @@ function isAltMatch(part: any, search: string) {
 }
 
 onMounted(() => {
-  loadFilterOptions()
-  loadAllFilterOptions()
+  // Unfiltered lists first (they back "Show all"), then the cascaded ones.
+  cfOptions.init()
 })
 
 // ── Quick Assignment Modal state ──

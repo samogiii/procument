@@ -86,6 +86,14 @@
             </v-chip>
             <span v-else>—</span>
           </template>
+          <template #item.coefs="{ item }">
+            <div v-if="item.coef1 != null || item.coef2 != null || item.coef3 != null" class="d-flex gap-1">
+              <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef1 ?? '—' }}</v-chip>
+              <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef2 ?? '—' }}</v-chip>
+              <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef3 ?? '—' }}</v-chip>
+            </div>
+            <span v-else>—</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" variant="text" size="x-small" @click="openDialog(item)" class="mr-1" />
             <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="confirmDelete(item.id)" />
@@ -182,6 +190,19 @@
         label="Currency Type"
         class="mb-2"
       />
+
+      <!-- Quote coefficients — SuperAdmin only. Override the base/currency defaults in Create Quote. -->
+      <template v-if="isSuperAdmin">
+        <div class="text-caption font-weight-bold text-medium-emphasis text-uppercase mt-3 mb-1">Quote Coefficients</div>
+        <div class="text-caption text-medium-emphasis mb-2">
+          When set, these take priority over the base / currency-type defaults on the Create Quote page. Leave empty to use the defaults.
+        </div>
+        <div class="d-flex gap-2 mb-2">
+          <v-text-field v-model.number="form.coef1" label="Coef 1" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
+          <v-text-field v-model.number="form.coef2" label="Coef 2" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
+          <v-text-field v-model.number="form.coef3" label="Coef 3" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
+        </div>
+      </template>
     </CrudDialog>
 
     <ConfirmDialog
@@ -198,6 +219,7 @@ const api = useApi()
 const authStore = useAuthStore()
 const route = useRoute()
 const isAdmin = computed(() => authStore.isAdmin)
+const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 
 // value 2 kept for legacy display; both 1 and 2 show as Vendor/Customer
 const exWorkOptions = [
@@ -267,6 +289,7 @@ const defaultForm = () => ({
   base: null as number | null, termsAndConditions: '', currencyType: '', exWork: null as number | null,
   piTermsAndConditions: '', companyType: null as string | null, country: '', emails: [] as string[],
   website: '',
+  coef1: null as number | null, coef2: null as number | null, coef3: null as number | null,
 })
 const form = ref(defaultForm())
 const contactsList = ref<{name: string, email: string, phone: string}[]>([])
@@ -320,10 +343,15 @@ async function save() {
   saving.value = true
   try {
     const validContacts = contactsList.value.filter(c => c.name.trim())
+    // Cleared number fields come back as '' — send null so the column stays empty
+    const num = (v: any) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? null : Number(v))
     const payload = {
       ...form.value,
       emails: form.value.emails && form.value.emails.length > 0 ? form.value.emails.join(', ') : '',
       contacts: validContacts.length ? JSON.stringify(validContacts) : null,
+      coef1: num(form.value.coef1),
+      coef2: num(form.value.coef2),
+      coef3: num(form.value.coef3),
     }
     if (editingId.value) {
       await api.put(`/customers/${editingId.value}`, payload)
@@ -374,6 +402,9 @@ const headers = computed(() => {
   ]
   if (isAdmin.value) {
     h.splice(9, 0, { title: 'Base', key: 'base', width: '100px' })
+  }
+  if (isSuperAdmin.value) {
+    h.splice(h.length - 2, 0, { title: 'Coefs', key: 'coefs', sortable: false, width: '150px' })
   }
   return h
 })

@@ -62,6 +62,27 @@ public class QuotesController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Cascading filter options for the Quotes list. Pass the currently active filters and
+    /// each column comes back with only the values that still return rows; call it bare to
+    /// get the full lists the client keeps behind "Show all".
+    /// </summary>
+    [HttpGet("filter-options")]
+    public async Task<ActionResult<QuoteFilterOptions>> GetFilterOptions(
+        [FromQuery] List<string>? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] List<string>? assignedUserNames = null,
+        [FromQuery] List<string>? customerNames = null,
+        [FromQuery] List<string>? rfqNames = null,
+        [FromQuery] List<string>? quoteNumbers = null,
+        [FromQuery] bool includeRejected = false)
+    {
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected);
+        return Ok(result);
+    }
+
     /// <summary>Get all quotes for an RFQ.</summary>
     [HttpGet("by-rfq/{rfqId:long}")]
     public async Task<ActionResult<List<QuoteResponse>>> GetByRFQ(long rfqId)

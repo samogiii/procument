@@ -17,6 +17,9 @@ namespace Procument.Module.RFQ.Controllers;
 [Authorize(Roles = "Admin,SuperAdmin,Expert")]
 public class RFQsController : ControllerBase
 {
+    /// <summary>Cap on high-cardinality option lists (RFQ ids / names / deadlines) so the payload stays small.</summary>
+    private const int MaxFilterOptions = 1000;
+
     private readonly IRFQService _rfqService;
     private readonly IFinalInvoiceLockGuard _lockGuard;
     private readonly DbContext _db;
@@ -38,16 +41,29 @@ public class RFQsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
-    /// <summary>Distinct filter options for the RFQs page (cascades with currently-active filters).</summary>
+    /// <summary>
+    /// Distinct filter options for the RFQs page. Every column is computed against the
+    /// rows that survive *all the other* active filters (Excel-style cascading), so the
+    /// second and third column a user opens only offers values that still return rows.
+    /// Called with no query string it returns the unconstrained list, which the client
+    /// caches as the "Show all" fallback.
+    /// </summary>
     [HttpGet("filter-options")]
     public async Task<ActionResult> GetFilterOptions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? pnSearch = null,
         [FromQuery] string[]? statuses = null,
         [FromQuery] long[]? userIds = null,
-        [FromQuery] string[]? customerSearch = null)
+        [FromQuery] string[]? customerSearch = null,
+        [FromQuery] long[]? rfqIds = null,
+        [FromQuery] string[]? rfqNames = null,
+        [FromQuery] string[]? deadlines = null,
+        [FromQuery] bool includeNoQuote = false,
+        [FromQuery] int? maxDays = null)
     {
         var (userId, isSuperAdmin, userBases) = GetUserContext();
 
-        IQueryable<RFQHeader> query = _db.Set<RFQHeader>()
+        IQueryable<RFQHeader> permitted = _db.Set<RFQHeader>()
             .AsNoTracking()
             .Include(r => r.Customer);
 
@@ -57,51 +73,116 @@ public class RFQsController : ControllerBase
                 .Where(p => p.UserId == userId && p.EntityName == "RFQ")
                 .Select(p => p.EntityId).ToListAsync();
             var permittedIds = permittedIdsStr.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
-            query = query.Where(r =>
+            permitted = permitted.Where(r =>
                 r.Customer.Base == null ||
                 userBases.Contains(r.Customer.Base.Value) ||
                 permittedIds.Contains(r.Id) ||
                 r.UserId == userId);
         }
 
-        if (statuses?.Length > 0)
-            query = query.Where(r => statuses.Contains(r.Status ?? "Open"));
-
-        if (customerSearch?.Length > 0)
-        {
-            var customers = customerSearch.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
-            if (customers.Count > 0)
-            {
-                var hasNullPlaceholder = customers.Contains("-") || customers.Contains("—");
-                query = query.Where(r => 
-                    customers.Contains(r.Customer.Name) || 
-                    (r.Customer.CustomerCode != null && customers.Contains(r.Customer.CustomerCode)) ||
-                    (hasNullPlaceholder && (r.Customer.CustomerCode == null || r.Customer.CustomerCode == "")));
-            }
-        }
-
+        // Resolve the user filter to RFQ ids once — it is the only filter needing a round-trip.
+        List<long> assignedRfqIds = new();
         if (userIds?.Length > 0)
         {
             var rfqIdStrs = await _db.Set<EntityPermission>()
                 .Where(p => p.EntityName == "RFQ" && userIds.Contains(p.UserId))
                 .Select(p => p.EntityId).ToListAsync();
-            var assignedIds = rfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
-            query = query.Where(r => assignedIds.Contains(r.Id));
+            assignedRfqIds = rfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
         }
 
-        var rfqIdList = await query.Select(r => r.Id.ToString()).ToListAsync();
+        var deadlineDates = (deadlines ?? Array.Empty<string>())
+            .Select(d => DateOnly.TryParse(d, out var v) ? v : (DateOnly?)null)
+            .Where(d => d.HasValue).Select(d => d!.Value).ToList();
 
-        var availableStatuses = await query
+        var customerValues = (customerSearch ?? Array.Empty<string>())
+            .Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+
+        // Applies every active filter except `exclude` — leaving a column's own filter out
+        // keeps its remaining values selectable instead of collapsing to what is already picked.
+        IQueryable<RFQHeader> Build(string? exclude)
+        {
+            var q = permitted;
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                long.TryParse(s, out var searchId);
+                q = q.Where(r =>
+                    r.Id == searchId ||
+                    r.Name.Contains(s) ||
+                    r.Status.Contains(s) ||
+                    r.Customer.Name.Contains(s) ||
+                    (r.Customer.CustomerCode != null && r.Customer.CustomerCode.Contains(s)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(pnSearch))
+            {
+                var pn = pnSearch.Trim();
+                q = q.Where(r => r.RFQItems.Any(i =>
+                    i.PartNumber.Name.Contains(pn) ||
+                    i.PartNumber.Alternatives.Any(a => a.Name.Contains(pn))));
+            }
+
+            if (exclude != "status" && statuses?.Length > 0)
+                q = q.Where(r => statuses.Contains(r.Status ?? "Open"));
+            else if (!includeNoQuote)
+                q = q.Where(r => r.Status != "No Quote");
+
+            if (exclude != "customerName" && customerValues.Count > 0)
+            {
+                var hasNullPlaceholder = customerValues.Contains("-") || customerValues.Contains("—");
+                q = q.Where(r =>
+                    customerValues.Contains(r.Customer.Name) ||
+                    (r.Customer.CustomerCode != null && customerValues.Contains(r.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (r.Customer.CustomerCode == null || r.Customer.CustomerCode == "")));
+            }
+
+            if (exclude != "assignedUsers" && userIds?.Length > 0)
+                q = q.Where(r => assignedRfqIds.Contains(r.Id));
+
+            if (exclude != "id" && rfqIds?.Length > 0)
+                q = q.Where(r => rfqIds.Contains(r.Id));
+
+            if (exclude != "name" && rfqNames?.Length > 0)
+                q = q.Where(r => rfqNames.Contains(r.Name));
+
+            if (exclude != "leadTime" && deadlineDates.Count > 0)
+                q = q.Where(r => deadlineDates.Contains(DateOnly.FromDateTime(r.LeadTime)));
+
+            if (maxDays.HasValue)
+            {
+                var cutoff = DateTime.UtcNow.Date.AddDays(maxDays.Value);
+                q = q.Where(r => r.LeadTime.Date <= cutoff);
+            }
+
+            return q;
+        }
+
+        var availableStatuses = await Build("status")
             .Select(r => r.Status ?? "Open").Distinct().ToListAsync();
 
-        var availableCustomers = await query
+        var availableCustomers = await Build("customerName")
             .Select(r => new { name = r.Customer.Name, code = r.Customer.CustomerCode })
             .Distinct().ToListAsync();
 
+        var availableIds = await Build("id")
+            .OrderByDescending(r => r.Id).Select(r => r.Id)
+            .Take(MaxFilterOptions).ToListAsync();
+
+        var availableNames = await Build("name")
+            .Select(r => r.Name).Distinct().OrderBy(n => n)
+            .Take(MaxFilterOptions).ToListAsync();
+
+        var availableDeadlines = await Build("leadTime")
+            .Select(r => r.LeadTime.Date).Distinct().OrderByDescending(d => d)
+            .Take(MaxFilterOptions).ToListAsync();
+
+        // Users come from the permission table, so they are keyed off the surviving RFQ ids.
+        var userScopeIds = await Build("assignedUsers").Select(r => r.Id.ToString()).ToListAsync();
         var availableUsers = await _db.Set<EntityPermission>()
             .AsNoTracking()
             .Include(p => p.User)
-            .Where(p => p.EntityName == "RFQ" && rfqIdList.Contains(p.EntityId))
+            .Where(p => p.EntityName == "RFQ" && userScopeIds.Contains(p.EntityId))
             .Select(p => new { id = p.User.Id, name = p.User.Name })
             .Distinct().ToListAsync();
 
@@ -110,6 +191,9 @@ public class RFQsController : ControllerBase
             statuses = availableStatuses,
             customers = availableCustomers.GroupBy(c => c.name).Select(g => g.First()).ToList(),
             users = availableUsers.GroupBy(u => u.id).Select(g => g.First()).ToList(),
+            rfqIds = availableIds.Select(id => id.ToString()).ToList(),
+            rfqNames = availableNames,
+            deadlines = availableDeadlines.Select(d => d.ToString("yyyy-MM-dd")).ToList(),
         });
     }
 
@@ -235,6 +319,107 @@ public class RFQsController : ControllerBase
         }).ToList();
 
         return Ok(new PagedResult<RFQFlatItem> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
+    }
+
+    /// <summary>
+    /// Cascading filter options for the RFQ Items page. Same exclude-self rule as
+    /// <see cref="GetFilterOptions"/>: each list is built from the rows that survive the
+    /// other active filters. No query string returns the unconstrained list.
+    /// </summary>
+    [HttpGet("items/filter-options")]
+    public async Task<ActionResult> GetItemFilterOptions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] string[]? statuses = null,
+        [FromQuery] long[]? userIds = null,
+        [FromQuery] string[]? customerSearch = null)
+    {
+        var (userId, isSuperAdmin, userBases) = GetUserContext();
+
+        IQueryable<RFQItem> permitted = _db.Set<RFQItem>()
+            .AsNoTracking()
+            .Include(i => i.PartNumber)
+            .Include(i => i.RFQ)
+                .ThenInclude(r => r.Customer);
+
+        if (!isSuperAdmin)
+        {
+            var permittedRfqIdStrs = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId).ToListAsync();
+            var permittedRfqIds = permittedRfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+            permitted = permitted.Where(i =>
+                i.RFQ.Customer.Base == null ||
+                userBases.Contains(i.RFQ.Customer.Base.Value) ||
+                permittedRfqIds.Contains(i.RFQId) ||
+                i.RFQ.UserId == userId);
+        }
+
+        List<long> assignedRfqIds = new();
+        if (userIds?.Length > 0)
+        {
+            var rfqIdStrs = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "RFQ" && userIds.Contains(p.UserId))
+                .Select(p => p.EntityId).ToListAsync();
+            assignedRfqIds = rfqIdStrs.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(l => l > 0).ToList();
+        }
+
+        var customerValues = (customerSearch ?? Array.Empty<string>())
+            .Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+
+        IQueryable<RFQItem> Build(string? exclude)
+        {
+            var q = permitted;
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                q = q.Where(i => i.PartNumber.Name.Contains(s) || i.RFQ.Name.Contains(s));
+            }
+            if (!string.IsNullOrWhiteSpace(pnSearch))
+            {
+                var pn = pnSearch.Trim();
+                q = q.Where(i => i.PartNumber.Name.Contains(pn));
+            }
+            if (exclude != "status" && statuses?.Length > 0)
+                q = q.Where(i => statuses.Contains(i.RFQ.Status ?? "Open"));
+            if (exclude != "customerName" && customerValues.Count > 0)
+            {
+                var hasNullPlaceholder = customerValues.Contains("-") || customerValues.Contains("—");
+                q = q.Where(i =>
+                    customerValues.Contains(i.RFQ.Customer.Name) ||
+                    (i.RFQ.Customer.CustomerCode != null && customerValues.Contains(i.RFQ.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (i.RFQ.Customer.CustomerCode == null || i.RFQ.Customer.CustomerCode == "")));
+            }
+            if (exclude != "assignedUsers" && userIds?.Length > 0)
+                q = q.Where(i => assignedRfqIds.Contains(i.RFQId));
+
+            return q;
+        }
+
+        var availableStatuses = await Build("status")
+            .Select(i => i.RFQ.Status ?? "Open").Distinct().ToListAsync();
+
+        var availableCustomers = await Build("customerName")
+            .Select(i => new { name = i.RFQ.Customer.Name, code = i.RFQ.Customer.CustomerCode })
+            .Distinct().ToListAsync();
+
+        var userScopeIds = await Build("assignedUsers")
+            .Select(i => i.RFQId).Distinct().ToListAsync();
+        var userScopeIdStrings = userScopeIds.Select(id => id.ToString()).ToList();
+        var availableUsers = await _db.Set<EntityPermission>()
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && userScopeIdStrings.Contains(p.EntityId))
+            .Select(p => new { id = p.User.Id, name = p.User.Name })
+            .Distinct().ToListAsync();
+
+        return Ok(new
+        {
+            statuses = availableStatuses,
+            customers = availableCustomers.GroupBy(c => c.name).Select(g => g.First()).ToList(),
+            users = availableUsers.GroupBy(u => u.id).Select(g => g.First()).ToList(),
+        });
     }
 
     /// <summary>Get RFQ by ID.</summary>

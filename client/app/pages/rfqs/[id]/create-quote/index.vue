@@ -38,6 +38,8 @@
             step="0.01"
             min="0"
             style="min-width: 90px; max-width: 110px;"
+            :class="{ 'customer-coef': customerCoefs.c1 != null }"
+            :title="customerCoefs.c1 != null ? `Customer default: ${customerCoefs.c1}` : ''"
           />
           <v-text-field
             v-model.number="globalCoef2"
@@ -50,6 +52,8 @@
             min="0"
             style="min-width: 90px; max-width: 110px;"
             :disabled="rfq.customerBase == 3 && rfq.customerCurrencyType == 'Both'"
+            :class="{ 'customer-coef': customerCoefs.c2 != null }"
+            :title="customerCoefs.c2 != null ? `Customer default: ${customerCoefs.c2}` : ''"
           />
           <v-text-field
             v-model.number="globalCoef3"
@@ -61,6 +65,8 @@
             step="0.01"
             min="0"
             style="min-width: 90px; max-width: 110px;"
+            :class="{ 'customer-coef': customerCoefs.c3 != null }"
+            :title="customerCoefs.c3 != null ? `Customer default: ${customerCoefs.c3}` : ''"
           />
           <v-divider vertical class="mx-1" style="height: 32px;" />
           <v-text-field
@@ -83,6 +89,22 @@
             {{ isEditMode ? 'Update' : 'Create' }}
           </v-btn>
         </div>
+      </div>
+
+      <!-- Customer-specific coefficients notice -->
+      <div v-if="hasCustomerCoefs" class="customer-coef-banner d-flex flex-wrap align-center gap-2 px-3 py-2">
+        <v-icon icon="mdi-account-star" size="18" color="deep-purple-lighten-2" />
+        <span class="text-body-2">
+          <strong>{{ rfq.customerCode || rfq.customerName || 'This customer' }}</strong>
+          has its own coefficients — they override the base defaults.
+        </span>
+        <v-chip v-if="customerCoefs.c1 != null" size="x-small" color="deep-purple-lighten-2" variant="flat">Coef 1: {{ customerCoefs.c1 }}</v-chip>
+        <v-chip v-if="customerCoefs.c2 != null" size="x-small" color="deep-purple-lighten-2" variant="flat">Coef 2: {{ customerCoefs.c2 }}</v-chip>
+        <v-chip v-if="customerCoefs.c3 != null" size="x-small" color="deep-purple-lighten-2" variant="flat">Coef 3: {{ customerCoefs.c3 }}</v-chip>
+        <v-spacer />
+        <v-btn size="x-small" variant="tonal" color="deep-purple-lighten-2" prepend-icon="mdi-refresh" @click="applyCustomerCoefs">
+          Apply to all rows
+        </v-btn>
       </div>
     </v-card>
 
@@ -443,6 +465,18 @@ const globalCoef1 = ref<number | null>(null)
 const globalCoef2 = ref<number | null>(null)
 const globalCoef3 = ref<number | null>(null)
 
+// Customer-specific coefs (set by SuperAdmin in the customer catalog).
+// When present they take priority over the base / currency-type defaults.
+const toCoef = (v: any) => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? null : Number(v))
+const customerCoefs = computed(() => ({
+  c1: toCoef(rfq.value.customerCoef1),
+  c2: toCoef(rfq.value.customerCoef2),
+  c3: toCoef(rfq.value.customerCoef3),
+}))
+const hasCustomerCoefs = computed(() =>
+  customerCoefs.value.c1 != null || customerCoefs.value.c2 != null || customerCoefs.value.c3 != null
+)
+
 // selections
 const selections = ref<Record<number, boolean>>({})
 const showShopsForItem = ref<Record<number, boolean>>({})
@@ -498,28 +532,7 @@ onMounted(async () => {
       }
     } catch {}
   }
-  if (rfq.value.customerBase == 3 && !isEditMode.value) {
-    if (rfq.value.customerCurrencyType == 'Both') {
-      // For Both: Coef 1 = 1.1, Coef 2 is Locked at 1.0
-      globalCoef1.value = 1.1
-      globalCoef2.value = 1.0
-    } else if (rfq.value.customerCurrencyType == 'Yuan') {
-      // For Yuan: Coef 1 = 1.1, Coef 2 = 1.22
-      globalCoef1.value = 1.1
-      globalCoef2.value = 1.25
-    } else {
-      // For USA/Dollar: Coef 1 = 1.1
-      globalCoef1.value = 1.1
-      globalCoef2.value = 1.0
-    }
-  }
-  else if(rfq.value.customerBase == 5 && !isEditMode.value){
-    globalCoef1.value = 1.13
-  }
-
-  else if(!isEditMode.value){
-    globalCoef1.value = 1.1
-  }
+  if (!isEditMode.value) applyDefaultCoefs()
 
   if (editQuoteId.value) await loadExistingQuote()
 
@@ -532,6 +545,62 @@ onMounted(async () => {
   })
   expandedRows.value = new Set(expandedRows.value)
 })
+
+/**
+ * Seeds the global coefs: base / currency-type defaults first, then any
+ * customer-specific coef overrides them (per slot — an unset customer coef
+ * keeps the base default).
+ */
+function applyDefaultCoefs() {
+  let c1: number | null = null
+  let c2: number | null = null
+  let c3: number | null = null
+
+  if (rfq.value.customerBase == 3) {
+    if (rfq.value.customerCurrencyType == 'Both') {
+      // For Both: Coef 1 = 1.1, Coef 2 is Locked at 1.0
+      c1 = 1.1
+      c2 = 1.0
+    } else if (rfq.value.customerCurrencyType == 'Yuan') {
+      // For Yuan: Coef 1 = 1.1, Coef 2 = 1.25
+      c1 = 1.1
+      c2 = 1.25
+    } else {
+      // For USA/Dollar: Coef 1 = 1.1
+      c1 = 1.1
+      c2 = 1.0
+    }
+  } else if (rfq.value.customerBase == 5) {
+    c1 = 1.13
+  } else {
+    c1 = 1.1
+  }
+
+  // Customer-specific coefs win over the base defaults
+  const cc = customerCoefs.value
+  if (cc.c1 != null) c1 = cc.c1
+  if (cc.c2 != null) c2 = cc.c2
+  if (cc.c3 != null) c3 = cc.c3
+
+  globalCoef1.value = c1
+  globalCoef2.value = c2
+  globalCoef3.value = c3
+}
+
+/** Re-applies just the customer coefs to every row (used by the banner button). */
+function applyCustomerCoefs() {
+  const cc = customerCoefs.value
+  if (cc.c1 != null) globalCoef1.value = cc.c1
+  if (cc.c2 != null) globalCoef2.value = cc.c2
+  if (cc.c3 != null) globalCoef3.value = cc.c3
+  procurementRecords.value.forEach(r => {
+    if (cc.c1 != null) r.coef_1 = cc.c1
+    if (cc.c2 != null) r.coef_2 = cc.c2
+    if (cc.c3 != null) r.coef_3 = cc.c3
+    r.customUnitPrice = null
+  })
+  showSnack('Customer coefficients applied', 'success')
+}
 
 async function loadData() {
   loading.value = true
@@ -1028,6 +1097,19 @@ function showSnack(text: string, color: string) {
 .total-cell {
   color: #4ade80;
   font-weight: 600;
+}
+
+/* Customer-specific coefficients */
+.customer-coef-banner {
+  border-top: 1px solid var(--card-border);
+  background: rgba(149, 117, 205, 0.09);
+}
+.customer-coef :deep(.v-field__outline) {
+  --v-field-border-opacity: 1;
+  color: #9575cd;
+}
+.customer-coef :deep(.v-label) {
+  color: #9575cd;
 }
 
 .coef-input {

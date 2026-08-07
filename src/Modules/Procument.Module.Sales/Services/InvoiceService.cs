@@ -29,7 +29,7 @@ public class InvoiceService : IInvoiceService
         _procurementService = procurementService;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .AsNoTracking()
@@ -132,6 +132,10 @@ public class InvoiceService : IInvoiceService
                 query = query.Where(i => i.Subject != null && subs.Contains(i.Subject));
         }
 
+        // Base of the invoice's customer — every invoice belongs to exactly one base.
+        if (bases?.Count > 0)
+            query = query.Where(i => i.Customer != null && i.Customer.Base != null && bases.Contains(i.Customer.Base.Value));
+
         if (!string.IsNullOrWhiteSpace(pnSearch))
         {
             var s = pnSearch.Trim();
@@ -151,6 +155,7 @@ public class InvoiceService : IInvoiceService
         {
             "invoiceNumber"  => sortDesc ? query.OrderByDescending(i => i.InvoiceNumber) : query.OrderBy(i => i.InvoiceNumber),
             "customerCode"   => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.CustomerCode : "") : query.OrderBy(i => i.Customer != null ? i.Customer.CustomerCode : ""),
+            "customerBase"   => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.Base : null) : query.OrderBy(i => i.Customer != null ? i.Customer.Base : null),
             "subject"        => sortDesc ? query.OrderByDescending(i => i.Subject) : query.OrderBy(i => i.Subject),
             "totalAmount"    => sortDesc ? query.OrderByDescending(i => i.TotalAmount) : query.OrderBy(i => i.TotalAmount),
             "status"         => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),

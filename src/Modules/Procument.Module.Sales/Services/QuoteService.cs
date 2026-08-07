@@ -17,6 +17,7 @@ public interface IQuoteService
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
     Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false);
+    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin, int[]? userBases = null);
@@ -28,6 +29,9 @@ public interface IQuoteService
 
 public class QuoteService : IQuoteService
 {
+    /// <summary>Cap on high-cardinality filter option lists (quote numbers, RFQ names) so the payload stays small.</summary>
+    private const int MaxFilterOptions = 1000;
+
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
 
@@ -372,6 +376,145 @@ public class QuoteService : IQuoteService
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// Distinct values still available in each column filter of the Quotes list.
+    /// Every list is built from the rows that survive the *other* active filters
+    /// (Excel-style cascading), so a column never collapses to what is already picked.
+    /// Called with no filters it returns the unconstrained lists, which the client
+    /// caches behind the "Show all" toggle.
+    /// </summary>
+    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false)
+    {
+        IQueryable<Quote> permitted = _db.Set<Quote>().AsNoTracking();
+
+        if (!isSuperAdmin)
+        {
+            var permittedQuoteIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Quote")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1).ToList();
+
+            var permittedRfqIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "RFQ")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1).ToList();
+
+            var assignedCustomerIds = await GetUserAssignedCustomerIdsAsync(userId);
+
+            permitted = permitted.Where(q =>
+                q.Customer == null ||
+                q.Customer.Base == null ||
+                userBases.Contains(q.Customer.Base.Value) ||
+                assignedCustomerIds.Contains(q.Customer.Id) ||
+                permittedQuoteIds.Contains(q.Id) ||
+                permittedRfqIds.Contains(q.RFQId) ||
+                q.UserId == userId);
+        }
+
+        // The user filter maps to RFQ ids through the permission table — resolve it once.
+        List<long> userRfqIds = new();
+        if (assignedUserNames?.Count > 0)
+        {
+            var rfqIdStrings = await _db.Set<EntityPermission>()
+                .Include(p => p.User)
+                .Where(p => p.EntityName == "RFQ" && assignedUserNames.Contains(p.User.Name))
+                .Select(p => p.EntityId).ToListAsync();
+            userRfqIds = rfqIdStrings.Select(id => long.TryParse(id, out var l) ? l : -1L).Where(id => id > 0).ToList();
+        }
+
+        var rfqIdsFromNames = (rfqNames ?? new List<string>())
+            .Where(n => n.StartsWith("RFQ #"))
+            .Select(n => long.TryParse(n.Substring(5), out var id) ? id : -1L)
+            .Where(id => id > 0).ToList();
+
+        IQueryable<Quote> Build(string? exclude)
+        {
+            var q = permitted;
+
+            if (exclude != "status" && statuses?.Count > 0)
+                q = q.Where(x => statuses.Contains(x.Status));
+            else if (!includeRejected)
+                q = q.Where(x => x.Status != "Rejected");
+
+            if (!string.IsNullOrEmpty(search))
+            {
+                var s = search.Trim();
+                q = q.Where(x =>
+                    x.QuoteNumber.Contains(s) ||
+                    x.Status.Contains(s) ||
+                    (x.Customer != null && (x.Customer.Name.Contains(s) || (x.Customer.CustomerCode != null && x.Customer.CustomerCode.Contains(s)))) ||
+                    (x.RFQ != null && x.RFQ.Name.Contains(s)));
+            }
+
+            if (!string.IsNullOrEmpty(pnSearch))
+                q = q.Where(x => x.QuoteItems.Any(qi => qi.PartNumber != null && qi.PartNumber.Name.Contains(pnSearch)));
+
+            if (exclude != "assignedUsers" && assignedUserNames?.Count > 0)
+                q = q.Where(x => userRfqIds.Contains(x.RFQId));
+
+            if (exclude != "customerCode" && customerNames?.Count > 0)
+            {
+                var hasNullPlaceholder = customerNames.Contains("-") || customerNames.Contains("—");
+                q = q.Where(x => x.Customer != null && (
+                    customerNames.Contains(x.Customer.Name) ||
+                    (x.Customer.CustomerCode != null && customerNames.Contains(x.Customer.CustomerCode)) ||
+                    (hasNullPlaceholder && (x.Customer.CustomerCode == null || x.Customer.CustomerCode == ""))));
+            }
+
+            if (exclude != "quoteNumber" && quoteNumbers?.Count > 0)
+                q = q.Where(x => quoteNumbers.Contains(x.QuoteNumber));
+
+            if (exclude != "rfqName" && rfqNames?.Count > 0)
+                q = q.Where(x =>
+                    (x.RFQ != null && rfqNames.Contains(x.RFQ.Name)) ||
+                    rfqIdsFromNames.Contains(x.RFQId));
+
+            return q;
+        }
+
+        var availableStatuses = await Build("status").Select(q => q.Status).Distinct().OrderBy(s => s).ToListAsync();
+
+        var availableCustomers = await Build("customerCode")
+            .Where(q => q.Customer != null)
+            .Select(q => new { name = q.Customer!.Name, code = q.Customer!.CustomerCode })
+            .Distinct().ToListAsync();
+
+        var availableQuoteNumbers = await Build("quoteNumber")
+            .Select(q => q.QuoteNumber).Distinct().OrderBy(n => n)
+            .Take(MaxFilterOptions).ToListAsync();
+
+        // Projected as two columns and combined in memory — string-concatenating the id
+        // inside the query is not reliably translatable.
+        var rfqNameRows = await Build("rfqName")
+            .Select(q => new { name = q.RFQ != null ? q.RFQ.Name : null, q.RFQId })
+            .Distinct().Take(MaxFilterOptions).ToListAsync();
+        var availableRfqNames = rfqNameRows
+            .Select(r => string.IsNullOrEmpty(r.name) ? $"RFQ #{r.RFQId}" : r.name!)
+            .Distinct().OrderBy(n => n).ToList();
+
+        var userScopeRfqIds = (await Build("assignedUsers").Select(q => q.RFQId).Distinct().ToListAsync())
+            .Select(id => id.ToString()).ToList();
+        var availableUsers = await _db.Set<EntityPermission>()
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Where(p => p.EntityName == "RFQ" && userScopeRfqIds.Contains(p.EntityId))
+            .Select(p => p.User.Name)
+            .Distinct().OrderBy(n => n).ToListAsync();
+
+        return new QuoteFilterOptions
+        {
+            Statuses = availableStatuses,
+            Customers = availableCustomers
+                .GroupBy(c => c.name)
+                .Select(g => new QuoteCustomerOption { Name = g.Key, Code = g.First().code })
+                .OrderBy(c => c.Code ?? c.Name)
+                .ToList(),
+            Users = availableUsers,
+            RfqNames = availableRfqNames,
+            QuoteNumbers = availableQuoteNumbers,
         };
     }
 

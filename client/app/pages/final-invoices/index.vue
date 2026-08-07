@@ -31,7 +31,7 @@
           />
           <v-autocomplete
             v-model="customerCodesFilter"
-            :items="cfCustomerOptions"
+            :items="customerSelectItems"
             label="Customer Code"
             hide-details
             multiple
@@ -41,10 +41,21 @@
             density="compact"
             variant="outlined"
             style="min-width: 140px; max-width: 260px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllCustomers ? 'Show available only' : 'Show all customers'"
+                :prepend-icon="showAllCustomers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllCustomers = !showAllCustomers"
+              />
+            </template>
+          </v-autocomplete>
           <v-autocomplete
             v-model="statusesFilter"
-            :items="cfStatusOptions"
+            :items="statusSelectItems"
             label="Status"
             hide-details
             multiple
@@ -54,7 +65,18 @@
             density="compact"
             variant="outlined"
             style="min-width: 140px; max-width: 240px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllStatuses ? 'Show available only' : 'Show all statuses'"
+                :prepend-icon="showAllStatuses ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllStatuses = !showAllStatuses"
+              />
+            </template>
+          </v-autocomplete>
           <v-text-field
             v-model="createdFrom"
             label="Created From"
@@ -99,6 +121,45 @@
           @update:options="onTableOptions"
           @click:row="(_: any, { item }: any) => navigateTo(`/final-invoices/${item.id}`)"
         >
+          <!-- Header filters share the top-bar refs: :options is what the other filters
+               still leave selectable, :all-options is everything ("Show all"). -->
+          <template #header.customerCode="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="customerCode"
+              :label="column.title"
+              :options="cfCustomerAvailable"
+              :all-options="cfCustomerOptions"
+              :selected="customerSet"
+              :search="colSearch.customerCode"
+              :loading="cfLoading"
+              :is-sorted="isSorted(column)"
+              :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+              @toggle="(v) => toggleColFilter(customerCodesFilter, v)"
+              @select-all="(vals) => setColFilter(customerCodesFilter, vals)"
+              @clear-all="() => setColFilter(customerCodesFilter, [])"
+              @update:search="(v) => colSearch.customerCode = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+          <template #header.status="{ column, toggleSort, isSorted, sortBy }">
+            <ColFilterMenu
+              col-key="status"
+              :label="column.title"
+              :options="cfStatusAvailable"
+              :all-options="cfStatusOptions"
+              :selected="statusSet"
+              :search="colSearch.status"
+              :loading="cfLoading"
+              :is-sorted="isSorted(column)"
+              :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+              @toggle="(v) => toggleColFilter(statusesFilter, v)"
+              @select-all="(vals) => setColFilter(statusesFilter, vals)"
+              @clear-all="() => setColFilter(statusesFilter, [])"
+              @update:search="(v) => colSearch.status = v"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
           <template #item.status="{ item }">
             <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
           </template>
@@ -189,16 +250,67 @@ function clearFilters() {
 }
 
 // ─── Filter option lists ───
-const cfCustomerOptions = ref<string[]>([])
-const cfStatusOptions = ref<string[]>([])
+/**
+ * `available` is refetched on every filter change and holds only the values that still
+ * return rows once the *other* filters are applied; `all` is the unfiltered list, which
+ * the header menus expose behind "Show all" and the dropdowns behind their toggle.
+ */
+type FiOptions = { statuses: string[]; customers: string[] }
+const EMPTY_FI_OPTIONS: FiOptions = { statuses: [], customers: [] }
 
-async function loadFilterOptions() {
-  try {
-    const res = await api.get<any>('/final-invoices/filter-options')
-    cfStatusOptions.value = (res.statuses || []).sort()
-    cfCustomerOptions.value = ([...new Set((res.customers || [])
-      .map((c: any) => c.code || '-'))] as string[]).sort()
-  } catch {}
+const cfOptions = useCascadingOptions<FiOptions>(
+  async (cascading) => {
+    const params = new URLSearchParams()
+    if (cascading) {
+      if (search.value?.trim()) params.set('search', search.value.trim())
+      if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
+      if (createdFrom.value) params.set('createdFrom', createdFrom.value)
+      if (createdTo.value) params.set('createdTo', createdTo.value)
+      ;(customerCodesFilter.value || []).forEach(c => params.append('customerCodes', c))
+      ;(statusesFilter.value || []).forEach(s => params.append('statuses', s))
+    }
+    const qs = params.toString()
+    const res = await api.get<any>(`/final-invoices/filter-options${qs ? `?${qs}` : ''}`)
+    return {
+      statuses: (res.statuses || []).sort(),
+      customers: ([...new Set((res.customers || []).map((c: any) => c.code || '-'))] as string[]).sort(),
+    }
+  },
+  EMPTY_FI_OPTIONS,
+)
+const cfLoading = cfOptions.loading
+
+const cfCustomerOptions = computed(() => cfOptions.all.value.customers)
+const cfStatusOptions = computed(() => cfOptions.all.value.statuses)
+const cfCustomerAvailable = computed(() => cfOptions.available.value.customers)
+const cfStatusAvailable = computed(() => cfOptions.available.value.statuses)
+
+const showAllCustomers = ref(false)
+const showAllStatuses = ref(false)
+
+/** Dropdown items: available only, plus anything already picked so a chip stays removable. */
+function withSelected(available: string[], all: string[], picked: string[], showAll: boolean) {
+  if (showAll) return all
+  const extra = picked.filter(p => !available.includes(p))
+  return extra.length ? [...available, ...extra] : available
+}
+const customerSelectItems = computed(() =>
+  withSelected(cfCustomerAvailable.value, cfCustomerOptions.value, customerCodesFilter.value || [], showAllCustomers.value))
+const statusSelectItems = computed(() =>
+  withSelected(cfStatusAvailable.value, cfStatusOptions.value, statusesFilter.value || [], showAllStatuses.value))
+
+// ColFilterMenu takes Sets; the page keeps arrays because they go straight into the query.
+const customerSet = computed(() => new Set(customerCodesFilter.value))
+const statusSet = computed(() => new Set(statusesFilter.value))
+const colSearch = reactive<Record<string, string>>({ customerCode: '', status: '' })
+
+function toggleColFilter(arr: string[], val: string) {
+  const idx = arr.indexOf(val)
+  if (idx >= 0) arr.splice(idx, 1)
+  else arr.push(val)
+}
+function setColFilter(arr: string[], vals: string[]) {
+  arr.splice(0, arr.length, ...vals)
 }
 
 // ─── Server-side data ───
@@ -213,10 +325,11 @@ function scheduleReload() {
   debounceTimer = setTimeout(() => reload(), 350)
 }
 
-// Watch all filter values and trigger re-fetch
+// Watch all filter values and trigger re-fetch — plus re-narrow the other filters' options
 watch([search, pnSearch, customerCodesFilter, statusesFilter, createdFrom, createdTo], () => {
   currentOptions.value = { ...currentOptions.value, page: 1 }
   scheduleReload()
+  cfOptions.refreshDebounced()
 }, { deep: true })
 
 async function reload() {
@@ -270,7 +383,7 @@ function formatPrice(v: number | null | undefined) {
 }
 
 onMounted(() => {
-  loadFilterOptions()
+  cfOptions.init()
 })
 
 // ─── Create dialog ───

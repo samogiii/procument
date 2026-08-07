@@ -123,3 +123,23 @@ public class UpdateQuoteYuanSettingsRequest
     public decimal? CoefYuan { get; set; }
     public decimal? ExchangeRateYuan { get; set; }
 }
+
+/// <summary>
+/// Distinct values still selectable in each Quotes-list column filter. Each list is
+/// computed with every active filter applied EXCEPT that column's own, so opening a
+/// second or third filter only offers values that would still return rows.
+/// </summary>
+public class QuoteFilterOptions
+{
+    public List<string> Statuses { get; set; } = new();
+    public List<QuoteCustomerOption> Customers { get; set; } = new();
+    public List<string> Users { get; set; } = new();
+    public List<string> RfqNames { get; set; } = new();
+    public List<string> QuoteNumbers { get; set; } = new();
+}
+
+public class QuoteCustomerOption
+{
+    public string Name { get; set; } = "";
+    public string? Code { get; set; }
+}

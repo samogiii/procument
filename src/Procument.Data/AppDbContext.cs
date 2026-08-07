@@ -194,6 +194,9 @@ public class AppDbContext : DbContext
       entity.Property(e => e.BillTo).HasMaxLength(500);
       entity.Property(e => e.Base).IsRequired(false);
       entity.Property(e => e.ExWork).IsRequired(false);
+      entity.Property(e => e.Coef1).HasColumnType("decimal(18,4)");
+      entity.Property(e => e.Coef2).HasColumnType("decimal(18,4)");
+      entity.Property(e => e.Coef3).HasColumnType("decimal(18,4)");
 
       // Speeds up catalog search-by-name
       entity.HasIndex(e => e.Name);

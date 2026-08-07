@@ -10,7 +10,7 @@ namespace Procument.Module.Sales.Services;
 public interface IFinalInvoiceService
 {
     Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null, string? sortBy = null, bool sortDesc = false);
-    Task<object> GetFilterOptionsAsync();
+    Task<object> GetFilterOptionsAsync(string? search = null, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null);
     Task<FinalInvoiceResponse?> GetByIdAsync(long id);
     Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
     Task<bool> UpdateStatusAsync(long id, string status);
@@ -121,19 +121,75 @@ public class FinalInvoiceService : IFinalInvoiceService
         return await projected.ToPagedResultAsync(page);
     }
 
-    public async Task<object> GetFilterOptionsAsync()
+    /// <summary>
+    /// Cascading filter options. Each list is built from the rows that survive the *other*
+    /// active filters, so picking a customer narrows the status list and vice versa, while
+    /// a column never collapses to the values already selected in it. Called with no
+    /// arguments it returns the full lists the client caches behind "Show all".
+    /// </summary>
+    public async Task<object> GetFilterOptionsAsync(string? search = null, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null)
     {
-        var q = _db.Set<FinalInvoice>().AsNoTracking();
-        var statuses = await q.Select(fi => fi.Status).Distinct().OrderBy(s => s).ToListAsync();
-        var customers = await q
+        var permitted = _db.Set<FinalInvoice>().AsNoTracking().AsQueryable();
+
+        if (!isSuperAdmin && userBases != null)
+            permitted = permitted.Where(fi => fi.Customer == null || fi.Customer.Base == null || userBases.Contains(fi.Customer.Base.Value));
+
+        var codeValues = (customerCodes ?? new List<string>()).Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        var statusValues = (statuses ?? new List<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+
+        IQueryable<FinalInvoice> Build(string? exclude)
+        {
+            var q = permitted;
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                q = q.Where(fi =>
+                    fi.InvoiceNumber.Contains(s)
+                 || fi.Status.Contains(s)
+                 || (fi.Customer != null && (fi.Customer.Name.Contains(s) || (fi.Customer.CustomerCode != null && fi.Customer.CustomerCode.Contains(s))))
+                 || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(customerSearch))
+            {
+                var cs = customerSearch.Trim();
+                q = q.Where(fi => fi.Customer != null && fi.Customer.Name.Contains(cs));
+            }
+
+            if (!string.IsNullOrWhiteSpace(pnSearch))
+            {
+                var s = pnSearch.Trim();
+                q = q.Where(fi => fi.Items.Any(item =>
+                    (item.PartNumber != null && item.PartNumber.Name.Contains(s)) ||
+                    (item.InvoiceItem != null && item.InvoiceItem.QuoteItem != null && item.InvoiceItem.QuoteItem.Alt != null && item.InvoiceItem.QuoteItem.Alt.Contains(s))));
+            }
+
+            if (exclude != "customerCode" && codeValues.Count > 0)
+                q = q.Where(fi => fi.Customer != null && codeValues.Contains(fi.Customer.CustomerCode));
+
+            if (exclude != "status" && statusValues.Count > 0)
+                q = q.Where(fi => statusValues.Contains(fi.Status));
+
+            if (createdFrom.HasValue)
+                q = q.Where(fi => fi.CreatedAt >= createdFrom.Value);
+
+            if (createdTo.HasValue)
+                q = q.Where(fi => fi.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+            return q;
+        }
+
+        var availableStatuses = await Build("status").Select(fi => fi.Status).Distinct().OrderBy(s => s).ToListAsync();
+        var availableCustomers = await Build("customerCode")
             .Where(fi => fi.Customer != null)
             .Select(fi => new { code = fi.Customer!.CustomerCode, name = fi.Customer!.Name })
             .Distinct()
             .ToListAsync();
         return new
         {
-            statuses,
-            customers = customers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList()
+            statuses = availableStatuses,
+            customers = availableCustomers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList()
         };
     }
 

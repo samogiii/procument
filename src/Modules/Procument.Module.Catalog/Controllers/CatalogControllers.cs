@@ -86,7 +86,11 @@ public class CustomersController : ControllerBase
                 c.CompanyType,
                 c.Country,
                 c.Emails,
+                c.Website,
                 c.Contacts,
+                c.Coef1,
+                c.Coef2,
+                c.Coef3,
                 c.IsActive,
                 c.CreatedAt
             })
@@ -193,6 +197,13 @@ public class CustomersController : ControllerBase
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
+        // Quote coefficients are SuperAdmin-only
+        if (User.IsInRole("SuperAdmin"))
+        {
+            entity.Coef1 = dto.Coef1;
+            entity.Coef2 = dto.Coef2;
+            entity.Coef3 = dto.Coef3;
+        }
         _db.Set<Customer>().Add(entity);
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -223,6 +234,13 @@ public class CustomersController : ControllerBase
         entity.Emails = dto.Emails;
         entity.Website = dto.Website;
         entity.Contacts = dto.Contacts;
+        // Quote coefficients are SuperAdmin-only — other roles leave the stored values untouched
+        if (User.IsInRole("SuperAdmin"))
+        {
+            entity.Coef1 = dto.Coef1;
+            entity.Coef2 = dto.Coef2;
+            entity.Coef3 = dto.Coef3;
+        }
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -296,6 +314,10 @@ public class CustomerDto
     public string? Website { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
+    /// <summary>Customer-specific quote coefficients (SuperAdmin only). Override the base/currency defaults on the create-quote page.</summary>
+    public decimal? Coef1 { get; set; }
+    public decimal? Coef2 { get; set; }
+    public decimal? Coef3 { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════

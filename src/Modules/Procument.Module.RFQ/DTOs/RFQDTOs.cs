@@ -116,6 +116,10 @@ public class RFQResponse
     public string? CustomerCode { get; set; }
     public int? CustomerBase { get; set; }
     public string? CustomerCurrencyType { get; set; }
+    /// <summary>Customer-specific quote coefficients — when set they take priority over the base/currency defaults.</summary>
+    public decimal? CustomerCoef1 { get; set; }
+    public decimal? CustomerCoef2 { get; set; }
+    public decimal? CustomerCoef3 { get; set; }
     public string? CustomerTermsAndConditions { get; set; }
     public long CustomerId { get; set; }
     public string? UserName { get; set; }

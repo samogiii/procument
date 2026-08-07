@@ -39,13 +39,14 @@ public class InvoicesController : ControllerBase
         [FromQuery] List<string>? statuses = null,
         [FromQuery] List<string>? invoiceNumbers = null,
         [FromQuery] List<string>? subjects = null,
+        [FromQuery] List<int>? bases = null,
         [FromQuery] string? pnSearch = null,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, subjects);
+        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, subjects, bases);
         return Ok(result);
     }
 
@@ -228,33 +229,142 @@ public class InvoicesController : ControllerBase
         return success ? Ok() : BadRequest("Failed to grant permissions.");
     }
 
+    /// <summary>
+    /// Cascading filter options for the Sales Order list. Each column is computed from the
+    /// rows that survive the *other* active filters, so the second and third filter a user
+    /// opens only offer values that still return rows. Called with no query string it
+    /// returns the full lists, which the client caches behind the "Show all" toggle.
+    /// </summary>
     [HttpGet("filter-options")]
-    public async Task<ActionResult> GetInvoiceFilterOptions()
+    public async Task<ActionResult> GetInvoiceFilterOptions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] List<string>? statuses = null,
+        [FromQuery] List<string>? customerCodes = null,
+        [FromQuery] List<string>? invoiceNumbers = null,
+        [FromQuery] List<string>? subjects = null,
+        [FromQuery] List<int>? bases = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
-        var query = _db.Set<Invoice>().AsNoTracking();
-        var statuses = await query.Select(i => i.Status ?? "Draft").Distinct().OrderBy(s => s).ToListAsync();
-        var customers = await query
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+
+        IQueryable<Invoice> permitted = _db.Set<Invoice>().AsNoTracking();
+
+        if (!isSuperAdmin && userBases != null)
+        {
+            var permittedIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Invoice")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1).ToList();
+
+            permitted = permitted.Where(i =>
+                i.Customer == null ||
+                i.Customer.Base == null ||
+                userBases.Contains(i.Customer.Base.Value) ||
+                permittedIds.Contains(i.Id) ||
+                i.Quote.UserId == userId);
+        }
+        else if (!isAdmin)
+        {
+            var permittedIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "Invoice")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1).ToList();
+
+            permitted = permitted.Where(i => i.Quote.UserId == userId || permittedIds.Contains(i.Id));
+        }
+
+        var statusValues = (statuses ?? new List<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        var codeValues = (customerCodes ?? new List<string>()).Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        var numberValues = (invoiceNumbers ?? new List<string>()).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+        var subjectValues = (subjects ?? new List<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        var baseValues = bases ?? new List<int>();
+
+        IQueryable<Invoice> Build(string? exclude)
+        {
+            var q = permitted;
+
+            // Cancelled rows stay hidden unless the status filter explicitly asks for them.
+            bool cancelledRequested = exclude != "status" && statusValues.Contains("Cancelled");
+            if (!cancelledRequested)
+                q = q.Where(i => !i.IsCancelled);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                q = q.Where(i =>
+                    i.InvoiceNumber.Contains(s) ||
+                    i.Customer.Name.Contains(s) ||
+                    (i.Customer.CustomerCode != null && i.Customer.CustomerCode.Contains(s)) ||
+                    (i.Subject != null && i.Subject.Contains(s)) ||
+                    (i.CustomerPONumber != null && i.CustomerPONumber.Contains(s)) ||
+                    i.Status.Contains(s));
+            }
+
+            if (!string.IsNullOrWhiteSpace(pnSearch))
+            {
+                var s = pnSearch.Trim();
+                q = q.Where(i => i.InvoiceItems.Any(ii =>
+                    (ii.QuoteItem != null && ii.QuoteItem.PartNumber != null && ii.QuoteItem.PartNumber.Name.Contains(s)) ||
+                    (ii.QuoteItem != null && ii.QuoteItem.Alt != null && ii.QuoteItem.Alt.Contains(s))));
+            }
+
+            if (exclude != "status" && statusValues.Count > 0)
+                q = q.Where(i => statusValues.Contains(i.Status));
+
+            if (exclude != "customerCode" && codeValues.Count > 0)
+            {
+                var hasNullPlaceholder = codeValues.Contains("-") || codeValues.Contains("—");
+                q = q.Where(i =>
+                    codeValues.Contains(i.Customer.CustomerCode) ||
+                    (hasNullPlaceholder && (i.Customer.CustomerCode == null || i.Customer.CustomerCode == "")));
+            }
+
+            if (exclude != "invoiceNumber" && numberValues.Count > 0)
+                q = q.Where(i => numberValues.Contains(i.InvoiceNumber));
+
+            if (exclude != "subject" && subjectValues.Count > 0)
+                q = q.Where(i => i.Subject != null && subjectValues.Contains(i.Subject));
+
+            if (exclude != "customerBase" && baseValues.Count > 0)
+                q = q.Where(i => i.Customer != null && i.Customer.Base != null && baseValues.Contains(i.Customer.Base.Value));
+
+            if (createdFrom.HasValue)
+                q = q.Where(i => i.CreatedAt >= createdFrom.Value);
+
+            if (createdTo.HasValue)
+                q = q.Where(i => i.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+            return q;
+        }
+
+        var availableStatuses = await Build("status")
+            .Select(i => i.Status ?? "Draft").Distinct().OrderBy(s => s).ToListAsync();
+
+        var availableCustomers = await Build("customerCode")
             .Where(i => i.Customer != null)
             .Select(i => new { code = i.Customer!.CustomerCode, name = i.Customer!.Name })
-            .Distinct()
-            .ToListAsync();
-        var invoiceNumbers = await query
-            .Select(i => i.InvoiceNumber)
-            .Distinct()
-            .OrderBy(n => n)
-            .ToListAsync();
-        var subjects = await query
+            .Distinct().ToListAsync();
+
+        var availableNumbers = await Build("invoiceNumber")
+            .Select(i => i.InvoiceNumber).Distinct().OrderBy(n => n).ToListAsync();
+
+        var availableSubjects = await Build("subject")
             .Where(i => i.Subject != null && i.Subject != "")
-            .Select(i => i.Subject!)
-            .Distinct()
-            .OrderBy(s => s)
-            .ToListAsync();
+            .Select(i => i.Subject!).Distinct().OrderBy(s => s).ToListAsync();
+
+        var availableBases = await Build("customerBase")
+            .Where(i => i.Customer != null && i.Customer.Base != null)
+            .Select(i => i.Customer!.Base!.Value).Distinct().OrderBy(b => b).ToListAsync();
+
         return Ok(new
         {
-            statuses,
-            customers = customers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList(),
-            invoiceNumbers,
-            subjects
+            statuses = availableStatuses,
+            customers = availableCustomers.GroupBy(c => c.code).Select(g => g.First()).OrderBy(c => c.code).ToList(),
+            invoiceNumbers = availableNumbers,
+            subjects = availableSubjects,
+            bases = availableBases
         });
     }
 

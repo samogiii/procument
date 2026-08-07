@@ -29,7 +29,7 @@
           />
           <v-select
             v-model="statusFilter"
-            :items="ALL_RFQ_STATUSES"
+            :items="statusSelectItems"
             label="Status"
             hide-details
             multiple
@@ -38,7 +38,18 @@
             clearable
             class="mr-2"
             style="min-width: 120px; max-width: 200px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllStatuses ? 'Show available only' : 'Show all statuses'"
+                :prepend-icon="showAllStatuses ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllStatuses = !showAllStatuses"
+              />
+            </template>
+          </v-select>
           <v-select
             v-model="userFilter"
             :items="userOptions"
@@ -52,7 +63,18 @@
             clearable
             class="mx-2"
             style="min-width: 140px; max-width: 240px;"
-          />
+          >
+            <template #append-item>
+              <v-divider class="mt-1 mb-1" />
+              <v-list-item
+                :title="showAllUsers ? 'Show available only' : 'Show all users'"
+                :prepend-icon="showAllUsers ? 'mdi-filter' : 'mdi-filter-off'"
+                density="compact"
+                class="text-caption text-medium-emphasis"
+                @click.stop="showAllUsers = !showAllUsers"
+              />
+            </template>
+          </v-select>
           <v-text-field
             v-model="customerSearch"
             prepend-inner-icon="mdi-domain"
@@ -177,6 +199,8 @@ watch(userFilter, () => reload())
 
 function reload() {
   onTableOptions({ ...currentOptions.value, page: 1 })
+  // Re-narrow the remaining filters to what the new result set still contains.
+  cfOptions.refreshDebounced()
 }
 
 async function onTableOptions(opts: { page: number; itemsPerPage: number }) {
@@ -197,8 +221,55 @@ async function onTableOptions(opts: { page: number; itemsPerPage: number }) {
   }
 }
 
-// ─── User options (for filter) ───
-const userOptions = ref<{ id: number; name: string }[]>([])
+/**
+ * ─── Cascading filter options ───
+ * `available` holds the values that still return rows once the *other* filters are
+ * applied, `all` the unfiltered lists. Each dropdown shows available-only by default
+ * with a "Show all" row, so a second filter never offers dead-end values.
+ */
+type ItemOptions = { statuses: string[]; users: { id: number; name: string }[] }
+const EMPTY_ITEM_OPTIONS: ItemOptions = { statuses: [], users: [] }
+
+const cfOptions = useCascadingOptions<ItemOptions>(
+  async (cascading) => {
+    const params = new URLSearchParams()
+    if (cascading) {
+      if (dSearch.value) params.set('search', dSearch.value)
+      if (dPn.value) params.set('pnSearch', dPn.value)
+      if (dCustomer.value) params.set('customerSearch', dCustomer.value)
+      statusFilter.value.forEach(s => params.append('statuses', s))
+      userFilter.value.forEach(id => params.append('userIds', String(id)))
+    }
+    const qs = params.toString()
+    const res = await api.get<any>(`/rfqs/items/filter-options${qs ? `?${qs}` : ''}`)
+    return {
+      statuses: res.statuses || [],
+      users: (res.users || []).map((u: any) => ({ id: u.id, name: u.name })),
+    }
+  },
+  EMPTY_ITEM_OPTIONS,
+)
+
+const showAllStatuses = ref(false)
+const showAllUsers = ref(false)
+
+// Full status list = the hardcoded set plus anything the data actually contains.
+const allStatusOptions = computed(() =>
+  [...new Set([...ALL_RFQ_STATUSES, ...cfOptions.all.value.statuses])])
+const statusSelectItems = computed(() => {
+  if (showAllStatuses.value) return allStatusOptions.value
+  const available = new Set(cfOptions.available.value.statuses)
+  // Keep selected values listed, or the chip could not be removed from the menu.
+  return allStatusOptions.value.filter(s => available.has(s) || statusFilter.value.includes(s))
+})
+
+const allUserOptions = computed(() => cfOptions.all.value.users)
+const userOptions = computed(() => {
+  if (showAllUsers.value) return allUserOptions.value
+  const available = cfOptions.available.value.users
+  const extra = allUserOptions.value.filter(u => userFilter.value.includes(u.id) && !available.some(a => a.id === u.id))
+  return extra.length ? [...available, ...extra] : available
+})
 
 const headers = [
   { title: 'RFQ #', key: 'rfqId', width: '80px' },
@@ -226,10 +297,7 @@ function isLeadTimeExpired(dateStr: string) {
   return new Date(dateStr).getTime() < Date.now()
 }
 
-onMounted(async () => {
-  try {
-    const users = await api.get<any[]>('/users')
-    userOptions.value = (users || []).map((u: any) => ({ id: u.id, name: u.name }))
-  } catch {}
+onMounted(() => {
+  cfOptions.init()
 })
 </script>

@@ -64,10 +64,26 @@ public class FinalInvoicesController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Cascading filter options. Pass the active filters to get only the values that still
+    /// return rows; call it bare for the full lists the client keeps behind "Show all".
+    /// </summary>
     [HttpGet("filter-options")]
-    public async Task<IActionResult> GetFilterOptions()
+    public async Task<IActionResult> GetFilterOptions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? customerSearch = null,
+        [FromQuery] string? pnSearch = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] List<string>? customerCodes = null,
+        [FromQuery] List<string>? statuses = null)
     {
-        var result = await _service.GetFilterOptionsAsync();
+        bool isSuperAdmin = User.IsInRole("SuperAdmin");
+        var basesClaim = User.FindFirst("bases")?.Value ?? "";
+        int[] userBases = basesClaim.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s, out var b) ? b : -1)
+            .Where(b => b > 0).ToArray();
+        var result = await _service.GetFilterOptionsAsync(search, customerSearch, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, customerCodes, statuses);
         return Ok(result);
     }
 
