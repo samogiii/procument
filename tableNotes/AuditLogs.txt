@@ -1,0 +1,24 @@
+Table: AuditLogs
+Module: Infrastructure
+Approximate row count: 171940
+Description: Change audit trail for every tracked entity. EntityId is stored as a string. This is the largest table in the database.
+Relationships: No foreign-key relationships. This table stands alone.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Action (NVARCHAR(100), NOT NULL)
+- ActionCategory (NVARCHAR(MAX), NULL)
+- AffectedColumns (NVARCHAR(MAX), NULL)
+- ContextData (NVARCHAR(MAX), NULL)
+- Details (NVARCHAR(MAX), NULL)
+- EntityDisplayName (NVARCHAR(MAX), NULL)
+- EntityId (NVARCHAR(100), NOT NULL)
+- EntityName (NVARCHAR(100), NOT NULL)
+- IPAddress (NVARCHAR(50), NULL)
+- NewValues (NVARCHAR(MAX), NULL)
+- OldValues (NVARCHAR(MAX), NULL)
+- RelatedEntityId (NVARCHAR(MAX), NULL)
+- RelatedEntityType (NVARCHAR(MAX), NULL)
+- Timestamp (DATETIME2, NOT NULL)
+- UserId (BIGINT, NULL)
+- UserName (NVARCHAR(MAX), NULL)
+Notes: Very large table (170k+ rows). Always filter by Timestamp, EntityName or UserId before selecting.

@@ -1,0 +1,12 @@
+Table: UserPushSubscriptions
+Module: Infrastructure
+Approximate row count: 0
+Description: Web-push browser endpoints used to send notifications to a user's device.
+Relationships: No foreign-key relationships. This table stands alone.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Auth (NVARCHAR(MAX), NOT NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- Endpoint (NVARCHAR(MAX), NOT NULL)
+- P256dh (NVARCHAR(MAX), NOT NULL)
+- UserId (BIGINT, NOT NULL)

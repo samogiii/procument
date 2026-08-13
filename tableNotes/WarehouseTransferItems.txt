@@ -1,0 +1,14 @@
+Table: WarehouseTransferItems
+Module: Shipping
+Approximate row count: 0
+Description: The individual items inside a warehouse-to-warehouse transfer.
+Relationships: Joins to 'POItems' on POItemId. Joins to 'TrackNumberItems' on SourceTrackNumberItemId. Joins to 'WarehouseTransfers' on WarehouseTransferId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- POItemId (BIGINT, NOT NULL, Foreign Key -> POItems.Id)
+- Qty (INT, NOT NULL)
+- ReceivedQty (INT, NULL)
+- SourceTrackNumberItemId (BIGINT, NOT NULL, Foreign Key -> TrackNumberItems.Id)
+- Status (NVARCHAR(20), NOT NULL, default "In Transit")
+- WarehouseTransferId (BIGINT, NOT NULL, Foreign Key -> WarehouseTransfers.Id)

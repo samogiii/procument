@@ -1,0 +1,19 @@
+Table: POItemTrackNumbers
+Also known as: inbound tracking, track number, tracking, AWB inbound
+Module: Shipping
+Approximate row count: 55
+Description: INBOUND tracking: parcels travelling from a supplier to one of our warehouses. When a user says 'tracking' or 'track number' without qualification, this is the table they mean.
+Relationships: Joins to 'POItems' on POItemId. Joins to 'POItemTrackNumbers' on ParentTrackNumberId (nullable - use LEFT JOIN). Joins to 'WarehouseTransfers' on SourceTransferId (nullable - use LEFT JOIN). Joins to 'Warehouses' on WarehouseId (nullable - use LEFT JOIN). Joined from 'POItemTrackNumbers' on POItemTrackNumbers.ParentTrackNumberId. Joined from 'ShipmentNoteBoxes' on ShipmentNoteBoxes.TrackNumberId. Joined from 'ShipmentNoteTrackNumbers' on ShipmentNoteTrackNumbers.TrackNumberId. Joined from 'TrackNumberBoxes' on TrackNumberBoxes.TrackNumberId. Joined from 'TrackNumberDocuments' on TrackNumberDocuments.TrackNumberId. Joined from 'TrackNumberItems' on TrackNumberItems.TrackNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Carrier (NVARCHAR(200), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- Notes (NVARCHAR(1000), NULL)
+- Origin (NVARCHAR(20), NOT NULL, default "Supplier")
+- POItemId (BIGINT, NOT NULL, Foreign Key -> POItems.Id)
+- ParentTrackNumberId (BIGINT, NULL, Foreign Key -> POItemTrackNumbers.Id)
+- SourceTransferId (BIGINT, NULL, Foreign Key -> WarehouseTransfers.Id)
+- Status (NVARCHAR(50), NOT NULL, default "Ship to Warehouse")
+  Allowed values: Ship to Warehouse | Received in Warehouse | Pending | Rejected
+- TrackNumber (NVARCHAR(200), NOT NULL)
+- WarehouseId (BIGINT, NULL, Foreign Key -> Warehouses.Id)

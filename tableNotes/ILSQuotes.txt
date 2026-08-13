@@ -1,0 +1,16 @@
+Table: ILSQuotes
+Module: ILS/Inventory
+Approximate row count: 4
+Description: A quote issued through the ILS channel, to an ILS customer.
+Relationships: Joins to 'ILSCustomers' on ILSCustomerId. Joined from 'ILSQuoteItems' on ILSQuoteItems.ILSQuoteId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- BillTo (NVARCHAR(2000), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- ILSCustomerId (BIGINT, NOT NULL, Foreign Key -> ILSCustomers.Id)
+- Notes (NVARCHAR(2000), NULL)
+- QuoteNumber (NVARCHAR(100), NOT NULL)
+- RfqReference (NVARCHAR(200), NULL)
+- ShipTo (NVARCHAR(2000), NULL)
+- Status (NVARCHAR(50), NOT NULL)
+- TotalAmount (DECIMAL(18,2), NOT NULL)

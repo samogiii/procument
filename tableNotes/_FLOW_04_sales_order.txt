@@ -1,0 +1,30 @@
+Note: Flowchart Stage 4 - Sales Order (the Invoices table)
+Type: Application Flowchart
+Stage: 4 of 10
+Description: What happens when a customer accepts a quote. The accepted quote is converted into a sales order. CRITICAL NAMING: the user interface calls this a 'Sales Order', but the database table is named Invoices. There is no table called SalesOrder or SalesOrders. The customer usually pays a deposit before work continues.
+Flowchart:
+  Quote Accepted
+     |
+     v
+  Insert Invoices row: InvoiceNumber (unique), QuoteId, CustomerId,
+     CustomerPONumber (the customer's own PO reference), CustomerPODate, TotalAmount
+     |
+     v
+  Insert InvoiceItems rows from the accepted QuoteItems (QuoteItemId back-reference)
+     |
+     v
+  Status Draft -> Prepayment -> Waiting For PrePayment
+     |
+     v
+  Customer pays a deposit
+     - CustomerPayments row with the proof-of-payment upload
+     - PaymentTransactions row, Type 'Deposit', into a PaymentBox wallet
+     |
+     v
+  Status -> Running, and purchasing takes over
+     |
+     +--> cancellation sets IsCancelled = 1 and Status 'Cancelled'
+Tables involved: Invoices, InvoiceItems, Quotes, QuoteItems, Customers, CustomerPayments, PaymentTransactions, PaymentBoxes.
+Key columns: Invoices.Status, Invoices.IsCancelled, Invoices.TotalAmount, Invoices.DueDate, Invoices.DeadlineDate, Invoices.PaidDate, Invoices.CustomerPONumber, InvoiceItems.Qty, InvoiceItems.UnitPrice, InvoiceItems.TotalPrice, InvoiceItems.Discount.
+Joins: Invoices.CustomerId -> Customers.Id. Invoices.QuoteId -> Quotes.Id. InvoiceItems.InvoiceId -> Invoices.Id. InvoiceItems.QuoteItemId -> QuoteItems.Id. CustomerPayments.InvoiceId -> Invoices.Id.
+Notes: When a user says sales order, SO, or 'the order', they mean the Invoices table. When they say 'customer PO' they mean Invoices.CustomerPONumber, which is the customer's reference and has nothing to do with our PurchaseOrders table. Always exclude cancelled rows from revenue reporting with IsCancelled = 0.

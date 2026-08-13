@@ -1,0 +1,9 @@
+Table: UserWarehouses
+Module: Identity
+Approximate row count: 2
+Description: Maps a user to the warehouses they are allowed to see.
+Relationships: Joins to 'Users' on UserId. Joins to 'Warehouses' on WarehouseId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- UserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)
+- WarehouseId (BIGINT, NOT NULL, Foreign Key -> Warehouses.Id)

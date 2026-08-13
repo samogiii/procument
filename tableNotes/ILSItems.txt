@@ -1,0 +1,18 @@
+Table: ILSItems
+Module: ILS/Inventory
+Approximate row count: 4
+Description: Stock listing items offered through the ILS channel.
+Relationships: Joins to 'PartNumbers' on PartNumberId. Joins to 'Procument' on ProcumentRecordId (nullable - use LEFT JOIN). Joined from 'ILSItemSerials' on ILSItemSerials.ILSItemId. Joined from 'ILSQuoteItems' on ILSQuoteItems.ILSItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AltPartNumber (NVARCHAR(200), NULL)
+- CertName (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- Description (NVARCHAR(1000), NULL)
+- LeadTime (NVARCHAR(100), NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- Price (DECIMAL(18,2), NOT NULL)
+- ProcumentRecordId (BIGINT, NULL, Foreign Key -> Procument.Id)
+- Qty (FLOAT, NOT NULL)
+- TagDate (DATE, NULL)

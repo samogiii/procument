@@ -1,0 +1,25 @@
+Note: Flowchart Stage 3 - Quoting the Customer
+Type: Application Flowchart
+Stage: 3 of 10
+Description: How we turn sourced prices into a priced offer to the customer. A Quote is built from the RFQ and its price records, with markup coefficients applied. It is sent to the customer, who accepts or rejects it.
+Flowchart:
+  Expert builds a Quote from the RFQ
+     |
+     v
+  Insert Quotes row: QuoteNumber (unique), RFQId, CustomerId, UserId (author), Status 'Draft'
+     |
+     v
+  Insert QuoteItems rows, each pulling its cost from ProcumentRecordId
+     and applying customer coefficients Coef1/Coef2/Coef3
+     |
+     v
+  Quote sent: Status 'Draft' -> 'Sent', SentAt timestamp set
+     |
+     v
+  Customer replies
+     +--> Accepted  -> proceed to stage 4, sales order
+     +--> Rejected  -> RejectionNote recorded
+Tables involved: Quotes, QuoteItems, RFQs, Customers, Users, Procument, PartNumbers.
+Key columns: Quotes.Status, Quotes.SentAt, Quotes.TotalAmount, Quotes.FinalPrice, Quotes.ValidUntil, Quotes.CoefYuan, Quotes.ExchangeRateYuan, QuoteItems.Qty, QuoteItems.UnitPrice.
+Joins: Quotes.RFQId -> RFQs.Id. Quotes.CustomerId -> Customers.Id. Quotes.UserId -> Users.Id. QuoteItems.QuoteId -> Quotes.Id. QuoteItems.RFQItemId -> RFQItems.Id. QuoteItems.ProcumentRecordId -> Procument.Id.
+Notes: One RFQ can receive several quotes over time because quotes get revised, so counting quoted RFQs requires COUNT(DISTINCT RFQId), not COUNT of quotes. A quote counts as sent if SentAt IS NOT NULL OR Status IN ('Sent','Accepted','Rejected'), because Accepted and Rejected quotes were also sent. Quote value is COALESCE(FinalPrice, TotalAmount). CoefYuan and ExchangeRateYuan mean some quotes are not USD, so blended totals across mixed currencies are misleading.

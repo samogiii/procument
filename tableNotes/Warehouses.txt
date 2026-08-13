@@ -1,0 +1,19 @@
+Table: Warehouses
+Module: Shipping
+Approximate row count: 2
+Description: Our own warehouses and supplier drop-off points, distinguished by the Type column.
+Relationships: Joined from 'CompanyPresetWarehouses' on CompanyPresetWarehouses.WarehouseId. Joined from 'POItemTrackNumbers' on POItemTrackNumbers.WarehouseId. Joined from 'ShipmentNotes' on ShipmentNotes.WarehouseId. Joined from 'UserWarehouses' on UserWarehouses.WarehouseId. Joined from 'WarehouseTransfers' on WarehouseTransfers.FromWarehouseId. Joined from 'WarehouseTransfers' on WarehouseTransfers.ToWarehouseId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Address (NVARCHAR(500), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- DisplayName (NVARCHAR(MAX), NULL)
+- Email (NVARCHAR(200), NULL)
+- FedexAccount (NVARCHAR(MAX), NULL)
+- IsActive (BIT, NOT NULL)
+- Name (NVARCHAR(200), NOT NULL)
+- Phone (NVARCHAR(50), NULL)
+- ServicePriority (NVARCHAR(MAX), NULL)
+- ShipToAddress (NVARCHAR(MAX), NULL)
+- Type (NVARCHAR(30), NOT NULL, default "OurWarehouse")
+  Allowed values: OurWarehouse | supplier drop point

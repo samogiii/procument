@@ -1,0 +1,15 @@
+Table: InventoryItems
+Module: ILS/Inventory
+Approximate row count: 12252
+Description: On-hand inventory records with quantity, condition and price.
+Relationships: Joins to 'Suppliers' on CompanyId. Joins to 'PartNumbers' on PartNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CompanyId (BIGINT, NOT NULL, Foreign Key -> Suppliers.Id)
+- Condition (NVARCHAR(100), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- Description (NVARCHAR(1000), NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- Price (DECIMAL(18,2), NULL)
+- Qty (FLOAT, NOT NULL)
+- SerialNumber (NVARCHAR(MAX), NULL)

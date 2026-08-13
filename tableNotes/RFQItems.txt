@@ -1,0 +1,17 @@
+Table: RFQItems
+Module: RFQ
+Approximate row count: 2340
+Description: The individual part lines a customer asked us to price on an RFQ. Note that Qty is a float here, not an integer.
+Relationships: Joins to 'PartNumbers' on PartNumberId. Joins to 'RFQs' on RFQId. Joined from 'Procument' on Procument.RFQItemId. Joined from 'QuoteItems' on QuoteItems.RFQItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Alt (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- IsHighlighted (BIT, NOT NULL)
+- Note (NVARCHAR(MAX), NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- Priority (NVARCHAR(MAX), NULL)
+- Qty (FLOAT, NOT NULL)
+- RFQId (BIGINT, NOT NULL, Foreign Key -> RFQs.Id)
+- Unit (NVARCHAR(MAX), NULL)
+Notes: Qty is a FLOAT, not an integer.

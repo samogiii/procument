@@ -1,0 +1,18 @@
+Table: Procurements
+Also known as: procurement group, purchasing group
+Module: Purchasing
+Approximate row count: 28
+Description: The post-acceptance purchasing group, created one-to-one from an accepted sales order. This is the purchasing team's container of work. It has NO CustomerId column: to find the customer you must go through InvoiceId to the Invoices table.
+Relationships: Joined from 'ProcurementItems' on ProcurementItems.ProcurementId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- CreatedByUserId (BIGINT, NULL)
+- FinalizedAt (DATETIME2, NULL)
+- FinalizedByUserId (BIGINT, NULL)
+- InvoiceId (BIGINT, NOT NULL)
+- Notes (NVARCHAR(2000), NULL)
+- ProcurementNumber (NVARCHAR(100), NOT NULL)
+- Status (NVARCHAR(50), NOT NULL, default "Open")
+  Allowed values: Open | Finalized | Cancelled
+Notes: Do not confuse with the Procument table. There is no CustomerId here: reach the customer via InvoiceId -> Invoices.CustomerId.

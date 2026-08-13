@@ -1,0 +1,18 @@
+Table: FinalInvoiceItems
+Module: Sales
+Approximate row count: 18
+Description: The shipped lines on a final invoice, including certificate names and carrier tracking detail.
+Relationships: Joins to 'FinalInvoices' on FinalInvoiceId. Joins to 'InvoiceItems' on InvoiceItemId (nullable - use LEFT JOIN). Joins to 'PartNumbers' on PartNumberId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Carrier (NVARCHAR(200), NULL)
+- CertName (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- Discount (DECIMAL(18,2), NULL)
+- FinalInvoiceId (BIGINT, NOT NULL, Foreign Key -> FinalInvoices.Id)
+- InvoiceItemId (BIGINT, NULL, Foreign Key -> InvoiceItems.Id)
+- PartNumberId (BIGINT, NULL, Foreign Key -> PartNumbers.Id)
+- Qty (INT, NOT NULL)
+- TotalPrice (DECIMAL(18,2), NOT NULL)
+- TrackNumber (NVARCHAR(500), NULL)
+- UnitPrice (DECIMAL(18,2), NOT NULL)

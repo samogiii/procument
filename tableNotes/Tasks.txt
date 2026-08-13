@@ -1,0 +1,18 @@
+Table: Tasks
+Module: Infrastructure
+Approximate row count: 2
+Description: Internal task board for staff. CRITICAL: Status is an INTEGER enum where 0 means To-Do, 1 means In-Progress and 2 means Done. Comparing it to a string such as 'Done' is a type error and will fail.
+Relationships: Joins to 'Users' on AssignedToUserId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AssignedTo (NVARCHAR(100), NOT NULL)
+- AssignedToUserId (BIGINT, NULL, Foreign Key -> Users.Id)
+- CreatedAt (DATETIME2, NOT NULL)
+- CreatedByCode (NVARCHAR(100), NOT NULL)
+- Description (NVARCHAR(2000), NULL)
+- IsActive (BIT, NOT NULL)
+- ModifyAt (DATETIME2, NULL)
+- Status (INT, NOT NULL)
+  Allowed values: INTEGER enum: 0=To-Do, 1=In-Progress, 2=Done (never compare to a string)
+- Title (NVARCHAR(300), NOT NULL)
+Notes: Status is an integer enum. Filtering with Status = 'Done' is a type error; use Status = 2.

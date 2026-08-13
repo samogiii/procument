@@ -1,0 +1,27 @@
+Note: Flowchart Stage 1 - RFQ Intake and Assignment
+Type: Application Flowchart
+Stage: 1 of 10
+Description: How a customer enquiry enters the system. A customer sends a list of parts they want priced. Staff create an RFQ header with the customer, the received date and a deadline, plus one RFQItem per requested part. An admin then assigns the RFQ to an expert who will work it.
+Flowchart:
+  Customer sends a part list
+     |
+     v
+  Create RFQs row: Name, CustomerId, ExType, ReceivedDate, LeadTime (the deadline)
+     |
+     v
+  Create one RFQItems row per part: PartNumberId, Qty, Condition, Priority, Alt
+     |
+     v
+  Admin assigns the RFQ to an expert
+     - sets RFQs.UserId to that user
+     - inserts EntityPermissions row with EntityName 'RFQ' and Permission View or Edit
+     |
+     v
+  Status Open -> In Progress while the expert works it
+     |
+     +--> past the LeadTime deadline, a background service auto-expires it to 'No Quote'
+Bulk import: pasting many RFQs at once splits same-name RFQs by deadline into suffixed names such as ABA(1) and ABA(2).
+Tables involved: RFQs, RFQItems, Customers, Users, EntityPermissions, PartNumbers, RFQUserReads.
+Key columns: RFQs.Status, RFQs.UserId (assigned expert, nullable), RFQs.LeadTime (customer deadline), RFQs.ReceivedDate, RFQs.NoQuoteReason.
+Joins: RFQs.CustomerId -> Customers.Id. RFQs.UserId -> Users.Id (nullable, use LEFT JOIN). RFQItems.RFQId -> RFQs.Id. RFQItems.PartNumberId -> PartNumbers.Id.
+Notes: RFQ statuses are Open, In Progress, Waiting For Admin, Ready To Quote, Sent, Accepted, Rejected, No Quote. RFQItems.Qty is a float.

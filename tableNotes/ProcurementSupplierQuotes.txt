@@ -1,0 +1,28 @@
+Table: ProcurementSupplierQuotes
+Also known as: competing supplier offers, vendor offers
+Module: Purchasing
+Approximate row count: 495
+Description: The competing offers from different suppliers for one procurement item. The row where IsSelected equals 1 is the vendor we actually chose, and its Price is the cost used for margin calculations.
+Relationships: Joins to 'ProcurementItems' on ProcurementItemId. Joins to 'Suppliers' on SupplierId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AddedByUserId (BIGINT, NULL)
+- Alt (NVARCHAR(200), NULL)
+- CertName (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- IsSelected (BIT, NOT NULL)
+- LeadTime (NVARCHAR(100), NULL)
+- Note (NVARCHAR(MAX), NULL)
+- Price (DECIMAL(18,2), NOT NULL)
+- ProcurementItemId (BIGINT, NOT NULL, Foreign Key -> ProcurementItems.Id)
+- Qty (FLOAT, NOT NULL)
+- ShippingCost (FLOAT, NULL)
+- ShippingPoint (NVARCHAR(200), NULL)
+- SortOrder (INT, NOT NULL)
+- SourceProcumentRecordId (BIGINT, NULL)
+- SupplierId (BIGINT, NULL, Foreign Key -> Suppliers.Id)
+- SupplierName (NVARCHAR(300), NOT NULL)
+- TagDate (DATE, NULL)
+- Unit (NVARCHAR(50), NULL)
+Notes: This is a one-to-many child of ProcurementItems. Collapse it with OUTER APPLY (SELECT TOP 1 ... ORDER BY Id DESC) before joining anything else, or parent totals will multiply.

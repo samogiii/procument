@@ -1,0 +1,26 @@
+Note: Business Glossary - What Users Say versus What the Database Calls It
+Type: Reference
+Description: Translation table between the words business users say and the actual tables and columns. Check this before writing any SQL, because several everyday words map to surprising tables.
+Glossary:
+- 'sales order', 'SO', 'the order'        -> the Invoices table. There is no SalesOrder table.
+- 'invoice' (billing after shipping)      -> the FinalInvoices table.
+- 'PO', 'purchase order'                  -> the PurchaseOrders table.
+- 'customer PO', 'their PO number'        -> Invoices.CustomerPONumber, the customer's own reference. NOT our PurchaseOrders.
+- 'procurement', 'procurement group'      -> the Procurements table (post-acceptance purchasing group).
+- 'sourcing', 'price record', 'supplier offer' (before the customer accepts) -> the Procument table, spelled with one 'e'.
+- 'quote'                                 -> the Quotes table.
+- 'RFQ', 'request', 'enquiry'             -> the RFQs table.
+- 'final invoice', 'commercial invoice', 'shipped invoice' -> the FinalInvoices table.
+- 'expert'                                -> a Users row with Role 'Expert'. The expert on an RFQ is RFQs.UserId.
+- 'supplier', 'vendor'                    -> the Suppliers table.
+- 'part number', 'PN'                     -> the PartNumbers table, column Name.
+- 'tracking', 'track number'              -> POItemTrackNumbers, the inbound leg from supplier to warehouse.
+- 'shipment', 'outbound shipment'         -> the ShipmentNotes table.
+- 'warehouse'                             -> the Warehouses table.
+- 'wallet'                                -> the PaymentBoxes table.
+- 'base N', 'base N customers'            -> Customers.Base = N, falling back to CustomerCode LIKE 'CN%' when Base is NULL.
+- 'open RFQs'                             -> RFQs.Status IN ('Open','In Progress').
+- 'pending suppliers', 'supplier requests'-> Suppliers.Status = 'Pending'.
+- 'margin', 'profitability'               -> the Total-PN report: InvoiceItems joined to ProcurementItems joined to POItems.
+- 'overdue'                               -> DueDate in the past and the status is not a finished one such as Finish, Paid or Completed.
+Notes: The two most expensive mistakes are treating Invoices as a billing invoice when it is really the sales order, and confusing Procument with Procurements.

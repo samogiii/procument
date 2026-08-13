@@ -1,0 +1,21 @@
+Note: Flowchart Stage 2 - Sourcing and Price Records
+Type: Application Flowchart
+Stage: 2 of 10
+Description: How an expert finds prices before quoting. For each requested part the expert contacts suppliers and records what each one offers. These pre-acceptance offers live in the Procument table (spelled with one 'e'). Business users call them price records, sourcing records or supplier offers. Nothing has been committed to at this stage.
+Flowchart:
+  Expert opens an RFQItem
+     |
+     v
+  For each supplier approached, insert a Procument row:
+     RFQItemId, SupplierId, Price, Qty, Condition, LeadTime, CertName, ShippingPoint,
+     Coef_1 / Coef_2 / Coef_3 markup coefficients, Type = 'Procument'
+     |
+     v
+  Expert compares offers and picks the pricing to quote
+     |
+     v
+  RFQ moves to 'Ready To Quote', or 'Waiting For Admin' if admin review is required
+Tables involved: Procument, RFQItems, Suppliers, Users.
+Key columns: Procument.RFQItemId, Procument.SupplierId, Procument.Price, Procument.FixPrice, Procument.Type, Procument.ParentProcumentId (shop records hang off a parent).
+Joins: Procument.RFQItemId -> RFQItems.Id. Procument.SupplierId -> Suppliers.Id. Procument.UserId -> Users.Id (nullable). QuoteItems.ProcumentRecordId -> Procument.Id links a sourcing offer forward into the quote.
+Notes: Do not confuse Procument with Procurements. Procument is pre-acceptance sourcing during the RFQ stage. Procurements is the post-acceptance purchasing group created only after the customer buys. Suppliers never quote the customer directly; they only make offers to us.

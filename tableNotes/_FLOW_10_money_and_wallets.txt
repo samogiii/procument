@@ -1,0 +1,35 @@
+Note: Flowchart - Money, Wallets and Payments
+Type: Application Flowchart
+Description: How money moves through the system, on both the customer side and the supplier side. All cash sits in wallets called PaymentBoxes, one per company preset and currency. Every movement in or out is a PaymentTransactions row.
+Flowchart:
+  CUSTOMER SIDE (money in)
+     Customer pays a deposit or balance on a sales order
+        |
+        v
+     CustomerPayments row: Amount, FileName proof-of-payment upload, InvoiceId
+        |
+        v
+     PaymentTransactions row: Type 'Deposit', FromType 'Customer', into a PaymentBoxId wallet
+
+  SUPPLIER SIDE (money out)
+     Purchase order reaches 'Waiting For Payment'
+        |
+        v
+     Optional PaymentRequests row routed for approval
+        |
+        v
+     PaymentTransactions row: Type 'Withdraw', ToType 'Supplier', out of a PaymentBoxId wallet
+
+  BETWEEN WALLETS
+     WalletTransferPendings row: Status Pending -> Accepted -> Completed or Rejected
+        |
+        v
+     On acceptance, paired PaymentTransactions rows move the money, using ToPaymentBoxId
+Balance calculation: PaymentBoxes has NO balance column. The balance of a wallet is
+  SUM(Amount * ISNULL(ExchangeRate,1)) for Type 'Deposit'
+  minus SUM(Amount * ISNULL(ExchangeRate,1)) for Type 'Withdraw'
+  over all PaymentTransactions with that PaymentBoxId.
+Tables involved: PaymentBoxes, PaymentTransactions, CustomerPayments, WalletTransferPendings, PaymentRequests, CompanyPresets, Invoices, PurchaseOrders.
+Key columns: PaymentTransactions.Type (Deposit or Withdraw), PaymentTransactions.FromType and ToType (Customer, Wallet or Supplier), PaymentTransactions.Amount, PaymentTransactions.ExchangeRate, PaymentTransactions.TxCurrency, PaymentTransactions.Base, PaymentBoxes.Currency.
+Joins: PaymentTransactions.PaymentBoxId -> PaymentBoxes.Id. PaymentTransactions.InvoiceId -> Invoices.Id (nullable). PaymentTransactions.FromCustomerId -> Customers.Id (nullable). PaymentTransactions.ToSupplierId -> Suppliers.Id (nullable). PaymentBoxes.CompanyPresetId -> CompanyPresets.Id. CustomerPayments.InvoiceId -> Invoices.Id.
+Notes: Wallets hold different currencies, so never sum balances across currencies into one number. Always group by PaymentBoxes.Currency. Amount owed by a customer is Invoices.TotalAmount minus the sum of CustomerPayments.Amount for that invoice.

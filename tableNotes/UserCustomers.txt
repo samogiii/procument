@@ -1,0 +1,10 @@
+Table: UserCustomers
+Module: Identity
+Approximate row count: 3
+Description: Restricts a user to a specific set of customers.
+Relationships: Joins to 'Users' on UserId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerId (BIGINT, NOT NULL)
+- UserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)

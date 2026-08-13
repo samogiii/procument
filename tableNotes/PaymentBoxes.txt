@@ -1,0 +1,18 @@
+Table: PaymentBoxes
+Also known as: wallets
+Module: Sales
+Approximate row count: 11
+Description: Wallets. Each wallet belongs to a company preset and holds one currency. There is NO balance column: balance must be calculated from PaymentTransactions.
+Relationships: Joins to 'CompanyPresets' on CompanyPresetId. Joined from 'PaymentTransactions' on PaymentTransactions.PaymentBoxId. Joined from 'WalletTransferPendings' on WalletTransferPendings.FromBoxId. Joined from 'WalletTransferPendings' on WalletTransferPendings.ToBoxId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AccountNumber (NVARCHAR(MAX), NULL)
+- BankAddress (NVARCHAR(MAX), NULL)
+- BankName (NVARCHAR(MAX), NULL)
+- BeneficiaryName (NVARCHAR(MAX), NULL)
+- CompanyPresetId (BIGINT, NOT NULL, Foreign Key -> CompanyPresets.Id)
+- CreatedAt (DATETIME2, NOT NULL)
+- Currency (NVARCHAR(10), NOT NULL)
+- Name (NVARCHAR(MAX), NOT NULL)
+- SwiftCode (NVARCHAR(MAX), NULL)
+Notes: There is no Balance column. Balance = SUM(Deposit x ExchangeRate) - SUM(Withdraw x ExchangeRate) over PaymentTransactions for that PaymentBoxId, treating a NULL ExchangeRate as 1.

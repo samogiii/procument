@@ -1,0 +1,31 @@
+Table: Invoices
+Also known as: Sales Order, SO, sales orders
+Module: Sales
+Approximate row count: 44
+Description: The sales order. IMPORTANT: the user interface calls this a 'Sales Order', not an invoice; there is no table named SalesOrder. It is created when a customer accepts a quote. CustomerPONumber holds the customer's own purchase order reference, which is different from our PurchaseOrders table. IsCancelled and Status both record cancellation.
+Relationships: Joins to 'Customers' on CustomerId. Joins to 'Quotes' on QuoteId. Joined from 'CustomerPayments' on CustomerPayments.InvoiceId. Joined from 'FinalInvoices' on FinalInvoices.ProformaInvoiceId. Joined from 'InvoiceItems' on InvoiceItems.InvoiceId. Joined from 'PaymentTransactions' on PaymentTransactions.InvoiceId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CancelledAt (DATETIME2, NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerId (BIGINT, NOT NULL, Foreign Key -> Customers.Id)
+- CustomerPODate (DATETIME2, NULL)
+- CustomerPONumber (NVARCHAR(MAX), NULL)
+- DeadlineDate (DATETIME2, NULL)
+- DefaultBankAccountId (BIGINT, NULL)
+- DefaultDepositWalletId (BIGINT, NULL)
+- DueDate (DATETIME2, NULL)
+- InvoiceNumber (NVARCHAR(100), NOT NULL)
+- IsCancelled (BIT, NOT NULL)
+- PaidDate (DATETIME2, NULL)
+- PaymentStatus (NVARCHAR(MAX), NULL)
+- PrepaymentPercent (DECIMAL(18,2), NULL)
+- ProcessingFee (DECIMAL(18,2), NULL)
+- QuoteId (BIGINT, NOT NULL, Foreign Key -> Quotes.Id)
+- Shipping (DECIMAL(18,2), NULL)
+- Status (NVARCHAR(50), NOT NULL)
+  Allowed values: Draft | Prepayment | Waiting For PrePayment | Running | Finish | Cancelled
+- Subject (NVARCHAR(MAX), NULL)
+- Tax (DECIMAL(18,2), NULL)
+- TotalAmount (DECIMAL(18,2), NOT NULL)
+Notes: The UI name is 'Sales Order'. Exclude cancelled rows from revenue figures with IsCancelled = 0. QuoteId and CustomerId are both NOT NULL.

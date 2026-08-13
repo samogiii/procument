@@ -1,0 +1,11 @@
+Table: RFQUserReads
+Module: RFQ
+Approximate row count: 358
+Description: Per-user read receipts recording which users have opened which RFQ.
+Relationships: No foreign-key relationships. This table stands alone.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- IsRead (BIT, NOT NULL)
+- RFQId (BIGINT, NOT NULL)
+- UpdatedAt (DATETIME2, NOT NULL)
+- UserId (BIGINT, NOT NULL)

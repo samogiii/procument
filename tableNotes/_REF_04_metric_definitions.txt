@@ -1,0 +1,23 @@
+Note: Canonical Metric Definitions
+Type: Reference
+Description: How each common business metric must be computed. Two correct-looking queries that define a metric differently produce two different numbers, so these definitions are binding.
+Metrics:
+- How many RFQs came in: COUNT(DISTINCT RFQs.Id) filtered on RFQs.CreatedAt. Never COUNT(RFQs.Id) after a join, because that is a row count and not an entity count.
+- How many RFQs got quoted: COUNT(DISTINCT Quotes.RFQId) over quotes that were sent. Not the number of quotes, because one RFQ can get several.
+- A sent quote: Quotes.SentAt IS NOT NULL OR Quotes.Status IN ('Sent','Accepted','Rejected').
+- Quote value: COALESCE(Quotes.FinalPrice, Quotes.TotalAmount) at header level. The line roll-up SUM(QuoteItems.Qty * QuoteItems.UnitPrice) is the cross-check column. Report both. The header is authoritative; a difference of cents is expected rounding, a difference of whole units is a finding.
+- Quoted quantity: SUM(QuoteItems.Qty) over sent quotes only.
+- Revenue booked / order value: SUM(Invoices.TotalAmount) with Invoices.IsCancelled = 0.
+- Amount a customer has paid: SUM(CustomerPayments.Amount) for that invoice.
+- Outstanding on an order: Invoices.TotalAmount minus SUM(CustomerPayments.Amount).
+- Cost of goods for a line: the Price on the ProcurementSupplierQuotes row where IsSelected = 1 for that ProcurementItem.
+- Gross margin on a sales order line: (InvoiceItems.UnitPrice minus the selected supplier Price) times InvoiceItems.Qty.
+- Purchase spend: SUM(PurchaseOrders.TotalAmount) excluding Status 'Cancelled'. Cross-check against SUM(POItems.TotalPrice).
+- Wallet balance: SUM(Amount * ISNULL(ExchangeRate,1)) where Type = 'Deposit' minus the same where Type = 'Withdraw', for that PaymentBoxId.
+- Win rate: sales orders divided by sent quotes, cast to decimal before dividing and guard the denominator with NULLIF.
+- Overdue: DueDate < today AND the record is not in a finished status such as Finish, Paid or Completed.
+Rules that apply to every metric:
+- Scope only by what was asked. Every extra filter you add must be stated in the answer.
+- Never hardcode a surrogate key such as CustomerId = 74. Resolve names and codes by joining Customers in the same query, so a reader can check it.
+- Always pair an aggregate with the row-level detail query whose rows sum to it. An unverifiable total is not an answer.
+- A NULL is a real answer. If a nullable column is NULL, return the NULL rather than substituting a different column to avoid a blank cell.

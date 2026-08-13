@@ -1,0 +1,10 @@
+Table: PartNumberSuppliers
+Module: Catalog
+Approximate row count: 2483
+Description: Junction table for the many-to-many relationship between parts and the suppliers that carry them.
+Relationships: Joins to 'PartNumbers' on PartNumberId. Joins to 'Suppliers' on SupplierId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- SupplierId (BIGINT, NOT NULL, Foreign Key -> Suppliers.Id)

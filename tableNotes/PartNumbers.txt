@@ -1,0 +1,16 @@
+Table: PartNumbers
+Also known as: PN, parts, part number catalogue
+Module: Catalog
+Approximate row count: 45378
+Description: Master catalogue of aviation part numbers. 'Name' is the canonical part number string used everywhere in the app. 'NewName' is written automatically by the database trigger trg_PopulateNewName. This is the largest reference table and nearly every line-item table points at it.
+Relationships: Joins to 'Suppliers' on SupplierId (nullable - use LEFT JOIN). Joined from 'Alternatives' on Alternatives.PartNumberId. Joined from 'CapListItems' on CapListItems.PartNumberId. Joined from 'FinalInvoiceItems' on FinalInvoiceItems.PartNumberId. Joined from 'ILSItems' on ILSItems.PartNumberId. Joined from 'ILSProformaInvoiceItems' on ILSProformaInvoiceItems.PartNumberId. Joined from 'ILSQuoteItems' on ILSQuoteItems.PartNumberId. Joined from 'InventoryItems' on InventoryItems.PartNumberId. Joined from 'POItems' on POItems.PartNumberId. Joined from 'PartNumberSuppliers' on PartNumberSuppliers.PartNumberId. Joined from 'ProcurementItems' on ProcurementItems.PartNumberId. Joined from 'QuoteItems' on QuoteItems.PartNumberId. Joined from 'RFQItems' on RFQItems.PartNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- Description (NVARCHAR(1000), NULL)
+- IsFavorite (BIT, NOT NULL)
+- Name (NVARCHAR(200), NOT NULL)
+- NewName (NVARCHAR(200), NULL)
+- Remark (NVARCHAR(MAX), NULL)
+- SupplierId (BIGINT, NULL, Foreign Key -> Suppliers.Id)
+Notes: Large table (45k+ rows). Filter by Name rather than scanning.

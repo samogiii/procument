@@ -1,0 +1,23 @@
+Table: ILSCustomers
+Module: ILS/Inventory
+Approximate row count: 1
+Description: Customers of the ILS stock-listing sales channel. This is a separate table from the main Customers table and the two are not linked.
+Relationships: Joined from 'ILSProformaInvoices' on ILSProformaInvoices.ILSCustomerId. Joined from 'ILSQuotes' on ILSQuotes.ILSCustomerId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Address (NVARCHAR(MAX), NULL)
+- BillTo (NVARCHAR(2000), NULL)
+- ContactPerson (NVARCHAR(MAX), NULL)
+- Country (NVARCHAR(300), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerCode (NVARCHAR(100), NULL)
+- Description (NVARCHAR(MAX), NULL)
+- Email (NVARCHAR(200), NULL)
+- IsActive (BIT, NOT NULL)
+- ModifyAt (DATETIME2, NULL)
+- Name (NVARCHAR(300), NOT NULL)
+- Phone (NVARCHAR(50), NULL)
+- ShipTo (NVARCHAR(2000), NULL)
+- ShippingAccount (NVARCHAR(300), NULL)
+- TermsAndConditions (NVARCHAR(2000), NULL)
+- Website (NVARCHAR(300), NULL)

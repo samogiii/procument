@@ -1,0 +1,23 @@
+Table: WalletTransferPendings
+Module: Sales
+Approximate row count: 6
+Description: Wallet-to-wallet transfers waiting for approval before they become real transactions.
+Relationships: Joins to 'PaymentBoxes' on FromBoxId. Joins to 'PaymentBoxes' on ToBoxId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AcceptedAt (DATETIME2, NULL)
+- AcceptedByUserId (BIGINT, NULL)
+- CompletedAt (DATETIME2, NULL)
+- CompletedByUserId (BIGINT, NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CreatedByUserId (BIGINT, NOT NULL)
+- DepositAmount (DECIMAL(18,2), NOT NULL)
+- ExchangeRate (DECIMAL(18,2), NULL)
+- FromBoxId (BIGINT, NOT NULL, Foreign Key -> PaymentBoxes.Id)
+- Notes (NVARCHAR(1000), NULL)
+- PopFileName (NVARCHAR(500), NULL)
+- RejectionNote (NVARCHAR(1000), NULL)
+- Status (NVARCHAR(20), NOT NULL)
+  Allowed values: Pending | Accepted | Completed | Rejected
+- ToBoxId (BIGINT, NOT NULL, Foreign Key -> PaymentBoxes.Id)
+- WithdrawAmount (DECIMAL(18,2), NOT NULL)

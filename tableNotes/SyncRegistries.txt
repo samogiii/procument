@@ -1,0 +1,13 @@
+Table: SyncRegistries
+Module: Infrastructure
+Approximate row count: 60
+Description: Identifier mapping between the main application and each satellite node, so rows can be matched across installations.
+Relationships: Joins to 'SatelliteNodes' on SatelliteNodeId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- EntityName (NVARCHAR(100), NOT NULL)
+- LastSyncAt (DATETIME2, NOT NULL)
+- LastSyncHash (NVARCHAR(MAX), NULL)
+- MainAppId (BIGINT, NOT NULL)
+- SatelliteAppId (BIGINT, NOT NULL)
+- SatelliteNodeId (BIGINT, NOT NULL, Foreign Key -> SatelliteNodes.Id)

@@ -1,0 +1,30 @@
+Note: Flowchart Stage 5 - Procurement Group and Supplier Selection
+Type: Application Flowchart
+Stage: 5 of 10
+Description: How the purchasing team turns a sales order into buying decisions. Exactly one Procurement group is created per sales order. Each line becomes a ProcurementItem, and the buyers collect competing offers from suppliers until one is selected per item.
+Flowchart:
+  Sales order reaches Running
+     |
+     v
+  Auto-create one Procurements row from the Invoice (InvoiceId is unique: strictly 1 to 1), Status 'Open'
+     |
+     v
+  Create one ProcurementItems row per InvoiceItem (SourceInvoiceItemId back-reference).
+  Each item snapshots upstream data into its own columns:
+     RfqName, QuoteNumber, QuoteUnitPrice, PartNumberName, SupplierName, SupplierPrice
+     |
+     v
+  Buyers collect competing offers as ProcurementSupplierQuotes rows
+     (SupplierName, Price, Qty, Condition, LeadTime, CertName, ShippingPoint)
+     |
+     v
+  One offer per item is chosen: IsSelected = 1. That price is the cost of goods.
+     |
+     v
+  Procurement finalised: Status 'Open' -> 'Finalized', purchase orders are emitted
+     |
+     +--> items can be returned and re-sourced, tracked by LoopCount and LastReturnReason
+Tables involved: Procurements, ProcurementItems, ProcurementSupplierQuotes, Invoices, InvoiceItems, Suppliers, PartNumbers.
+Key columns: Procurements.Status, Procurements.InvoiceId (unique), ProcurementItems.ItemStatus, ProcurementItems.AcceptedQty, ProcurementItems.AcceptedUnitPrice, ProcurementItems.SourceInvoiceItemId, ProcurementSupplierQuotes.IsSelected, ProcurementSupplierQuotes.Price.
+Joins: Procurements.InvoiceId -> Invoices.Id. ProcurementItems.ProcurementId -> Procurements.Id. ProcurementItems.SourceInvoiceItemId -> InvoiceItems.Id. ProcurementSupplierQuotes.ProcurementItemId -> ProcurementItems.Id. ProcurementSupplierQuotes.SupplierId -> Suppliers.Id.
+Notes: There is no CustomerId on Procurements, ProcurementItems, PurchaseOrders or POItems. To reach the customer from any purchasing row, go Procurements.InvoiceId -> Invoices.CustomerId -> Customers.Id. ProcurementSupplierQuotes is a one-to-many child, so collapse it with OUTER APPLY (SELECT TOP 1 ... WHERE IsSelected = 1 ORDER BY Id DESC) before joining anything else.

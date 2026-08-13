@@ -1,0 +1,14 @@
+Table: EntityPermissions
+Module: Identity
+Approximate row count: 378
+Description: Per-record access control list. Mostly used to assign an RFQ to an expert, with EntityName set to 'RFQ' and Permission set to View or Edit. EntityId is stored as a string, not a number.
+Relationships: Joins to 'Users' on UserId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- EntityId (NVARCHAR(100), NOT NULL)
+- EntityName (NVARCHAR(100), NOT NULL)
+- Permission (NVARCHAR(50), NOT NULL)
+  Allowed values: View | Edit
+- UserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)
+Notes: EntityId is an nvarchar string, not a number. Cast carefully when joining to a numeric Id.

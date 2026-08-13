@@ -1,0 +1,15 @@
+Table: TrackNumberDocuments
+Module: Shipping
+Approximate row count: 12
+Description: Documents and photos uploaded against an inbound track number or PO item.
+Relationships: Joins to 'POItems' on POItemId (nullable - use LEFT JOIN). Joins to 'POItemTrackNumbers' on TrackNumberId. Joins to 'Users' on UploadedByUserId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- FileName (NVARCHAR(500), NOT NULL)
+- FileSizeBytes (BIGINT, NOT NULL)
+- MimeType (NVARCHAR(100), NULL)
+- OriginalFileName (NVARCHAR(500), NOT NULL)
+- POItemId (BIGINT, NULL, Foreign Key -> POItems.Id)
+- TrackNumberId (BIGINT, NOT NULL, Foreign Key -> POItemTrackNumbers.Id)
+- UploadedAt (DATETIME2, NOT NULL)
+- UploadedByUserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)

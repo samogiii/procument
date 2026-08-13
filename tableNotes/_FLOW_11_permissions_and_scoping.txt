@@ -1,0 +1,31 @@
+Note: Flowchart - Permissions and Data Scoping
+Type: Application Flowchart
+Description: How the application decides what a user can see and do. Three independent layers stack on top of each other: a coarse role, per-feature flags, and per-record or per-base data scoping.
+Flowchart:
+  User logs in -> JWT issued with claims: role, bases, name
+     |
+     +--> LAYER 1: ROLE (Users.Role)
+     |      SuperAdmin  - everything, all permission checks pass automatically
+     |      Admin       - approvals and most operations
+     |      Payment     - payment and wallet screens
+     |      AHM         - payment and wallet screens
+     |      Expert      - tight allowlist, the RFQ to PO pipeline only
+     |      Inventory   - shipping and warehouse screens only
+     |
+     +--> LAYER 2: FEATURE FLAGS (MenuPermissions table)
+     |      One row per Feature plus UserName grants that named feature to that user.
+     |      Drives which navigation items appear.
+     |
+     +--> LAYER 3: DATA SCOPING
+            UserBases      - which bases (offices) the user's data is limited to
+            UserCustomers  - restricts a user to specific customers
+            UserWarehouses - restricts a user to specific warehouses
+            EntityPermissions - per-record access, mainly EntityName 'RFQ'
+                               with Permission 'View' or 'Edit', used to assign
+                               an RFQ to an expert
+Base scoping in data: Customers.Base holds the office number, but it is NULL on many
+older rows. To filter customers to base N reliably use:
+  Base = N OR (Base IS NULL AND CustomerCode LIKE 'CN%')
+where the prefix is the letter C followed by the base number, so base 5 gives C501, C502 and so on.
+Tables involved: Users, UserBases, UserCustomers, UserWarehouses, MenuPermissions, EntityPermissions, Customers.
+Notes: EntityPermissions.EntityId is stored as an nvarchar string, not a number, so casting is needed when joining it to a numeric Id. There is no Base column on RFQs, Quotes, PurchaseOrders or any purchasing table: base scoping always resolves through the customer.

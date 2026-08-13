@@ -1,0 +1,24 @@
+Table: ShipmentNotes
+Also known as: outbound shipment, SN, shipment
+Module: Shipping
+Approximate row count: 13
+Description: OUTBOUND shipment from our warehouse to the customer. Type is the incoterm, either DDP or CPT.
+Relationships: Joins to 'Users' on CreatedByUserId. Joins to 'Warehouses' on WarehouseId. Joined from 'ShipmentNoteBoxes' on ShipmentNoteBoxes.ShipmentNoteId. Joined from 'ShipmentNoteTrackNumbers' on ShipmentNoteTrackNumbers.ShipmentNoteId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AWBNumber (NVARCHAR(200), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CreatedByUserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)
+- CustomsFileName (NVARCHAR(500), NULL)
+- CustomsOriginalFileName (NVARCHAR(500), NULL)
+- CustomsUploadedAt (DATETIME2, NULL)
+- Destination (NVARCHAR(MAX), NULL)
+- PdfFileName (NVARCHAR(500), NULL)
+- SNNumber (NVARCHAR(50), NOT NULL)
+- SONumber (NVARCHAR(MAX), NULL)
+- Status (NVARCHAR(50), NOT NULL, default "Draft")
+  Allowed values: Draft | Waiting for Packing | Ship To USA | Received in Warehouse | Confirmed
+- TId (NVARCHAR(200), NULL)
+- Type (NVARCHAR(10), NOT NULL, default "DDP")
+  Allowed values: DDP | CPT
+- WarehouseId (BIGINT, NOT NULL, Foreign Key -> Warehouses.Id)

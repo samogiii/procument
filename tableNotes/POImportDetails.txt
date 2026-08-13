@@ -1,0 +1,21 @@
+Table: POImportDetails
+Module: Purchasing
+Approximate row count: 5
+Description: A one-to-one block of shipping, banking and incoterm detail attached to a purchase order.
+Relationships: Joins to 'PurchaseOrders' on PurchaseOrderId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- ABA (NVARCHAR(MAX), NULL)
+- BankAccountNumber (NVARCHAR(100), NULL)
+- BankAddress (NVARCHAR(500), NULL)
+- BankCity (NVARCHAR(200), NULL)
+- BankCountry (NVARCHAR(200), NULL)
+- BankName (NVARCHAR(200), NULL)
+- CourierName (NVARCHAR(200), NULL)
+- FedExAccount (NVARCHAR(200), NULL)
+- Incoterms (NVARCHAR(100), NULL)
+- Notes (NVARCHAR(2000), NULL)
+- PurchaseOrderId (BIGINT, NOT NULL, Foreign Key -> PurchaseOrders.Id)
+- ShippingMethod (NVARCHAR(100), NULL)
+- SwiftCode (NVARCHAR(MAX), NULL)
+- Wirefee (DECIMAL(18,2), NULL)

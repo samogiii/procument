@@ -406,9 +406,13 @@ ORDER BY r.CreatedAt DESC;
 
 ## 8. Schema Reference
 
-Full table-by-table schema, column types, status enumerations, permission model, and the workflow roadmap: **`llm.md`** in this repository. Use it to confirm exact column names and nullability.
+**`db-schema-reference.md`** — every table, every column, exact SQL types, nullability, PK/FK/index markers, plus a complete foreign-key map of all 100 join edges. Generated from the EF model snapshot and verified column-for-column against the live database (749/749 columns match). Use this to confirm column names and nullability.
 
-Precedence when sources conflict: **live `INFORMATION_SCHEMA` > §5 Join Registry / §6 Verified Patterns > §3 Vocabulary & §4 Disambiguation > `llm.md` prose.** The vocabulary outranks the raw schema because it encodes real-world usage the schema can't express; the live database outranks everything because prose drifts.
+**`db-summary-queries.sql`** — ready-made read-only summary and join queries (executive summary, funnel, customer 360, margin, supplier spend, AR, wallet balances, pipeline trace, data-quality checks). Every statement has been executed against the live database. Prefer copying one of these over reconstructing a join.
+
+**`llm.md`** — prose system reference: status enumerations, permission model, workflow roadmap, frontend context.
+
+Precedence when sources conflict: **live `INFORMATION_SCHEMA` > `db-schema-reference.md` > §5 Join Registry / §6 Verified Patterns > §3 Vocabulary & §4 Disambiguation > `llm.md` prose.** The vocabulary outranks the raw schema because it encodes real-world usage the schema can't express; the live database outranks everything because prose drifts.
 
 ---
 

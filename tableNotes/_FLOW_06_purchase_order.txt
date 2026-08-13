@@ -1,0 +1,32 @@
+Note: Flowchart Stage 6 - Purchase Order and Approval
+Type: Application Flowchart
+Stage: 6 of 10
+Description: How we actually buy the parts. Selected procurement items are grouped by supplier, and one purchase order is issued per supplier. A PO passes through admin approval, document collection and payment before it is complete.
+Flowchart:
+  Finalised procurement items, grouped by supplier
+     |
+     v
+  Insert one PurchaseOrders row per supplier: PONumber (unique), SupplierId,
+     InvoiceId back-reference (NULLABLE, because one PO can cover several sales orders)
+     |
+     v
+  Insert POItems from the selected ProcurementItems (SourceProcurementItemId back-reference)
+     |
+     v
+  Status 'Waiting For Admin Approval'
+     |  AdminApproval: Pending -> Approved (or Rejected)
+     v
+  Status 'Waiting For Documents'   - POImportDetails filled in with bank and shipping info
+     |
+     v
+  Status 'Waiting For Payment'
+     |  payment submitted -> PaymentTransactions row, Type 'Withdraw', ToType 'Supplier'
+     |  optionally routed through a PaymentRequests approval
+     v
+  Status 'Completed'
+     |
+     +--> bad goods or a mistake -> Status 'Returned', ReturnReason and ReturnedAt set
+Tables involved: PurchaseOrders, POItems, POImportDetails, PaymentRequests, PaymentTransactions, Suppliers, ProcurementItems.
+Key columns: PurchaseOrders.Status, PurchaseOrders.AdminApproval, PurchaseOrders.PaymentStatus, PurchaseOrders.TotalAmount, PurchaseOrders.InvoiceId (nullable), PurchaseOrders.ReturnedAt, POItems.POId (nullable), POItems.Qty, POItems.UnitPrice, POItems.TotalPrice, POItems.SourceProcurementItemId, POItems.SourceSupplierQuoteId.
+Joins: PurchaseOrders.SupplierId -> Suppliers.Id. POItems.POId -> PurchaseOrders.Id (nullable, use LEFT JOIN). POItems.SourceProcurementItemId -> ProcurementItems.Id. POImportDetails.PurchaseOrderId -> PurchaseOrders.Id (one to one). PaymentRequests.POId -> PurchaseOrders.Id.
+Notes: A purchase order carries three independent status columns. Status is the workflow position, AdminApproval is the sign-off (Pending, Approved, Rejected) and PaymentStatus is the money state. Do not treat them as one field. Both PurchaseOrders.InvoiceId and POItems.POId are nullable, so inner joins there silently delete real rows from reports.

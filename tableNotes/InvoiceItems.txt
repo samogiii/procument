@@ -1,0 +1,15 @@
+Table: InvoiceItems
+Also known as: Sales order lines, sales order items
+Module: Sales
+Approximate row count: 146
+Description: Sales order lines. This is the selling side of every margin and profitability calculation.
+Relationships: Joins to 'Invoices' on InvoiceId. Joins to 'QuoteItems' on QuoteItemId (nullable - use LEFT JOIN). Joined from 'FinalInvoiceItems' on FinalInvoiceItems.InvoiceItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Discount (DECIMAL(18,2), NULL)
+- ExpectedDeliveryDate (DATETIME2, NULL)
+- InvoiceId (BIGINT, NOT NULL, Foreign Key -> Invoices.Id)
+- Qty (INT, NOT NULL)
+- QuoteItemId (BIGINT, NULL, Foreign Key -> QuoteItems.Id)
+- TotalPrice (DECIMAL(18,2), NOT NULL)
+- UnitPrice (DECIMAL(18,2), NOT NULL)

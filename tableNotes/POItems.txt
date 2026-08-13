@@ -1,0 +1,25 @@
+Table: POItems
+Module: Purchasing
+Approximate row count: 174
+Description: Purchase order lines. POId is nullable, so an item can exist before it is attached to a PO or after it is returned. SourceProcurementItemId links the line back to the demand that created it.
+Relationships: Joins to 'PurchaseOrders' on POId (nullable - use LEFT JOIN). Joins to 'PartNumbers' on PartNumberId (nullable - use LEFT JOIN). Joins to 'Procument' on ProcumentId (nullable - use LEFT JOIN). Joins to 'ProcurementItems' on SourceProcurementItemId (nullable - use LEFT JOIN). Joined from 'POItemTrackNumbers' on POItemTrackNumbers.POItemId. Joined from 'TrackNumberDocuments' on TrackNumberDocuments.POItemId. Joined from 'TrackNumberItems' on TrackNumberItems.POItemId. Joined from 'WarehouseTransferItems' on WarehouseTransferItems.POItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Condition (NVARCHAR(100), NULL)
+- InvoiceItemId (BIGINT, NULL)
+- Note (NVARCHAR(MAX), NULL)
+- POId (BIGINT, NULL, Foreign Key -> PurchaseOrders.Id)
+- PORef (INT, NULL)
+- PartNumberId (BIGINT, NULL, Foreign Key -> PartNumbers.Id)
+- ProcumentId (BIGINT, NULL, Foreign Key -> Procument.Id)
+- Qty (INT, NOT NULL)
+- ReturnReason (NVARCHAR(1000), NULL)
+- ReturnedAt (DATETIME2, NULL)
+- ReturnedFromPOId (BIGINT, NULL)
+- SourceProcurementItemId (BIGINT, NULL, Foreign Key -> ProcurementItems.Id)
+- SourceSupplierQuoteId (BIGINT, NULL)
+- Status (NVARCHAR(MAX), NULL)
+- SupplierId (BIGINT, NULL)
+- TotalPrice (DECIMAL(18,2), NOT NULL)
+- UnitPrice (DECIMAL(18,2), NOT NULL)
+Notes: POId is nullable: always LEFT JOIN to PurchaseOrders unless you specifically want only items already on a PO.

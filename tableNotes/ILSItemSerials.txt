@@ -1,0 +1,21 @@
+Table: ILSItemSerials
+Module: ILS/Inventory
+Approximate row count: 1
+Description: Serial-numbered units of stock beneath an ILS item, each with its own condition, location, price and certificate images.
+Relationships: Joins to 'ILSItems' on ILSItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CertImageFileName (NVARCHAR(300), NULL)
+- CertImageOriginalName (NVARCHAR(300), NULL)
+- CertText (NVARCHAR(500), NULL)
+- Condition (NVARCHAR(100), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- ILSItemId (BIGINT, NOT NULL, Foreign Key -> ILSItems.Id)
+- LeadTime (NVARCHAR(100), NULL)
+- Location (NVARCHAR(100), NULL)
+- Notes (NVARCHAR(1000), NULL)
+- PartImageFileName (NVARCHAR(300), NULL)
+- PartImageOriginalName (NVARCHAR(300), NULL)
+- Price (DECIMAL(18,2), NULL)
+- SerialNumber (NVARCHAR(200), NOT NULL)
+- TagDate (DATE, NULL)

@@ -1,0 +1,9 @@
+Table: CompanyPresetWarehouses
+Module: Shipping
+Approximate row count: 2
+Description: Which warehouses belong to which company preset.
+Relationships: Joins to 'CompanyPresets' on CompanyPresetId. Joins to 'Warehouses' on WarehouseId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CompanyPresetId (BIGINT, NOT NULL, Foreign Key -> CompanyPresets.Id)
+- WarehouseId (BIGINT, NOT NULL, Foreign Key -> Warehouses.Id)

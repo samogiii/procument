@@ -1,0 +1,19 @@
+Table: QuoteItems
+Module: Sales
+Approximate row count: 994
+Description: The priced lines on a quote. The quantity column is named Qty; there is no column called Quantity. Each line can point back to the sourcing record that produced its cost.
+Relationships: Joins to 'PartNumbers' on PartNumberId (nullable - use LEFT JOIN). Joins to 'Procument' on ProcumentRecordId (nullable - use LEFT JOIN). Joins to 'Quotes' on QuoteId. Joins to 'RFQItems' on RFQItemId (nullable - use LEFT JOIN). Joined from 'InvoiceItems' on InvoiceItems.QuoteItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Alt (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- LeadTimeDays (INT, NULL)
+- PartNumberId (BIGINT, NULL, Foreign Key -> PartNumbers.Id)
+- ProcumentRecordId (BIGINT, NULL, Foreign Key -> Procument.Id)
+- Qty (INT, NOT NULL)
+- QuoteId (BIGINT, NOT NULL, Foreign Key -> Quotes.Id)
+- RFQItemId (BIGINT, NULL, Foreign Key -> RFQItems.Id)
+- SortOrder (INT, NOT NULL)
+- TotalPrice (DECIMAL(18,2), NOT NULL)
+- UnitPrice (DECIMAL(18,2), NOT NULL)
+Notes: The quantity column is Qty. A column named Quantity does not exist.

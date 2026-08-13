@@ -1,0 +1,26 @@
+Table: PaymentTransactions
+Module: Sales
+Approximate row count: 41
+Description: Individual money movements in and out of a wallet. Type is Deposit or Withdraw, and FromType/ToType say whether the counterparty is a Customer, a Wallet or a Supplier.
+Relationships: Joins to 'Customers' on FromCustomerId (nullable - use LEFT JOIN). Joins to 'Invoices' on InvoiceId (nullable - use LEFT JOIN). Joins to 'PaymentBoxes' on PaymentBoxId. Joins to 'PaymentRequests' on PaymentRequestId (nullable - use LEFT JOIN). Joins to 'Suppliers' on ToSupplierId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Amount (DECIMAL(18,2), NOT NULL)
+- Base (NVARCHAR(10), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- ExchangeRate (DECIMAL(18,6), NULL)
+- FromCustomerId (BIGINT, NULL, Foreign Key -> Customers.Id)
+- FromType (NVARCHAR(20), NOT NULL)
+  Allowed values: Customer | Wallet | Supplier
+- InvoiceId (BIGINT, NULL, Foreign Key -> Invoices.Id)
+- IsAuto (BIT, NOT NULL)
+- Notes (NVARCHAR(1000), NULL)
+- PaymentBoxId (BIGINT, NOT NULL, Foreign Key -> PaymentBoxes.Id)
+- PaymentRequestId (BIGINT, NULL, Foreign Key -> PaymentRequests.Id)
+- ToPaymentBoxId (BIGINT, NULL)
+- ToSupplierId (BIGINT, NULL, Foreign Key -> Suppliers.Id)
+- ToType (NVARCHAR(20), NOT NULL)
+  Allowed values: Customer | Wallet | Supplier
+- TxCurrency (NVARCHAR(10), NULL)
+- Type (NVARCHAR(20), NOT NULL)
+  Allowed values: Deposit | Withdraw

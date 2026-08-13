@@ -1,0 +1,12 @@
+Table: CustomerPayments
+Module: Sales
+Approximate row count: 14
+Description: Proof-of-payment uploads recorded against a sales order. Sum these to work out how much a customer has actually paid.
+Relationships: Joins to 'Invoices' on InvoiceId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Amount (DECIMAL(18,2), NOT NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- FileName (NVARCHAR(500), NOT NULL)
+- InvoiceId (BIGINT, NOT NULL, Foreign Key -> Invoices.Id)
+- Notes (NVARCHAR(1000), NULL)

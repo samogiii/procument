@@ -1,0 +1,34 @@
+Note: Flowchart Stage 7 - Inbound Receiving into the Warehouse
+Type: Application Flowchart
+Stage: 7 of 10
+Description: How goods physically arrive from a supplier. Each PO item gets one or more inbound track numbers as the supplier ships. When a parcel lands, staff inspect each item inside it and accept or reject it.
+Flowchart:
+  Supplier ships against a purchase order
+     |
+     v
+  Insert POItemTrackNumbers rows per POItem: TrackNumber, Carrier, WarehouseId
+     Status 'Ship to Warehouse'
+     |
+     v
+  Parcel arrives -> Status 'Received in Warehouse'
+     |
+     v
+  Per-item inspection creates TrackNumberItems rows:
+     expected versus actual quantity, certificate needed and available
+     Status 'Pending' -> 'Accepted' or 'Rejected'
+     |
+     v
+  Supporting data attached:
+     TrackNumberDocuments (certificates, photos, paperwork)
+     TrackNumberBoxes (weights and dimensions for onward freight)
+     |
+     v
+  Optional internal move: WarehouseTransfers and WarehouseTransferItems
+     move stock between our own warehouses, Status 'In Transit' -> received
+     |
+     v
+  Accepted goods are ready for outbound shipment
+Tables involved: POItemTrackNumbers, TrackNumberItems, TrackNumberDocuments, TrackNumberBoxes, Warehouses, WarehouseTransfers, WarehouseTransferItems, POItems.
+Key columns: POItemTrackNumbers.Status, POItemTrackNumbers.TrackNumber, POItemTrackNumbers.WarehouseId (nullable), POItemTrackNumbers.Origin, TrackNumberItems.Status, TrackNumberItems.ReviewNote.
+Joins: POItemTrackNumbers.POItemId -> POItems.Id. POItemTrackNumbers.WarehouseId -> Warehouses.Id (nullable). TrackNumberItems.TrackNumberId -> POItemTrackNumbers.Id. TrackNumberItems.POItemId -> POItems.Id.
+Notes: When someone says 'tracking' or 'track number' without qualifying it, they mean POItemTrackNumbers, the inbound leg. ShipmentNoteTrackNumbers is a different thing: it is the outbound junction table. Both POItemTrackNumbers and TrackNumberItems are one-to-many children, so pre-aggregate them before joining them alongside any other child table.

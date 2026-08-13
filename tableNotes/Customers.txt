@@ -1,0 +1,33 @@
+Table: Customers
+Module: Catalog
+Approximate row count: 30
+Description: Companies that buy from us. 'Base' is the office/location that owns the customer and is NULL on many older rows, in which case the CustomerCode prefix identifies the base (base 5 gives codes like C501, C502). Coef1, Coef2 and Coef3 are markup coefficients applied when building a quote.
+Relationships: Joined from 'FinalInvoices' on FinalInvoices.CustomerId. Joined from 'Invoices' on Invoices.CustomerId. Joined from 'PaymentTransactions' on PaymentTransactions.FromCustomerId. Joined from 'Quotes' on Quotes.CustomerId. Joined from 'RFQs' on RFQs.CustomerId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Base (INT, NULL)
+- BillTo (NVARCHAR(500), NULL)
+- Coef1 (DECIMAL(18,4), NULL)
+- Coef2 (DECIMAL(18,4), NULL)
+- Coef3 (DECIMAL(18,4), NULL)
+- CompanyType (NVARCHAR(MAX), NULL)
+- ContactPerson (NVARCHAR(MAX), NULL)
+- Contacts (NVARCHAR(MAX), NULL)
+- Country (NVARCHAR(MAX), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CurrencyType (NVARCHAR(MAX), NULL)
+- CustomerCode (NVARCHAR(100), NULL)
+- Description (NVARCHAR(MAX), NULL)
+- Email (NVARCHAR(200), NULL)
+- Emails (NVARCHAR(MAX), NULL)
+- ExWork (INT, NULL)
+- IsActive (BIT, NOT NULL)
+- ModifyAt (DATETIME2, NULL)
+- Name (NVARCHAR(300), NOT NULL)
+- PITermsAndConditions (NVARCHAR(MAX), NULL)
+- Phone (NVARCHAR(50), NULL)
+- ShipTo (NVARCHAR(500), NULL)
+- ShippingAccount (NVARCHAR(MAX), NULL)
+- TermsAndConditions (NVARCHAR(MAX), NULL)
+- Website (NVARCHAR(MAX), NULL)
+Notes: Base is NULL on many older rows. When filtering by base N, use: Base = N OR (Base IS NULL AND CustomerCode LIKE 'CN%').

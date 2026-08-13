@@ -1,0 +1,18 @@
+Table: WarehouseTransfers
+Module: Shipping
+Approximate row count: 0
+Description: Movement of stock from one of our warehouses to another.
+Relationships: Joins to 'Users' on CreatedByUserId. Joins to 'Warehouses' on FromWarehouseId. Joins to 'Users' on ReceivedByUserId (nullable - use LEFT JOIN). Joins to 'Warehouses' on ToWarehouseId. Joined from 'POItemTrackNumbers' on POItemTrackNumbers.SourceTransferId. Joined from 'WarehouseTransferItems' on WarehouseTransferItems.WarehouseTransferId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Carrier (NVARCHAR(200), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CreatedByUserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)
+- FromWarehouseId (BIGINT, NOT NULL, Foreign Key -> Warehouses.Id)
+- Notes (NVARCHAR(1000), NULL)
+- ReceivedAt (DATETIME2, NULL)
+- ReceivedByUserId (BIGINT, NULL, Foreign Key -> Users.Id)
+- Status (NVARCHAR(30), NOT NULL, default "In Transit")
+- ToWarehouseId (BIGINT, NOT NULL, Foreign Key -> Warehouses.Id)
+- TrackNumber (NVARCHAR(200), NOT NULL)
+- TransferNumber (NVARCHAR(50), NOT NULL)

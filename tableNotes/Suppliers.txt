@@ -1,0 +1,22 @@
+Table: Suppliers
+Also known as: vendors
+Module: Catalog
+Approximate row count: 735
+Description: Vendors we buy from. The Status column drives a supplier-request approval workflow: a user submits a supplier, an admin approves or rejects it. Suppliers never quote the customer directly; they only make offers to us.
+Relationships: Joined from 'CapListItems' on CapListItems.CompanyId. Joined from 'InventoryItems' on InventoryItems.CompanyId. Joined from 'PartNumberSuppliers' on PartNumberSuppliers.SupplierId. Joined from 'PartNumbers' on PartNumbers.SupplierId. Joined from 'PaymentTransactions' on PaymentTransactions.ToSupplierId. Joined from 'Procument' on Procument.SupplierId. Joined from 'ProcurementItems' on ProcurementItems.CurrentSupplierId. Joined from 'ProcurementSupplierQuotes' on ProcurementSupplierQuotes.SupplierId. Joined from 'PurchaseOrders' on PurchaseOrders.SupplierId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Address (NVARCHAR(500), NULL)
+- Contacts (NVARCHAR(MAX), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- Dependency (NVARCHAR(MAX), NULL)
+- Description (NVARCHAR(MAX), NULL)
+- Email (NVARCHAR(200), NULL)
+- IsActive (BIT, NOT NULL)
+- ModifyAt (DATETIME2, NULL)
+- Name (NVARCHAR(300), NOT NULL)
+- Phone (NVARCHAR(50), NULL)
+- RequestedByUserId (BIGINT, NULL)
+- Status (NVARCHAR(450), NOT NULL)
+  Allowed values: Pending | Approved | Rejected | Disabled
+- Username (NVARCHAR(450), NULL)

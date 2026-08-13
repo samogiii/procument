@@ -1,0 +1,33 @@
+Note: Flowchart Stage 9 and 10 - Final Invoice and Completion
+Type: Application Flowchart
+Stage: 9 and 10 of 10
+Description: How the sale is billed and closed once goods have shipped. A final invoice, also called the commercial or shipped invoice, is generated from the original sales order. When the customer pays the balance, everything closes out.
+Flowchart:
+  Goods shipped to the customer
+     |
+     v
+  Insert FinalInvoices row: InvoiceNumber (unique), ProformaInvoiceId pointing at the
+     originating sales order in Invoices, CustomerId, TotalAmount, ShippingCost, ShippingMethod
+     |
+     v
+  Insert FinalInvoiceItems: shipped lines carrying Condition, CertName, Carrier and TrackNumber
+     |
+     v
+  Status Draft -> Net30 or Completed -> Paid
+     |
+     v
+  Balance payment arrives: CustomerPayments row plus a PaymentTransactions Deposit
+     |
+     v
+  COMPLETION
+     - sales order Invoices.Status -> 'Finish'
+     - PurchaseOrders.Status -> 'Completed'
+     - FinalInvoices.Status -> 'Paid'
+     |
+     v
+  Reporting: the Total-PN margin report joins InvoiceItems back through
+     ProcurementItems and POItems for full part-number traceability and margin
+Tables involved: FinalInvoices, FinalInvoiceItems, Invoices, InvoiceItems, CustomerPayments, PaymentTransactions, Customers, PartNumbers.
+Key columns: FinalInvoices.Status, FinalInvoices.ProformaInvoiceId, FinalInvoices.TotalAmount, FinalInvoices.DueDate, FinalInvoices.PaidDate, FinalInvoiceItems.TrackNumber, FinalInvoiceItems.Carrier.
+Joins: FinalInvoices.ProformaInvoiceId -> Invoices.Id. FinalInvoices.CustomerId -> Customers.Id. FinalInvoiceItems.FinalInvoiceId -> FinalInvoices.Id. FinalInvoiceItems.PartNumberId -> PartNumbers.Id. FinalInvoiceItems.InvoiceItemId -> InvoiceItems.Id.
+Notes: FinalInvoices is a different table from Invoices. Invoices is the sales order taken at the start; FinalInvoices is the commercial invoice issued at the end after shipping. A question about revenue booked usually means Invoices; a question about what was actually shipped and billed means FinalInvoices.

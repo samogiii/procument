@@ -1,0 +1,14 @@
+Table: PaymentRequests
+Module: Purchasing
+Approximate row count: 11
+Description: Requests to pay a purchase order, routed for approval to the payment team.
+Relationships: Joins to 'CompanyPresets' on CompanyPresetId (nullable - use LEFT JOIN). Joins to 'PurchaseOrders' on POId (nullable - use LEFT JOIN). Joined from 'PaymentTransactions' on PaymentTransactions.PaymentRequestId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CompanyPresetId (BIGINT, NULL, Foreign Key -> CompanyPresets.Id)
+- CreatedAt (DATETIME2, NOT NULL)
+- IsActive (BIT, NOT NULL)
+- ModifyAt (DATETIME2, NULL)
+- POId (BIGINT, NULL, Foreign Key -> PurchaseOrders.Id)
+- PRId (BIGINT, NULL)
+- Status (NVARCHAR(50), NULL)

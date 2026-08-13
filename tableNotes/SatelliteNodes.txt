@@ -1,0 +1,16 @@
+Table: SatelliteNodes
+Module: Infrastructure
+Approximate row count: 1
+Description: Satellite application instances deployed per base, used by the data sync mechanism.
+Relationships: Joined from 'SyncRegistries' on SyncRegistries.SatelliteNodeId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- BaseNumber (INT, NOT NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- EndpointUrl (NVARCHAR(500), NOT NULL)
+- IsActive (BIT, NOT NULL)
+- LastSyncAt (DATETIME2, NULL)
+- ModifyAt (DATETIME2, NULL)
+- Name (NVARCHAR(200), NOT NULL)
+- PublicKey (NVARCHAR(MAX), NOT NULL)
+- SharedSecret (NVARCHAR(MAX), NULL)

@@ -1,0 +1,22 @@
+Table: ILSProformaInvoiceItems
+Module: ILS/Inventory
+Approximate row count: 2
+Description: Lines on an ILS proforma invoice.
+Relationships: Joins to 'ILSProformaInvoices' on ILSProformaInvoiceId. Joins to 'PartNumbers' on PartNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AltPartNumber (NVARCHAR(200), NULL)
+- CertName (NVARCHAR(200), NULL)
+- Condition (NVARCHAR(100), NULL)
+- ILSItemId (BIGINT, NULL)
+- ILSItemSerialId (BIGINT, NULL)
+- ILSProformaInvoiceId (BIGINT, NOT NULL, Foreign Key -> ILSProformaInvoices.Id)
+- LeadTime (NVARCHAR(100), NULL)
+- Notes (NVARCHAR(MAX), NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- Qty (FLOAT, NOT NULL)
+- SellPrice (DECIMAL(18,2), NOT NULL)
+- SerialNumber (NVARCHAR(200), NULL)
+- SourceQuoteId (BIGINT, NULL)
+- SourceQuoteItemId (BIGINT, NULL)
+- TotalPrice (DECIMAL(18,2), NOT NULL)

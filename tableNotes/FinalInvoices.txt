@@ -1,0 +1,20 @@
+Table: FinalInvoices
+Also known as: commercial invoice, shipped invoice
+Module: Sales
+Approximate row count: 12
+Description: The commercial invoice issued once goods actually ship, also called the shipped invoice. ProformaInvoiceId points at the originating sales order in the Invoices table.
+Relationships: Joins to 'Customers' on CustomerId. Joins to 'Invoices' on ProformaInvoiceId. Joined from 'FinalInvoiceItems' on FinalInvoiceItems.FinalInvoiceId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerId (BIGINT, NOT NULL, Foreign Key -> Customers.Id)
+- DueDate (DATETIME2, NULL)
+- InvoiceNumber (NVARCHAR(100), NOT NULL)
+- Notes (NVARCHAR(2000), NULL)
+- PaidDate (DATETIME2, NULL)
+- ProformaInvoiceId (BIGINT, NOT NULL, Foreign Key -> Invoices.Id)
+- ShippingCost (DECIMAL(18,2), NULL)
+- ShippingMethod (NVARCHAR(100), NULL)
+- Status (NVARCHAR(50), NOT NULL)
+  Allowed values: Draft | Net30 | Completed | Paid
+- TotalAmount (DECIMAL(18,2), NOT NULL)

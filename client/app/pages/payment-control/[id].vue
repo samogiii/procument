@@ -634,31 +634,37 @@
               variant="outlined"
               density="comfortable"
               class="mb-3"
-              @update:model-value="txForm.fromCustomerId = null; txForm.invoiceId = null"
+              @update:model-value="onFromTypeChange"
             />
             <template v-if="txForm.fromType === 'Customer'">
               <v-autocomplete
                 v-model="txForm.fromCustomerId"
-                :items="customers"
-                :item-title="(c) => c.customerCode ? `${c.customerCode} — ${c.name}` : c.name"
+                v-model:search="customerSearch"
+                :items="customerItems"
+                :item-title="customerTitle"
                 item-value="id"
                 label="Customer"
                 variant="outlined"
                 density="comfortable"
                 class="mb-3"
                 clearable
-                @update:model-value="txForm.invoiceId = null"
+                no-filter
+                :loading="customersLoading"
+                no-data-text="Type to search customers"
+                @update:search="onCustomerSearch"
+                @update:model-value="onCustomerPicked"
               />
               <v-autocomplete
                 v-if="txForm.fromCustomerId"
                 v-model="txForm.invoiceId"
-                :items="filteredInvoices"
+                :items="invoices"
                 item-title="invoiceNumber"
                 item-value="id"
                 label="PI# (optional)"
                 variant="outlined"
                 density="comfortable"
                 clearable
+                :loading="invoicesLoading"
                 no-data-text="No invoices for this customer"
                 class="mb-3"
               />
@@ -674,12 +680,13 @@
               variant="outlined"
               density="comfortable"
               class="mb-3"
-              @update:model-value="txForm.toSupplierId = null; txForm.paymentRequestId = null"
+              @update:model-value="onToTypeChange"
             />
             <template v-if="txForm.toType === 'Supplier'">
               <v-autocomplete
                 v-model="txForm.toSupplierId"
-                :items="suppliers"
+                v-model:search="supplierSearch"
+                :items="supplierItems"
                 item-title="name"
                 item-value="id"
                 label="Supplier"
@@ -687,7 +694,11 @@
                 density="comfortable"
                 class="mb-3"
                 clearable
-                @update:model-value="txForm.paymentRequestId = null"
+                no-filter
+                :loading="suppliersLoading"
+                no-data-text="Type to search suppliers"
+                @update:search="onSupplierSearch"
+                @update:model-value="onSupplierPicked"
               />
               <v-autocomplete
                 v-if="txForm.toSupplierId"
@@ -879,11 +890,147 @@ const txForm = ref({
   createdAt: '',
 })
 
-const filteredInvoices = computed(() =>
-  txForm.value.fromCustomerId
-    ? invoices.value.filter(i => i.customerId === txForm.value.fromCustomerId)
-    : []
-)
+// ── Customer / supplier pickers ───────────────────────────────────────────────
+// Both catalogs run to thousands of rows, well past any single page, so the
+// pickers query the API as the user types instead of filtering a preloaded slice.
+const LOOKUP_PAGE_SIZE = 50
+
+const customerSearch = ref('')
+const supplierSearch = ref('')
+const customersLoading = ref(false)
+const suppliersLoading = ref(false)
+const invoicesLoading = ref(false)
+/** The picked row is kept aside so the field keeps its label once it drops out of the current results. */
+const selectedCustomer = ref<Customer | null>(null)
+const selectedSupplier = ref<Supplier | null>(null)
+
+function customerTitle(c: Customer) {
+  return c.customerCode ? `${c.customerCode} — ${c.name}` : c.name
+}
+
+const customerItems = computed(() => {
+  const sel = selectedCustomer.value
+  return sel && !customers.value.some(c => c.id === sel.id) ? [sel, ...customers.value] : customers.value
+})
+
+const supplierItems = computed(() => {
+  const sel = selectedSupplier.value
+  return sel && !suppliers.value.some(s => s.id === sel.id) ? [sel, ...suppliers.value] : suppliers.value
+})
+
+async function loadCustomers(search = '') {
+  customersLoading.value = true
+  try {
+    const s = search.trim()
+    const res = await api.get<{ items: Customer[] }>(
+      `/customers?page=1&pageSize=${LOOKUP_PAGE_SIZE}${s ? `&search=${encodeURIComponent(s)}` : ''}`
+    )
+    customers.value = (res as any).items ?? res
+  } catch (e) {
+    console.error(e)
+  } finally {
+    customersLoading.value = false
+  }
+}
+
+async function loadSuppliers(search = '') {
+  suppliersLoading.value = true
+  try {
+    const s = search.trim()
+    const res = await api.get<{ items: Supplier[] }>(
+      `/suppliers?page=1&pageSize=${LOOKUP_PAGE_SIZE}${s ? `&search=${encodeURIComponent(s)}` : ''}`
+    )
+    suppliers.value = (res as any).items ?? res
+  } catch (e) {
+    console.error(e)
+  } finally {
+    suppliersLoading.value = false
+  }
+}
+
+let customerSearchTimer: any = null
+function onCustomerSearch(val: string) {
+  clearTimeout(customerSearchTimer)
+  // Vuetify echoes the picked item's title back through :search — that is not a new query.
+  if (selectedCustomer.value && val === customerTitle(selectedCustomer.value)) return
+  customersLoading.value = true
+  customerSearchTimer = setTimeout(() => loadCustomers(val ?? ''), 300)
+}
+
+let supplierSearchTimer: any = null
+function onSupplierSearch(val: string) {
+  clearTimeout(supplierSearchTimer)
+  if (selectedSupplier.value && val === selectedSupplier.value.name) return
+  suppliersLoading.value = true
+  supplierSearchTimer = setTimeout(() => loadSuppliers(val ?? ''), 300)
+}
+
+function onCustomerPicked(id: number | null) {
+  txForm.value.invoiceId = null
+  selectedCustomer.value = customerItems.value.find(c => c.id === id) ?? null
+  loadCustomerInvoices()
+}
+
+function onFromTypeChange() {
+  txForm.value.fromCustomerId = null
+  txForm.value.invoiceId = null
+  selectedCustomer.value = null
+  customerSearch.value = ''
+  invoices.value = []
+}
+
+function onToTypeChange() {
+  txForm.value.toSupplierId = null
+  txForm.value.paymentRequestId = null
+  selectedSupplier.value = null
+  supplierSearch.value = ''
+}
+
+function onSupplierPicked(id: number | null) {
+  txForm.value.paymentRequestId = null
+  selectedSupplier.value = supplierItems.value.find(s => s.id === id) ?? null
+}
+
+/** PI# options are scoped to the picked customer server-side — the invoice table is far too large to preload. */
+async function loadCustomerInvoices() {
+  const c = selectedCustomer.value
+  if (!c) { invoices.value = []; return }
+  invoicesLoading.value = true
+  try {
+    const scope = c.customerCode
+      ? `customerCodes=${encodeURIComponent(c.customerCode)}`
+      : `customer=${encodeURIComponent(c.name)}`
+    const res = await api.get<{ items: Invoice[] }>(`/invoices?page=1&pageSize=500&${scope}`)
+    invoices.value = ((res as any).items ?? res).filter((i: Invoice) => i.customerId === c.id)
+  } catch (e) {
+    console.error(e)
+    invoices.value = []
+  } finally {
+    invoicesLoading.value = false
+  }
+}
+
+/**
+ * Restores a picker's selection when editing an existing transaction: the row is only known
+ * by id + display label, so look it up by label and keep the id-matched hit.
+ */
+async function seedSelectedCustomer(id: number, label: string | null) {
+  selectedCustomer.value = { id, name: label ?? `Customer ${id}`, customerCode: null }
+  if (label) {
+    await loadCustomers(label)
+    const match = customers.value.find(c => c.id === id)
+    if (match) selectedCustomer.value = match
+  }
+  await loadCustomerInvoices()
+}
+
+async function seedSelectedSupplier(id: number, label: string | null) {
+  selectedSupplier.value = { id, name: label ?? `Supplier ${id}` }
+  if (!label) return
+  await loadSuppliers(label)
+  const match = suppliers.value.find(s => s.id === id)
+  if (match) selectedSupplier.value = match
+}
 
 const filteredPaymentRequests = computed(() =>
   txForm.value.toSupplierId
@@ -1018,16 +1165,13 @@ async function loadDetail() {
 }
 
 async function loadLookups() {
-  const [c, s, inv, pr, boxes] = await Promise.allSettled([
-    api.get<{ items: Customer[] }>('/customers?pageSize=500'),
-    api.get<{ items: Supplier[] }>('/suppliers?pageSize=500'),
-    api.get<{ items: Invoice[] }>('/invoices?pageSize=500'),
+  // Customers and suppliers only seed their first page here; typing in the picker re-queries the API.
+  const [, , pr, boxes] = await Promise.allSettled([
+    loadCustomers(),
+    loadSuppliers(),
     api.get<PR[]>('/paymentrequests'),
     api.get<any[]>('/payment-boxes'),
   ])
-  if (c.status === 'fulfilled') customers.value = (c.value as any).items ?? c.value
-  if (s.status === 'fulfilled') suppliers.value = (s.value as any).items ?? s.value
-  if (inv.status === 'fulfilled') invoices.value = (inv.value as any).items ?? inv.value
   if (pr.status === 'fulfilled') paymentRequests.value = pr.value
   if (boxes.status === 'fulfilled') allBoxes.value = (boxes.value as any[]).filter(b => b.id !== id.value)
 }
@@ -1056,6 +1200,12 @@ function openEditTx(tx: TransactionRow) {
     notes: tx.notes || '',
     createdAt: tx.createdAt ? new Date(tx.createdAt).toISOString().slice(0, 16) : '',
   }
+  // The picked customer/supplier may sit outside the seeded page — pull it back in by label.
+  selectedCustomer.value = null
+  selectedSupplier.value = null
+  invoices.value = []
+  if (tx.fromType === 'Customer' && tx.fromCustomerId) seedSelectedCustomer(tx.fromCustomerId, tx.fromName)
+  if (tx.toType === 'Supplier' && tx.toSupplierId) seedSelectedSupplier(tx.toSupplierId, tx.toName)
   txDialog.value = true
 }
 
@@ -1160,6 +1310,11 @@ async function executeSubmit(submitFn: () => Promise<void>) {
 }
 
 function resetForm() {
+  selectedCustomer.value = null
+  selectedSupplier.value = null
+  customerSearch.value = ''
+  supplierSearch.value = ''
+  invoices.value = []
   txForm.value = {
     id: null,
     type: 'Deposit',

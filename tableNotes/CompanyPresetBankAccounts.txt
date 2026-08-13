@@ -1,0 +1,15 @@
+Table: CompanyPresetBankAccounts
+Module: Catalog
+Approximate row count: 2
+Description: Bank accounts belonging to a company preset, printed on invoices and purchase orders.
+Relationships: Joins to 'CompanyPresets' on CompanyPresetId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AccountName (NVARCHAR(200), NOT NULL)
+- AccountNumber (NVARCHAR(200), NULL)
+- BankAddress (NVARCHAR(1000), NULL)
+- BankName (NVARCHAR(300), NULL)
+- BeneficiaryName (NVARCHAR(300), NULL)
+- CompanyPresetId (BIGINT, NOT NULL, Foreign Key -> CompanyPresets.Id)
+- SortOrder (INT, NOT NULL)
+- SwiftCode (NVARCHAR(50), NULL)

@@ -1,0 +1,26 @@
+Table: Quotes
+Module: Sales
+Approximate row count: 255
+Description: Our priced offer back to the customer, built from an RFQ. FinalPrice overrides TotalAmount when it is set. CoefYuan and ExchangeRateYuan mean some quotes are not in USD, so totals across many quotes may mix currencies.
+Relationships: Joins to 'Customers' on CustomerId. Joins to 'RFQs' on RFQId. Joins to 'Users' on UserId. Joined from 'Invoices' on Invoices.QuoteId. Joined from 'QuoteItems' on QuoteItems.QuoteId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CoefYuan (DECIMAL(18,2), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerId (BIGINT, NOT NULL, Foreign Key -> Customers.Id)
+- ExchangeRateYuan (DECIMAL(18,2), NULL)
+- FinalPrice (DECIMAL(18,2), NULL)
+- ModifyAt (DATETIME2, NULL)
+- QuoteNumber (NVARCHAR(100), NOT NULL)
+- RFQId (BIGINT, NOT NULL, Foreign Key -> RFQs.Id)
+- RejectionNote (NVARCHAR(MAX), NULL)
+- SentAt (DATETIME2, NULL)
+- Status (NVARCHAR(50), NOT NULL)
+  Allowed values: Draft | Sent | Accepted | Rejected
+- TotalAmount (DECIMAL(18,2), NULL)
+- Type (INT, NULL)
+  Allowed values: int enum: 0=Warehouse, 1=Vendor, 2=Customer
+- TypeAdditional (NVARCHAR(MAX), NULL)
+- UserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)
+- ValidUntil (DATETIME2, NULL)
+Notes: 'Sent' is a state machine, not a label: Accepted and Rejected quotes were also sent. Use SentAt IS NOT NULL OR Status IN ('Sent','Accepted','Rejected'). Prefer COALESCE(FinalPrice, TotalAmount) for quote value.

@@ -1,0 +1,39 @@
+Table: PurchaseOrders
+Also known as: PO, purchase order
+Module: Purchasing
+Approximate row count: 86
+Description: A purchase order issued to a supplier. InvoiceId is nullable because one PO can consolidate parts for several sales orders, so joining it as an inner join silently drops rows. It carries three independent status columns: Status for the workflow, AdminApproval for sign-off, and PaymentStatus for money.
+Relationships: Joins to 'Suppliers' on SupplierId. Joined from 'POImportDetails' on POImportDetails.PurchaseOrderId. Joined from 'POItems' on POItems.POId. Joined from 'PaymentRequests' on PaymentRequests.POId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AdminApproval (NVARCHAR(20), NOT NULL, default "Pending")
+  Allowed values: Pending | Approved | Rejected
+- AdminApprovalAt (DATETIME2, NULL)
+- AdminApprovalBy (BIGINT, NULL)
+- AdminApprovalNote (NVARCHAR(1000), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- InvoiceId (BIGINT, NULL)
+- PODate (DATETIME2, NULL)
+- PONumber (NVARCHAR(100), NOT NULL)
+- PaymentApproval (NVARCHAR(MAX), NOT NULL)
+- PaymentApprovalAt (DATETIME2, NULL)
+- PaymentApprovalBy (BIGINT, NULL)
+- PaymentApprovalNote (NVARCHAR(MAX), NULL)
+- PaymentStatus (NVARCHAR(20), NOT NULL, default "NotStarted")
+  Allowed values: NotStarted | in-progress values
+- PaymentSubmittedAt (DATETIME2, NULL)
+- PaymentSubmittedBy (BIGINT, NULL)
+- PreferredWalletId (BIGINT, NULL)
+- ProcessingFee (DECIMAL(18,2), NULL)
+- RejectionNote (NVARCHAR(MAX), NULL)
+- ReturnReason (NVARCHAR(1000), NULL)
+- ReturnedAt (DATETIME2, NULL)
+- ReturnedByUserId (BIGINT, NULL)
+- Shipping (DECIMAL(18,2), NULL)
+- Status (NVARCHAR(50), NOT NULL)
+  Allowed values: Waiting For Admin Approval | Waiting For Documents | Waiting For Payment | Completed | Returned | Cancelled
+- Subject (NVARCHAR(MAX), NULL)
+- SupplierId (BIGINT, NOT NULL, Foreign Key -> Suppliers.Id)
+- Tax (DECIMAL(18,2), NULL)
+- TotalAmount (DECIMAL(18,2), NULL)
+Notes: InvoiceId is nullable: always LEFT JOIN to Invoices, or consolidated POs disappear from the result. There is no CustomerId column.

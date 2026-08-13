@@ -1,0 +1,26 @@
+Note: Flowchart Stage 8 - Outbound Shipment to the Customer
+Type: Application Flowchart
+Stage: 8 of 10
+Description: How accepted goods leave our warehouse for the customer. Staff build a shipment note, attach the inbound track numbers whose goods are going out, pack them into boxes and generate the paperwork.
+Flowchart:
+  Accepted goods sitting in a warehouse
+     |
+     v
+  Insert ShipmentNotes row: SNNumber (unique), WarehouseId, Type 'DDP' or 'CPT',
+     Destination, SONumber reference, Status 'Draft'
+     |
+     v
+  Attach inbound track numbers through the ShipmentNoteTrackNumbers junction (many to many)
+     |
+     v
+  Pack: ShipmentNoteBoxes rows with WeightKg and dimensions, used for the packing list PDF
+     |
+     v
+  Status flow: Draft -> Waiting for Packing -> Ship To USA -> Received in Warehouse -> Confirmed
+     |
+     v
+  AWBNumber recorded, packing list PDF and customs documents generated
+Tables involved: ShipmentNotes, ShipmentNoteTrackNumbers, ShipmentNoteBoxes, POItemTrackNumbers, Warehouses, Users.
+Key columns: ShipmentNotes.Status, ShipmentNotes.Type (DDP or CPT), ShipmentNotes.SNNumber, ShipmentNotes.AWBNumber, ShipmentNotes.Destination, ShipmentNotes.SONumber, ShipmentNoteBoxes.WeightKg.
+Joins: ShipmentNotes.WarehouseId -> Warehouses.Id. ShipmentNotes.CreatedByUserId -> Users.Id. ShipmentNoteTrackNumbers.ShipmentNoteId -> ShipmentNotes.Id. ShipmentNoteTrackNumbers.TrackNumberId -> POItemTrackNumbers.Id. ShipmentNoteBoxes.ShipmentNoteId -> ShipmentNotes.Id.
+Notes: ShipmentNoteTrackNumbers is a many-to-many junction, so joining through it fans out in both directions. Aggregate it in its own CTE before combining with box counts or item counts, otherwise every total multiplies.

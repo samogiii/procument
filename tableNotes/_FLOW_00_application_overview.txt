@@ -1,0 +1,38 @@
+Note: Application Flowchart - Full Pipeline Overview
+Type: Application Flowchart
+Description: End-to-end flowchart of the Procument aviation-parts trading application. A customer asks for prices, we source them from suppliers, quote the customer, take the order, buy the parts, receive them into a warehouse, ship them out, and invoice. This note is the map of the whole system; each numbered stage has its own detailed note.
+Flowchart:
+  CUSTOMER REQUEST
+     |
+     v
+  [1] RFQ - Request For Quote                    tables: RFQs, RFQItems
+     |  expert sources prices from suppliers
+     v
+  [2] SOURCING / PRICE RECORDS                   table: Procument
+     |
+     v
+  [3] QUOTE to the customer                      tables: Quotes, QuoteItems
+     |  customer accepts
+     v
+  [4] SALES ORDER (UI name for Invoices)         tables: Invoices, InvoiceItems
+     |  purchasing takes over, one group per sales order
+     v
+  [5] PROCUREMENT GROUP                          tables: Procurements, ProcurementItems, ProcurementSupplierQuotes
+     |  grouped by supplier
+     v
+  [6] PURCHASE ORDER to supplier                 tables: PurchaseOrders, POItems, POImportDetails
+     |  supplier ships to our warehouse
+     v
+  [7] INBOUND RECEIVING                          tables: POItemTrackNumbers, TrackNumberItems
+     |  goods accepted
+     v
+  [8] OUTBOUND SHIPMENT to customer              tables: ShipmentNotes, ShipmentNoteTrackNumbers
+     |
+     v
+  [9] FINAL INVOICE (commercial invoice)         tables: FinalInvoices, FinalInvoiceItems
+     |
+     v
+  [10] COMPLETION: sales order Finish, PO Completed, final invoice Paid
+Money runs alongside the whole pipeline: customer deposits arrive as CustomerPayments and PaymentTransactions into a PaymentBox wallet, and supplier payments leave the same wallets against PurchaseOrders.
+Tables involved: RFQs, RFQItems, Procument, Quotes, QuoteItems, Invoices, InvoiceItems, Procurements, ProcurementItems, ProcurementSupplierQuotes, PurchaseOrders, POItems, POItemTrackNumbers, TrackNumberItems, ShipmentNotes, FinalInvoices, FinalInvoiceItems, PaymentBoxes, PaymentTransactions.
+Notes: The single most useful fact about this schema is that the UI word 'Sales Order' means the Invoices table, and that 'Procument' (one e) and 'Procurements' are two different tables at two different stages.

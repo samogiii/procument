@@ -1,0 +1,43 @@
+Note: Canonical Join Paths
+Type: Reference
+Description: The approved way to join any two entities in this database. Use these exact paths so the same question always produces the same answer. A nullable foreign key means LEFT JOIN unless the question specifically requires the link to exist.
+Direct customer links - these four tables each hold CustomerId themselves, so never route around them:
+- RFQs.CustomerId -> Customers.Id           (INNER)
+- Quotes.CustomerId -> Customers.Id         (INNER)
+- Invoices.CustomerId -> Customers.Id       (INNER)
+- FinalInvoices.CustomerId -> Customers.Id  (INNER)
+Pipeline links:
+- RFQs.UserId -> Users.Id                                   LEFT, nullable, the assigned expert
+- RFQItems.RFQId -> RFQs.Id                                 one to many, fans out
+- Quotes.RFQId -> RFQs.Id                                   INNER
+- QuoteItems.QuoteId -> Quotes.Id                           one to many, fans out
+- QuoteItems.RFQItemId -> RFQItems.Id                       LEFT
+- QuoteItems.ProcumentRecordId -> Procument.Id              LEFT
+- Procument.RFQItemId -> RFQItems.Id                        INNER
+- Procument.SupplierId -> Suppliers.Id                      INNER
+- Invoices.QuoteId -> Quotes.Id                             INNER
+- InvoiceItems.InvoiceId -> Invoices.Id                     one to many, fans out
+- InvoiceItems.QuoteItemId -> QuoteItems.Id                 LEFT
+- Procurements.InvoiceId -> Invoices.Id                     INNER, and unique, so strictly one to one
+- ProcurementItems.ProcurementId -> Procurements.Id         INNER
+- ProcurementItems.SourceInvoiceItemId -> InvoiceItems.Id   LEFT
+- ProcurementSupplierQuotes.ProcurementItemId -> ProcurementItems.Id   one to many, fans out
+- PurchaseOrders.SupplierId -> Suppliers.Id                 INNER
+- PurchaseOrders.InvoiceId -> Invoices.Id                   LEFT, NULLABLE
+- POItems.POId -> PurchaseOrders.Id                         LEFT, NULLABLE
+- POItems.SourceProcurementItemId -> ProcurementItems.Id    LEFT
+- POItems.SourceSupplierQuoteId -> ProcurementSupplierQuotes.Id  LEFT
+- POItemTrackNumbers.POItemId -> POItems.Id                 one to many, fans out
+- TrackNumberItems.TrackNumberId -> POItemTrackNumbers.Id   one to many, fans out
+- ShipmentNoteTrackNumbers -> ShipmentNotes and POItemTrackNumbers    many to many, double fan-out
+- FinalInvoices.ProformaInvoiceId -> Invoices.Id            INNER
+- FinalInvoiceItems.InvoiceItemId -> InvoiceItems.Id        LEFT
+Reaching the customer from any purchasing row:
+  Procurements.InvoiceId -> Invoices.Id -> Invoices.CustomerId -> Customers.Id
+  There is no CustomerId on Procurements, ProcurementItems, PurchaseOrders or POItems.
+Full line-level provenance chain, only traverse the segment the question needs:
+  RFQItems -> Procument.RFQItemId -> QuoteItems.ProcumentRecordId -> InvoiceItems.QuoteItemId
+  -> ProcurementItems.SourceInvoiceItemId -> ProcurementSupplierQuotes (IsSelected = 1)
+  -> POItems.SourceProcurementItemId -> POItemTrackNumbers -> TrackNumberItems
+  -> ShipmentNoteTrackNumbers -> ShipmentNotes, and separately FinalInvoiceItems.InvoiceItemId
+Notes: Known fan-out children that must be pre-aggregated or collapsed with OUTER APPLY before being combined: ProcurementSupplierQuotes, POItems, POItemTrackNumbers, TrackNumberItems, ShipmentNoteTrackNumbers, RFQItems, QuoteItems, InvoiceItems, CustomerPayments, Alternatives, PartNumberSuppliers.

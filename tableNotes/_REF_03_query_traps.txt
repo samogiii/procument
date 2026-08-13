@@ -1,0 +1,27 @@
+Note: Query Traps - Mistakes That Produce Confidently Wrong Numbers
+Type: Reference
+Description: The specific errors that return plausible but wrong results against this database. A query that fails is harmless; one that returns a wrong total that looks reasonable is not. Check every item here before trusting a number.
+Traps:
+1. 'Procument' versus 'Procurements' are two different tables. Procument with one 'e' holds pre-acceptance supplier offers during the RFQ stage. Procurements holds the post-acceptance purchasing group. Re-read the spelling every single time.
+2. There is no CustomerId on Procurements, ProcurementItems, PurchaseOrders or POItems. Route through Procurements.InvoiceId to Invoices.CustomerId.
+3. PurchaseOrders.InvoiceId is nullable because a PO can consolidate several sales orders. An INNER JOIN there silently deletes real POs from the answer.
+4. POItems.POId is nullable. Items exist before being attached to a PO and after being returned.
+5. Tasks.Status is an integer enum: 0 To-Do, 1 In-Progress, 2 Done. Writing Status = 'Done' is a type error, not a filter.
+6. QuoteItems.Quantity does not exist. The column is named Qty.
+7. RFQItems.Qty is a FLOAT, not an integer.
+8. Cancelled sales orders are flagged two ways, Invoices.IsCancelled = 1 and Status = 'Cancelled'. Revenue reports that include them overstate the business. Default to excluding them and say that you did.
+9. ProcurementItems carries denormalised snapshot columns (RfqName, QuoteNumber, QuoteUnitPrice, PartNumberName, SupplierName). These are deliberately allowed to drift from the live source rows. Read them directly instead of re-joining upstream to RFQs or Quotes.
+10. Customers.Base is NULL on many older rows. Filtering only on Base = N silently loses customers. Fall back to CustomerCode LIKE 'CN%'.
+11. Counting quotes is not counting quoted RFQs. One RFQ receives several quotes because quotes get revised. Use COUNT(DISTINCT RFQId).
+12. A quote counts as sent even when its status is Accepted or Rejected, because those were sent too. Use SentAt IS NOT NULL OR Status IN ('Sent','Accepted','Rejected'). Filtering on Status = 'Sent' alone undercounts every quote the customer answered.
+13. Statuses are a state machine, not a set of labels. Before filtering on one status, ask which later statuses already imply it happened. Prefer a timestamp column such as SentAt over a status label whenever one exists.
+14. NOT IN with a subquery returns zero rows if the subquery yields even one NULL. Always use NOT EXISTS for anti-joins.
+15. A WHERE filter on a LEFT JOINed table cancels the LEFT and turns it into an INNER JOIN. If the condition describes the joined table it belongs in ON, not WHERE.
+16. Never use BETWEEN on a datetime2 column. Use half-open ranges: >= @from AND < @toExclusive. BETWEEN silently drops the final day.
+17. Integer division truncates. SUM(a) / SUM(b) over int columns returns an int. Cast to decimal first.
+18. SUM over zero rows returns NULL, not 0. Wrap in ISNULL where an empty result is legitimate.
+19. PaymentBoxes has no Balance column. Balance must be derived from PaymentTransactions.
+20. Wallets and quotes can be in different currencies. Never blend currencies into a single total; group by currency. Quotes with CoefYuan or ExchangeRateYuan set are not USD.
+21. TOP 1 inside OUTER APPLY without an ORDER BY is non-deterministic and the answer changes between runs. Always add ORDER BY Id DESC or similar.
+22. Two un-collapsed one-to-many joins produce a cartesian product. The totals will be wrong while every visible cell still looks plausible. Pre-aggregate in a CTE or collapse with OUTER APPLY.
+Notes: When a total can be derived two ways, such as a header amount versus the sum of its lines, compute both and return them as separate columns. Agreement is evidence the number is right; a gap of whole currency units is a real finding worth reporting.

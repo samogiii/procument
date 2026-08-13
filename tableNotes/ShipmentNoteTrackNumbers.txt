@@ -1,0 +1,10 @@
+Table: ShipmentNoteTrackNumbers
+Module: Shipping
+Approximate row count: 29
+Description: Many-to-many junction connecting an outbound shipment note to the inbound track numbers whose goods it contains. Joining through this table fans out in both directions.
+Relationships: Joins to 'ShipmentNotes' on ShipmentNoteId. Joins to 'POItemTrackNumbers' on TrackNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- ShipmentNoteId (BIGINT, NOT NULL, Foreign Key -> ShipmentNotes.Id)
+- TrackNumberId (BIGINT, NOT NULL, Foreign Key -> POItemTrackNumbers.Id)
+Notes: Many-to-many junction: joining through it fans out in both directions. Pre-aggregate before combining with any other child table.

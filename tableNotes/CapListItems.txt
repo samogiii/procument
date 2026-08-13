@@ -1,0 +1,13 @@
+Table: CapListItems
+Module: ILS/Inventory
+Approximate row count: 65083
+Description: Capability list: which parts a given company can supply or repair.
+Relationships: Joins to 'Suppliers' on CompanyId. Joins to 'PartNumbers' on PartNumberId. Joins to 'Procument' on ProcumentRecordId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- CompanyId (BIGINT, NOT NULL, Foreign Key -> Suppliers.Id)
+- CreatedAt (DATETIME2, NOT NULL)
+- Description (NVARCHAR(1000), NULL)
+- IsRepair (BIT, NOT NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- ProcumentRecordId (BIGINT, NULL, Foreign Key -> Procument.Id)

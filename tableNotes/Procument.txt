@@ -1,0 +1,36 @@
+Table: Procument
+Also known as: sourcing record, price record, supplier offer, pre-acceptance sourcing
+Module: Purchasing
+Approximate row count: 3470
+Description: Pre-acceptance sourcing offers: the prices an expert collects from suppliers while working an RFQ, before the customer has accepted anything. WARNING: this table is spelled with one 'e' and is a completely different table from Procurements. Business users call these price records, sourcing records or supplier offers.
+Relationships: Joins to 'Procument' on ParentProcumentId (nullable - use LEFT JOIN). Joins to 'RFQItems' on RFQItemId. Joins to 'Suppliers' on SupplierId. Joins to 'Users' on UserId (nullable - use LEFT JOIN). Joined from 'CapListItems' on CapListItems.ProcumentRecordId. Joined from 'ILSItems' on ILSItems.ProcumentRecordId. Joined from 'POItems' on POItems.ProcumentId. Joined from 'Procument' on Procument.ParentProcumentId. Joined from 'QuoteItems' on QuoteItems.ProcumentRecordId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Alt (NVARCHAR(200), NULL)
+- CertName (NVARCHAR(MAX), NULL)
+- Coef_1 (FLOAT, NULL)
+- Coef_2 (FLOAT, NULL)
+- Coef_3 (FLOAT, NULL)
+- Condition (NVARCHAR(100), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- FixPrice (DECIMAL(18,2), NULL)
+- IsCertificated (BIT, NOT NULL)
+- LeadTime (NVARCHAR(MAX), NULL)
+- MyNotes (NVARCHAR(MAX), NULL)
+- Note (NVARCHAR(MAX), NULL)
+- ParentProcumentId (BIGINT, NULL, Foreign Key -> Procument.Id)
+- Price (DECIMAL(18,2), NOT NULL)
+- Qty (FLOAT, NOT NULL)
+- RFQItemId (BIGINT, NOT NULL, Foreign Key -> RFQItems.Id)
+- ShippingCost (FLOAT, NULL)
+- ShippingPoint (NVARCHAR(MAX), NULL)
+- SortOrder (INT, NOT NULL)
+- SupplierId (BIGINT, NOT NULL, Foreign Key -> Suppliers.Id)
+- TagDate (DATE, NULL)
+- TotalPrice (FLOAT, NULL)
+- Type (NVARCHAR(50), NOT NULL, default "Procument")
+- Unit (NVARCHAR(MAX), NULL)
+- UnitPrice (FLOAT, NULL)
+- UpdatedAt (DATETIME2, NULL)
+- UserId (BIGINT, NULL, Foreign Key -> Users.Id)
+Notes: Do not confuse with the Procurements table. This one is pre-acceptance sourcing; Procurements is post-acceptance purchasing.

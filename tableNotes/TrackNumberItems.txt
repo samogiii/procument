@@ -1,0 +1,20 @@
+Table: TrackNumberItems
+Module: Shipping
+Approximate row count: 37
+Description: Per-item receiving and inspection of an inbound parcel. Each row is one PO item inside one track number, and Status records whether it was accepted or rejected on arrival.
+Relationships: Joins to 'POItems' on POItemId. Joins to 'Users' on ReviewedByUserId (nullable - use LEFT JOIN). Joins to 'POItemTrackNumbers' on TrackNumberId. Joined from 'WarehouseTransferItems' on WarehouseTransferItems.SourceTrackNumberItemId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- ActualQty (INT, NULL)
+- CertNeeded (BIT, NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- ExpectedQty (INT, NOT NULL)
+- IsAvailable (BIT, NULL)
+- POItemId (BIGINT, NOT NULL, Foreign Key -> POItems.Id)
+- ReviewNote (NVARCHAR(1000), NULL)
+- ReviewedAt (DATETIME2, NULL)
+- ReviewedByUserId (BIGINT, NULL, Foreign Key -> Users.Id)
+- Status (NVARCHAR(20), NOT NULL, default "Pending")
+  Allowed values: Pending | Accepted | Rejected
+- TrackNumberId (BIGINT, NOT NULL, Foreign Key -> POItemTrackNumbers.Id)
+- TransferredOutQty (INT, NOT NULL)

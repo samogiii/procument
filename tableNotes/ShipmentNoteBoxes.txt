@@ -1,0 +1,16 @@
+Table: ShipmentNoteBoxes
+Module: Shipping
+Approximate row count: 16
+Description: Packing boxes with weights and dimensions on an outbound shipment.
+Relationships: Joins to 'ShipmentNotes' on ShipmentNoteId. Joins to 'POItemTrackNumbers' on TrackNumberId (nullable - use LEFT JOIN).
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- BoxNumber (INT, NOT NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- HeightCm (DECIMAL(10,2), NULL)
+- LengthCm (DECIMAL(10,2), NULL)
+- Notes (NVARCHAR(MAX), NULL)
+- ShipmentNoteId (BIGINT, NOT NULL, Foreign Key -> ShipmentNotes.Id)
+- TrackNumberId (BIGINT, NULL, Foreign Key -> POItemTrackNumbers.Id)
+- WeightKg (DECIMAL(10,3), NULL)
+- WidthCm (DECIMAL(10,2), NULL)

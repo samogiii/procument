@@ -1,0 +1,10 @@
+Table: UserBases
+Module: Identity
+Approximate row count: 5
+Description: Maps a user to the bases (offices) whose data they are allowed to see. This is the main data-scoping mechanism.
+Relationships: Joins to 'Users' on UserId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- Base (INT, NOT NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- UserId (BIGINT, NOT NULL, Foreign Key -> Users.Id)

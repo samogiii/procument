@@ -1,0 +1,17 @@
+Table: ILSProformaInvoices
+Module: ILS/Inventory
+Approximate row count: 2
+Description: A proforma invoice in the ILS channel.
+Relationships: Joins to 'ILSCustomers' on ILSCustomerId. Joined from 'ILSProformaInvoiceItems' on ILSProformaInvoiceItems.ILSProformaInvoiceId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- BillTo (NVARCHAR(2000), NULL)
+- CreatedAt (DATETIME2, NOT NULL)
+- CustomerPONumber (NVARCHAR(200), NULL)
+- ILSCustomerId (BIGINT, NOT NULL, Foreign Key -> ILSCustomers.Id)
+- Notes (NVARCHAR(2000), NULL)
+- PINumber (NVARCHAR(100), NOT NULL)
+- ShipTo (NVARCHAR(2000), NULL)
+- Status (NVARCHAR(50), NOT NULL)
+- Subject (NVARCHAR(300), NULL)
+- TotalAmount (DECIMAL(18,2), NOT NULL)

@@ -1,0 +1,22 @@
+Table: ILSQuoteItems
+Module: ILS/Inventory
+Approximate row count: 4
+Description: Lines on an ILS quote. ILSItemSerialId is a soft reference with no real foreign key, so the quote keeps its history even if the serial is removed.
+Relationships: Joins to 'ILSItems' on ILSItemId (nullable - use LEFT JOIN). Joins to 'ILSQuotes' on ILSQuoteId. Joins to 'PartNumbers' on PartNumberId.
+Columns:
+- Id (BIGINT, NOT NULL, Primary Key)
+- AltPartNumber (NVARCHAR(MAX), NULL)
+- BasePrice (DECIMAL(18,2), NULL)
+- CertName (NVARCHAR(200), NULL)
+- Coef (DECIMAL(18,4), NULL)
+- Condition (NVARCHAR(100), NULL)
+- ILSItemId (BIGINT, NULL, Foreign Key -> ILSItems.Id)
+- ILSItemSerialId (BIGINT, NULL)
+- ILSQuoteId (BIGINT, NOT NULL, Foreign Key -> ILSQuotes.Id)
+- LeadTime (NVARCHAR(100), NULL)
+- Notes (NVARCHAR(MAX), NULL)
+- PartNumberId (BIGINT, NOT NULL, Foreign Key -> PartNumbers.Id)
+- Qty (FLOAT, NOT NULL)
+- SellPrice (DECIMAL(18,2), NOT NULL)
+- SerialNumber (NVARCHAR(200), NULL)
+- TotalPrice (DECIMAL(18,2), NOT NULL)
