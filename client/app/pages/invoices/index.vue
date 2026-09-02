@@ -161,6 +161,13 @@
       />
     </template>
 
+    <!-- Base 1 Sales Orders inherit the quote's B1 number re-lettered P (P101-60701-10)
+         as B1ProformaInvoiceNumber; shown beneath the Sales Order number. -->
+    <template #item.invoiceNumber="{ item }">
+      <div class="font-weight-medium">{{ item.invoiceNumber || `#${item.id}` }}</div>
+      <span v-if="item.b1ProformaInvoiceNumber" class="text-caption text-medium-emphasis">{{ item.b1ProformaInvoiceNumber }}</span>
+    </template>
+
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />
     </template>
@@ -169,7 +176,7 @@
          to exactly one base. Shown as the company preset name that owns that base. -->
     <template #item.customerBase="{ item }">
       <v-chip v-if="item.customerBase != null" size="x-small" color="secondary" variant="tonal">
-        {{ baseLabel(item.customerBase) }}
+        {{ item.customerBase }}
       </v-chip>
       <span v-else class="text-medium-emphasis">—</span>
     </template>
@@ -235,7 +242,7 @@
             item-title="quoteNumber"
             item-value="id"
             label="Search Quotes (Sent or Accepted)"
-            placeholder="Type to search..."
+            placeholder="Search by Quote # or B1 Quote Number..."
             return-object
             multiple
             chips
@@ -246,8 +253,10 @@
             no-filter
             @update:search="fetchQuotes"
           >
+            <!-- Subtitle carries the B1 quote number alongside the customer code so a
+                 quote can be recognised by either number. -->
             <template #item="{ props, item }">
-              <v-list-item v-bind="props" :subtitle="item.raw.customerCode">
+              <v-list-item v-bind="props" :subtitle="quoteSubtitle(item.raw)">
                 <template #append>
                    <v-chip size="x-small" :color="statusColor(item.raw.status)" class="ml-2">{{ item.raw.status }}</v-chip>
                 </template>
@@ -415,6 +424,11 @@ function formatPrice(v: number | null | undefined) {
   return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Dropdown subtitle: customer code, plus the B1 quote number when the quote has one. */
+function quoteSubtitle(q: any) {
+  return q.b1QuoteNumber ? `${q.customerCode || '—'} · ${q.b1QuoteNumber}` : q.customerCode
+}
+
 const filteredQuotes = computed(() => {
   if (selectedQuotes.value.length === 0) return availableQuotes.value
   const targetCustomer = selectedQuotes.value[0].customerName
@@ -446,11 +460,13 @@ async function fetchQuotes(search: string) {
       },
     })
 
+    const needle = search?.toLowerCase()
     availableQuotes.value = (result.items || [])
-      .filter((q: any) => !search ||
-        q.quoteNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        q.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-        q.customerCode?.toLowerCase().includes(search.toLowerCase())
+      .filter((q: any) => !needle ||
+        q.quoteNumber?.toLowerCase().includes(needle) ||
+        q.b1QuoteNumber?.toLowerCase().includes(needle) ||
+        q.customerName?.toLowerCase().includes(needle) ||
+        q.customerCode?.toLowerCase().includes(needle)
       )
   } catch (e) {
     console.error(e)

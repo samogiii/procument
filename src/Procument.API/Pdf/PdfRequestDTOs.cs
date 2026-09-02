@@ -283,6 +283,9 @@ public class PackingListPdfRequest
     public string? PrimaryColor { get; set; }
     public string? AccentColor { get; set; }
 
+    /// <summary>Visual template: "modern" (default), "classic" or "standard".</summary>
+    public string? Template { get; set; }
+
     // Document meta
     public string? InvoiceNumber { get; set; }
     public string? InvoiceDate { get; set; }
@@ -320,6 +323,16 @@ public class PackingListPdfItem
     public int Qty { get; set; }
     public string? Condition { get; set; }
     public string? Certification { get; set; }
+    /// <summary>
+    /// Invoice this line came from. Only populated on a merged packing list covering several
+    /// final invoices; when any item carries one, the templates add an "Invoice" column.
+    /// </summary>
+    public string? SourceInvoice { get; set; }
+    /// <summary>
+    /// Customer PO belonging to the source final invoice. Only populated for merged packing
+    /// lists, where it is rendered as a per-line column beside the source invoice.
+    /// </summary>
+    public string? SourceCustomerPONumber { get; set; }
 }
 
 public class PackingListPackage

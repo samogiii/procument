@@ -126,14 +126,24 @@ public static class PackingListDocument
     {
         var items = req.Items ?? [];
 
+        // Merged packing lists carry the source invoice per line; single-invoice ones don't
+        // and keep the original six columns.
+        var isMerged = items.Any(i => !string.IsNullOrWhiteSpace(i.SourceInvoice));
+
         container.Column(outer =>
         {
             // Header
             outer.Item().Row(hr =>
             {
-                string[] headers = ["#", "Part Number", "Description", "Qty", "CD", "Certification"];
-                float[] widths   = [20,   0,             0,           40,   40,  60];
-                float[] rels     = [0,    1.5f,           2f,          0,    0,   0];
+                string[] headers = isMerged
+                    ? ["#", "Invoice", "Customer PO", "Part Number", "Description", "Qty", "CD", "Certification"]
+                    : ["#", "Part Number", "Description", "Qty", "CD", "Certification"];
+                float[] widths = isMerged
+                    ? [20, 60, 75, 0,     0,  35, 35, 55]
+                    : [20,     0,     0,  40, 40, 60];
+                float[] rels = isMerged
+                    ? [0,  0,  0,  1.35f, 1.8f, 0,  0,  0]
+                    : [0,      1.5f, 2f, 0,  0,  0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -165,6 +175,11 @@ public static class PackingListDocument
                             });
 
                     Cell(r.ConstantItem(20), (idx + 1).ToString(), Colors.Grey.Darken1);
+                    if (isMerged)
+                    {
+                        Cell(r.ConstantItem(60), it.SourceInvoice ?? "—", Colors.Grey.Darken1);
+                        Cell(r.ConstantItem(75), it.SourceCustomerPONumber ?? "—", Colors.Grey.Darken1);
+                    }
 
                     // Part number — when an Alt is set, show it as the effective PN with the original as reference
                     var isAlt = !string.IsNullOrWhiteSpace(it.Alt);
@@ -178,9 +193,9 @@ public static class PackingListDocument
                                     .FontSize(6.5f).FontColor(Colors.Grey.Medium));
                         });
                     Cell(r.RelativeItem(2f), it.Description ?? "—", Colors.Grey.Darken1);
-                    Cell(r.ConstantItem(40), it.Qty.ToString(), primary, bold: true);
-                    Cell(r.ConstantItem(40), it.Condition ?? "—", primary);
-                    Cell(r.ConstantItem(60), it.Certification ?? "—", Colors.Grey.Darken1);
+                    Cell(r.ConstantItem(isMerged ? 35 : 40), it.Qty.ToString(), primary, bold: true);
+                    Cell(r.ConstantItem(isMerged ? 35 : 40), it.Condition ?? "—", primary);
+                    Cell(r.ConstantItem(isMerged ? 55 : 60), it.Certification ?? "—", Colors.Grey.Darken1);
                 });
             }
         });

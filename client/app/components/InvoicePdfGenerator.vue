@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background" style="overflow:hidden;">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — {{ invoice.invoiceNumber || `INV-${invoice.id}` }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Proforma Invoice PDF — {{ docNumber }}</v-toolbar-title>
         <v-spacer />
         <v-select
           v-model="pdfTemplate"
@@ -229,6 +229,16 @@ const model = defineModel<boolean>({ default: false })
 const api = useApi()
 const authStore = useAuthStore()
 const canSelect = computed(() => authStore.isPDFSelection)
+
+/**
+ * The number printed on the PDF. Base 1 customers have a B1 proforma invoice number
+ * (P101-60701-10) which is the number they know the document by, so it replaces the
+ * internal Sales Order number everywhere the customer can see it — the document body,
+ * the server-rendered template, and the file name. Every other base has no B1 number
+ * and keeps the internal one.
+ */
+const docNumber = computed(() =>
+  props.invoice?.b1ProformaInvoiceNumber || props.invoice?.invoiceNumber || `INV-${props.invoice?.id}`)
 
 // ── Section visibility toggles ──
 const sections = reactive([
@@ -572,7 +582,7 @@ function buildPreviewModel(): PdfPreviewModel {
 
   return {
     docTitle: 'Proforma Invoice',
-    docNumber: inv.invoiceNumber || `INV-${inv.id}`,
+    docNumber: docNumber.value,
     logoDataUrl: logoDataUrl.value,
     companyName: companyName.value,
     companyLocation: companyLocation.value,
@@ -745,7 +755,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="text-align:right;">
           <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">Proforma Invoice</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:4px;">INV-${inv.id}</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${docNumber.value}</div>
         </div>
       </div>
 
@@ -891,7 +901,7 @@ async function downloadPdf() {
         logoBase64: logoDataUrl.value || null,
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
-        invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
+        invoiceNumber: docNumber.value,
         invoiceTitle: "Proforma Invoice PI",
         invoiceDate: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—',
         dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—',
@@ -958,7 +968,7 @@ async function downloadPdf() {
       link.href = url
       const customerNameForFile = overrideCustomerName.value || inv.customerName || 'Customer'
       const sanitizedCustomerName = customerNameForFile.replace(/[^a-zA-Z0-9]/g, '_')
-      const fileName = `PI-${inv.id}-${sanitizedCustomerName}${curr.nameSuffix}.pdf`
+      const fileName = `${docNumber.value.replace(/[/\\:*?"<>|]/g, '-')}-${sanitizedCustomerName}${curr.nameSuffix}.pdf`
       link.setAttribute('download', fileName)
       document.body.appendChild(link)
       link.click()

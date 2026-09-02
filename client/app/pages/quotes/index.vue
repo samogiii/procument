@@ -74,6 +74,28 @@
         class="mx-2"
         style="min-width: 140px; max-width: 260px;"
       />
+      <v-text-field
+        v-model="createdFrom"
+        label="Created From"
+        type="date"
+        hide-details
+        clearable
+        density="compact"
+        variant="outlined"
+        class="mx-2"
+        style="min-width: 160px; max-width: 200px;"
+      />
+      <v-text-field
+        v-model="createdTo"
+        label="Created To"
+        type="date"
+        hide-details
+        clearable
+        density="compact"
+        variant="outlined"
+        class="mx-2"
+        style="min-width: 160px; max-width: 200px;"
+      />
       <v-btn
         :color="showRejected ? 'error' : 'default'"
         :variant="showRejected ? 'tonal' : 'outlined'"
@@ -193,10 +215,13 @@
       />
     </template>
 
+    <!-- Base 1 quotes also carry a B1 quote number (Q101-60701-10); shown beneath the
+         quote number. Every other base has none, so the sub-line is simply absent. -->
     <template #item.quoteNumber="{ item }">
-      <nuxt-link :to="`/quotes/${item.id}`" class="text-primary font-weight-bold text-decoration-none" @click.stop>
+      <nuxt-link :to="`/quotes/${item.id}`" class="text-primary font-weight-bold text-decoration-none d-block" @click.stop>
         {{ item.quoteNumber || `#${item.id}` }}
       </nuxt-link>
+      <span v-if="item.b1QuoteNumber" class="text-caption text-medium-emphasis">{{ item.b1QuoteNumber }}</span>
     </template>
 
     <template #item.rfqName="{ item }">
@@ -450,12 +475,17 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes',
   rfq: [] as string[],
   pnSearch: '',
   quoteNumber: [] as string[],
+  createdFrom: '',
+  createdTo: '',
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
 const statusFilter = pf.status
 const rfqFilter = pf.rfq
 const quoteNumberFilter = pf.quoteNumber
+// Created-at range — both bounds inclusive; the backend covers the whole `createdTo` day.
+const createdFrom = pf.createdFrom
+const createdTo = pf.createdTo
 
 // P/N Search — passed as server-side filter param
 const pnSearch = pf.pnSearch
@@ -486,6 +516,8 @@ const cfOptions = useCascadingOptions<QuoteOptions>(
       if (pf.search.value?.trim()) params.set('search', pf.search.value.trim())
       if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
       if (showRejected.value) params.set('includeRejected', 'true')
+      if (createdFrom.value) params.set('createdFrom', createdFrom.value)
+      if (createdTo.value) params.set('createdTo', createdTo.value)
       ;(statusFilter.value || []).forEach(s => params.append('status', s))
       ;(customerFilter.value || []).forEach(c => params.append('customerNames', c))
       ;(userFilter.value || []).forEach(u => params.append('assignedUserNames', u))
@@ -527,7 +559,8 @@ const customerOptions = computed(() => customerAllOptions.value)
 onMounted(() => cfOptions.init())
 
 watch(
-  [statusFilter, customerFilter, userFilter, rfqFilter, quoteNumberFilter, pnSearch, showRejected, () => pf.search.value],
+  [statusFilter, customerFilter, userFilter, rfqFilter, quoteNumberFilter, pnSearch, showRejected,
+   createdFrom, createdTo, () => pf.search.value],
   () => cfOptions.refreshDebounced(),
   { deep: true },
 )
@@ -540,6 +573,8 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (rfqFilter.value?.length) p.rfqNames = rfqFilter.value
   if (quoteNumberFilter.value?.length) p.quoteNumbers = quoteNumberFilter.value
   if (showRejected.value) p.includeRejected = 'true'
+  if (createdFrom.value) p.createdFrom = createdFrom.value
+  if (createdTo.value) p.createdTo = createdTo.value
   return p
 })
 

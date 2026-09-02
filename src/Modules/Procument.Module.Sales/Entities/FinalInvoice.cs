@@ -14,6 +14,14 @@ public class FinalInvoice : BaseEntity
 
     public string InvoiceNumber { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Base 1 final invoice number, inherited from the source proforma's B1 number with the
+    /// leading letter swapped to 'I' — e.g. proforma "P101-60701-10" produces "I101-60701-10".
+    /// Null when the source proforma has none (any base other than 1).
+    /// Surfaced to the client as B1InvoiceNumber, the front-end's name for it.
+    /// </summary>
+    public string? B1FinalInvoiceNumber { get; set; }
+
     public decimal TotalAmount { get; set; }
 
     public string Status { get; set; } = "Draft";

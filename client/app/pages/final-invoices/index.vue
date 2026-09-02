@@ -3,6 +3,14 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <h1 class="text-h5 font-weight-bold">Final Invoices</h1>
       <v-spacer />
+      <v-btn
+        prepend-icon="mdi-package-variant-closed-plus"
+        variant="tonal"
+        color="info"
+        @click="showMergeDialog = true"
+      >
+        Merge Packing Lists
+      </v-btn>
       <v-btn prepend-icon="mdi-plus" color="primary" @click="showAddDialog = true">Create Final Invoice</v-btn>
     </div>
 
@@ -160,6 +168,18 @@
             />
           </template>
 
+          <!-- Base 1 invoices inherit the proforma's B1 number re-lettered I
+               (I101-60701-10) as B1InvoiceNumber; shown beneath the invoice number. -->
+          <template #item.invoiceNumber="{ item }">
+            <div class="font-weight-medium">{{ item.invoiceNumber || `#${item.id}` }}</div>
+            <span v-if="item.b1InvoiceNumber" class="text-caption text-medium-emphasis">{{ item.b1InvoiceNumber }}</span>
+          </template>
+
+          <template #item.proformaInvoiceNumber="{ item }">
+            <div>{{ item.proformaInvoiceNumber || '—' }}</div>
+            <span v-if="item.b1ProformaInvoiceNumber" class="text-caption text-medium-emphasis">{{ item.b1ProformaInvoiceNumber }}</span>
+          </template>
+
           <template #item.status="{ item }">
             <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
           </template>
@@ -186,7 +206,10 @@
           <div v-if="loadingProformas" class="d-flex justify-center my-4">
             <v-progress-circular indeterminate color="primary" />
           </div>
-          <v-select
+          <!-- Autocomplete rather than a plain select so a Sales Order can be found by
+               its number or its B1 Proforma Invoice Number. Both are in displayText, which
+               is what the default filter matches on. -->
+          <v-autocomplete
             v-else
             v-model="selectedProformaId"
             :items="eligibleProformas"
@@ -196,8 +219,17 @@
             variant="outlined"
             density="comfortable"
             hide-details
-            placeholder="Choose an eligible Proforma..."
-          />
+            auto-select-first
+            placeholder="Search by Sales Order # or B1 Proforma Invoice Number..."
+          >
+            <template #item="{ props, item }">
+              <v-list-item
+                v-bind="props"
+                :title="item.raw.invoiceNumber"
+                :subtitle="`${item.raw.b1ProformaInvoiceNumber ? item.raw.b1ProformaInvoiceNumber + ' · ' : ''}${item.raw.customerName} ($${formatPrice(item.raw.totalAmount)})`"
+              />
+            </template>
+          </v-autocomplete>
           <div v-if="!loadingProformas && eligibleProformas.length === 0" class="text-caption text-error mt-2">
             No Sales Order are currently eligible. (Requires at least one Completed PO).
           </div>
@@ -217,6 +249,9 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Merge several final invoices (one customer) into a single packing list -->
+    <MergedPackingListDialog v-model="showMergeDialog" />
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
       {{ snackbarText }}
@@ -386,6 +421,9 @@ onMounted(() => {
   cfOptions.init()
 })
 
+// ─── Merge packing lists dialog ───
+const showMergeDialog = ref(false)
+
 // ─── Create dialog ───
 const showAddDialog = ref(false)
 const selectedProformaId = ref<number | null>(null)
@@ -410,7 +448,8 @@ watch(showAddDialog, async (val) => {
       const data = await api.get<any[]>('/final-invoices/eligible-proformas')
       eligibleProformas.value = data.map((p: any) => ({
         ...p,
-        displayText: `${p.invoiceNumber} - ${p.customerName} ($${formatPrice(p.totalAmount)})`
+        // The B1 number sits in the title text so typing it filters the list.
+        displayText: `${p.invoiceNumber}${p.b1ProformaInvoiceNumber ? ` · ${p.b1ProformaInvoiceNumber}` : ''} - ${p.customerName} ($${formatPrice(p.totalAmount)})`
       }))
     } catch {
       showSnack('Failed to load eligible proformas', 'error')

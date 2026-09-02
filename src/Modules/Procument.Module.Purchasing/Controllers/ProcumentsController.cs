@@ -47,8 +47,15 @@ public class SupplierQuotesController : ControllerBase
     [Auditable("ProcumentRecord", "Save", CaptureBody = true)]
     public async Task<ActionResult<SupplierQuoteResponse>> Save(long rfqId, [FromBody] SaveSupplierQuoteRequest request)
     {
-        var result = await _procumentService.SaveAsync(request, GetUserId());
-        return Ok(result);
+        try
+        {
+            var result = await _procumentService.SaveAsync(request, GetUserId());
+            return Ok(result);
+        }
+        catch (SupplierNotFoundException ex)
+        {
+            return BadRequest(new { message = ex.Message, missingSuppliers = ex.MissingSuppliers });
+        }
     }
 
     /// <summary>Bulk save supplier quotes.</summary>
@@ -56,8 +63,15 @@ public class SupplierQuotesController : ControllerBase
     [Auditable("ProcumentRecord", "BulkSave", CaptureBody = true)]
     public async Task<ActionResult<List<SupplierQuoteResponse>>> BulkSave(long rfqId, [FromBody] BulkSaveQuotesRequest request)
     {
-        var result = await _procumentService.BulkSaveAsync(rfqId, request, GetUserId());
-        return Ok(result);
+        try
+        {
+            var result = await _procumentService.BulkSaveAsync(rfqId, request, GetUserId());
+            return Ok(result);
+        }
+        catch (SupplierNotFoundException ex)
+        {
+            return BadRequest(new { message = ex.Message, missingSuppliers = ex.MissingSuppliers });
+        }
     }
 
     /// <summary>Delete a supplier quote.</summary>

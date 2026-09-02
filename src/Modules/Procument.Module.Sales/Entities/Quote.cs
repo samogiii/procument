@@ -9,6 +9,12 @@ namespace Procument.Module.Sales.Entities;
 public class Quote : BaseEntity
 {
     public string QuoteNumber { get; set; } = string.Empty;
+    /// <summary>
+    /// Base 1 quote number — e.g. "Q101-60701-10" for customer C101. Assigned only to
+    /// Base 1 customers; null for every other base and for quotes created before the
+    /// feature. See <see cref="Services.IB1NumberService"/> for the format.
+    /// </summary>
+    public string? B1QuoteNumber { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
     public DateTime? ValidUntil { get; set; }

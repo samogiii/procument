@@ -763,6 +763,23 @@ watch(expanded, (newVal, oldVal) => {
   })
 }, { deep: true })
 
+/**
+ * Re-fetch the detail of every row that is still expanded.
+ * The list reload drops the whole detail cache, but `expanded` keeps its ids — without
+ * this the open panels would render empty until the user collapsed and re-expanded them.
+ */
+function refreshExpandedDetails() {
+  const pids = new Set<number>()
+  for (const id of expanded.value) {
+    const item = allItems.value.find((i: any) => String(i.id ?? i.Id) === String(id))
+    const pid = item && (item.procurementId || item.ProcurementId)
+    if (pid && !loadingDetails.value[pid]) pids.add(pid)
+  }
+  // Not awaited: each panel shows its own spinner via `loadingDetails`, so the list
+  // does not have to wait for them. fetchProcurementDetail never rejects.
+  pids.forEach(pid => fetchProcurementDetail(pid))
+}
+
 async function fetchProcurementDetail(procurementId: number) {
   if (!procurementId) return
   loadingDetails.value[procurementId] = true
@@ -933,8 +950,8 @@ async function approveSupplierQuote(item: any, sq: any) {
     } else {
       showSnack('Supplier row approved — PO item created.', 'success')
     }
-    await fetchProcurementDetail((item.procurementId || item.ProcurementId))
-    await loadData() // Refresh list for statuses
+    // loadData() refreshes the list and re-fetches the detail of every still-open row.
+    await loadData()
   } catch (e: any) {
     showSnack(e?.data?.message || 'Approval failed', 'error')
   } finally {
@@ -952,7 +969,6 @@ async function reopenProcurement(item: any) {
   try {
     await api.post(`/procurements/${pid}/reopen`, {})
     showSnack('Procurement reopened — you can now add supplier quotes to cover remaining qty.', 'success')
-    await fetchProcurementDetail(pid)
     await loadData()
   } catch (e: any) {
     showSnack(e?.data?.message || 'Failed to reopen', 'error')
@@ -971,7 +987,6 @@ async function finalizeProcurement(item: any) {
   try {
     await api.post(`/procurements/${pid}/force-finalize`, {})
     showSnack('Procurement finalized.', 'success')
-    await fetchProcurementDetail(pid)
     await loadData()
   } catch (e: any) {
     showSnack(e?.data?.message || 'Failed to finalize', 'error')
@@ -1117,6 +1132,9 @@ async function loadServerPage(opts?: any) {
     collectCfOptions(allItems.value)
     // Clear detail cache so re-expanding any row fetches fresh data (e.g. after PO cancellation)
     procurementDetails.value = {}
+    // ...then immediately restore the rows the user still has open, so approving or
+    // updating something does not blank out the panel they are looking at.
+    refreshExpandedDetails()
   } catch (e) {
     console.error('[ProcurementItems] Load failed', e)
   } finally {

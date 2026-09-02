@@ -6,6 +6,13 @@ namespace Procument.Module.Sales.Entities;
 public class Invoice : BaseEntity
 {
     public string InvoiceNumber { get; set; } = string.Empty;
+    /// <summary>
+    /// Base 1 invoice number, inherited from the source quote's B1 number with the leading
+    /// letter swapped to 'P' — e.g. quote "Q101-60701-10" produces "P101-60701-10".
+    /// Null when the source quote has none (any base other than 1).
+    /// Surfaced to the client as B1ProformaInvoiceNumber, the front-end's name for it.
+    /// </summary>
+    public string? B1InvoiceNumber { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
     public string? PaymentStatus { get; set; }      // Net30 | CAD | Prepayment

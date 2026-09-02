@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.RFQ.DTOs;
@@ -42,6 +43,39 @@ public class RFQsController : ControllerBase
     }
 
     /// <summary>
+    /// Create many RFQs for one customer in a single call. Groups that share a name but differ by
+    /// deadline are split into ABA(1), ABA(2)... in deadline order; a group whose resulting name is
+    /// already taken is reported as skipped rather than merged into the existing RFQ.
+    /// Admin only — the whole import runs in one transaction.
+    /// </summary>
+    [HttpPost("bulk-import")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult<BulkImportRFQResponse>> BulkImport([FromBody] BulkImportRFQRequest request)
+    {
+        var (userId, _, _) = GetUserContext();
+
+        BulkImportRFQResponse result;
+        try
+        {
+            result = await _rfqService.BulkImportAsync(request, userId);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
+        if (result.CreatedCount > 0)
+        {
+            var userName = await _db.Set<User>().Where(u => u.Id == userId).Select(u => u.Name).FirstOrDefaultAsync() ?? "System";
+            var customerLabel = await _db.Set<Customer>().Where(c => c.Id == result.CustomerId).Select(c => c.Name).FirstOrDefaultAsync();
+            foreach (var created in result.Results.Where(r => !r.Skipped && r.RfqId.HasValue))
+                await _auditService.LogRFQCreatedAsync(userId, userName, created.RfqId!.Value, created.Name, customerLabel);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Distinct filter options for the RFQs page. Every column is computed against the
     /// rows that survive *all the other* active filters (Excel-style cascading), so the
     /// second and third column a user opens only offers values that still return rows.
@@ -59,7 +93,9 @@ public class RFQsController : ControllerBase
         [FromQuery] string[]? rfqNames = null,
         [FromQuery] string[]? deadlines = null,
         [FromQuery] bool includeNoQuote = false,
-        [FromQuery] int? maxDays = null)
+        [FromQuery] int? maxDays = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
         var (userId, isSuperAdmin, userBases) = GetUserContext();
 
@@ -155,6 +191,13 @@ public class RFQsController : ControllerBase
                 q = q.Where(r => r.LeadTime.Date <= cutoff);
             }
 
+            // Created-at range narrows every column — it has no column menu of its own.
+            if (createdFrom.HasValue)
+                q = q.Where(r => r.CreatedAt >= createdFrom.Value);
+
+            if (createdTo.HasValue)
+                q = q.Where(r => r.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
             return q;
         }
 
@@ -212,11 +255,13 @@ public class RFQsController : ControllerBase
         [FromQuery] string[]? rfqNames = null,
         [FromQuery] string[]? deadlines = null,
         [FromQuery] bool includeNoQuote = false,
-        [FromQuery] int? maxDays = null)
+        [FromQuery] int? maxDays = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _rfqService.GetAllAsync(userId, isSuperAdmin, userBases, pq, statuses, pnSearch, userIds, customerSearch, sortBy, sortDesc, rfqIds, rfqNames, deadlines, includeNoQuote, maxDays);
+        var result = await _rfqService.GetAllAsync(userId, isSuperAdmin, userBases, pq, statuses, pnSearch, userIds, customerSearch, sortBy, sortDesc, rfqIds, rfqNames, deadlines, includeNoQuote, maxDays, createdFrom, createdTo);
         return Ok(result);
     }
 

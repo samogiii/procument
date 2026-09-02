@@ -88,7 +88,7 @@
         </template>
 
         <!-- Admin Section -->
-        <template v-if="authStore.isAdmin">
+        <template v-if="authStore.isAdmin && !restrictedNav">
           <v-divider class="my-2" />
           <v-list-subheader v-if="mobile || !rail">ADMIN</v-list-subheader>
           <v-list-item
@@ -429,6 +429,26 @@ const EXPERT_NAV_PATHS = new Set<string>([
 ])
 const EXPERT_SYD_NAV_PATHS = new Set<string>([...EXPERT_NAV_PATHS, '/ils', '/total-shipping', '/shipment-notes', '/shipping/ready-for-sn', '/shipping', '/inventory', '/catalog'])
 
+// Hardcoded per-username menu whitelist. Any user listed here — regardless of role,
+// including Admin — sees ONLY these routes in the nav (and no Admin section).
+// Keyed by authStore.user.name.
+const RESTRICTED_USER_NAV: Record<string, Set<string>> = {
+  Jessie: new Set<string>([
+    '/dashboard',       // Dashboard
+    '/rfqs',            // RFQs
+    '/invoices',        // Sales Order
+    '/quotes',        
+    '/final-invoices',  // Invoices
+    // Shipping — all items in the Shipping group
+    '/shipping', '/total-shipping', '/shipping/ready-for-sn', '/shipment-notes',
+  ]),
+}
+
+// Whitelist for the current user, if any.
+const restrictedNav = computed(() =>
+  authStore.user?.name ? RESTRICTED_USER_NAV[authStore.user.name] : undefined
+)
+
 // Map unread notifications → nav route badges
 const navBadges = computed(() => {
   const counts: Record<string, number> = {}
@@ -465,6 +485,16 @@ const navBadges = computed(() => {
 
 const navItems = computed(() => {
   const filterItem = (item: any) => {
+    // ── Hardcoded per-username whitelist — overrides everything else ────────
+    // Users in RESTRICTED_USER_NAV see ONLY their allowed routes. Skip the
+    // duplicate inventoryOnly Shipping entries so the Shipping group is the
+    // single source for those pages.
+    const restricted = restrictedNav.value
+    if (restricted) {
+      if (item.inventoryOnly) return false
+      return restricted.has(item.to) || (item.children?.some((c: any) => restricted.has(c.to)) ?? false)
+    }
+
     // ── Inventory: show only inventory-specific pages ──────────────────────
     if (authStore.user?.role === 'Inventory') {
       return item.inventoryOnly === true || item.inventoryVisible === true

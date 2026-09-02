@@ -20,13 +20,15 @@ public class InvoiceService : IInvoiceService
     private readonly IPermissionService _permissionService;
     private readonly IDocumentStorageService _documentStorage;
     private readonly IProcurementService _procurementService;
+    private readonly IB1NumberService _b1Service;
 
-    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage, IProcurementService procurementService)
+    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage, IProcurementService procurementService, IB1NumberService b1Service)
     {
         _db = db;
         _permissionService = permissionService;
         _documentStorage = documentStorage;
         _procurementService = procurementService;
+        _b1Service = b1Service;
     }
 
     public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null)
@@ -81,6 +83,7 @@ public class InvoiceService : IInvoiceService
             var s = page.Search.Trim();
             query = query.Where(i =>
                 i.InvoiceNumber.Contains(s) ||
+                (i.B1InvoiceNumber != null && i.B1InvoiceNumber.Contains(s)) ||
                 i.Customer.Name.Contains(s) ||
                 (i.Customer.CustomerCode != null && i.Customer.CustomerCode.Contains(s)) ||
                 (i.Subject != null && i.Subject.Contains(s)) ||
@@ -289,6 +292,8 @@ public class InvoiceService : IInvoiceService
         var invoice = new Invoice
         {
             InvoiceNumber = "",
+            // Same digits as the source quote's B1 number, re-lettered P (null when the quote has none).
+            B1InvoiceNumber = _b1Service.Relabel(primaryQuote.B1QuoteNumber, B1NumberService.InvoiceLetter),
             QuoteId = request.QuoteId,
             CustomerId = primaryQuote.CustomerId,
             TotalAmount = totalAmount,
@@ -395,6 +400,21 @@ public class InvoiceService : IInvoiceService
             }
         }
 
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Sets the B1 invoice number by hand — used both to fill one in where the source
+    /// quote had none and to correct the copy inherited from it. Blank clears it. Independent
+    /// of the quote's own B1 number and of any Final Invoice created from this order.
+    /// </summary>
+    public async Task<bool> UpdateB1InvoiceNumberAsync(long id, string? b1InvoiceNumber)
+    {
+        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        if (invoice == null) return false;
+
+        invoice.B1InvoiceNumber = _b1Service.Normalize(b1InvoiceNumber);
         await _db.SaveChangesAsync();
         return true;
     }
@@ -584,6 +604,7 @@ public class InvoiceService : IInvoiceService
         {
             Id = i.Id,
             InvoiceNumber = i.InvoiceNumber,
+            B1ProformaInvoiceNumber = i.B1InvoiceNumber,
             TotalAmount = i.TotalAmount,
             Status = i.Status,
             IsCancelled = i.IsCancelled,

@@ -3,6 +3,14 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/quotes" class="mr-1 flex-shrink-0" size="small" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
+      <!-- Base 1 quote number, auto-generated; editable so it can be added where there
+           is none or corrected where it was generated. -->
+      <B1NumberEditor
+        v-model="quote.b1QuoteNumber"
+        :endpoint="`/quotes/${route.params.id}/b1-number`"
+        label="B1 Quote Number"
+        placeholder="Q101-60701-10"
+      />
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Status Chip with Dropdown (admin only) -->

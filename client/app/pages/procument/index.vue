@@ -214,7 +214,7 @@
         >
           <!-- Column filter: RFQ # -->
           <template #header.rfqId="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': colRfqId.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -239,7 +239,7 @@
 
           <!-- Column filter: RFQ Name -->
           <template #header.rfqName="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': colRfqName.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -264,7 +264,7 @@
 
           <!-- Column header filter menus (server-side, persisted via usePageFilters) -->
           <template #header.partNumberName="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': colPn.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -304,7 +304,7 @@
             </div>
           </template>
           <template #header.condition="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': colCond.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -335,7 +335,7 @@
             </div>
           </template>
           <template #header.customerName="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': customerFilter.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -367,7 +367,7 @@
             </div>
           </template>
           <template #header.status="{ column, toggleSort, isSorted, sortBy }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': statusFilter.length }">
               <span class="cursor-pointer" @click="toggleSort(column)">{{ column.title }}
                 <v-icon v-if="isSorted(column)" :icon="sortBy.find((s: any) => s.key === column.key)?.order === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'" size="12" />
               </span>
@@ -398,7 +398,7 @@
             </div>
           </template>
           <template #header.assignedUsers="{ column }">
-            <div class="proc-th-inner">
+            <div class="proc-th-inner" :class="{ 'proc-th-inner--filtered': userFilter.length }">
               <span>{{ column.title }}</span>
               <v-menu :close-on-content-click="false" max-width="260">
                 <template #activator="{ props: mp }">
@@ -887,10 +887,21 @@
                           <td :colspan="14" class="pa-0">
                             <div class="shop-panel">
                               <div class="d-flex align-center justify-space-between mb-2">
-                                <span class="text-caption text-uppercase font-weight-bold" style="color: #ff9800;">
-                                  <v-icon icon="mdi-wrench" size="14" class="mr-1" />
-                                  Shop Records ({{ (quote.shopRecords || []).length }})
-                                </span>
+                                <div class="d-flex align-center gap-2">
+                                  <v-btn
+                                    size="x-small"
+                                    color="warning"
+                                    variant="flat"
+                                    prepend-icon="mdi-plus"
+                                    @click.stop="addShopRow(item, quote)"
+                                  >
+                                    Add Shop
+                                  </v-btn>
+                                  <span class="text-caption text-uppercase font-weight-bold" style="color: #ff9800;">
+                                    <v-icon icon="mdi-wrench" size="14" class="mr-1" />
+                                    Shop Records ({{ (quote.shopRecords || []).length }})
+                                  </span>
+                                </div>
                                 <div class="d-flex align-center gap-2">
                                   <v-btn
                                     v-for="otherQ in getOtherARQuotesWithShops(item, quote)"
@@ -903,15 +914,6 @@
                                     :title="`Copy all shops from ${otherQ.supplierName}`"
                                   >
                                     Copy from {{ otherQ.supplierName }}
-                                  </v-btn>
-                                  <v-btn
-                                    size="x-small"
-                                    color="warning"
-                                    variant="flat"
-                                    prepend-icon="mdi-plus"
-                                    @click.stop="addShopRow(item, quote)"
-                                  >
-                                    Add Shop
                                   </v-btn>
                                 </div>
                               </div>
@@ -1158,7 +1160,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2000" location="bottom right">
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarTimeout" location="bottom right">
       {{ snackbarText }}
     </v-snackbar>
 
@@ -1294,6 +1296,14 @@ const userColOptsPage = computed(() => {
   return allUserOptions.value.filter(u => ids.has(u.id))
 })
 
+// "Show all" is temporary. A change in another column returns every menu to
+// available-only mode so an impossible second choice is not shown by default.
+watch(() => colPnOpts.value.join('\u001f'), () => { showAllPnOpts.value = false })
+watch(() => condOptsPage.value.join('\u001f'), () => { showAllCondOpts.value = false })
+watch(() => statusColOptsPage.value.join('\u001f'), () => { showAllStatusColOpts.value = false })
+watch(() => custColOptsPage.value.map(o => o.value).join('\u001f'), () => { showAllCustColOpts.value = false })
+watch(() => userColOptsPage.value.map(u => u.id).join('\u001f'), () => { showAllUserColOpts.value = false })
+
 // Filtered option lists (applying in-dropdown search + show-all toggle)
 const filteredColPnOpts = computed(() => applySearch(showAllPnOpts.value ? allPnOptions.value : colPnOpts.value, colSearch.pn))
 const filteredColCondOpts = computed(() =>
@@ -1390,6 +1400,7 @@ function openPartHistory(partNumberId: number) {
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+const snackbarTimeout = ref(2000)
 const showPendingOnly = ref(false)
 const showNoQuote = ref(false)
 
@@ -1402,6 +1413,8 @@ const deleteTargetShop = ref<{ item: any; parentQuote: any; idx: number } | null
 function showSnack(text: string, color = 'success') {
   snackbarText.value = text
   snackbarColor.value = color
+  // Errors (e.g. "add the supplier in the Catalog first") need longer to read.
+  snackbarTimeout.value = color === 'error' ? 6000 : 2000
   snackbar.value = true
 }
 
@@ -1901,8 +1914,10 @@ async function saveQuote(item: any, quote: any) {
       item.rfqStatus = 'In Progress'
     }
     showSnack('Supplier quote saved', 'success')
-  } catch (e) {
-    showSnack('Failed to save quote', 'error')
+  } catch (e: any) {
+    // Suppliers can't be created from here — the backend rejects a name that isn't
+    // in the Catalog. Surface its message so the user knows to add it in the Catalog.
+    showSnack(e?.data?.message || 'Failed to save quote', 'error')
   } finally {
     quote._saving = false
   }
@@ -2009,7 +2024,8 @@ function isShopExpanded(quoteId: number, rfqItemId: number) {
 
 function addShopRow(item: any, parentQuote: any) {
   if (!parentQuote.shopRecords) parentQuote.shopRecords = []
-  parentQuote.shopRecords.push({
+  // Prepend so the new row appears at the top — user doesn't have to scroll down to it.
+  parentQuote.shopRecords.unshift({
     id: null,
     rfqItemId: item.rfqItemId,
     supplierName: '',
@@ -2072,8 +2088,8 @@ async function saveShopQuote(item: any, parentQuote: any, shop: any) {
     const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)
     if (result && (result as any).id) shop.id = (result as any).id
     showSnack('Shop record saved', 'success')
-  } catch {
-    showSnack('Failed to save shop record', 'error')
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to save shop record', 'error')
   } finally {
     shop._saving = false
   }
@@ -2109,8 +2125,14 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 
 <style scoped>
 .proc-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.proc-th-inner--filtered { color: rgb(var(--v-theme-primary)); font-weight: 700; }
 .proc-filter-btn { opacity: 0.5; flex-shrink: 0; }
 .proc-filter-btn:hover, .proc-filter-btn.v-btn--active { opacity: 1; }
+
+:deep(th:has(.proc-th-inner--filtered)) {
+  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
+}
 
 :deep(.lead-time-urgent-row) {
   background-color: rgba(255, 193, 7, 0.08) !important;

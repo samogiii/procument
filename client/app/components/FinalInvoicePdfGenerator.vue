@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background" style="overflow:hidden;">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ pdfData.invoiceNumber || '' }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Final Invoice PDF — {{ docNumber }}</v-toolbar-title>
         <v-spacer />
         <v-btn variant="tonal" color="info" prepend-icon="mdi-package-variant" :loading="generatingPacking" :disabled="!selectedItemsList.length" class="mr-2" @click="openPackingListDialog">Packing List</v-btn>
         <v-select
@@ -226,7 +226,7 @@
             variant="tonal"
             density="compact"
             class="mb-4 text-caption"
-            :text="`Includes ${selectedItemsList.length} of ${itemRows.length} item(s) — same selection as the invoice PDF.`"
+            :text="`Includes ${selectedItemsList.length} of ${itemRows.length} item(s) — same selection as the invoice PDF. Uses the ${selectedTemplateTitle} template.`"
           />
 
           <div v-for="(pkg, i) in packages" :key="i" class="d-flex align-center gap-2 mb-2">
@@ -382,6 +382,17 @@ const generating      = ref(false)
 const generatingPacking = ref(false)
 const loadingData     = ref(false)
 const pdfData         = ref<any>({})
+
+/**
+ * The numbers printed on the PDF. Base 1 customers have B1 numbers (I101-60701-10 for
+ * the invoice, P101-60701-10 for the proforma it references) which are the numbers they
+ * know the documents by, so they replace the internal numbers everywhere the customer
+ * can see them — the document body, the server-rendered template, and the file name.
+ * Every other base has none and keeps the internal numbers.
+ */
+const docNumber = computed(() => pdfData.value.b1InvoiceNumber || pdfData.value.invoiceNumber || '')
+const proformaRefNumber = computed(() => pdfData.value.b1ProformaInvoiceNumber || pdfData.value.proformaInvoiceNumber || '')
+
 const taxAmount       = ref(0)
 const otherAmount     = ref(0)
 const currency        = ref('Dollar (USD)')
@@ -592,6 +603,10 @@ const currencyLocked = computed(() => {
 // Which of the three PDF templates to render — mirrored by the live preview.
 const pdfTemplate = ref<PdfTemplateKey>('modern')
 
+// Friendly name of the selected template — shown in the packing-list dialog.
+const selectedTemplateTitle = computed(() =>
+  PDF_TEMPLATE_OPTIONS.find(o => o.value === pdfTemplate.value)?.title ?? 'Modern')
+
 /** Template-neutral model — mirrors PdfDocModelBuilders.FromFinalInvoice on the server. */
 function buildPreviewModel(): PdfPreviewModel {
   const d = pdfData.value
@@ -609,7 +624,7 @@ function buildPreviewModel(): PdfPreviewModel {
 
   return {
     docTitle: 'Invoice',
-    docNumber: d.invoiceNumber,
+    docNumber: docNumber.value,
     logoDataUrl: logoDataUrl.value,
     companyName: companyName.value,
     companyLocation: companyLocation.value,
@@ -621,7 +636,7 @@ function buildPreviewModel(): PdfPreviewModel {
     meta: [
       { label: 'Date', value: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '' },
       { label: 'Customer PO', value: d.customerPONumber },
-      { label: 'PI Ref', value: d.proformaInvoiceNumber },
+      { label: 'PI Ref', value: proformaRefNumber.value },
       { label: 'Currency', value: currency.value },
     ],
     addresses: [
@@ -766,7 +781,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="text-align:right;">
           <div style="font-size:24px; font-weight:700; color:#1a2744; letter-spacing:1px;">INVOICE</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${d.invoiceNumber}</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${docNumber.value}</div>
         </div>
       </div>
 
@@ -777,7 +792,7 @@ const renderedHtml = computed(() => {
         <div><span style="font-weight:600; color:#1a2744;">Date:</span> ${invDate}</div>
         <div><span style="font-weight:600; color:#1a2744;">Due Date:</span> ${dueDate}</div>
         <div><span style="font-weight:600; color:#1a2744;">Customer PO:</span> ${d.customerPONumber || '—'}</div>
-        <div><span style="font-weight:600; color:#1a2744;">Proforma Ref:</span> ${d.proformaInvoiceNumber || '—'}</div>
+        <div><span style="font-weight:600; color:#1a2744;">Proforma Ref:</span> ${proformaRefNumber.value || '—'}</div>
         <div><span style="font-weight:600; color:#1a2744;">Currency:</span> ${currency.value}</div>
       </div>
 
@@ -906,10 +921,10 @@ async function downloadPdf() {
         logoBase64: logoDataUrl.value || null,
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
-        invoiceNumber: d.invoiceNumber || '',
+        invoiceNumber: docNumber.value,
         invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
         dueDate: d.dueDate ? new Date(d.dueDate).toLocaleDateString() : '—',
-        proformaRef: d.proformaInvoiceNumber || null,
+        proformaRef: proformaRefNumber.value || null,
         customerPONumber: d.customerPONumber || null,
         currency: curr.currency,
         currencySymbol: curr.symbol,
@@ -971,7 +986,7 @@ async function downloadPdf() {
       link.href = url
       const customerName = (d.customerName || '').replace(/\s+/g, '_')
       const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
-      link.setAttribute('download', `${d.invoiceNumber || 'FinalInvoice'}-${customerName}${currencySuffix}.pdf`)
+      link.setAttribute('download', `${docNumber.value || 'FinalInvoice'}-${customerName}${currencySuffix}.pdf`)
       document.body.appendChild(link)
       link.click()
       link.parentNode?.removeChild(link)
@@ -996,10 +1011,10 @@ async function downloadPackingList() {
       logoBase64: logoDataUrl.value || null,
       primaryColor: theme.value.primary,
       accentColor: theme.value.accent,
-      invoiceNumber: d.invoiceNumber || '',
+      invoiceNumber: docNumber.value,
       invoiceDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—',
       customerPONumber: d.customerPONumber || null,
-      proformaRef: d.proformaInvoiceNumber || null,
+      proformaRef: proformaRefNumber.value || null,
       customerName: d.customerName || '—',
       customerBillToName: billToName.value || null,
       customerShipToName: shipToName.value || null,
@@ -1025,6 +1040,8 @@ async function downloadPackingList() {
       packages: packages.value
         .filter((p: PackageEntry) => p.weight || p.dimensions)
         .map((p: PackageEntry) => ({ weight: p.weight || null, dimensions: p.dimensions || null })),
+      // Honour the same template chosen in the toolbar for the invoice PDF.
+      template: pdfTemplate.value,
     }
 
     const response = await $fetch<Blob>(`${api.baseURL}/pdf/packing-list`, {
@@ -1037,7 +1054,7 @@ async function downloadPackingList() {
     const link = document.createElement('a')
     link.href = url
     const customerName = (d.customerName || '').replace(/\s+/g, '_')
-    link.setAttribute('download', `PackingList-${d.invoiceNumber || 'Invoice'}-${customerName}.pdf`)
+    link.setAttribute('download', `PackingList-${docNumber.value || 'Invoice'}-${customerName}.pdf`)
     document.body.appendChild(link)
     link.click()
     link.parentNode?.removeChild(link)

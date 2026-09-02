@@ -375,6 +375,8 @@ public class ProcumentPageService : IProcumentPageService
             .Include(r => r.Supplier)
             .Include(r => r.RFQItem)
                 .ThenInclude(ri => ri.RFQ)
+            .Include(r => r.RFQItem)
+                .ThenInclude(ri => ri.PartNumber)
             .Where(r => relatedRfqItemIds.Contains(r.RFQItemId)
                      && (r.Type ?? "Procument") != "Shop"
                      && (r.UpdatedAt ?? r.CreatedAt) >= cutoff)
@@ -396,7 +398,13 @@ public class ProcumentPageService : IProcumentPageService
                 Price       = (r.UpdatedAt ?? r.CreatedAt) >= cutoff ? r.Price : 0m,
                 PriceHidden = (r.UpdatedAt ?? r.CreatedAt) <= cutoff,
                 Condition = r.Condition,
-                Alt = r.Alt,
+                // Surface which part number this price was actually for, so the user knows a
+                // suggested price may belong to an alternative — not the exact part being quoted.
+                // Priority: the record's own explicit alt; otherwise, if the record came from a
+                // different (related) part number, that source part's name; otherwise blank (exact part).
+                Alt = !string.IsNullOrWhiteSpace(r.Alt)
+                    ? r.Alt
+                    : (r.RFQItem.PartNumberId != partNumberId ? r.RFQItem.PartNumber?.Name : null),
                 Unit = r.Unit,
                 LeadTime = r.LeadTime,
                 CertName = r.CertName,

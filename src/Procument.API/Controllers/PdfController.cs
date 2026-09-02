@@ -146,12 +146,22 @@ public class PdfController : ControllerBase
 
     // ─── Packing List ────────────────────────────────────
     [HttpPost("packing-list")]
-    public IActionResult GeneratePackingList([FromBody] PackingListPdfRequest req)
+    public IActionResult GeneratePackingList([FromBody] PackingListPdfRequest req, [FromQuery] string? template = null)
     {
         QuestPDF.Settings.License = LicenseType.Community;
-        var pdf = PackingListDocument.Generate(req);
+        if (!string.IsNullOrWhiteSpace(template)) req.Template = template;
+
         var customerName = string.IsNullOrWhiteSpace(req.CustomerName) ? "" : req.CustomerName.Replace(" ", "_");
-        return File(pdf, "application/pdf", $"PackingList-INV-{req.InvoiceNumber ?? "Invoice"}-{customerName}.pdf");
+        var fileName = $"PackingList-INV-{req.InvoiceNumber ?? "Invoice"}-{customerName}.pdf";
+
+        // Classic / Standard templates render from the shared document model;
+        // "modern" (the default) falls through to the original packing-list layout.
+        var alternate = PdfTemplateRenderer.TryRenderAlternate(req.Template, () => PdfDocModelBuilders.FromPackingList(req));
+        if (alternate != null)
+            return File(alternate, "application/pdf", fileName);
+
+        var pdf = PackingListDocument.Generate(req);
+        return File(pdf, "application/pdf", fileName);
     }
 
     // ─── RFQ ─────────────────────────────────────────────

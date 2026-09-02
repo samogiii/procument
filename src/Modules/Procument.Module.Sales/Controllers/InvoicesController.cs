@@ -91,6 +91,18 @@ public class InvoicesController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    /// <summary>
+    /// Set or clear the B1 proforma invoice number by hand. Fills one in where the source
+    /// quote had none, or corrects the copy inherited from it.
+    /// </summary>
+    [HttpPatch("{id:long}/b1-number")]
+    [Auditable("Invoice", "UpdateB1InvoiceNumber", CaptureBody = true)]
+    public async Task<IActionResult> UpdateB1InvoiceNumber(long id, [FromBody] UpdateB1NumberRequest request)
+    {
+        var success = await _invoiceService.UpdateB1InvoiceNumberAsync(id, request.B1Number);
+        return success ? Ok() : NotFound();
+    }
+
     [HttpPatch("{id:long}/totals")]
     [Auditable("Invoice", "UpdateTotals")]
     public async Task<IActionResult> UpdateTotals(long id, [FromBody] UpdateInvoiceTotalsRequest request)

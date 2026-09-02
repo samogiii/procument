@@ -58,10 +58,20 @@ public class TotalPNController : ControllerBase
 
     /// <summary>Returns unique values for each filterable column — used to populate filter dropdowns.</summary>
     [HttpGet("filter-options")]
-    public async Task<ActionResult<TotalPNFilterOptions>> GetFilterOptions()
+    public async Task<ActionResult<TotalPNFilterOptions>> GetFilterOptions(
+        [FromQuery] List<string>? customers = null,
+        [FromQuery] List<string>? invoiceNumbers = null,
+        [FromQuery] List<string>? partNumbers = null,
+        [FromQuery] List<string>? conditions = null,
+        [FromQuery] List<string>? poNumbers = null,
+        [FromQuery] List<string>? suppliers = null,
+        [FromQuery] List<string>? paymentTerms = null,
+        [FromQuery] List<string>? poStatuses = null,
+        [FromQuery] List<string>? shippingStatuses = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
-        var result = await _service.GetFilterOptionsAsync(userId, isAdmin, isSuperAdmin, userBases);
+        var result = await _service.GetFilterOptionsAsync(userId, isAdmin, isSuperAdmin, userBases,
+            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses);
         return Ok(result);
     }
 

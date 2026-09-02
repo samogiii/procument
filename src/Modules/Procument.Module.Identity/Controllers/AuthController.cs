@@ -36,6 +36,26 @@ public class AuthController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Issue a long-lived bearer token for a machine client, acting as an existing user.
+    /// SuperAdmin only. The token is returned once and never stored, so copy it immediately.
+    /// It cannot be revoked before it expires — see CreateServiceTokenAsync for the caveat.
+    /// </summary>
+    [HttpPost("service-token")]
+    [Authorize(Roles = "SuperAdmin")]
+    [Auditable("User", "ServiceTokenIssued")]
+    public async Task<ActionResult<ServiceTokenResponse>> CreateServiceToken([FromBody] ServiceTokenRequest request)
+    {
+        try
+        {
+            return Ok(await _authService.CreateServiceTokenAsync(request));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Self-register as an Expert.</summary>
     [HttpPost("register")]
     [Auditable("User", "Register")]

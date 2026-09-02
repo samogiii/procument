@@ -20,6 +20,7 @@ public interface IAuthService
     Task<bool> ToggleUserActiveAsync(long id);
     Task<bool> UpdateUserAsync(long id, UpdateUserRequest request);
     Task<bool> ChangePasswordAsync(long id, string newPassword);
+    Task<ServiceTokenResponse> CreateServiceTokenAsync(ServiceTokenRequest request);
     Task<List<int>> GetUserBasesAsync(long id);
     Task AddUserBaseAsync(long id, int baseValue);
     Task RemoveUserBaseAsync(long id, int baseValue);
@@ -222,7 +223,38 @@ public class AuthService : IAuthService
         CreatedAt = user.CreatedAt
     };
 
-    private async Task<string> GenerateJwtTokenAsync(User user, List<int>? bases = null)
+    /// <summary>
+    /// Mints a long-lived bearer token for a machine client. The claims are identical to a login
+    /// token — same NameIdentifier/Role/bases shape — so every existing [Authorize] rule and
+    /// GetUserContext() call treats the robot exactly like the user it acts as.
+    /// NOTE: nothing here is revocable. The token stays valid until it expires; the only way to
+    /// kill it early is rotating JwtSettings:Secret, which also signs out every human user.
+    /// Keep the lifetime as short as the robot's job allows and give it the narrowest role.
+    /// </summary>
+    public async Task<ServiceTokenResponse> CreateServiceTokenAsync(ServiceTokenRequest request)
+    {
+        var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Id == request.UserId)
+            ?? throw new Exception($"User {request.UserId} does not exist.");
+
+        if (!user.IsActive)
+            throw new Exception($"User '{user.Name}' is inactive. Activate the account before issuing a token for it.");
+
+        var days = request.Days <= 0 ? 365 : Math.Min(request.Days, 3650);
+        var bases = await GetUserBasesAsync(user.Id);
+        var token = await GenerateJwtTokenAsync(user, bases, TimeSpan.FromDays(days));
+
+        return new ServiceTokenResponse
+        {
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddDays(days),
+            UserId = user.Id,
+            UserName = user.Name,
+            Role = user.Role,
+            Bases = bases
+        };
+    }
+
+    private async Task<string> GenerateJwtTokenAsync(User user, List<int>? bases = null, TimeSpan? lifetime = null)
     {
         bases ??= await GetUserBasesAsync(user.Id);
 
@@ -240,12 +272,13 @@ public class AuthService : IAuthService
         };
 
         var expMinutes = int.Parse(jwtSettings["ExpirationInMinutes"] ?? "480");
+        var expiresAt = DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromMinutes(expMinutes));
 
         var token = new JwtSecurityToken(
             issuer: jwtSettings["Issuer"],
             audience: jwtSettings["Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(expMinutes),
+            expires: expiresAt,
             signingCredentials: credentials
         );
 

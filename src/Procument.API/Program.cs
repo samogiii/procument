@@ -122,8 +122,8 @@ var app = builder.Build();
 //await DataSeeder.SeedAsync(app.Services);
 
 // ─── Middleware Pipeline ───
-if (app.Environment.IsDevelopment())
-{
+//if (app.Environment.IsDevelopment())
+//{
     app.MapOpenApi();
     app.MapScalarApiReference(options =>
     {
@@ -134,21 +134,21 @@ if (app.Environment.IsDevelopment())
 
     // ─── DANGER: Reset Database Endpoint ───
     // Only available in Development mode for safety
-    app.MapPost("/api/dev/reset-database", async (IServiceProvider sp) =>
-    {
-        try
-        {
-            await Procument.API.Services.DatabaseResetter.HardResetAndSeedAdminAsync(sp);
-            return Results.Ok(new { message = "Database successfully reset and Admin user created." });
-        }
-        catch (Exception ex)
-        {
-            return Results.Problem($"Failed to reset database: {ex.Message}");
-        }
-    })
-    .WithName("ResetDatabase")
-    .WithOpenApi();
-}
+    //app.MapPost("/api/dev/reset-database", async (IServiceProvider sp) =>
+    //{
+    //    try
+    //    {
+    //        await Procument.API.Services.DatabaseResetter.HardResetAndSeedAdminAsync(sp);
+    //        return Results.Ok(new { message = "Database successfully reset and Admin user created." });
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        return Results.Problem($"Failed to reset database: {ex.Message}");
+    //    }
+    //})
+    //.WithName("ResetDatabase")
+    //.WithOpenApi();
+//}
 
 // CORS must run BEFORE HttpsRedirection — otherwise a 307 redirect is returned
 // without the Access-Control-Allow-Origin header and the browser blocks the request

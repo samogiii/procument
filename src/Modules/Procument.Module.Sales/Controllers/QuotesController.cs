@@ -55,10 +55,12 @@ public class QuotesController : ControllerBase
         [FromQuery] string? sortBy = null,
         [FromQuery] bool sortDesc = false,
         [FromQuery] List<string>? quoteNumbers = null,
-        [FromQuery] bool includeRejected = false)
+        [FromQuery] bool includeRejected = false,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected);
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected, createdFrom, createdTo);
         return Ok(result);
     }
 
@@ -76,10 +78,12 @@ public class QuotesController : ControllerBase
         [FromQuery] List<string>? customerNames = null,
         [FromQuery] List<string>? rfqNames = null,
         [FromQuery] List<string>? quoteNumbers = null,
-        [FromQuery] bool includeRejected = false)
+        [FromQuery] bool includeRejected = false,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected);
+        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected, createdFrom, createdTo);
         return Ok(result);
     }
 
@@ -404,6 +408,25 @@ public class QuotesController : ControllerBase
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         var ok = await _quoteService.UpdateRFQExTypeAsync(id, exType, userId, isAdmin, userBases);
         return ok ? Ok() : NotFound();
+    }
+
+    /// <summary>
+    /// Set or clear the B1 quote number by hand. Fills one in where auto-generation
+    /// produced none, or corrects a generated one. B1 quote numbers must stay unique.
+    /// </summary>
+    [HttpPatch("{id:long}/b1-number")]
+    [Auditable("Quote", "UpdateB1QuoteNumber", CaptureBody = true)]
+    public async Task<IActionResult> UpdateB1QuoteNumber(long id, [FromBody] UpdateB1NumberRequest request)
+    {
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        var result = await _quoteService.UpdateB1QuoteNumberAsync(id, request.B1Number, userId, isAdmin, userBases);
+        return result switch
+        {
+            B1NumberUpdateResult.Ok => Ok(),
+            B1NumberUpdateResult.NotFound => NotFound(),
+            B1NumberUpdateResult.Forbidden => Forbid(),
+            _ => Conflict(new { message = "Another quote already uses this B1 quote number." }),
+        };
     }
 
     /// <summary>Save Yuan tax coefficient and exchange rate for a quote (base-3 customers).</summary>

@@ -42,9 +42,10 @@
                 :key="item.currency"
                 class="d-flex align-center gap-2 mb-1"
               >
+
                 <v-chip size="x-small" :color="item.balance >= 0 ? 'success' : 'error'" variant="tonal">{{ item.symbol }} {{ item.currency }}</v-chip>
-                <span class="text-body-1 font-weight-bold" :class="item.balance >= 0 ? 'text-success' : 'text-error'">
-                  {{ item.symbol }}{{ formatPrice(item.balance) }}
+                <span class="wallet-balance-amount font-weight-bold" :class="item.balance >= 0 ? 'text-success' : 'text-error'">
+                  {{ item.symbol }}{{ formatPrice(item.balance) }} <span v-if="item.symbol === '¥'">({{ formatPrice(item.balance / (7)) }}$)</span>
                 </span>
               </div>
             </div>
@@ -124,7 +125,7 @@
                     <v-icon icon="mdi-bank-outline" color="primary" size="24" />
                     <div>
                       <div class="text-subtitle-1 font-weight-bold">{{ boxLabel(box) }}</div>
-                      <div v-if="box.name && box.companyPresetName" class="text-caption text-medium-emphasis">{{ box.companyPresetName }}</div>
+                      <div v-if="box.name && box.companyPresetName" class="text-body-2 text-medium-emphasis">{{ box.companyPresetName }}</div>
                     </div>
                   </div>
                   <div class="d-flex align-center gap-1">
@@ -186,13 +187,13 @@
                 <div class="d-flex justify-space-between">
                   <div class="text-center">
                     <div class="text-caption text-medium-emphasis">Deposits</div>
-                    <div class="text-body-2 font-weight-medium text-success">
+                    <div class="wallet-balance-amount-DW font-weight-medium text-success">
                       +{{ currencySymbol(box.currency) }}{{ formatPrice(box.totalDeposit) }}
                     </div>
                   </div>
                   <div class="text-center">
                     <div class="text-caption text-medium-emphasis">Withdraws</div>
-                    <div class="text-body-2 font-weight-medium text-error">
+                    <div class="wallet-balance-amount-DW font-weight-medium text-error">
                       -{{ currencySymbol(box.currency) }}{{ formatPrice(box.totalWithdraw) }}
                     </div>
                   </div>
@@ -987,16 +988,25 @@ function aggregateByCurrency(key: 'totalDeposit' | 'totalWithdraw') {
 const grandDepositByCurrency = computed(() => aggregateByCurrency('totalDeposit'))
 const grandWithdrawByCurrency = computed(() => aggregateByCurrency('totalWithdraw'))
 
+/**
+ * Net Balance = the sum of the wallets' own Remaining Balance figures, grouped by wallet currency.
+ * It deliberately ignores currencyBreakdowns: those hold raw, unconverted transaction amounts keyed
+ * by the transaction's currency, so a USD deposit into a CNY wallet would land under USD even though
+ * the money sits in the wallet as CNY. box.balance is already converted into the wallet's currency.
+ */
 const totalBalanceByCurrency = computed(() => {
-  const map: Record<string, { symbol: string; balance: number }> = {}
+  const map: Record<string, { symbol: string; balance: number; hasActivity: boolean }> = {}
   for (const box of boxes.value) {
-    for (const bd of box.currencyBreakdowns ?? []) {
-      if (!map[bd.currency]) map[bd.currency] = { symbol: bd.symbol, balance: 0 }
-      map[bd.currency].balance += bd.totalDeposit - bd.totalWithdraw
-    }
+    const currency = box.currency
+    if (!currency) continue
+    if (!map[currency]) map[currency] = { symbol: currencySymbol(currency), balance: 0, hasActivity: false }
+    map[currency].balance += box.balance
+    if (box.balance !== 0) map[currency].hasActivity = true
   }
+  // Currencies whose wallets are all empty are noise; a currency that nets to zero across
+  // funded wallets is a real result and stays visible.
   return Object.entries(map)
-    .filter(([, v]) => v.balance !== 0)
+    .filter(([, v]) => v.hasActivity)
     .map(([currency, v]) => ({ currency, symbol: v.symbol, balance: v.balance }))
 })
 
@@ -1221,7 +1231,12 @@ onMounted(() => {
 <style scoped>
 /* Remaining balance: the one number the user scans for, so it outsizes everything else. */
 .wallet-balance-amount {
-  font-size: 2.25rem;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+}
+.wallet-balance-amount-DW {
+  font-size: 1.5rem;
   line-height: 1.15;
   letter-spacing: -0.5px;
 }

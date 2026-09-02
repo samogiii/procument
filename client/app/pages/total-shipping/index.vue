@@ -1033,6 +1033,8 @@
                   <td class="text-caption" style="max-width:160px; white-space:normal;">{{ row.description || '—' }}</td>
                   <td class="text-center font-weight-bold">{{ row.qty }}</td>
                   <td>{{ row.condition || '—' }}</td>
+                  <td class="text-right text-no-wrap">{{ toMoney(row.sellingUnitPriceUsd) || '—' }}</td>
+                  <td class="text-right text-no-wrap">{{ toMoney(row.purchasingUnitPriceUsd) || '—' }}</td>
                   <td>
                     <v-chip v-if="row.priority" size="x-small" :color="row.priority === 'AOG' ? 'error' : row.priority === 'URGENT' ? 'warning' : 'default'" variant="tonal">
                       {{ row.priority }}
@@ -2634,6 +2636,16 @@ async function loadSnData() {
 
 // ── Tab 4 — Total Order ──────────────────────────────────────────────────────
 
+/**
+ * Money for the Total Order grid. Returns null — rendered as an em dash, filtered as
+ * "(Blank)" — for anything missing or zero: a zero here means the line has no PO item
+ * priced yet or no invoice line to sell from, not that it is genuinely worth nothing.
+ */
+function toMoney(v: any): string | null {
+  const n = Number(v)
+  return Number.isFinite(n) && n !== 0 ? `$${n.toFixed(2)}` : null
+}
+
 const TO_COLUMNS = [
   { key: 'id',                   label: 'ID#',             field: (r: any) => r.id != null ? String(r.id) : null },
   { key: 'poNumber',             label: 'PO No',           field: (r: any) => r.poNumber },
@@ -2646,6 +2658,11 @@ const TO_COLUMNS = [
   { key: 'description',          label: 'Description',     field: (r: any) => r.description },
   { key: 'qty',                  label: 'QTY',             field: (r: any) => r.qty != null ? String(r.qty) : null },
   { key: 'condition',            label: 'CD',              field: (r: any) => r.condition },
+  // Per-part money. Sell comes off the invoice line, buy off the PO item; both are already
+  // scoped by the same permission rules as the rest of the row, and the tab itself is
+  // restricted to Sydney staff and admins.
+  { key: 'sellPrice',            label: 'Sell Price',      field: (r: any) => toMoney(r.sellingUnitPriceUsd) },
+  { key: 'buyPrice',             label: 'Buy Price',       field: (r: any) => toMoney(r.purchasingUnitPriceUsd) },
   { key: 'priority',             label: 'Priority',        field: (r: any) => r.priority },
   { key: 'warehouse',            label: 'Warehouse',       field: (r: any) => r.warehouse },
   { key: 'serialNumber',         label: 'SN #',            field: (r: any) => r.serialNumber },

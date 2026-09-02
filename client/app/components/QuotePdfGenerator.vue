@@ -3,7 +3,7 @@
     <v-card class="d-flex flex-column" color="background">
       <v-toolbar color="surface" density="compact">
         <v-btn icon="mdi-close" @click="model = false" />
-        <v-toolbar-title class="text-body-1 font-weight-bold">Quotation PDF — {{ quote.quoteNumber }}</v-toolbar-title>
+        <v-toolbar-title class="text-body-1 font-weight-bold">Quotation PDF — {{ docNumber }}</v-toolbar-title>
         <v-spacer />
         <!-- Theme preview dots -->
         <div class="d-flex align-center gap-2 mr-3" v-if="selectedPreset !== 'Custom'">
@@ -94,6 +94,15 @@ const props = defineProps<{ quote: any }>()
 const model = defineModel<boolean>({ default: false })
 
 const api = useApi()
+
+/**
+ * The number printed on the PDF. Base 1 customers have a B1 quote number
+ * (Q101-60701-10) which is the number they know the document by, so it replaces the
+ * internal quote number everywhere the customer can see it — the document body, the
+ * server-rendered template, and the file name. Every other base has no B1 number and
+ * keeps the internal one.
+ */
+const docNumber = computed(() => props.quote?.b1QuoteNumber || props.quote?.quoteNumber || '')
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -291,7 +300,7 @@ function buildPreviewModel(): PdfPreviewModel {
 
   return {
     docTitle: 'Quotation',
-    docNumber: q.quoteNumber,
+    docNumber: docNumber.value,
     logoDataUrl: logoDataUrl.value,
     companyName: companyName.value,
     companyLocation: companyLocation.value,
@@ -430,7 +439,7 @@ const renderedHtml = computed(() => {
       '{{COMPANY_PHONE}}':    companyPhone.value,
       '{{COMPANY_EMAIL}}':    companyEmail.value,
       '{{COMPANY_WEBSITE}}':  companyWebsite.value,
-      '{{QUOTE_NUMBER}}':     q.quoteNumber || '—',
+      '{{QUOTE_NUMBER}}':     docNumber.value || '—',
       '{{DATE}}':             quoteDate,
       '{{VALID_UNTIL}}':      validUntil,
       '{{RFQ_NAME}}':         q.rfqName || '—',
@@ -504,7 +513,7 @@ const renderedHtml = computed(() => {
         </div>
         <div style="text-align:right;">
           <div style="font-size:24px; font-weight:700; color:${primary}; letter-spacing:1px;">QUOTATION</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${q.quoteNumber || '—'}</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:4px;">${docNumber.value || '—'}</div>
         </div>
       </div>
 
@@ -642,7 +651,7 @@ async function downloadPdf() {
         logoBase64: logoDataUrl.value || null,
         primaryColor: theme.value.primary,
         accentColor: theme.value.accent,
-        quoteNumber: q.quoteNumber || '',
+        quoteNumber: docNumber.value,
         quoteDate: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—',
         validUntil: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—',
         rfqName: q.rfqName || '—',
@@ -686,7 +695,7 @@ async function downloadPdf() {
       const link = document.createElement('a')
       link.href = url
       const safeName = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
-      const fileName = `${safeName(q.quoteNumber || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}${curr.nameSuffix}.pdf`
+      const fileName = `${safeName(docNumber.value || 'QT')} - ${safeName(q.customerName || '')} - ${safeName(q.rfqName || '')}${curr.nameSuffix}.pdf`
       link.setAttribute('download', fileName)
       document.body.appendChild(link)
       link.click()

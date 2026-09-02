@@ -1,0 +1,46 @@
+{
+  "customerName": "ACME Aviation Ltd",
+  "rfqs": [
+    {
+      "rfqName": "ABA-2026-001",
+      "receivedDate": "2026-08-25",
+      "deadline": "2026-09-10",
+      "items": [
+        {
+          "partNumber": "AN960-10",
+          "description": "Flat washer, cadmium plated",
+          "qty": 100,
+          "condition": "NE",
+          "priority": "AOG",
+          "remark": "Trace/cert required",
+          "alternatives": ["AN960-10L", "NAS1149F0332P"]
+        },
+        {
+          "partNumber": "MS21042-3",
+          "description": "Self-locking nut",
+          "qty": 50,
+          "condition": "NE",
+          "priority": "Routine",
+          "remark": "",
+          "alternatives": []
+        }
+      ]
+    },
+    {
+      "rfqName": "ABA-2026-002",
+      "receivedDate": "2026-08-25",
+      "deadline": "2026-09-15",
+      "items": [
+        {
+          "partNumber": "CFM56-7B-BLADE",
+          "description": "HPT blade set",
+          "qty": 1,
+          "condition": "OH",
+          "priority": "AOG",
+          "remark": "8130-3 dual release",
+          "alternatives": []
+        }
+      ]
+    }
+  ]
+}

@@ -50,6 +50,8 @@ public class QuoteResponse
 {
     public long Id { get; set; }
     public string QuoteNumber { get; set; } = string.Empty;
+    /// <summary>Base 1 quote number (e.g. "Q101-60701-10"); null for every other base.</summary>
+    public string? B1QuoteNumber { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
     public DateTime? ValidUntil { get; set; }
@@ -116,6 +118,12 @@ public class QuoteItemOrderEntry
 {
     public long Id { get; set; }
     public int SortOrder { get; set; }
+}
+
+/// <summary>Manual B1 number edit. Null or blank clears it.</summary>
+public class UpdateB1NumberRequest
+{
+    public string? B1Number { get; set; }
 }
 
 public class UpdateQuoteYuanSettingsRequest

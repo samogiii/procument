@@ -987,10 +987,21 @@
                             <td :colspan="14" class="pa-0">
                               <div class="shop-panel">
                                 <div class="d-flex align-center justify-space-between mb-2">
-                                  <span class="text-caption text-uppercase font-weight-bold" style="color: #ff9800;">
-                                    <v-icon icon="mdi-wrench" size="14" class="mr-1" />
-                                    Shop Records ({{ (quote.shopRecords || []).length }})
-                                  </span>
+                                  <div class="d-flex align-center gap-2">
+                                    <v-btn
+                                      size="x-small"
+                                      color="warning"
+                                      variant="flat"
+                                      prepend-icon="mdi-plus"
+                                      @click="addShopRow(item, quote)"
+                                    >
+                                      Add Shop
+                                    </v-btn>
+                                    <span class="text-caption text-uppercase font-weight-bold" style="color: #ff9800;">
+                                      <v-icon icon="mdi-wrench" size="14" class="mr-1" />
+                                      Shop Records ({{ (quote.shopRecords || []).length }})
+                                    </span>
+                                  </div>
                                   <div class="d-flex align-center gap-2">
                                     <v-btn
                                       v-for="otherQ in getOtherARQuotesWithShops(item.id, quote)"
@@ -1003,15 +1014,6 @@
                                       :title="`Copy all shops from ${otherQ.supplierName}`"
                                     >
                                       Copy from {{ otherQ.supplierName }}
-                                    </v-btn>
-                                    <v-btn
-                                      size="x-small"
-                                      color="warning"
-                                      variant="flat"
-                                      prepend-icon="mdi-plus"
-                                      @click="addShopRow(item, quote)"
-                                    >
-                                      Add Shop
                                     </v-btn>
                                   </div>
                                 </div>
@@ -1503,6 +1505,47 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Missing supplier(s) — must be added in the Catalog first -->
+    <v-dialog v-model="showMissingSuppliers" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center text-error">
+          <v-icon icon="mdi-account-off-outline" class="mr-2" />
+          Supplier not in Catalog
+        </v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            New suppliers can't be added from the RFQ page. Please select a supplier you've
+            used before, or add the missing one in the Catalog first, then select it here.
+          </p>
+          <p class="text-caption text-medium-emphasis mb-1">Not found:</p>
+          <div class="d-flex flex-wrap gap-2">
+            <v-chip
+              v-for="name in missingSuppliers"
+              :key="name"
+              color="error"
+              variant="tonal"
+              size="small"
+            >
+              {{ name }}
+            </v-chip>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showMissingSuppliers = false">Close</v-btn>
+          <v-btn
+            v-if="isAdmin"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-database-outline"
+            @click="showMissingSuppliers = false; navigateTo('/catalog/suppliers')"
+          >
+            Go to Catalog
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <ConfirmDialog
       v-model="showConfirmQuote"
       title="Delete Supplier Quote?"
@@ -1564,6 +1607,15 @@ const saving = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+
+// Missing-supplier notification: shown when a quote references a supplier that
+// hasn't been added in the Catalog. Suppliers can't be created from this page.
+const showMissingSuppliers = ref(false)
+const missingSuppliers = ref<string[]>([])
+function openMissingSuppliers(names: string[]) {
+  missingSuppliers.value = [...new Set(names)]
+  showMissingSuppliers.value = true
+}
 
 // Delete Confirmations
 const showConfirmQuote = ref(false)
@@ -1912,7 +1964,8 @@ function copyShopsFrom(item: any, targetQuote: any, sourceQuote: any) {
 
 function addShopRow(item: any, parentQuote: any) {
   if (!parentQuote.shopRecords) parentQuote.shopRecords = []
-  parentQuote.shopRecords.push({
+  // Prepend so the new row appears at the top — user doesn't have to scroll down to it.
+  parentQuote.shopRecords.unshift({
     id: null,
     rfqItemId: item.id,
     supplierName: '',
@@ -2375,6 +2428,30 @@ async function saveAll() {
     }
   }
 
+  // Normal procurement quotes must reference a supplier that already exists in the Catalog.
+  // AR quotes and repair-shop records are exempt — those suppliers can be added manually.
+  // Verify up front so we never save the items and then fail on the quotes.
+  const namesToCheck = new Set<string>()
+  for (const q of supplierQuotes.value) {
+    const exempt = q.condition === 'AR' || q.condition === 'IN' || q.type === 'Shop'
+    if (!exempt && q.supplierName?.trim()) namesToCheck.add(q.supplierName.trim())
+    // Shop records are repair suppliers → always allowed, so they are not checked here.
+  }
+  if (namesToCheck.size > 0) {
+    try {
+      const { missing } = await api.post<{ missing: string[] }>(
+        '/suppliers/validate',
+        { names: [...namesToCheck] }
+      )
+      if (missing?.length) {
+        openMissingSuppliers(missing)
+        return
+      }
+    } catch {
+      // If the check itself fails, fall through — the backend still enforces this on save.
+    }
+  }
+
   saving.value = true
   try {
     // 1. Save all editable item fields + fleet/remark on part numbers
@@ -2482,8 +2559,14 @@ async function saveAll() {
     // Reload
     await loadData()
     showSnack('All changes saved successfully', 'success')
-  } catch (e) {
-    showSnack('Failed to save changes', 'error')
+  } catch (e: any) {
+    // Backend rejects quotes whose supplier doesn't exist in the Catalog.
+    const missing = e?.data?.missingSuppliers
+    if (Array.isArray(missing) && missing.length) {
+      openMissingSuppliers(missing)
+    } else {
+      showSnack(e?.data?.message || 'Failed to save changes', 'error')
+    }
   } finally {
     saving.value = false
   }

@@ -511,28 +511,55 @@ const TPN_COLUMNS = [
 const tpnColFilters = reactive<Record<string, Set<string>>>({})
 const tpnFilterSearch = reactive<Record<string, string>>({})
 
-/**
- * Filter options fetched from the backend — used for server-side filter columns.
- * Key = column key, value = sorted list of unique strings across ALL rows.
- */
+/** Available options respect every active server-side filter except their own column. */
 const filterOptions = ref<Record<string, string[]>>({})
+/** Full options are kept separately for the explicit "Show all" mode. */
+const allFilterOptions = ref<Record<string, string[]>>({})
 const filterOptionsLoading = ref(false)
 
-async function loadFilterOptions() {
+function mapFilterOptions(opts: any): Record<string, string[]> {
+  return {
+    customer:              opts.customers        ?? [],
+    customerInvoiceNumber: opts.invoiceNumbers   ?? [],
+    partNumber:            opts.partNumbers      ?? [],
+    condition:             opts.conditions       ?? [],
+    poNumber:              opts.poNumbers        ?? [],
+    supplier:              opts.suppliers        ?? [],
+    paymentTerm:           opts.paymentTerms     ?? [],
+    status:                opts.statuses         ?? [],
+    shippingStatus:        opts.shippingStatuses ?? [],
+  }
+}
+
+function activeServerFilterQuery(): Record<string, string[]> {
+  const query: Record<string, string[]> = {}
+  const mappings: Record<string, string> = {
+    customer: 'customers',
+    customerInvoiceNumber: 'invoiceNumbers',
+    partNumber: 'partNumbers',
+    condition: 'conditions',
+    poNumber: 'poNumbers',
+    supplier: 'suppliers',
+    paymentTerm: 'paymentTerms',
+    status: 'poStatuses',
+    shippingStatus: 'shippingStatuses',
+  }
+  for (const [columnKey, queryKey] of Object.entries(mappings)) {
+    const selected = tpnColFilters[columnKey]
+    if (selected?.size) query[queryKey] = [...selected]
+  }
+  return query
+}
+
+async function loadFilterOptions(includeActiveFilters = true) {
   filterOptionsLoading.value = true
   try {
-    const opts = await api.get<any>('/po-items/total-pn/filter-options')
-    filterOptions.value = {
-      customer:              opts.customers        ?? [],
-      customerInvoiceNumber: opts.invoiceNumbers   ?? [],
-      partNumber:            opts.partNumbers      ?? [],
-      condition:             opts.conditions       ?? [],
-      poNumber:              opts.poNumbers        ?? [],
-      supplier:              opts.suppliers        ?? [],
-      paymentTerm:           opts.paymentTerms     ?? [],
-      status:                opts.statuses         ?? [],
-      shippingStatus:        opts.shippingStatuses ?? [],
-    }
+    const opts = await api.get<any>('/po-items/total-pn/filter-options', {
+      query: includeActiveFilters ? activeServerFilterQuery() : undefined,
+    })
+    const mapped = mapFilterOptions(opts)
+    if (includeActiveFilters) filterOptions.value = mapped
+    else allFilterOptions.value = mapped
   } catch { /* non-critical */ }
   finally { filterOptionsLoading.value = false }
 }
@@ -570,7 +597,7 @@ function tpnUniqueVals(key: string): string[] {
   const s = (tpnFilterSearch[key] || '').toLowerCase()
 
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
-    const opts = filterOptions.value[key] ?? []
+    const opts = allFilterOptions.value[key] ?? []
     const results = s ? opts.filter(v => v.toLowerCase().includes(s)) : opts
     return results.length ? results : ['(Blank)']
   }
@@ -588,8 +615,11 @@ function tpnUniqueVals(key: string): string[] {
 
 /** "Available" values — subset that pass all OTHER active filters (for client-side columns). */
 function tpnUniqueValsAvail(key: string): string[] {
-  // For server-side columns the backend handles cross-filter availability — just return all options
-  if (SERVER_SIDE_FILTER_KEYS.has(key)) return tpnUniqueVals(key)
+  if (SERVER_SIDE_FILTER_KEYS.has(key)) {
+    const search = (tpnFilterSearch[key] || '').toLowerCase()
+    const opts = filterOptions.value[key] ?? []
+    return search ? opts.filter(v => v.toLowerCase().includes(search)) : opts
+  }
 
   const col = TPN_COLUMNS.find(c => c.key === key)
   if (!col) return []
@@ -622,8 +652,17 @@ function tpnDisplayVals(key: string): string[] {
 }
 
 function tpnIsUnavail(key: string, val: string): boolean {
-  if (SERVER_SIDE_FILTER_KEYS.has(key)) return false
   return !!(tpnShowAll[key] && !tpnUniqueValsAvail(key).includes(val))
+}
+
+function resetOtherShowAll(exceptKey?: string) {
+  for (const key of Object.keys(tpnShowAll)) {
+    if (key !== exceptKey) tpnShowAll[key] = false
+  }
+}
+
+async function reloadRowsAndAvailableOptions() {
+  await Promise.all([load(), loadFilterOptions()])
 }
 
 function tpnToggleFilter(key: string, val: string) {
@@ -632,30 +671,34 @@ function tpnToggleFilter(key: string, val: string) {
   else tpnColFilters[key].add(val)
   tpnColFilters[key] = new Set(tpnColFilters[key]) // trigger reactivity
   saveTpnFilters()
+  resetOtherShowAll(key)
   // Server-side filters → go back to page 1 and reload
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
     page.value = 1
-    load()
+    reloadRowsAndAvailableOptions()
   }
 }
 
 function tpnClearFilter(key: string) {
   if (tpnColFilters[key]) tpnColFilters[key] = new Set()
   saveTpnFilters()
+  resetOtherShowAll(key)
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
     page.value = 1
-    load()
+    reloadRowsAndAvailableOptions()
   }
 }
 
 function tpnSelectAll(key: string) {
-  const vals = tpnUniqueVals(key)
+  // Select only what the user can currently see; hidden invalid values remain
+  // opt-in through the explicit "Show all" mode.
+  const vals = tpnDisplayVals(key)
   tpnColFilters[key] = new Set(vals)
   saveTpnFilters()
-  // selecting all = no filter → reload
+  resetOtherShowAll(key)
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
     page.value = 1
-    load()
+    reloadRowsAndAvailableOptions()
   }
 }
 
@@ -664,8 +707,9 @@ function tpnClearAllFilters() {
     tpnColFilters[key] = new Set()
   }
   saveTpnFilters()
+  resetOtherShowAll()
   page.value = 1
-  load()
+  reloadRowsAndAvailableOptions()
 }
 
 function toggleSort(key: string) {
@@ -912,9 +956,12 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(() => {
-  load()
-  loadFilterOptions()
+onMounted(async () => {
+  await Promise.all([
+    load(),
+    loadFilterOptions(),
+    loadFilterOptions(false),
+  ])
 })
 </script>
 
@@ -950,6 +997,13 @@ onMounted(() => {
   white-space: nowrap;
   color: rgb(var(--v-theme-on-surface));
   z-index: 1;
+}
+
+/* A selected Excel-style filter makes its whole header easy to spot. */
+.tpn-table thead th:has(.tpn-filter-active) {
+  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  color: rgb(var(--v-theme-primary));
+  box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1076,5 +1130,3 @@ onMounted(() => {
   color: rgb(var(--v-theme-primary));
 }
 </style>
-
-

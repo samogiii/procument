@@ -16,7 +16,7 @@ public interface IRFQService
 {
     Task<RFQResponse> CreateAsync(CreateRFQRequest request);
     Task<RFQResponse?> GetByIdAsync(long id, long userId, bool isSuperAdmin, int[] userBases);
-    Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null);
+    Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null, DateTime? createdFrom = null, DateTime? createdTo = null);
     Task<RFQItemResponse?> UpdateItemAsync(long itemId, UpdateRFQItemRequest request);
     Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request);
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
@@ -26,6 +26,7 @@ public interface IRFQService
     Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime);
     Task<string> DeleteRFQItem(long id);
     Task<string?> GetLastRfqNameAsync(string customerName);
+    Task<BulkImportRFQResponse> BulkImportAsync(BulkImportRFQRequest request, long callerUserId);
 }
 
 public class RFQService : IRFQService
@@ -186,7 +187,7 @@ public class RFQService : IRFQService
         return response;
     }
 
-    public async Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null)
+    public async Task<PagedResult<RFQListItem>> GetAllAsync(long userId, bool isSuperAdmin, int[] userBases, PageQuery page, string[]? statuses = null, string? pnSearch = null, long[]? userIds = null, string[]? customerSearch = null, string? sortBy = null, bool sortDesc = false, long[]? rfqIds = null, string[]? rfqNames = null, string[]? deadlines = null, bool includeNoQuote = false, int? maxDays = null, DateTime? createdFrom = null, DateTime? createdTo = null)
     {
         IQueryable<RFQHeader> query = _db.Set<RFQHeader>().AsNoTracking();
         List<string> rfqIdStrings  = new List<string>();
@@ -296,6 +297,13 @@ public class RFQService : IRFQService
             var cutoff = DateTime.UtcNow.Date.AddDays(maxDays.Value);
             query = query.Where(r => r.LeadTime.Date <= cutoff);
         }
+
+        // Created-at range. `createdTo` is inclusive of the whole day.
+        if (createdFrom.HasValue)
+            query = query.Where(r => r.CreatedAt >= createdFrom.Value);
+
+        if (createdTo.HasValue)
+            query = query.Where(r => r.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
 
         // ── 3. Sort + paginate (flat projection — no Alternatives loaded) ──
         query = sortBy switch
@@ -641,5 +649,228 @@ public class RFQService : IRFQService
 
         return "Done";
 
+    }
+
+    /// <summary>
+    /// Imports many RFQs for one customer in a single transaction.
+    /// Two rules carried over from the client-side paste flow:
+    ///   - groups sharing a name but differing by deadline are split and renamed ABA(1), ABA(2)... in deadline order;
+    ///   - a group whose final name already exists (in the DB or earlier in this payload) is skipped, not merged.
+    /// Part numbers, their descriptions/remarks and alternatives are created on the fly.
+    /// </summary>
+    public async Task<BulkImportRFQResponse> BulkImportAsync(BulkImportRFQRequest request, long callerUserId)
+    {
+        var customerCode = (request.CustomerCode ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(customerCode))
+            throw new Exception("Customer Code is required.");
+
+        var customer = await _db.Set<Customer>().FirstOrDefaultAsync(c => c.CustomerCode == customerCode)
+            ?? throw new Exception($"Customer with code '{customerCode}' does not exist. If you want to add a new Customer, please go to the Customers Page.");
+
+        var ownerId = request.UserId > 0 ? request.UserId : callerUserId;
+        var customerId = customer.Id;
+        var customerCodeResolved = customer.CustomerCode;
+        var exType = request.ExType ?? customer.ExWork;
+        var now = DateTime.UtcNow;
+
+        // 1. Merge payload groups on name + deadline, so one RFQ pasted in two chunks stays one RFQ.
+        var merged = new List<BulkPlan>();
+        var mergeIndex = new Dictionary<string, int>();
+
+        foreach (var group in request.Rfqs ?? new List<BulkImportRFQGroup>())
+        {
+            var baseName = (group.RfqName ?? string.Empty).Trim();
+            var items = (group.Items ?? new List<BulkImportRFQItem>())
+                .Where(i => !string.IsNullOrWhiteSpace(i.PartNumber))
+                .ToList();
+            if (string.IsNullOrWhiteSpace(baseName) || items.Count == 0) continue;
+
+            var key = $"{baseName.ToLowerInvariant()}||{(group.Deadline.HasValue ? group.Deadline.Value.Date.ToString("yyyy-MM-dd") : "")}";
+            if (mergeIndex.TryGetValue(key, out var idx))
+            {
+                var existing = merged[idx];
+                existing.Items.AddRange(items);
+                existing.ReceivedDate ??= group.ReceivedDate;
+                existing.Notes ??= group.Notes;
+            }
+            else
+            {
+                mergeIndex[key] = merged.Count;
+                merged.Add(new BulkPlan
+                {
+                    Name = baseName,
+                    BaseName = baseName,
+                    Deadline = group.Deadline,
+                    ReceivedDate = group.ReceivedDate,
+                    Notes = group.Notes,
+                    Items = items
+                });
+            }
+        }
+
+        if (merged.Count == 0)
+            return new BulkImportRFQResponse { CustomerId = customerId, CustomerCode = customerCodeResolved };
+
+        // 2. Deadline split: one name carrying several deadlines becomes ABA(1), ABA(2)... in deadline order.
+        var planned = new List<BulkPlan>();
+        foreach (var byName in merged.GroupBy(g => g.BaseName, StringComparer.OrdinalIgnoreCase))
+        {
+            var entries = byName.ToList();
+            if (entries.Count == 1)
+            {
+                planned.Add(entries[0]);
+                continue;
+            }
+
+            var ordered = entries.OrderBy(e => e.Deadline ?? DateTime.MinValue).ToList();
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Name = $"{ordered[i].BaseName}({i + 1})";
+                planned.Add(ordered[i]);
+            }
+        }
+
+        // 3. The connection is configured with EnableRetryOnFailure, and a retrying execution strategy
+        // refuses a user-initiated transaction unless the whole unit is handed to it — so the reads,
+        // the graph build and the commit all run inside one retriable delegate. A retry re-runs the
+        // delegate from the top, hence the ChangeTracker.Clear(): entities staged by the failed
+        // attempt would otherwise be inserted twice.
+        var strategy = _db.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            _db.ChangeTracker.Clear();
+
+            // Pre-load the names and part numbers this payload touches (two queries, not two per row).
+            var plannedNames = planned.Select(p => p.Name).ToList();
+            var takenNames = (await _db.Set<RFQHeader>()
+                    .Where(r => plannedNames.Contains(r.Name))
+                    .Select(r => r.Name)
+                    .ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var pnNames = planned
+                .SelectMany(p => p.Items.Select(i => i.PartNumber.Trim()))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var pnCache = (await _db.Set<PartNumber>()
+                    .Include(p => p.Alternatives)
+                    .Where(p => pnNames.Contains(p.Name))
+                    .ToListAsync())
+                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var response = new BulkImportRFQResponse { CustomerId = customerId, CustomerCode = customerCodeResolved };
+            var created = new List<(RFQHeader Rfq, BulkImportRFQResult Result)>();
+
+            await using var tx = await _db.Database.BeginTransactionAsync();
+
+            // 4. Build the object graph and let EF resolve the FKs, so it is one insert round-trip.
+            foreach (var plan in planned)
+            {
+                if (takenNames.Contains(plan.Name))
+                {
+                    response.Results.Add(new BulkImportRFQResult
+                    {
+                        Name = plan.Name,
+                        OriginalName = plan.BaseName,
+                        Deadline = plan.Deadline,
+                        ItemCount = plan.Items.Count,
+                        Skipped = true,
+                        Reason = "An RFQ with this name already exists."
+                    });
+                    response.SkippedCount++;
+                    continue;
+                }
+                takenNames.Add(plan.Name);
+
+                var rfq = new RFQHeader
+                {
+                    Name = plan.Name,
+                    LeadTime = plan.Deadline ?? now,
+                    ReceivedDate = plan.ReceivedDate ?? now,
+                    CreatedAt = now,
+                    CustomerId = customerId,
+                    UserId = ownerId,
+                    Notes = plan.Notes,
+                    ExType = exType,
+                };
+
+                foreach (var src in plan.Items)
+                {
+                    var pnName = src.PartNumber.Trim();
+                    if (!pnCache.TryGetValue(pnName, out var pn))
+                    {
+                        pn = new PartNumber { Name = pnName, CreatedAt = now };
+                        _db.Set<PartNumber>().Add(pn);
+                        pnCache[pnName] = pn;
+                    }
+
+                    // The client's per-row flow overwrites description/remark whenever the paste carries them.
+                    if (!string.IsNullOrWhiteSpace(src.Description)) pn.Description = src.Description.Trim();
+                    if (!string.IsNullOrWhiteSpace(src.Remark)) pn.Remark = src.Remark.Trim();
+
+                    foreach (var altName in src.Alternatives ?? new List<string>())
+                    {
+                        var trimmedAlt = altName?.Trim();
+                        if (string.IsNullOrWhiteSpace(trimmedAlt)) continue;
+                        if (pn.Alternatives.Any(a => string.Equals(a.Name, trimmedAlt, StringComparison.OrdinalIgnoreCase))) continue;
+
+                        pn.Alternatives.Add(new Alternative { Name = trimmedAlt, CreatedAt = now, PartNumber = pn });
+                    }
+
+                    rfq.RFQItems.Add(new RFQItem
+                    {
+                        PartNumber = pn,
+                        Qty = src.Qty > 0 ? src.Qty : 1,
+                        Condition = string.IsNullOrWhiteSpace(src.Condition) ? null : src.Condition.Trim().ToUpperInvariant(),
+                        Priority = string.IsNullOrWhiteSpace(src.Priority) ? null : src.Priority.Trim(),
+                        Note = string.IsNullOrWhiteSpace(src.Remark) ? null : src.Remark.Trim(),
+                        Unit = string.IsNullOrWhiteSpace(src.Unit) ? null : src.Unit.Trim(),
+                    });
+                }
+
+                _db.Set<RFQHeader>().Add(rfq);
+                created.Add((rfq, new BulkImportRFQResult
+                {
+                    Name = plan.Name,
+                    OriginalName = plan.BaseName,
+                    Deadline = plan.Deadline,
+                    ItemCount = rfq.RFQItems.Count,
+                }));
+            }
+
+            if (created.Count > 0)
+            {
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            else
+            {
+                await tx.RollbackAsync();
+            }
+
+            foreach (var (rfq, result) in created)
+            {
+                result.RfqId = rfq.Id;
+                response.Results.Add(result);
+            }
+            response.CreatedCount = created.Count;
+
+            return response;
+        });
+    }
+
+    /// <summary>One RFQ as it is being planned: still mutable, not yet an entity.</summary>
+    private sealed class BulkPlan
+    {
+        public string Name { get; set; } = string.Empty;
+        public string BaseName { get; set; } = string.Empty;
+        public DateTime? Deadline { get; set; }
+        public DateTime? ReceivedDate { get; set; }
+        public string? Notes { get; set; }
+        public List<BulkImportRFQItem> Items { get; set; } = new();
     }
 }

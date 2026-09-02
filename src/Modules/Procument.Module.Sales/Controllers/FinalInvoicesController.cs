@@ -229,6 +229,25 @@ public class FinalInvoicesController : ControllerBase
 
 
 
+    /// <summary>
+    /// Set or clear the B1 invoice number by hand. Fills one in where the source
+    /// proforma had none, or corrects the copy inherited from it.
+    /// </summary>
+
+    [HttpPatch("{id:long}/b1-number")]
+
+    public async Task<IActionResult> UpdateB1FinalInvoiceNumber(long id, [FromBody] UpdateB1NumberRequest request)
+
+    {
+
+        var ok = await _service.UpdateB1FinalInvoiceNumberAsync(id, request.B1Number);
+
+        return ok ? Ok() : NotFound();
+
+    }
+
+
+
     /// <summary>Get enriched data for Final Invoice PDF generation.</summary>
 
     [HttpGet("{id:long}/pdf-data")]
@@ -249,6 +268,8 @@ public class FinalInvoicesController : ControllerBase
 
             invoiceNumber = fi.InvoiceNumber,
 
+            b1InvoiceNumber = fi.B1InvoiceNumber,
+
             status = fi.Status,
 
             totalAmount = fi.TotalAmount,
@@ -266,6 +287,8 @@ public class FinalInvoicesController : ControllerBase
             createdAt = fi.CreatedAt,
 
             proformaInvoiceNumber = fi.ProformaInvoiceNumber,
+
+            b1ProformaInvoiceNumber = fi.B1ProformaInvoiceNumber,
 
             customerPONumber = fi.CustomerPONumber,
 
@@ -335,6 +358,85 @@ public class FinalInvoicesController : ControllerBase
 
         });
 
+    }
+
+    /// <summary>
+    /// Enriched data for a merged packing list covering several final invoices.
+    /// Every requested invoice must belong to the same customer; the header details come from
+    /// the earliest one, and each invoice's items are returned separately so the client can
+    /// let the user pick which parts actually ship.
+    /// </summary>
+    [HttpPost("packing-list-data")]
+    public async Task<IActionResult> GetMergedPackingListData([FromBody] MergedPackingListDataRequest request)
+    {
+        var ids = (request?.InvoiceIds ?? new List<long>()).Distinct().ToList();
+        if (ids.Count == 0)
+            return BadRequest(new { message = "Select at least one final invoice." });
+
+        var invoices = new List<FinalInvoiceResponse>();
+        foreach (var id in ids)
+        {
+            var fi = await _service.GetByIdAsync(id);
+            if (fi == null) return NotFound(new { message = $"Final invoice {id} was not found." });
+            invoices.Add(fi);
+        }
+
+        // The one hard rule: a merged packing list is for a single customer.
+        var customers = invoices
+            .GroupBy(i => i.CustomerId)
+            .Select(g => new { CustomerId = g.Key, Name = g.First().CustomerName })
+            .ToList();
+        if (customers.Count > 1)
+            return BadRequest(new
+            {
+                message = "All selected final invoices must belong to the same customer. "
+                        + $"Got: {string.Join(", ", customers.Select(c => c.Name))}."
+            });
+
+        // Oldest invoice supplies the addresses and contact details for the merged document.
+        var ordered = invoices.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).ToList();
+        var primary = ordered[0];
+
+        return Ok(new
+        {
+            customerId = primary.CustomerId,
+            customerName = primary.CustomerName,
+            customerCode = primary.CustomerCode,
+            customerContactPerson = primary.CustomerContactPerson,
+            customerBillTo = primary.CustomerBillTo,
+            customerBillToEmail = primary.CustomerBillToEmail,
+            customerBillToPhone = primary.CustomerBillToPhone,
+            customerBillToContactPerson = primary.CustomerBillToContactPerson,
+            customerShipTo = primary.CustomerShipTo,
+            customerShipToContactPerson = primary.CustomerShipToContactPerson,
+            customerShipToEmail = primary.CustomerShipToEmail,
+            customerShipToPhone = primary.CustomerShipToPhone,
+            customerShipToAccount = primary.CustomerShipToAccount,
+            customerContacts = primary.CustomerContacts ?? "",
+            primaryInvoiceId = primary.Id,
+            invoices = ordered.Select(fi => new
+            {
+                id = fi.Id,
+                invoiceNumber = fi.InvoiceNumber,
+                b1InvoiceNumber = fi.B1InvoiceNumber,
+                // What the customer knows the document by — B1 number when the base has one.
+                displayNumber = string.IsNullOrWhiteSpace(fi.B1InvoiceNumber) ? fi.InvoiceNumber : fi.B1InvoiceNumber,
+                proformaInvoiceNumber = fi.ProformaInvoiceNumber,
+                b1ProformaInvoiceNumber = fi.B1ProformaInvoiceNumber,
+                customerPONumber = fi.CustomerPONumber,
+                createdAt = fi.CreatedAt,
+                items = fi.Items.Select(i => new
+                {
+                    id = i.Id,
+                    partNumber = i.PartNumberName,
+                    alt = i.Alt,
+                    description = i.Description ?? "",
+                    qty = i.Qty,
+                    condition = i.Condition ?? "",
+                    certification = i.CertName ?? "",
+                }).ToList(),
+            }).ToList(),
+        });
     }
 
 }

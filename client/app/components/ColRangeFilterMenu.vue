@@ -1,5 +1,5 @@
 <template>
-  <div class="cf-th-inner">
+  <div class="cf-th-inner" :class="{ 'cf-th-inner--filtered': isActive }">
     <span class="cursor-pointer d-flex align-center gap-1" @click="$emit('sortClick')">
       {{ label }}
       <v-icon v-if="isSorted" :icon="sortDesc ? 'mdi-arrow-down' : 'mdi-arrow-up'" size="13" color="primary" />
@@ -89,9 +89,15 @@ function toNum(v: string | number | null): number | null {
 
 <style scoped>
 .cf-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.cf-th-inner--filtered { color: rgb(var(--v-theme-primary)); font-weight: 700; }
 .cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
 .cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
 .cursor-pointer { cursor: pointer; }
 .cf-sort-hint { opacity: 0.25; }
 .cf-th-inner:hover .cf-sort-hint { opacity: 0.6; }
+
+:global(th:has(.cf-th-inner--filtered)) {
+  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
+}
 </style>

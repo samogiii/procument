@@ -22,7 +22,10 @@ public interface ITotalPNService
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
         List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null);
-    Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases);
+    Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
+        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null);
     Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<bool> UpdateAsync(long poItemId, UpdatePOItemTotalPNRequest request);
 }
@@ -32,6 +35,33 @@ public class TotalPNService : ITotalPNService
     private readonly DbContext _db;
 
     public TotalPNService(DbContext db) { _db = db; }
+
+    /// <summary>
+    /// Selling price of one invoice line in USD, as (unit, total). InvoiceItem is the
+    /// authoritative source, but UpdateItemsAsync writes it through two different paths:
+    ///   New path   : UnitPrice + Qty edited directly → TotalPrice = Qty × UnitPrice (already final),
+    ///                Discount = (origUnitPrice - newUnitPrice) × Qty — informational only, NOT a deduction.
+    ///   Legacy path: FinalPrice edited → TotalPrice stays at the original quote total,
+    ///                Discount = TotalPrice - FinalPrice — this one IS a real deduction.
+    /// They are told apart by whether UnitPrice still matches the source quote's price.
+    /// Shared by the Total P/N and Total Order grids so the two can never disagree on a price.
+    /// </summary>
+    private static (decimal Unit, decimal Total) ResolveSellingPrice(InvoiceItem ii)
+    {
+        var origQuoteUnitPrice = ii.QuoteItem?.UnitPrice;
+        bool usedNewPath    = origQuoteUnitPrice == null || ii.UnitPrice != origQuoteUnitPrice.Value;
+        bool usedLegacyPath = !usedNewPath && (ii.Discount ?? 0m) != 0m;
+
+        decimal total = usedLegacyPath
+            ? ii.TotalPrice - (ii.Discount ?? 0m)   // legacy: TotalPrice is the original, subtract the discount
+            : ii.TotalPrice;                        // new path / untouched: TotalPrice is already final
+
+        decimal unit = usedNewPath
+            ? ii.UnitPrice                          // new path: UnitPrice was set directly
+            : (ii.Qty > 0 ? total / ii.Qty : ii.UnitPrice);
+
+        return (unit, total);
+    }
 
     public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
@@ -242,24 +272,7 @@ public class TotalPNService : ITotalPNService
             decimal purchTotal   = purchQty * purchUnit;
             string? supplierName = poi?.PurchaseOrder?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
-            // Selling Price — InvoiceItem is the authoritative source.
-            // Two update paths exist in UpdateItemsAsync:
-            //   New path  : UnitPrice + Qty edited directly → TotalPrice = Qty × UnitPrice (final),
-            //               Discount = (origUnitPrice - newUnitPrice) × Qty  (informational only, NOT a deduction).
-            //   Legacy path: FinalPrice edited → TotalPrice stays at original quote total,
-            //               Discount = TotalPrice - FinalPrice (IS a real deduction).
-            // Distinguish by checking whether UnitPrice was changed from the original quote price.
-            int     sellQty = ii.Qty;
-            var     origQuoteUnitPrice = ii.QuoteItem?.UnitPrice;
-            bool    usedNewPath    = origQuoteUnitPrice == null || ii.UnitPrice != origQuoteUnitPrice.Value;
-            bool    usedLegacyPath = !usedNewPath && (ii.Discount ?? 0m) != 0m;
-            decimal effectiveSellTotal = usedLegacyPath
-                ? ii.TotalPrice - (ii.Discount ?? 0m)   // legacy: TotalPrice is original, subtract discount
-                : ii.TotalPrice;                         // new path / no edit: TotalPrice is already final
-            decimal sellUnit  = usedNewPath
-                ? ii.UnitPrice                           // new path: UnitPrice was set directly
-                : (sellQty > 0 ? effectiveSellTotal / sellQty : ii.UnitPrice);
-            decimal sellTotal = effectiveSellTotal;
+            var (sellUnit, sellTotal) = ResolveSellingPrice(ii);
             decimal rate = (customer?.CurrencyType == "Yuan" || customer?.CurrencyType == "Both") ? 7m : 1m;
 
             // Status derivation logic
@@ -448,6 +461,10 @@ public class TotalPNService : ITotalPNService
             string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
             string? supplierName = po?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
+            // Buy price comes off the POItem below; sell price off the invoice line, through the
+            // same rule the Total P/N grid uses.
+            var (sellUnit, sellTotal) = ResolveSellingPrice(ii);
+
             // Collect SN data from linked ShipmentNotes
             var sns = poi.TrackNumbers
                 .SelectMany(t => t.ShipmentNotes.Select(snt => snt.ShipmentNote))
@@ -467,6 +484,8 @@ public class TotalPNService : ITotalPNService
 
                 PurchasingUnitPriceUsd = poi.UnitPrice,
                 PurchasingTotalPriceUsd = poi.TotalPrice,
+                SellingUnitPriceUsd = sellUnit,
+                SellingTotalPriceUsd = sellTotal,
                 POAmount = po?.TotalAmount,
 
                 PartNumber = poi.PartNumber?.Name ?? pi?.PartNumberName,
@@ -553,7 +572,10 @@ public class TotalPNService : ITotalPNService
         return moved.Length > 0 ? $"{moved}, {arrivals}" : arrivals;
     }
 
-    public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases)
+    public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
+        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null)
     {
         var iiSet = _db.Set<InvoiceItem>()
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
@@ -599,22 +621,76 @@ public class TotalPNService : ITotalPNService
 
         var rows = await baseQuery.ToListAsync();
 
-        static string Sort(IEnumerable<string> src) => string.Empty; // placeholder
         List<string> Sorted(IEnumerable<string?> src) =>
             src.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct().OrderBy(s => s).ToList();
 
+        var filterRows = rows.Select(x => new TotalPNFilterRow
+        {
+            Customer = x.ii.Invoice.Customer?.CustomerCode,
+            InvoiceNumber = x.ii.Invoice.InvoiceNumber,
+            PartNumber = x.poi?.PartNumber?.Name ?? x.pi?.PartNumberName,
+            Condition = x.poi?.Condition ?? x.pi?.Condition,
+            PoNumber = x.poi?.PurchaseOrder?.PONumber,
+            Supplier = x.poi?.PurchaseOrder?.Supplier?.Name ?? x.pi?.SupplierName,
+            PaymentTerm = x.ii.Invoice.Status,
+            Status = x.poi?.Status,
+            ShippingStatuses = x.poi == null
+                ? []
+                : x.poi.TrackNumbers
+                    .Select(t => t.Status)
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList()
+        }).ToList();
+
+        IEnumerable<TotalPNFilterRow> Build(string excludedColumn)
+        {
+            IEnumerable<TotalPNFilterRow> query = filterRows;
+            if (excludedColumn != "customer" && customers?.Count > 0)
+                query = query.Where(x => customers.Contains(x.Customer ?? ""));
+            if (excludedColumn != "customerInvoiceNumber" && invoiceNumbers?.Count > 0)
+                query = query.Where(x => invoiceNumbers.Contains(x.InvoiceNumber ?? ""));
+            if (excludedColumn != "partNumber" && partNumbers?.Count > 0)
+                query = query.Where(x => partNumbers.Contains(x.PartNumber ?? ""));
+            if (excludedColumn != "condition" && conditions?.Count > 0)
+                query = query.Where(x => conditions.Contains(x.Condition ?? ""));
+            if (excludedColumn != "poNumber" && poNumbers?.Count > 0)
+                query = query.Where(x => poNumbers.Contains(x.PoNumber ?? ""));
+            if (excludedColumn != "supplier" && suppliers?.Count > 0)
+                query = query.Where(x => suppliers.Contains(x.Supplier ?? ""));
+            if (excludedColumn != "paymentTerm" && paymentTerms?.Count > 0)
+                query = query.Where(x => paymentTerms.Contains(x.PaymentTerm ?? ""));
+            if (excludedColumn != "status" && poStatuses?.Count > 0)
+                query = query.Where(x => poStatuses.Contains(x.Status ?? ""));
+            if (excludedColumn != "shippingStatus" && shippingStatuses?.Count > 0)
+                query = query.Where(x => x.ShippingStatuses.Any(shippingStatuses.Contains));
+            return query;
+        }
+
         return new TotalPNFilterOptions
         {
-            Customers      = Sorted(rows.Select(x => x.ii.Invoice.Customer?.CustomerCode)),
-            InvoiceNumbers = Sorted(rows.Select(x => x.ii.Invoice.InvoiceNumber)),
-            PartNumbers    = Sorted(rows.Select(x => x.poi?.PartNumber?.Name ?? x.pi?.PartNumberName)),
-            Conditions     = Sorted(rows.Select(x => x.poi?.Condition ?? x.pi?.Condition)),
-            PoNumbers      = Sorted(rows.Where(x => x.poi?.PurchaseOrder != null).Select(x => x.poi!.PurchaseOrder!.PONumber)),
-            Suppliers      = Sorted(rows.Select(x => x.poi?.PurchaseOrder?.Supplier?.Name ?? x.pi?.SupplierName)),
-            PaymentTerms   = Sorted(rows.Select(x => x.ii.Invoice.Status)),
-            Statuses       = Sorted(rows.Where(x => x.poi?.Status != null).Select(x => x.poi!.Status)),
-            ShippingStatuses = Sorted(rows.SelectMany(x => x.poi?.TrackNumbers?.Select(t => t.Status) ?? Enumerable.Empty<string?>())),
+            Customers = Sorted(Build("customer").Select(x => x.Customer)),
+            InvoiceNumbers = Sorted(Build("customerInvoiceNumber").Select(x => x.InvoiceNumber)),
+            PartNumbers = Sorted(Build("partNumber").Select(x => x.PartNumber)),
+            Conditions = Sorted(Build("condition").Select(x => x.Condition)),
+            PoNumbers = Sorted(Build("poNumber").Select(x => x.PoNumber)),
+            Suppliers = Sorted(Build("supplier").Select(x => x.Supplier)),
+            PaymentTerms = Sorted(Build("paymentTerm").Select(x => x.PaymentTerm)),
+            Statuses = Sorted(Build("status").Select(x => x.Status)),
+            ShippingStatuses = Sorted(Build("shippingStatus").SelectMany(x => x.ShippingStatuses)),
         };
+    }
+
+    private sealed class TotalPNFilterRow
+    {
+        public string? Customer { get; init; }
+        public string? InvoiceNumber { get; init; }
+        public string? PartNumber { get; init; }
+        public string? Condition { get; init; }
+        public string? PoNumber { get; init; }
+        public string? Supplier { get; init; }
+        public string? PaymentTerm { get; init; }
+        public string? Status { get; init; }
+        public List<string> ShippingStatuses { get; init; } = [];
     }
 
     public async Task<bool> UpdateAsync(long poItemId, UpdatePOItemTotalPNRequest request)

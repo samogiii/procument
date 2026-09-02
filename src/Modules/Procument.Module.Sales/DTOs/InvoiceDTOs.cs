@@ -73,6 +73,8 @@ public class InvoiceResponse
 {
     public long Id { get; set; }
     public string InvoiceNumber { get; set; } = string.Empty;
+    /// <summary>Base 1 proforma invoice number inherited from the quote (e.g. "P101-60701-10"); null for every other base. Stored as Invoices.B1InvoiceNumber.</summary>
+    public string? B1ProformaInvoiceNumber { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsCancelled { get; set; }

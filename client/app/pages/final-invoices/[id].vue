@@ -3,6 +3,15 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/final-invoices" class="mr-1 flex-shrink-0" size="small" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Invoice {{ inv.invoiceNumber || `#${route.params.id}` }}</h1>
+      <!-- Base 1 number inherited from the source proforma; editable so it can be added
+           where there is none or corrected where it was inherited. -->
+      <B1NumberEditor
+        v-model="inv.b1InvoiceNumber"
+        :endpoint="`/final-invoices/${route.params.id}/b1-number`"
+        :editable="isAdmin"
+        label="B1 Invoice Number"
+        placeholder="I101-60701-10"
+      />
       <v-spacer />
       <v-menu v-if="isAdmin">
         <template #activator="{ props: menuProps }">
@@ -98,7 +107,13 @@
       {{ snackbarText }}
     </v-snackbar>
 
-    <FinalInvoicePdfGenerator v-model="showPdf" :invoice-id="String(route.params.id)" />
+    <!-- The generator fetches its own pdf-data once and caches it, so editing the B1
+         number must remount it; otherwise the PDF would still carry the previous one. -->
+    <FinalInvoicePdfGenerator
+      :key="inv.b1InvoiceNumber || 'no-b1-number'"
+      v-model="showPdf"
+      :invoice-id="String(route.params.id)"
+    />
   </div>
 </template>
 

@@ -15,6 +15,7 @@ public interface IFinalInvoiceService
     Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> UpdateAsync(long id, UpdateFinalInvoiceRequest request);
+    Task<bool> UpdateB1FinalInvoiceNumberAsync(long id, string? b1FinalInvoiceNumber);
     Task<bool> CanCreateFinalInvoice(long proformaInvoiceId);
     Task<List<EligibleProformaResponse>> GetEligibleProformasAsync();
 }
@@ -22,10 +23,12 @@ public interface IFinalInvoiceService
 public class FinalInvoiceService : IFinalInvoiceService
 {
     private readonly DbContext _db;
+    private readonly IB1NumberService _b1Service;
 
-    public FinalInvoiceService(DbContext db)
+    public FinalInvoiceService(DbContext db, IB1NumberService b1Service)
     {
         _db = db;
+        _b1Service = b1Service;
     }
 
     /// <summary>
@@ -45,9 +48,10 @@ public class FinalInvoiceService : IFinalInvoiceService
             var s = page.Search.Trim();
             q = q.Where(fi =>
                 fi.InvoiceNumber.Contains(s)
+             || (fi.B1FinalInvoiceNumber != null && fi.B1FinalInvoiceNumber.Contains(s))
              || fi.Status.Contains(s)
              || (fi.Customer != null && (fi.Customer.Name.Contains(s) || (fi.Customer.CustomerCode != null && fi.Customer.CustomerCode.Contains(s))))
-             || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s))
+             || (fi.ProformaInvoice != null && (fi.ProformaInvoice.InvoiceNumber.Contains(s) || (fi.ProformaInvoice.B1InvoiceNumber != null && fi.ProformaInvoice.B1InvoiceNumber.Contains(s))))
              || fi.Items.Any(item =>
                     (item.PartNumber != null && item.PartNumber.Name.Contains(s)) ||
                     (item.PartNumber != null && item.PartNumber.Description != null && item.PartNumber.Description.Contains(s)) ||
@@ -105,6 +109,7 @@ public class FinalInvoiceService : IFinalInvoiceService
         {
             Id = fi.Id,
             InvoiceNumber = fi.InvoiceNumber,
+            B1InvoiceNumber = fi.B1FinalInvoiceNumber,
             TotalAmount = fi.TotalAmount,
             Status = fi.Status,
             CreatedAt = fi.CreatedAt,
@@ -112,6 +117,7 @@ public class FinalInvoiceService : IFinalInvoiceService
             PaidDate = fi.PaidDate,
             ProformaInvoiceId = fi.ProformaInvoiceId,
             ProformaInvoiceNumber = fi.ProformaInvoice != null ? fi.ProformaInvoice.InvoiceNumber : "",
+            B1ProformaInvoiceNumber = fi.ProformaInvoice != null ? fi.ProformaInvoice.B1InvoiceNumber : null,
             CustomerId = fi.CustomerId,
             CustomerName = fi.Customer != null ? fi.Customer.Name : "",
             CustomerCode = fi.Customer != null ? fi.Customer.CustomerCode : null,
@@ -146,9 +152,10 @@ public class FinalInvoiceService : IFinalInvoiceService
                 var s = search.Trim();
                 q = q.Where(fi =>
                     fi.InvoiceNumber.Contains(s)
+                 || (fi.B1FinalInvoiceNumber != null && fi.B1FinalInvoiceNumber.Contains(s))
                  || fi.Status.Contains(s)
                  || (fi.Customer != null && (fi.Customer.Name.Contains(s) || (fi.Customer.CustomerCode != null && fi.Customer.CustomerCode.Contains(s))))
-                 || (fi.ProformaInvoice != null && fi.ProformaInvoice.InvoiceNumber.Contains(s)));
+                 || (fi.ProformaInvoice != null && (fi.ProformaInvoice.InvoiceNumber.Contains(s) || (fi.ProformaInvoice.B1InvoiceNumber != null && fi.ProformaInvoice.B1InvoiceNumber.Contains(s)))));
             }
 
             if (!string.IsNullOrWhiteSpace(customerSearch))
@@ -241,6 +248,7 @@ public class FinalInvoiceService : IFinalInvoiceService
         {
             Id = i.Id,
             InvoiceNumber = i.InvoiceNumber,
+            B1ProformaInvoiceNumber = i.B1InvoiceNumber,
             CustomerName = i.Customer?.Name ?? "",
             CustomerCode = i.Customer?.CustomerCode,
             TotalAmount = i.TotalAmount
@@ -328,6 +336,8 @@ public class FinalInvoiceService : IFinalInvoiceService
         var finalInvoice = new FinalInvoice
         {
             InvoiceNumber = "",
+            // Same digits as the proforma's B1 number, re-lettered I (null when the proforma has none).
+            B1FinalInvoiceNumber = _b1Service.Relabel(proforma.B1InvoiceNumber, B1NumberService.FinalInvoiceLetter),
             TotalAmount = proforma.TotalAmount,
             Status = "Draft",
             ProformaInvoiceId = proforma.Id,
@@ -403,6 +413,21 @@ public class FinalInvoiceService : IFinalInvoiceService
         return true;
     }
 
+    /// <summary>
+    /// Sets the B1 final invoice number by hand — used both to fill one in where the source
+    /// proforma had none and to correct the copy inherited from it. Blank clears it.
+    /// Independent of the proforma's own B1 number.
+    /// </summary>
+    public async Task<bool> UpdateB1FinalInvoiceNumberAsync(long id, string? b1FinalInvoiceNumber)
+    {
+        var fi = await _db.Set<FinalInvoice>().FindAsync(id);
+        if (fi == null) return false;
+
+        fi.B1FinalInvoiceNumber = _b1Service.Normalize(b1FinalInvoiceNumber);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> UpdateAsync(long id, UpdateFinalInvoiceRequest request)
     {
         var fi = await _db.Set<FinalInvoice>().FindAsync(id);
@@ -432,6 +457,7 @@ public class FinalInvoiceService : IFinalInvoiceService
         {
             Id = fi.Id,
             InvoiceNumber = fi.InvoiceNumber,
+            B1InvoiceNumber = fi.B1FinalInvoiceNumber,
             TotalAmount = fi.TotalAmount,
             Status = fi.Status,
             ShippingMethod = fi.ShippingMethod,
@@ -442,6 +468,7 @@ public class FinalInvoiceService : IFinalInvoiceService
             CreatedAt = fi.CreatedAt,
             ProformaInvoiceId = fi.ProformaInvoiceId,
             ProformaInvoiceNumber = fi.ProformaInvoice?.InvoiceNumber ?? "",
+            B1ProformaInvoiceNumber = fi.ProformaInvoice?.B1InvoiceNumber,
             CustomerPONumber = fi.ProformaInvoice?.CustomerPONumber,
             CustomerId = fi.CustomerId,
             CustomerName = fi.Customer?.Name ?? "",

@@ -1,5 +1,5 @@
 <template>
-  <div class="cf-th-inner">
+  <div class="cf-th-inner" :class="{ 'cf-th-inner--filtered': isActive }">
     <span
       class="d-flex align-center gap-1"
       :class="{ 'cursor-pointer': sortable !== false }"
@@ -109,6 +109,14 @@ defineEmits<{
 
 const showAll = ref(false)
 
+// "Show all" is an explicit inspection mode, not a sticky preference. When another
+// column changes, the parent replaces this column's available options; return to the
+// safe list automatically so the next filter choice cannot produce an empty result.
+watch(
+  () => normalize(props.options).map(o => o.value).join('\u001f'),
+  () => { showAll.value = false },
+)
+
 function normalize(list: readonly RawOption[] | undefined): { title: string; value: string }[] {
   if (!list) return []
   return list.map(o =>
@@ -157,10 +165,17 @@ const filteredOpts = computed(() => {
 
 <style scoped>
 .cf-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.cf-th-inner--filtered { color: rgb(var(--v-theme-primary)); font-weight: 700; }
 .cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
 .cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
 .cursor-pointer { cursor: pointer; }
 .cf-sort-hint { opacity: 0.25; }
 .cf-th-inner:hover .cf-sort-hint { opacity: 0.6; }
 .cf-unavailable { opacity: 0.45; }
+
+/* Highlight the complete table header, not just the filter icon, while this column filters rows. */
+:global(th:has(.cf-th-inner--filtered)) {
+  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
+}
 </style>

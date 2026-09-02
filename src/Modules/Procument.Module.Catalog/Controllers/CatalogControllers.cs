@@ -387,6 +387,33 @@ public class SuppliersController : ControllerBase
         return Ok(results);
     }
 
+    /// <summary>
+    /// Given a list of supplier names, return the ones that have no matching supplier
+    /// (case-insensitive). Used by the RFQ page to block quotes that reference a supplier
+    /// which was never added in the Catalog, and to tell the user which names are missing.
+    /// </summary>
+    [HttpPost("validate")]
+    public async Task<ActionResult> Validate([FromBody] ValidateSuppliersDto dto)
+    {
+        var names = (dto.Names ?? new List<string>())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (names.Count == 0) return Ok(new { missing = Array.Empty<string>() });
+
+        var lowered = names.Select(n => n.ToLower()).ToList();
+        var existing = (await _db.Set<Supplier>()
+                .Where(s => lowered.Contains(s.Name.ToLower()))
+                .Select(s => s.Name.ToLower())
+                .ToListAsync())
+            .ToHashSet();
+
+        var missing = names.Where(n => !existing.Contains(n.ToLower())).ToList();
+        return Ok(new { missing });
+    }
+
     /// <summary>Get all pending suppliers (admin review page).</summary>
     [HttpGet("pending")]
     [Authorize(Roles = "Admin,SuperAdmin")]
@@ -566,6 +593,11 @@ public class SupplierDto
 public class ResubmitSupplierDto
 {
     public string Name { get; set; } = string.Empty;
+}
+
+public class ValidateSuppliersDto
+{
+    public List<string>? Names { get; set; }
 }
 
 public class SupplierContactInfoDto

@@ -354,6 +354,112 @@ public static class PdfDocModelBuilders
     }
 
     // ──────────────────────────────────────────────────────
+    // PACKING LIST
+    // ──────────────────────────────────────────────────────
+    public static PdfDocModel FromPackingList(PackingListPdfRequest req)
+    {
+        var items = req.Items ?? [];
+
+        var m = new PdfDocModel
+        {
+            DocTitle = "Packing List",
+            DocNumber = req.InvoiceNumber,
+            LogoBase64 = req.LogoBase64,
+            CompanyName = req.CompanyName,
+            CompanyLocation = req.CompanyLocation,
+            CompanyPhone = req.CompanyPhone,
+            CompanyWebsite = req.CompanyWebsite,
+            CompanyEmail = req.CompanyEmail,
+            Primary = req.PrimaryColor ?? "#312e81",
+            Accent = req.AccentColor ?? "#6366f1",
+            // A packing list carries no prices, terms or issuer signature grid.
+            ShowSignatureBlock = false,
+            Meta =
+            [
+                new("Date", req.InvoiceDate),
+                new("Customer PO", req.CustomerPONumber),
+                new("PI Ref", req.ProformaRef)
+            ]
+        };
+
+        m.Addresses.Add(new PdfAddressBlock
+        {
+            Title = "Bill To",
+            Name = req.CustomerBillToName ?? req.CustomerName,
+            Address = req.CustomerBillTo,
+            Fields =
+            [
+                new("Contact Person", req.CustomerBillToContactPerson),
+                new("Email", req.CustomerBillToEmail),
+                new("Phone", req.CustomerBillToPhone)
+            ]
+        });
+        m.Addresses.Add(new PdfAddressBlock
+        {
+            Title = "Ship To",
+            Name = req.CustomerShipToName ?? req.CustomerName,
+            Address = req.CustomerShipTo,
+            Fields =
+            [
+                new("Contact Person", req.CustomerShipToContactPerson),
+                new("Email", req.CustomerShipToEmail),
+                new("Phone", req.CustomerShipToPhone),
+                new("Account", req.CustomerShipToAccount)
+            ]
+        });
+
+        // A merged packing list spans several final invoices, so each line names its source.
+        var isMerged = items.Any(i => !string.IsNullOrWhiteSpace(i.SourceInvoice));
+
+        m.Columns = [PdfTableColumn.Fixed("#", 20)];
+        if (isMerged) m.Columns.Add(PdfTableColumn.Fixed("Invoice", 70));
+        if (isMerged) m.Columns.Add(PdfTableColumn.Fixed("Customer PO", 75));
+        m.Columns.AddRange(
+        [
+            PdfTableColumn.Flex("Part No.", 1.6f, PdfCellAlign.Center),
+            PdfTableColumn.Flex("Description", 2f),
+            PdfTableColumn.Fixed("Qty", 30),
+            PdfTableColumn.Fixed("CD", 30),
+            PdfTableColumn.Fixed("Cert", 65)
+        ]);
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            var it = items[i];
+            var row = new PdfTableRow { Cells = [new PdfCell((i + 1).ToString())] };
+            if (isMerged) row.Cells.Add(new PdfCell(it.SourceInvoice));
+            if (isMerged) row.Cells.Add(new PdfCell(it.SourceCustomerPONumber));
+            row.Cells.AddRange(
+            [
+                PartNumberCell(it.PartNumber, it.Alt),
+                new PdfCell(it.Description),
+                new PdfCell(it.Qty.ToString(), bold: true),
+                new PdfCell(it.Condition),
+                new PdfCell(it.Certification)
+            ]);
+            m.Rows.Add(row);
+        }
+
+        // Packages (weight / dimensions) ride in a left-hand info block, since there are no totals.
+        var packages = req.Packages ?? [];
+        if (packages.Count > 0)
+        {
+            var block = new PdfInfoBlock { Title = "Shipping Details" };
+            for (int i = 0; i < packages.Count; i++)
+            {
+                var pkg = packages[i];
+                var parts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(pkg.Weight)) parts.Add(pkg.Weight!);
+                if (!string.IsNullOrWhiteSpace(pkg.Dimensions)) parts.Add(pkg.Dimensions!);
+                block.Fields.Add(new($"Package {i + 1}", string.Join("  —  ", parts)));
+            }
+            m.InfoBlocks.Add(block);
+        }
+
+        return m;
+    }
+
+    // ──────────────────────────────────────────────────────
     // QUOTATION
     // ──────────────────────────────────────────────────────
     public static PdfDocModel FromQuote(QuotePdfRequest req)

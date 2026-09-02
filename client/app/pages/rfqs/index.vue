@@ -145,6 +145,28 @@
             </template>
           </v-autocomplete>
 
+          <v-text-field
+            v-model="createdFrom"
+            label="Created From"
+            type="date"
+            hide-details
+            clearable
+            density="compact"
+            variant="outlined"
+            class="mx-2"
+            style="min-width: 160px; max-width: 200px;"
+          />
+          <v-text-field
+            v-model="createdTo"
+            label="Created To"
+            type="date"
+            hide-details
+            clearable
+            density="compact"
+            variant="outlined"
+            style="min-width: 160px; max-width: 200px;"
+          />
+
           <v-btn
             :color="showNoQuote ? 'warning' : 'default'"
             :variant="showNoQuote ? 'tonal' : 'outlined'"
@@ -1127,6 +1149,8 @@ const { filters: pf, clearFilters: clearPageFilters, hasActiveFilters: hasPageFi
   user: [] as number[],
   pnSearch: '',
   customer: [] as string[],
+  createdFrom: '',
+  createdTo: '',
   page: 1,
   itemsPerPage: 50,
   // Days column: remember the last sort + days-left filter across refreshes
@@ -1226,6 +1250,9 @@ const statusFilter = pf.status
 const userFilter = pf.user
 const pnSearch = pf.pnSearch
 const customerFilter = pf.customer
+// Created-at range — both bounds inclusive; the backend covers the whole `createdTo` day.
+const createdFrom = pf.createdFrom
+const createdTo = pf.createdTo
 
 // Helper: deduplicated list of assigned users (views + edits) for one RFQ item
 function assignedOf(item: any): { id: number; name: string }[] {
@@ -1389,6 +1416,8 @@ function buildFilterParams(): URLSearchParams {
   if (colFilter.isActive('name')) colFilter.getSelected('name').forEach(v => params.append('rfqNames', v))
   if (colFilter.isActive('leadTime')) colFilter.getSelected('leadTime').forEach(v => params.append('deadlines', v))
   if (daysFilter.value !== null) params.set('maxDays', String(daysFilter.value))
+  if (createdFrom.value) params.set('createdFrom', createdFrom.value)
+  if (createdTo.value) params.set('createdTo', createdTo.value)
   return params
 }
 
@@ -1431,6 +1460,7 @@ watch(userFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { 
 watch(customerFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }), { deep: true })
 watch(showNoQuote, () => loadServerPage({ ...lastServerOpts.value, page: 1 }))
 watch(daysFilter, () => loadServerPage({ ...lastServerOpts.value, page: 1 }))
+watch([createdFrom, createdTo], () => loadServerPage({ ...lastServerOpts.value, page: 1 }))
 
 function goToRfq(pointerEvent: Event, rowData: { item: any }) {
   if (rowData && rowData.item && rowData.item.id) {

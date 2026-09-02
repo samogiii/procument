@@ -3,6 +3,15 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <v-btn icon="mdi-arrow-left" variant="text" to="/invoices" class="mr-1 flex-shrink-0" size="small" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Sales Order {{ invoice.invoiceNumber || `#${route.params.id}` }}</h1>
+      <!-- Base 1 number inherited from the source quote; editable so it can be added
+           where there is none or corrected where it was inherited. -->
+      <B1NumberEditor
+        v-model="invoice.b1ProformaInvoiceNumber"
+        :endpoint="`/invoices/${route.params.id}/b1-number`"
+        :editable="isAdmin"
+        label="B1 Proforma Invoice Number"
+        placeholder="P101-60701-10"
+      />
       <v-spacer />
       <div class="d-flex flex-wrap align-center gap-1 gap-sm-2">
         <!-- Invoice Status Chip with Dropdown (admin only) -->

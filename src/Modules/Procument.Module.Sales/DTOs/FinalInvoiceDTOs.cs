@@ -4,6 +4,8 @@ public class FinalInvoiceResponse
 {
     public long Id { get; set; }
     public string InvoiceNumber { get; set; } = "";
+    /// <summary>Base 1 invoice number inherited from the proforma (e.g. "I101-60701-10"); null for every other base. Stored as FinalInvoices.B1FinalInvoiceNumber.</summary>
+    public string? B1InvoiceNumber { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = "";
     public string? ShippingMethod { get; set; }
@@ -14,6 +16,7 @@ public class FinalInvoiceResponse
     public DateTime CreatedAt { get; set; }
     public long ProformaInvoiceId { get; set; }
     public string ProformaInvoiceNumber { get; set; } = "";
+    public string? B1ProformaInvoiceNumber { get; set; }
     public string? CustomerPONumber { get; set; } = null;
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
@@ -84,6 +87,7 @@ public class EligibleProformaResponse
 {
     public long Id { get; set; }
     public string InvoiceNumber { get; set; } = "";
+    public string? B1ProformaInvoiceNumber { get; set; }
     public string CustomerName { get; set; } = "";
     public string? CustomerCode { get; set; }
     public decimal TotalAmount { get; set; }
@@ -93,10 +97,20 @@ public class EligibleProformaResponse
 /// Lightweight row used by the Final Invoices list page. Skips line items and the
 /// deep RFQ-traversal that the detail DTO needs — list queries stay a single flat SELECT.
 /// </summary>
+/// <summary>
+/// Ids of the final invoices whose parts go onto one merged packing list.
+/// They must all belong to the same customer — a packing list ships to a single destination.
+/// </summary>
+public class MergedPackingListDataRequest
+{
+    public List<long> InvoiceIds { get; set; } = new();
+}
+
 public class FinalInvoiceListItem
 {
     public long Id { get; set; }
     public string InvoiceNumber { get; set; } = "";
+    public string? B1InvoiceNumber { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = "";
     public DateTime CreatedAt { get; set; }
@@ -104,6 +118,7 @@ public class FinalInvoiceListItem
     public DateTime? PaidDate { get; set; }
     public long ProformaInvoiceId { get; set; }
     public string ProformaInvoiceNumber { get; set; } = "";
+    public string? B1ProformaInvoiceNumber { get; set; }
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
     public string? CustomerCode { get; set; }

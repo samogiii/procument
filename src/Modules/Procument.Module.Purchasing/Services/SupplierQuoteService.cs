@@ -103,8 +103,10 @@ public class SupplierQuoteService : ISupplierQuoteService
             throw new UnauthorizedAccessException("User does not have permission to add quotes to this RFQ.");
         }
 
-        // Resolve or create supplier by name
-        var supplier = await ResolveSupplierAsync(request.SupplierName, userId);
+        // Resolve supplier by name. Normal procurement records require an existing (Catalog)
+        // supplier; AR / repair-shop records may still create one on the fly.
+        var supplier = await ResolveSupplierAsync(
+            request.SupplierName, userId, AllowsSupplierCreation(request.Condition, request.Type));
 
         ProcumentRecord record;
 
@@ -280,9 +282,32 @@ public class SupplierQuoteService : ISupplierQuoteService
             throw new UnauthorizedAccessException("User does not have permission to add quotes to this RFQ.");
         }
 
+        // Pre-validate every supplier name up front. SaveAsync (via ResolveSupplierAsync)
+        // throws on an unknown name, but it also SaveChanges per quote — so validating here
+        // first stops a single bad name from leaving earlier quotes in the batch persisted.
+        // AR / repair-shop quotes are exempt (they may create suppliers on the fly).
+        var names = request.Quotes
+            .Where(q => !string.IsNullOrWhiteSpace(q.SupplierName)
+                        && !AllowsSupplierCreation(q.Condition, q.Type))
+            .Select(q => q.SupplierName.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (names.Count > 0)
+        {
+            var lowered = names.Select(n => n.ToLower()).ToList();
+            var existing = (await _db.Set<Supplier>()
+                    .Where(s => lowered.Contains(s.Name.ToLower()))
+                    .Select(s => s.Name.ToLower())
+                    .ToListAsync())
+                .ToHashSet();
+            var missing = names.Where(n => !existing.Contains(n.ToLower())).ToList();
+            if (missing.Count > 0)
+                throw new SupplierNotFoundException(missing);
+        }
+
         var results = new List<SupplierQuoteResponse>();
 
-        // We can reuse SaveAsync but pass userId. 
+        // We can reuse SaveAsync but pass userId.
         // OPTIMIZATION: SaveAsync does permission check again. 
         // It's fine for now, or we can refactor internal method.
         // But SaveAsync needs to fetch RFQId for each item to check permission if we don't pass it.
@@ -336,7 +361,15 @@ public class SupplierQuoteService : ISupplierQuoteService
 
     // ──── Helpers ────
 
-    private async Task<Supplier> ResolveSupplierAsync(string supplierName, long userId)
+    /// <summary>
+    /// AR (as-removed) records and repair-shop records may still create suppliers on the fly —
+    /// repair shops are often one-off vendors that don't belong in the Catalog. Every other
+    /// (normal procurement) record must reference a supplier that already exists.
+    /// </summary>
+    private static bool AllowsSupplierCreation(string? condition, string? type)
+        => condition == "AR" || condition == "IN" || type == "Shop";
+
+    private async Task<Supplier> ResolveSupplierAsync(string supplierName, long userId, bool allowCreate)
     {
         var trimmed = supplierName.Trim();
         var lower = trimmed.ToLower();
@@ -365,7 +398,12 @@ public class SupplierQuoteService : ISupplierQuoteService
             return existing;
         }
 
-        // No match — create a new one
+        // No match. Normal procurement records must not create suppliers here — they have to be
+        // added via the Catalog first (prevents typos/duplicates spawning stray suppliers).
+        // AR / repair-shop records are exempt and may still create the supplier on the fly.
+        if (!allowCreate)
+            throw new SupplierNotFoundException(trimmed);
+
         var supplier = new Supplier
         {
             Name = trimmed,
@@ -443,4 +481,28 @@ public class SupplierQuoteService : ISupplierQuoteService
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
             .Select(s => MapToResponse(s)).ToList(),
     };
+}
+
+/// <summary>
+/// Thrown when a supplier quote references a supplier name that does not yet exist.
+/// Suppliers can no longer be created straight from the RFQ page — they must be added
+/// in the Catalog first. The controller maps this to a 400 with <see cref="MissingSuppliers"/>.
+/// </summary>
+public class SupplierNotFoundException : Exception
+{
+    public IReadOnlyList<string> MissingSuppliers { get; }
+
+    public SupplierNotFoundException(string name)
+        : this(new[] { name }) { }
+
+    public SupplierNotFoundException(IReadOnlyList<string> names)
+        : base(BuildMessage(names))
+    {
+        MissingSuppliers = names;
+    }
+
+    private static string BuildMessage(IReadOnlyList<string> names)
+        => names.Count == 1
+            ? $"Supplier \"{names[0]}\" was not found. Add it in the Catalog first, then select it here."
+            : $"These suppliers were not found: {string.Join(", ", names)}. Add them in the Catalog first, then select them here.";
 }

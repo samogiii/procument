@@ -329,10 +329,14 @@ public class AppDbContext : DbContext
       entity.ToTable("Quotes");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.QuoteNumber).HasMaxLength(100);
+      entity.Property(e => e.B1QuoteNumber).HasMaxLength(50);
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
 
       entity.HasIndex(e => e.QuoteNumber).IsUnique();
+      // Quotes are the only place a B1 number is generated, so it must be unique there.
+      // Filtered so the (many) rows without one don't collide with each other.
+      entity.HasIndex(e => e.B1QuoteNumber).IsUnique().HasFilter("[B1QuoteNumber] IS NOT NULL");
 
       entity.HasOne(e => e.RFQ)
                 .WithMany()
@@ -401,10 +405,13 @@ public class AppDbContext : DbContext
       entity.ToTable("Invoices");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.InvoiceNumber).HasMaxLength(100);
+      entity.Property(e => e.B1InvoiceNumber).HasMaxLength(50);
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
 
       entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+      // Copied from the source quote, so not unique — searched, hence indexed.
+      entity.HasIndex(e => e.B1InvoiceNumber);
 
       entity.HasOne(e => e.Quote)
                 .WithMany(q => q.Invoices)
@@ -445,6 +452,7 @@ public class AppDbContext : DbContext
       entity.ToTable("FinalInvoices");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.InvoiceNumber).HasMaxLength(100);
+      entity.Property(e => e.B1FinalInvoiceNumber).HasMaxLength(50);
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.ShippingCost).HasColumnType("decimal(18,2)");
@@ -452,6 +460,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Notes).HasMaxLength(2000);
 
       entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+      // Copied from the source proforma, so not unique — searched, hence indexed.
+      entity.HasIndex(e => e.B1FinalInvoiceNumber);
 
       entity.HasOne(e => e.ProformaInvoice)
                 .WithMany()

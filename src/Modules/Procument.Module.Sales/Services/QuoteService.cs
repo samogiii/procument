@@ -16,8 +16,8 @@ public interface IQuoteService
     Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false);
-    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null);
+    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin, int[]? userBases = null);
@@ -25,6 +25,7 @@ public interface IQuoteService
     Task<bool> UpdateItemsOrderAsync(long quoteId, List<QuoteItemOrderEntry> items, long userId, bool isAdmin, int[]? userBases = null);
     Task<bool> UpdateRFQExTypeAsync(long quoteId, int? exType, long userId, bool isAdmin, int[]? userBases = null);
     Task<bool> UpdateYuanSettingsAsync(long quoteId, decimal? coefYuan, decimal? exchangeRateYuan);
+    Task<B1NumberUpdateResult> UpdateB1QuoteNumberAsync(long id, string? b1QuoteNumber, long userId, bool isAdmin, int[]? userBases = null);
 }
 
 public class QuoteService : IQuoteService
@@ -32,13 +33,18 @@ public class QuoteService : IQuoteService
     /// <summary>Cap on high-cardinality filter option lists (quote numbers, RFQ names) so the payload stays small.</summary>
     private const int MaxFilterOptions = 1000;
 
+    /// <summary>Attempts allowed when two quotes for the same customer race for the same B1 number.</summary>
+    private const int B1NumberRetries = 5;
+
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
+    private readonly IB1NumberService _b1Service;
 
-    public QuoteService(DbContext db, IPermissionService permissionService)
+    public QuoteService(DbContext db, IPermissionService permissionService, IB1NumberService b1Service)
     {
         _db = db;
         _permissionService = permissionService;
+        _b1Service = b1Service;
     }
 
     /// <summary>
@@ -225,10 +231,14 @@ public class QuoteService : IQuoteService
         // Set quote number based on auto-increment Id
         quote.QuoteNumber = $"QT-{quote.Id}";
 
+        // Base 1 customers also get a B1 quote number (e.g. Q101-60701-10), which the
+        // Sales Order and Final Invoice later inherit. Null for every other base.
+        quote.B1QuoteNumber = await _b1Service.GenerateB1QuoteNumberAsync(quote.CustomerId, quote.CreatedAt);
+
         // Set RFQ status to Ready To Quote
         rfq.Status = "Ready To Quote";
 
-        await _db.SaveChangesAsync();
+        await SaveWithB1NumberRetryAsync(quote);
 
         return await GetByIdAsync(quote.Id, userId, true)
             // passing isAdmin=true here to ensure we fetch it back, though userId check handles it too.
@@ -239,7 +249,28 @@ public class QuoteService : IQuoteService
             ?? throw new Exception("Failed to load created quote.");
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false)
+    /// <summary>
+    /// Saves the quote, regenerating its B1 number if another quote for the same customer
+    /// claimed the same one first (the unique index on Quotes.B1QuoteNumber is what detects
+    /// the race). Quotes without a B1 number save on the first attempt.
+    /// </summary>
+    private async Task SaveWithB1NumberRetryAsync(Quote quote)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await _db.SaveChangesAsync();
+                return;
+            }
+            catch (DbUpdateException) when (quote.B1QuoteNumber != null && attempt < B1NumberRetries)
+            {
+                quote.B1QuoteNumber = await _b1Service.GenerateB1QuoteNumberAsync(quote.CustomerId, quote.CreatedAt);
+            }
+        }
+    }
+
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .AsNoTracking()
@@ -266,6 +297,7 @@ public class QuoteService : IQuoteService
             var s = search.Trim();
             query = query.Where(q =>
                 q.QuoteNumber.Contains(s) ||
+                (q.B1QuoteNumber != null && q.B1QuoteNumber.Contains(s)) ||
                 q.Status.Contains(s) ||
                 (q.Customer != null && (q.Customer.Name.Contains(s) || (q.Customer.CustomerCode != null && q.Customer.CustomerCode.Contains(s)))) ||
                 (q.RFQ != null && q.RFQ.Name.Contains(s)) ||
@@ -302,6 +334,13 @@ public class QuoteService : IQuoteService
 
         if (quoteNumbers?.Count > 0)
             query = query.Where(q => quoteNumbers.Contains(q.QuoteNumber));
+
+        // Created-at range. `createdTo` is inclusive of the whole day.
+        if (createdFrom.HasValue)
+            query = query.Where(q => q.CreatedAt >= createdFrom.Value);
+
+        if (createdTo.HasValue)
+            query = query.Where(q => q.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
 
         if (rfqNames?.Count > 0)
         {
@@ -386,7 +425,7 @@ public class QuoteService : IQuoteService
     /// Called with no filters it returns the unconstrained lists, which the client
     /// caches behind the "Show all" toggle.
     /// </summary>
-    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false)
+    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null)
     {
         IQueryable<Quote> permitted = _db.Set<Quote>().AsNoTracking();
 
@@ -444,6 +483,7 @@ public class QuoteService : IQuoteService
                 var s = search.Trim();
                 q = q.Where(x =>
                     x.QuoteNumber.Contains(s) ||
+                    (x.B1QuoteNumber != null && x.B1QuoteNumber.Contains(s)) ||
                     x.Status.Contains(s) ||
                     (x.Customer != null && (x.Customer.Name.Contains(s) || (x.Customer.CustomerCode != null && x.Customer.CustomerCode.Contains(s)))) ||
                     (x.RFQ != null && x.RFQ.Name.Contains(s)));
@@ -466,6 +506,13 @@ public class QuoteService : IQuoteService
 
             if (exclude != "quoteNumber" && quoteNumbers?.Count > 0)
                 q = q.Where(x => quoteNumbers.Contains(x.QuoteNumber));
+
+            // Created-at range narrows every column — it has no column menu of its own.
+            if (createdFrom.HasValue)
+                q = q.Where(x => x.CreatedAt >= createdFrom.Value);
+
+            if (createdTo.HasValue)
+                q = q.Where(x => x.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
 
             if (exclude != "rfqName" && rfqNames?.Count > 0)
                 q = q.Where(x =>
@@ -691,6 +738,7 @@ public class QuoteService : IQuoteService
         {
             Id = q.Id,
             QuoteNumber = q.QuoteNumber,
+            B1QuoteNumber = q.B1QuoteNumber,
             TotalAmount = q.TotalAmount,
             Status = q.Status,
             ValidUntil = q.ValidUntil,
@@ -781,6 +829,29 @@ public class QuoteService : IQuoteService
         quote.RFQ.ModifyAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    /// <summary>
+    /// Sets the B1 quote number by hand — used both to fill one in where auto-generation
+    /// produced none (any base other than 1) and to correct one that was generated.
+    /// Passing null or blank clears it. Does not cascade to a Sales Order or Final Invoice
+    /// already created from this quote; those carry their own editable copies.
+    /// </summary>
+    public async Task<B1NumberUpdateResult> UpdateB1QuoteNumberAsync(long id, string? b1QuoteNumber, long userId, bool isAdmin, int[]? userBases = null)
+    {
+        var quote = await _db.Set<Quote>().FindAsync(id);
+        if (quote == null) return B1NumberUpdateResult.NotFound;
+
+        if (!await CanEditQuoteAsync(quote, userId, isAdmin, userBases)) return B1NumberUpdateResult.Forbidden;
+
+        var number = _b1Service.Normalize(b1QuoteNumber);
+        if (number != null && await _b1Service.IsB1QuoteNumberTakenAsync(number, id))
+            return B1NumberUpdateResult.Duplicate;
+
+        quote.B1QuoteNumber = number;
+        quote.ModifyAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return B1NumberUpdateResult.Ok;
     }
 
     public async Task<bool> UpdateYuanSettingsAsync(long quoteId, decimal? coefYuan, decimal? exchangeRateYuan)

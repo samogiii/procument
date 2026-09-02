@@ -331,7 +331,9 @@ async function generateAndDownload(q: any, preset: any) {
     logoBase64: logoBase64 || null,
     primaryColor: primary,
     accentColor: accent,
-    quoteNumber: q.quoteNumber || '',
+    // Base 1 quotes print their B1 quote number instead of the internal one,
+    // matching what QuotePdfGenerator sends for a single download.
+    quoteNumber: q.b1QuoteNumber || q.quoteNumber || '',
     quoteDate: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—',
     validUntil: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '—',
     rfqName: q.rfqName || '—',
@@ -375,7 +377,7 @@ async function generateAndDownload(q: any, preset: any) {
   const link = document.createElement('a')
   link.href = url
   const safe = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
-  link.setAttribute('download', `${safe(q.quoteNumber || 'QT')} - ${safe(q.customerName || '')} - ${safe(q.rfqName || '')}.pdf`)
+  link.setAttribute('download', `${safe(q.b1QuoteNumber || q.quoteNumber || 'QT')} - ${safe(q.customerName || '')} - ${safe(q.rfqName || '')}.pdf`)
   document.body.appendChild(link)
   link.click()
   link.parentNode?.removeChild(link)
