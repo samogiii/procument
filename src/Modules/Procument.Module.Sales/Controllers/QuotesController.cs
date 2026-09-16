@@ -8,6 +8,7 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Sales.Services;
 using Procument.Module.Identity.Entities;
+using Procument.Module.Purchasing.Entities;
 using Procument.Shared.Audit;
 using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
@@ -192,8 +193,24 @@ public class QuotesController : ControllerBase
         var hasPdf = attachment != null && attachment.Length > 0;
         var hasExcel = attachmentExcel != null && attachmentExcel.Length > 0;
         var extraFiles = extraAttachments?.Where(f => f != null && f.Length > 0).ToList() ?? new List<IFormFile>();
-        if (!hasPdf && !hasExcel && extraFiles.Count == 0)
+        var requestedCertificateIds = request.CertificateIds.Where(certificateId => certificateId > 0).Distinct().ToList();
+        if (!hasPdf && !hasExcel && extraFiles.Count == 0 && requestedCertificateIds.Count == 0)
             return BadRequest(new { message = "At least one attachment is required." });
+
+        var selectedSupplierQuoteIds = quote.Items
+            .Where(item => item.ProcumentRecordId.HasValue)
+            .Select(item => item.ProcumentRecordId!.Value)
+            .ToList();
+        var certificates = requestedCertificateIds.Count == 0
+            ? new List<SupplierQuoteCertificate>()
+            : await _db.Set<SupplierQuoteCertificate>()
+                .AsNoTracking()
+                .Where(certificate => requestedCertificateIds.Contains(certificate.Id)
+                    && selectedSupplierQuoteIds.Contains(certificate.SupplierQuoteId)
+                    && certificate.SupplierQuote.RFQItem.RFQId == quote.RFQId)
+                .ToListAsync();
+        if (certificates.Count != requestedCertificateIds.Count)
+            return BadRequest(new { message = "One or more selected certificates do not belong to this quote's selected parts." });
 
         string? sentFolderError = null;
         try
@@ -245,6 +262,18 @@ public class QuotesController : ControllerBase
                     FileName = Path.GetFileName(extra.FileName),
                     Content = ms.ToArray(),
                     ContentType = string.IsNullOrEmpty(extra.ContentType) ? "application/octet-stream" : extra.ContentType,
+                });
+            }
+            foreach (var certificate in certificates.OrderBy(certificate => certificate.OriginalFileName))
+            {
+                var path = Path.Combine("Documents", "SupplierQuoteCertificates", certificate.SupplierQuoteId.ToString(), certificate.FileName);
+                if (!System.IO.File.Exists(path))
+                    return BadRequest(new { message = $"Certificate file {certificate.OriginalFileName} could not be found." });
+                emailAttachments.Add(new EmailAttachment
+                {
+                    FileName = certificate.OriginalFileName,
+                    Content = await System.IO.File.ReadAllBytesAsync(path),
+                    ContentType = certificate.MimeType ?? "application/pdf",
                 });
             }
 

@@ -50,6 +50,19 @@ public class InventoryController : ControllerBase
         return deleted ? Ok() : NotFound();
     }
 
+    [HttpDelete("suppliers/{supplierId:long}")]
+    public async Task<IActionResult> DeleteSupplier(long supplierId)
+    {
+        var deletedItems = await _inventoryService.DeleteSupplierAsync(supplierId);
+        if (deletedItems == 0) return NotFound(new { error = "Supplier has no inventory items." });
+
+        return Ok(new DeleteSupplierInventoryResponse
+        {
+            SupplierId = supplierId,
+            DeletedItems = deletedItems
+        });
+    }
+
     [HttpPost("bulk-import")]
     public async Task<IActionResult> BulkImport([FromBody] BulkImportInventoryRequest request)
     {

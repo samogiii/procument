@@ -7,7 +7,8 @@ public interface IPaymentRequestService
 {
     Task<PaymentRequestResponse> GetByIdAsync(long id);
     Task<List<PaymentRequestResponse>> GetAllAsync();
-    Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null);
+    Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null, decimal? amount = null);
+    Task<PaymentRequestResponse> UpdateAmountAsync(long id, decimal amount);
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> DeleteAsync(long id);
     Task<PaymentRequestResponse?> GetByPoIdAsync(long poId);
@@ -38,5 +39,13 @@ public class PaymentRequestResponse
     // Summary
     public decimal ItemsTotal { get; set; }
     public decimal WireFee { get; set; }
-    public decimal GrandTotal => ItemsTotal + WireFee;
+    public decimal Amount { get; set; }
+    public decimal PaidAmount { get; set; }
+    public decimal RemainingAmount => Math.Max(0, Amount - PaidAmount);
+    public decimal POTotalAmount { get; set; }
+    public long? PendingWalletId { get; set; }
+    public decimal? PendingPaymentAmount { get; set; }
+    public decimal? PendingExchangeRate { get; set; }
+    public Guid? PendingUploadId { get; set; }
+    public decimal GrandTotal => Amount;
 }

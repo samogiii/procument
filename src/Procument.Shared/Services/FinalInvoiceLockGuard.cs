@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 
 namespace Procument.Shared.Services;
 
@@ -23,7 +23,7 @@ public class FinalInvoiceLockGuard : IFinalInvoiceLockGuard
     public async Task<bool> IsInvoiceLocked(long invoiceId)
     {
         return await _db.Database
-            .SqlQuery<int>($"SELECT 1 AS [Value] FROM FinalInvoices WHERE ProformaInvoiceId = {invoiceId}")
+            .SqlQuery<int>($"SELECT 1 AS [Value] FROM Invoices WHERE ProformaInvoiceId = {invoiceId}")
             .AnyAsync();
     }
 
@@ -31,7 +31,7 @@ public class FinalInvoiceLockGuard : IFinalInvoiceLockGuard
     public async Task<bool> IsQuoteLocked(long quoteId)
     {
         return await _db.Database
-            .SqlQuery<int>($"SELECT 1 AS [Value] FROM FinalInvoices fi INNER JOIN Invoices i ON fi.ProformaInvoiceId = i.Id WHERE i.QuoteId = {quoteId}")
+            .SqlQuery<int>($"SELECT 1 AS [Value] FROM Invoices fi INNER JOIN ProformaInvoices i ON fi.ProformaInvoiceId = i.Id WHERE i.QuoteId = {quoteId}")
             .AnyAsync();
     }
 
@@ -39,7 +39,7 @@ public class FinalInvoiceLockGuard : IFinalInvoiceLockGuard
     public async Task<bool> IsRfqLocked(long rfqId)
     {
         return await _db.Database
-            .SqlQuery<int>($"SELECT 1 AS [Value] FROM FinalInvoices fi INNER JOIN Invoices i ON fi.ProformaInvoiceId = i.Id INNER JOIN Quotes q ON i.QuoteId = q.Id WHERE q.RFQId = {rfqId}")
+            .SqlQuery<int>($"SELECT 1 AS [Value] FROM Invoices fi INNER JOIN ProformaInvoices i ON fi.ProformaInvoiceId = i.Id INNER JOIN Quotes q ON i.QuoteId = q.Id WHERE q.RFQId = {rfqId}")
             .AnyAsync();
     }
 
@@ -47,7 +47,7 @@ public class FinalInvoiceLockGuard : IFinalInvoiceLockGuard
     public async Task<bool> IsPurchaseOrderLocked(long poId)
     {
         return await _db.Database
-            .SqlQuery<int>($"SELECT 1 AS [Value] FROM FinalInvoices fi INNER JOIN PurchaseOrders po ON fi.ProformaInvoiceId = po.InvoiceId WHERE po.Id = {poId}")
+            .SqlQuery<int>($"SELECT 1 AS [Value] FROM Invoices fi INNER JOIN PurchaseOrders po ON fi.ProformaInvoiceId = po.InvoiceId WHERE po.Id = {poId}")
             .AnyAsync();
     }
 }

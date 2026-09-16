@@ -2,7 +2,7 @@
   <div>
     <!-- Header -->
     <div class="d-flex align-center gap-3 mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="router.back()" />
+      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="$router.back()" />
       <div>
         <h1 class="text-h5 font-weight-bold">
           <v-icon icon="mdi-barcode-scan" color="primary" size="20" class="mr-1" />
@@ -491,7 +491,7 @@ async function submitPart(t: any) {
 
 // Must stay in step with ShippingController.ReceiveAll's [Authorize] roles.
 const canReceiveAll = computed(() =>
-  authStore.isSuperAdmin || authStore.isExpert || authStore.user?.name === 'SYD')
+  authStore.isAdmin || authStore.isExpert || authStore.user?.name === 'SYD')
 
 const receivingAll = ref(false)
 

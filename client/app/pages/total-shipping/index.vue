@@ -12,10 +12,10 @@
         <v-icon start icon="mdi-table-large" />
         Total Order
       </v-tab>
-      <v-tab value="tracks" v-if="isSydOrAdmin">
+      <!-- <v-tab value="tracks" v-if="isSydOrAdmin">
         <v-icon start icon="mdi-package-variant-closed" />
         Track Numbers
-      </v-tab>
+      </v-tab> -->
       <v-tab value="tid" @click="loadTidGroups" v-if="isSydOrAdmin">
         <v-icon start icon="mdi-family-tree" />
         By T-ID
@@ -899,6 +899,15 @@
         <!-- Top bar -->
         <div class="d-flex flex-wrap gap-3 align-center mb-3">
           <v-btn variant="tonal" prepend-icon="mdi-refresh" :loading="toLoading" @click="loadTotalOrder">Refresh</v-btn>
+          <v-btn
+            variant="tonal"
+            color="success"
+            prepend-icon="mdi-microsoft-excel"
+            :disabled="toLoading || toFilteredRows.length === 0"
+            @click="exportTotalOrderExcel"
+          >
+            Export Excel
+          </v-btn>
           <v-btn
             v-if="toActiveFilterCount > 0"
             variant="tonal"
@@ -2814,6 +2823,24 @@ const toFilteredRows = computed(() => {
     return true
   })
 })
+
+function exportTotalOrderExcel() {
+  const rows = toFilteredRows.value.map(row => Object.fromEntries(
+    TO_COLUMNS.map(col => {
+      const value = col.field(row)
+      return [col.label, value == null || String(value).trim() === '' ? '' : value]
+    }),
+  ))
+
+  try {
+    const date = new Date().toISOString().slice(0, 10)
+    downloadExcel(rows, `total-order-${date}`, 'Total Order')
+    notify(`${rows.length} filtered item${rows.length === 1 ? '' : 's'} exported to Excel.`)
+  } catch (e) {
+    console.error('[TotalOrder] Excel export failed', e)
+    notify('Failed to export Total Order to Excel.', 'error')
+  }
+}
 
 async function loadTotalOrder() {
   toLoading.value = true

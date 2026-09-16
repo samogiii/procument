@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities; // for permissions
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -15,10 +17,15 @@ public interface ISupplierQuoteService
     Task<List<SupplierQuoteResponse>> BulkSaveAsync(long rfqId, BulkSaveQuotesRequest request, long userId);
     Task<bool> DeleteAsync(long id, long userId);
     Task<bool> UpdateOrderAsync(long rfqId, List<SupplierQuoteOrderEntry> items, long userId, bool isAdmin);
+    Task<List<SupplierQuoteCertificateResponse>> GetCertificatesForRfqAsync(long rfqId, long userId, bool isAdmin);
+    Task<List<SupplierQuoteCertificateResponse>> GetCertificatesAsync(long rfqId, long quoteId, long userId, bool isAdmin);
+    Task<List<SupplierQuoteCertificateResponse>> UploadCertificatesAsync(long rfqId, long quoteId, long userId, IEnumerable<IFormFile> files);
+    Task<(Stream stream, string fileName, string mimeType)?> DownloadCertificateAsync(long rfqId, long quoteId, long certificateId, long userId, bool isAdmin);
 }
 
 public class SupplierQuoteService : ISupplierQuoteService
 {
+    private const string CertificateRoot = "Documents/SupplierQuoteCertificates";
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
 
@@ -57,8 +64,11 @@ public class SupplierQuoteService : ISupplierQuoteService
 
         var records = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
+            .Include(r => r.Certificates)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Supplier)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.Certificates)
             .Where(r => r.RFQItem.RFQId == rfqId && (r.Type ?? "Procument") != "Shop")
             .OrderBy(r => r.SortOrder)
             .ThenBy(r => r.Id)
@@ -259,8 +269,11 @@ public class SupplierQuoteService : ISupplierQuoteService
         // Reload with full navigation so response includes shops + their FixPrice
         record = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
+            .Include(r => r.Certificates)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Supplier)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.Certificates)
             .FirstAsync(r => r.Id == record.Id);
 
         return MapToResponse(record);
@@ -289,18 +302,18 @@ public class SupplierQuoteService : ISupplierQuoteService
         var names = request.Quotes
             .Where(q => !string.IsNullOrWhiteSpace(q.SupplierName)
                         && !AllowsSupplierCreation(q.Condition, q.Type))
-            .Select(q => q.SupplierName.Trim())
+            .Select(q => SupplierNameNormalizer.Clean(q.SupplierName))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (names.Count > 0)
         {
-            var lowered = names.Select(n => n.ToLower()).ToList();
             var existing = (await _db.Set<Supplier>()
-                    .Where(s => lowered.Contains(s.Name.ToLower()))
-                    .Select(s => s.Name.ToLower())
+                    .AsNoTracking()
+                    .Select(s => s.Name)
                     .ToListAsync())
-                .ToHashSet();
-            var missing = names.Where(n => !existing.Contains(n.ToLower())).ToList();
+                .Select(SupplierNameNormalizer.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            var missing = names.Where(n => !existing.Contains(SupplierNameNormalizer.Key(n))).ToList();
             if (missing.Count > 0)
                 throw new SupplierNotFoundException(missing);
         }
@@ -371,15 +384,23 @@ public class SupplierQuoteService : ISupplierQuoteService
 
     private async Task<Supplier> ResolveSupplierAsync(string supplierName, long userId, bool allowCreate)
     {
-        var trimmed = supplierName.Trim();
-        var lower = trimmed.ToLower();
+        var trimmed = SupplierNameNormalizer.Clean(supplierName);
+        var supplierKey = SupplierNameNormalizer.Key(trimmed);
 
         var user = await _db.Set<User>().FindAsync(userId);
         bool isAdmin = user?.Role == "Admin" || user?.Role == "SuperAdmin";
 
         // Check if an existing supplier (active or not) exists by name
+        // Keep the usual SQL lookup fast, then use normalized comparison as a
+        // fallback for legacy names containing invisible or unusual whitespace.
+        var lower = trimmed.ToLowerInvariant();
         var existing = await _db.Set<Supplier>()
-            .FirstOrDefaultAsync(s => s.Name.ToLower() == lower);
+            .FirstOrDefaultAsync(s => s.Name.ToLower().Trim() == lower);
+        if (existing == null)
+        {
+            var candidates = await _db.Set<Supplier>().ToListAsync();
+            existing = candidates.FirstOrDefault(s => SupplierNameNormalizer.Key(s.Name) == supplierKey);
+        }
 
         if (existing != null)
         {
@@ -447,6 +468,150 @@ public class SupplierQuoteService : ISupplierQuoteService
         return true;
     }
 
+    public async Task<List<SupplierQuoteCertificateResponse>> GetCertificatesForRfqAsync(long rfqId, long userId, bool isAdmin)
+    {
+        if (!await CanAccessRfqAsync(rfqId, userId, isAdmin, requireEdit: false))
+            throw new UnauthorizedAccessException();
+
+        return await _db.Set<SupplierQuoteCertificate>()
+            .AsNoTracking()
+            .Where(c => c.SupplierQuote.RFQItem.RFQId == rfqId)
+            .OrderBy(c => c.SupplierQuote.RFQItemId)
+            .ThenBy(c => c.SupplierQuote.Supplier.Name)
+            .ThenByDescending(c => c.UploadedAt)
+            .Select(c => new SupplierQuoteCertificateResponse
+            {
+                Id = c.Id,
+                SupplierQuoteId = c.SupplierQuoteId,
+                PartNumberName = c.SupplierQuote.RFQItem.PartNumber.Name,
+                SupplierName = c.SupplierQuote.Supplier.Name,
+                OriginalFileName = c.OriginalFileName,
+                MimeType = c.MimeType,
+                FileSizeBytes = c.FileSizeBytes,
+                UploadedAt = c.UploadedAt,
+                UploadedByName = c.UploadedBy.Name,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<SupplierQuoteCertificateResponse>> GetCertificatesAsync(long rfqId, long quoteId, long userId, bool isAdmin)
+    {
+        if (!await CanAccessRfqAsync(rfqId, userId, isAdmin, requireEdit: false))
+            throw new UnauthorizedAccessException();
+
+        var exists = await _db.Set<ProcumentRecord>()
+            .AnyAsync(q => q.Id == quoteId && q.RFQItem.RFQId == rfqId);
+        if (!exists) throw new KeyNotFoundException("Supplier quote not found.");
+
+        return await _db.Set<SupplierQuoteCertificate>()
+            .AsNoTracking()
+            .Include(c => c.UploadedBy)
+            .Where(c => c.SupplierQuoteId == quoteId)
+            .OrderByDescending(c => c.UploadedAt)
+            .Select(c => new SupplierQuoteCertificateResponse
+            {
+                Id = c.Id,
+                SupplierQuoteId = c.SupplierQuoteId,
+                PartNumberName = c.SupplierQuote.RFQItem.PartNumber.Name,
+                SupplierName = c.SupplierQuote.Supplier.Name,
+                OriginalFileName = c.OriginalFileName,
+                MimeType = c.MimeType,
+                FileSizeBytes = c.FileSizeBytes,
+                UploadedAt = c.UploadedAt,
+                UploadedByName = c.UploadedBy.Name,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<SupplierQuoteCertificateResponse>> UploadCertificatesAsync(long rfqId, long quoteId, long userId, IEnumerable<IFormFile> files)
+    {
+        if (!await CanAccessRfqAsync(rfqId, userId, isAdmin: false, requireEdit: true))
+            throw new UnauthorizedAccessException();
+
+        var supplierQuote = await _db.Set<ProcumentRecord>()
+            .AsNoTracking()
+            .Where(q => q.Id == quoteId && q.RFQItem.RFQId == rfqId)
+            .Select(q => new
+            {
+                q.RFQItemId,
+                PartNumber = q.RFQItem.PartNumber.Name,
+            })
+            .FirstOrDefaultAsync();
+        if (supplierQuote == null) throw new KeyNotFoundException("Supplier quote not found.");
+
+        var validFiles = files.Where(f => f is { Length: > 0 }).ToList();
+        if (validFiles.Count == 0) throw new InvalidOperationException("No files were provided.");
+        if (validFiles.Any(f => !string.Equals(Path.GetExtension(f.FileName), ".pdf", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Only PDF certificate files can be uploaded.");
+
+        var folder = Path.Combine(CertificateRoot, quoteId.ToString());
+        Directory.CreateDirectory(folder);
+        var existingCertificateCount = await _db.Set<SupplierQuoteCertificate>()
+            .CountAsync(c => c.SupplierQuote.RFQItemId == supplierQuote.RFQItemId);
+        var safePartNumber = MakeSafeCertificateName(supplierQuote.PartNumber);
+        var result = new List<SupplierQuoteCertificateResponse>();
+        for (var index = 0; index < validFiles.Count; index++)
+        {
+            var file = validFiles[index];
+            var storedName = $"{Guid.NewGuid():N}.pdf";
+            var displayName = $"{safePartNumber}-cert-{existingCertificateCount + index + 1}.pdf";
+            await using (var stream = File.Create(Path.Combine(folder, storedName)))
+                await file.CopyToAsync(stream);
+
+            var certificate = new SupplierQuoteCertificate
+            {
+                SupplierQuoteId = quoteId,
+                FileName = storedName,
+                OriginalFileName = displayName,
+                MimeType = "application/pdf",
+                FileSizeBytes = file.Length,
+                UploadedAt = DateTime.UtcNow,
+                UploadedByUserId = userId,
+            };
+            _db.Set<SupplierQuoteCertificate>().Add(certificate);
+            result.Add(MapCertificate(certificate, null));
+        }
+        await _db.SaveChangesAsync();
+        return result;
+    }
+
+    private static string MakeSafeCertificateName(string? partNumber)
+    {
+        var name = string.IsNullOrWhiteSpace(partNumber) ? "part" : partNumber.Trim();
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+            name = name.Replace(invalid, '-');
+        name = name.Trim(' ', '.', '-');
+        return string.IsNullOrWhiteSpace(name) ? "part" : name;
+    }
+
+    public async Task<(Stream stream, string fileName, string mimeType)?> DownloadCertificateAsync(long rfqId, long quoteId, long certificateId, long userId, bool isAdmin)
+    {
+        if (!await CanAccessRfqAsync(rfqId, userId, isAdmin, requireEdit: false))
+            throw new UnauthorizedAccessException();
+
+        var certificate = await _db.Set<SupplierQuoteCertificate>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == certificateId && c.SupplierQuoteId == quoteId && c.SupplierQuote.RFQItem.RFQId == rfqId);
+        if (certificate == null) return null;
+
+        var path = Path.Combine(CertificateRoot, quoteId.ToString(), certificate.FileName);
+        return File.Exists(path)
+            ? (File.OpenRead(path), certificate.OriginalFileName, certificate.MimeType ?? "application/pdf")
+            : null;
+    }
+
+    private async Task<bool> CanAccessRfqAsync(long rfqId, long userId, bool isAdmin, bool requireEdit)
+    {
+        if (isAdmin) return true;
+        var user = await _db.Set<User>().FindAsync(userId);
+        if (user?.Role is "Admin" or "SuperAdmin") return true;
+        var rfq = await _db.Set<RFQHeader>().AsNoTracking().FirstOrDefaultAsync(r => r.Id == rfqId);
+        if (rfq == null) return false;
+        if (rfq.UserId == userId) return true;
+        return await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), requireEdit ? "Edit" : "View")
+            || (!requireEdit && await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit"));
+    }
+
     private static SupplierQuoteResponse MapToResponse(ProcumentRecord r) => new()
     {
         Id = r.Id,
@@ -477,9 +642,21 @@ public class SupplierQuoteService : ISupplierQuoteService
         FixPrice = r.FixPrice,
         ParentProcumentId = r.ParentProcumentId,
         SortOrder = r.SortOrder,
+        CertificateCount = r.Certificates?.Count ?? 0,
         ShopRecords = (r.ShopRecords ?? new List<ProcumentRecord>())
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
             .Select(s => MapToResponse(s)).ToList(),
+    };
+
+    private static SupplierQuoteCertificateResponse MapCertificate(SupplierQuoteCertificate c, string? uploaderName) => new()
+    {
+        Id = c.Id,
+        SupplierQuoteId = c.SupplierQuoteId,
+        OriginalFileName = c.OriginalFileName,
+        MimeType = c.MimeType,
+        FileSizeBytes = c.FileSizeBytes,
+        UploadedAt = c.UploadedAt,
+        UploadedByName = uploaderName,
     };
 }
 

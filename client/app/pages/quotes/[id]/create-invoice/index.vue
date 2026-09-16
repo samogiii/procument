@@ -2,7 +2,7 @@
   <div class="create-invoice-page">
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="`/quotes/${route.params.id}`" class="mr-1 flex-shrink-0" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" class="mr-1 flex-shrink-0" size="small" @click="$router.back()" />
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold">Create Sales Order</h1>
         <p class="text-caption text-medium-emphasis mt-1">
@@ -64,12 +64,24 @@
           />
           <v-select
             v-model="paymentStatus"
-            :items="['Net30', 'CAD', 'Prepayment']"
+            :items="['Prepayment', 'CAD', 'Net', 'Credit']"
             label="Payment Terms"
             density="compact"
             hide-details
             variant="outlined"
             style="min-width: 140px; max-width: 160px;"
+          />
+          <v-text-field
+            v-if="['CAD', 'Net'].includes(paymentStatus)"
+            v-model.number="paymentTermDays"
+            :label="`${paymentStatus} Days *`"
+            type="number"
+            :min="1"
+            :max="3650"
+            density="compact"
+            hide-details
+            variant="outlined"
+            style="min-width: 130px; max-width: 150px;"
           />
           <div v-if="paymentStatus === 'Prepayment'" class="d-flex flex-column">
             <v-text-field
@@ -89,7 +101,7 @@
           <v-btn
             color="success"
             prepend-icon="mdi-check"
-            :disabled="selectedCount === 0 || !paymentStatus || (paymentStatus === 'Prepayment' && (!prepaymentPercent || prepaymentPercent <= 0))"
+            :disabled="selectedCount === 0 || !paymentStatus || (paymentStatus === 'Prepayment' && (!prepaymentPercent || prepaymentPercent <= 0)) || (['CAD', 'Net'].includes(paymentStatus) && (!paymentTermDays || paymentTermDays <= 0))"
             :loading="saving"
             @click="createInvoice"
           >
@@ -245,6 +257,7 @@ const subject = ref('')
 const poNumber = ref('')
 const poDate = ref('')
 const paymentStatus = ref<string>('Prepayment')
+const paymentTermDays = ref<number | null>(null)
 const prepaymentPercent = ref<number | null>(null)
 const prepaymentError = ref('')
 
@@ -376,6 +389,7 @@ async function createInvoice() {
       customerPONumber: poNumber.value || null,
       customerPODate: poDate.value || null,
       paymentStatus: paymentStatus.value || null,
+      paymentTermDays: ['CAD', 'Net'].includes(paymentStatus.value) ? paymentTermDays.value : null,
       prepaymentPercent: paymentStatus.value === 'Prepayment' ? prepaymentPercent.value : null,
       items: selectedEntries
     }
@@ -402,8 +416,8 @@ async function createInvoice() {
     }
 
     setTimeout(() => { router.push(`/invoices/${res.id}`) }, 500)
-  } catch (e) {
-    showSnack('Failed to create Sales Order', 'error')
+  } catch (e: any) {
+    showSnack(e?.data?.message || e?.data || 'Failed to create Sales Order', 'error')
   } finally {
     saving.value = false
   }

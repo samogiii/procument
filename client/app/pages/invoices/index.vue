@@ -9,7 +9,7 @@
     :server-side="true"
     :extra-params="extraParams"
     page-key="invoices"
-    :status-options="['Draft', 'Pending', 'Running', 'Waiting For PrePayment', 'Delivered', 'Finish', 'Cancelled']"
+    :status-options="['Draft', 'Waiting For Prepayment', 'Running', 'Finish']"
     :custom-filter="invoiceCustomFilter"
   >
     <template #filters>
@@ -161,6 +161,23 @@
       />
     </template>
 
+    <template #header.assignedUsers="{ column, toggleSort }">
+      <ColFilterMenu
+        col-key="assignedUsers"
+        :label="column.title"
+        :options="cfAssignedUserAvailable"
+        :all-options="cfAssignedUserOptions"
+        :selected="colFilter.selected['assignedUsers'] || new Set()"
+        :search="colFilter.search['assignedUsers'] || ''"
+        :loading="cfLoading"
+        @toggle="(v) => colFilter.toggle('assignedUsers', v)"
+        @select-all="(vals) => colFilter.selectAll('assignedUsers', vals)"
+        @clear-all="() => colFilter.clearAll('assignedUsers')"
+        @update:search="(v) => colFilter.search['assignedUsers'] = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
     <!-- Base 1 Sales Orders inherit the quote's B1 number re-lettered P (P101-60701-10)
          as B1ProformaInvoiceNumber; shown beneath the Sales Order number. -->
     <template #item.invoiceNumber="{ item }">
@@ -170,6 +187,15 @@
 
     <template #item.status="{ item }">
       <StatusChip :status="item.status" />
+    </template>
+
+    <template #item.assignedUsers="{ item }">
+      <div class="d-flex flex-wrap ga-1 py-1">
+        <v-chip v-for="user in item.assignedUsers || []" :key="user.id" size="x-small" color="primary" variant="tonal">
+          {{ user.name }}
+        </v-chip>
+        <span v-if="!item.assignedUsers?.length" class="text-medium-emphasis">—</span>
+      </div>
     </template>
 
     <!-- Base comes from the invoice's customer (Customer.Base) — every invoice belongs
@@ -220,7 +246,7 @@
       >
         Permissions {{ selectedInvoices.length > 0 ? `(${selectedInvoices.length})` : '' }}
       </v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
+      <v-btn v-if="isAdmin" color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
         Create Sales Order
       </v-btn>
     </template>
@@ -341,6 +367,7 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (colFilter.isActive('invoiceNumber')) p.invoiceNumbers = colFilter.getSelected('invoiceNumber')
   if (colFilter.isActive('subject')) p.subjects = colFilter.getSelected('subject')
   if (colFilter.isActive('customerBase')) p.bases = colFilter.getSelected('customerBase')
+  if (colFilter.isActive('assignedUsers')) p.assignedUsers = colFilter.getSelected('assignedUsers')
   return p
 })
 
@@ -349,8 +376,8 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
  * change and only contains values that still return rows once the *other* filters are
  * applied; `all` is the unfiltered list ColFilterMenu reveals behind "Show all".
  */
-type InvoiceOptions = { statuses: string[]; customers: string[]; invoiceNumbers: string[]; subjects: string[]; bases: string[] }
-const EMPTY_INVOICE_OPTIONS: InvoiceOptions = { statuses: [], customers: [], invoiceNumbers: [], subjects: [], bases: [] }
+type InvoiceOptions = { statuses: string[]; customers: string[]; invoiceNumbers: string[]; subjects: string[]; bases: string[]; assignedUsers: string[] }
+const EMPTY_INVOICE_OPTIONS: InvoiceOptions = { statuses: [], customers: [], invoiceNumbers: [], subjects: [], bases: [], assignedUsers: [] }
 
 const cfOptions = useCascadingOptions<InvoiceOptions>(
   async (cascading) => {
@@ -367,6 +394,7 @@ const cfOptions = useCascadingOptions<InvoiceOptions>(
       colFilter.getSelected('invoiceNumber').forEach(v => params.append('invoiceNumbers', v))
       colFilter.getSelected('subject').forEach(v => params.append('subjects', v))
       colFilter.getSelected('customerBase').forEach(v => params.append('bases', v))
+      colFilter.getSelected('assignedUsers').forEach(v => params.append('assignedUsers', v))
     }
     const qs = params.toString()
     const res = await api.get<any>(`/invoices/filter-options${qs ? `?${qs}` : ''}`)
@@ -377,6 +405,7 @@ const cfOptions = useCascadingOptions<InvoiceOptions>(
       subjects: (res.subjects || []).sort(),
       // Kept as strings — colFilter stores selections in a Set<string>.
       bases: (res.bases || []).map((b: any) => String(b)),
+      assignedUsers: (res.assignedUsers || []).sort(),
     }
   },
   EMPTY_INVOICE_OPTIONS,
@@ -387,11 +416,13 @@ const cfStatusOptions = computed(() => cfOptions.all.value.statuses)
 const cfCustomerOptions = computed(() => cfOptions.all.value.customers)
 const cfInvoiceNumberOptions = computed(() => cfOptions.all.value.invoiceNumbers)
 const cfSubjectOptions = computed(() => cfOptions.all.value.subjects)
+const cfAssignedUserOptions = computed(() => cfOptions.all.value.assignedUsers)
 
 const cfStatusAvailable = computed(() => cfOptions.available.value.statuses)
 const cfCustomerAvailable = computed(() => cfOptions.available.value.customers)
 const cfInvoiceNumberAvailable = computed(() => cfOptions.available.value.invoiceNumbers)
 const cfSubjectAvailable = computed(() => cfOptions.available.value.subjects)
+const cfAssignedUserAvailable = computed(() => cfOptions.available.value.assignedUsers)
 
 // Base menu shows preset names but filters on the numeric base, hence {title, value}.
 const cfBaseOptions = computed(() => cfOptions.all.value.bases.map(b => ({ title: baseLabel(Number(b)), value: b })))
@@ -440,6 +471,7 @@ const headers = [
   { title: 'Customer', key: 'customerCode' },
   { title: 'Base', key: 'customerBase', width: '110px' },
   { title: 'Subject', key: 'subject' },
+  { title: 'Assigned Users', key: 'assignedUsers', sortable: false, width: '210px' },
   { title: 'PO Date', key: 'customerPODate' },
   { title: 'Created At', key: 'createdAt' },
   { title: 'Deadline', key: 'deadlineDate' },

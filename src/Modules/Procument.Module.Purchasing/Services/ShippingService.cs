@@ -175,6 +175,17 @@ public class ShippingService : IShippingService
             }
         }
 
+        var submittedPoItems = await _db.Set<POItem>()
+            .Where(i => request.Items.Select(x => x.POItemId).Contains(i.Id) && i.ReturnedAt == null)
+            .ToListAsync();
+        foreach (var poItem in submittedPoItems)
+            poItem.Status = PurchaseOrderStatusFlow.WaitingForExpertShipmentApproval;
+        await PurchaseOrderStatusFlow.SyncPiItemsAsync(
+            _db, submittedPoItems, PurchaseOrderStatusFlow.WaitingForExpertShipmentApproval);
+        var submittedPoIds = submittedPoItems.Where(i => i.POId.HasValue).Select(i => i.POId!.Value).Distinct().ToList();
+        var submittedPos = await _db.Set<PurchaseOrder>().Where(p => submittedPoIds.Contains(p.Id)).ToListAsync();
+        foreach (var po in submittedPos) po.Status = PurchaseOrderStatusFlow.WaitingForExpertShipmentApproval;
+
         // Auto-advance track status to "Received in Warehouse" when items are first submitted
         if (track.Status == "Ship to Warehouse")
             track.Status = "Received in Warehouse";
@@ -345,7 +356,16 @@ public class ShippingService : IShippingService
         item.ReviewedAt = DateTime.UtcNow;
         item.ReviewNote = request.Note;
 
+        if (request.Action == "Accept" && item.POItem != null)
+        {
+            item.POItem.Status = PurchaseOrderStatusFlow.Completed;
+            await PurchaseOrderStatusFlow.SyncPiItemsAsync(
+                _db, new[] { item.POItem }, PurchaseOrderStatusFlow.Completed);
+        }
+
         await _db.SaveChangesAsync();
+        if (item.POItem?.POId.HasValue == true)
+            await CompletePoWhenEveryPartApprovedAsync(item.POItem.POId.Value);
 
         // Notify Inventory users assigned to this track's warehouse
         var track = await _db.Set<POItemTrackNumber>().FindAsync(trackId);
@@ -373,20 +393,37 @@ public class ShippingService : IShippingService
     }
 
     /// <summary>
-    /// Settles a whole track in one action: any part with no counted quantity is taken as
-    /// having arrived in full, and every part is marked Accepted. This is the path for
-    /// shipping/admin to close out an arrival — notably a warehouse transfer, where the
-    /// goods were already verified at the source — without the PO's assigned users
-    /// reviewing each part separately.
+    /// Records receipt of every part on a track and accepts it immediately. This is
+    /// the bulk shipping-admin path, so no second expert review is required.
     /// </summary>
     public async Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null)
     {
         var track = await _db.Set<POItemTrackNumber>()
             .Include(t => t.Items)
+            .Include(t => t.POItem)
             .FirstOrDefaultAsync(t => t.Id == trackId);
         if (track == null) return null;
 
         var now = DateTime.UtcNow;
+
+        // A track can be received before Inventory submits a count. In that case,
+        // materialize the expected PO quantity so Receive All is truly one action.
+        if (track.Items.Count == 0)
+        {
+            track.Items.Add(new TrackNumberItem
+            {
+                TrackNumberId = track.Id,
+                POItemId = track.POItemId,
+                ExpectedQty = track.POItem.Qty,
+                ActualQty = track.POItem.Qty,
+                IsAvailable = track.POItem.Qty > 0,
+                Status = "Accepted",
+                ReviewedByUserId = reviewerId,
+                ReviewedAt = now,
+                ReviewNote = note,
+                CreatedAt = now,
+            });
+        }
 
         foreach (var item in track.Items)
         {
@@ -395,20 +432,45 @@ public class ShippingService : IShippingService
             if (!item.ActualQty.HasValue) item.ActualQty = item.ExpectedQty;
             item.IsAvailable ??= item.ActualQty > 0;
 
-            // Leave an already-accepted part alone so its original reviewer stamp survives
-            // a second click.
-            if (item.Status == "Accepted") continue;
-
-            item.Status = "Accepted";
-            item.ReviewedByUserId = reviewerId;
-            item.ReviewedAt = now;
-            item.ReviewNote = note;
+            // Preserve an earlier acceptance audit, but accept pending/rejected items
+            // under the user who performed Receive All.
+            if (item.Status != "Accepted")
+            {
+                item.Status = "Accepted";
+                item.ReviewedByUserId = reviewerId;
+                item.ReviewedAt = now;
+                item.ReviewNote = note;
+            }
         }
 
         if (track.Status == "Ship to Warehouse")
             track.Status = "Received in Warehouse";
 
+        var receivedPoItems = await _db.Set<POItem>()
+            .Where(i => track.Items.Select(x => x.POItemId).Contains(i.Id) && i.ReturnedAt == null)
+            .ToListAsync();
+        foreach (var poItem in receivedPoItems)
+            poItem.Status = PurchaseOrderStatusFlow.Completed;
+
+        var receivedPoIds = receivedPoItems
+            .Where(i => i.POId.HasValue)
+            .Select(i => i.POId!.Value)
+            .Distinct()
+            .ToList();
+        var receivedPos = await _db.Set<PurchaseOrder>()
+            .Where(p => receivedPoIds.Contains(p.Id))
+            .ToListAsync();
+        foreach (var receivedPo in receivedPos)
+            receivedPo.Status = PurchaseOrderStatusFlow.ReceivedInWarehouse;
+
+        await PurchaseOrderStatusFlow.SyncPiItemsAsync(
+            _db, receivedPoItems, PurchaseOrderStatusFlow.Completed);
+
         await _db.SaveChangesAsync();
+
+        // Complete each PO once every active line's track items have been accepted.
+        foreach (var receivedPoId in receivedPoIds)
+            await CompletePoWhenEveryPartApprovedAsync(receivedPoId);
 
         // Destination leg of a warehouse transfer — roll the quantities up so the
         // transfer closes out instead of sitting In Transit forever.
@@ -426,13 +488,32 @@ public class ShippingService : IShippingService
             {
                 var reviewer = await _db.Set<Module.Identity.Entities.User>().FindAsync(reviewerId);
                 await _notifications.CreateForUsersAsync(
-                    inventoryUserIds, "PartAccepted", "TrackNumber", trackId, track.TrackNumber,
-                    $"All parts on Track {track.TrackNumber} were received and accepted by {reviewer?.Name ?? "admin"}",
+                    inventoryUserIds, "PartReceived", "TrackNumber", trackId, track.TrackNumber,
+                    $"All parts on Track {track.TrackNumber} were received and accepted by {reviewer?.Name ?? "shipping"}",
                     reviewerId, reviewer?.Name);
             }
         }
 
         return await GetTrackForReviewAsync(trackId);
+    }
+
+    private async Task CompletePoWhenEveryPartApprovedAsync(long poId)
+    {
+        var po = await _db.Set<PurchaseOrder>()
+            .Include(p => p.POItems.Where(i => i.ReturnedAt == null))
+                .ThenInclude(i => i.TrackNumbers)
+                    .ThenInclude(t => t.Items)
+            .FirstOrDefaultAsync(p => p.Id == poId);
+        if (po == null || po.POItems.Count == 0) return;
+
+        var allApproved = po.POItems.All(poItem =>
+            poItem.TrackNumbers.Count > 0 &&
+            poItem.TrackNumbers.SelectMany(track => track.Items).Any() &&
+            poItem.TrackNumbers.SelectMany(track => track.Items).All(trackItem => trackItem.Status == "Accepted"));
+        if (!allApproved) return;
+
+        await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.Completed);
+        await _db.SaveChangesAsync();
     }
 
     // ── Ready for SN ──────────────────────────────────────────────────────

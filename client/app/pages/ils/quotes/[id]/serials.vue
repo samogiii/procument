@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="navigateTo(`/ils/quotes/${id}/select-parts`)" />
+      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="$router.back()" />
       <div>
         <h1 class="text-h5 font-weight-bold">{{ quote?.quoteNumber || 'ILS Quote' }}</h1>
         <p class="text-caption text-medium-emphasis mb-0">Step 3 of 3 — Pick serials & set coefficient</p>

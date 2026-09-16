@@ -40,15 +40,6 @@ public class WalletTransfersController : ControllerBase
         return Ok(await _service.CreateAsync(req, userId));
     }
 
-    [HttpPatch("{id:long}/review")]
-    [Authorize(Roles = "SuperAdmin,Admin")]
-    public async Task<IActionResult> Review(long id, [FromBody] ReviewWalletTransferRequest req)
-    {
-        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-        if (!await _service.ReviewAsync(id, req.Decision, req.Note, userId)) return NotFound();
-        return Ok();
-    }
-
     [HttpPost("{id:long}/upload-pop")]
     public async Task<IActionResult> UploadPop(long id, IFormFile file)
     {

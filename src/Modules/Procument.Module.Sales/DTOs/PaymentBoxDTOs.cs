@@ -109,6 +109,8 @@ public record CreateTransactionRequest(
     string? Currency,
     decimal? ExchangeRate,
     long? ToPaymentBoxId,
+    /// <summary>When the transaction occurred. Defaults to the current time when omitted.</summary>
+    DateTime? CreatedAt = null,
     /// <summary>Wallet-side tag, "B1".."B7".</summary>
     string? Base = null);
 
@@ -136,7 +138,7 @@ public record WalletTransferRequest(
     decimal? ExchangeRate,
     string? Notes);
 
-// ── Pending wallet transfer workflow ──────────────────────────────────────────
+// ── Wallet transfer workflow ──────────────────────────────────────────────────
 
 public record CreateWalletTransferPendingRequest(
     long FromBoxId,
@@ -145,8 +147,6 @@ public record CreateWalletTransferPendingRequest(
     decimal DepositAmount,
     decimal? ExchangeRate,
     string? Notes);
-
-public record ReviewWalletTransferRequest(string Decision, string? Note);
 
 public record WalletTransferPendingResponse(
     long Id,

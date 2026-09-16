@@ -272,6 +272,9 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<bool>("CreditEnabled")
+                        .HasColumnType("bit");
+
                     b.Property<string>("CurrencyType")
                         .HasColumnType("nvarchar(max)");
 
@@ -294,6 +297,9 @@ namespace Procument.Data.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<decimal?>("MaxCredit")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("ModifyAt")
                         .HasColumnType("datetime2");
@@ -1218,6 +1224,10 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("Beneficiary")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
                     b.Property<string>("CourierName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -1236,6 +1246,10 @@ namespace Procument.Data.Migrations
 
                     b.Property<long>("PurchaseOrderId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("ShippingMethod")
                         .HasMaxLength(100)
@@ -1266,6 +1280,12 @@ namespace Procument.Data.Migrations
                     b.Property<string>("Condition")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("InShopLeadTimeDays")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("InShopStartedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<long?>("InvoiceItemId")
                         .HasColumnType("bigint");
@@ -1404,6 +1424,9 @@ namespace Procument.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<long?>("CompanyPresetId")
                         .HasColumnType("bigint");
 
@@ -1417,6 +1440,18 @@ namespace Procument.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<long?>("POId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("PendingExchangeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal?>("PendingPaymentAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("PendingUploadId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long?>("PendingWalletId")
                         .HasColumnType("bigint");
 
                     b.Property<long?>("PRId")
@@ -1542,7 +1577,7 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Procument", (string)null);
+                    b.ToTable("SupplierPartQuote", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.Procurement", b =>
@@ -1897,8 +1932,15 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<long?>("CompanyPresetId")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("FulfillmentMode")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<long?>("InvoiceId")
                         .HasColumnType("bigint");
@@ -1927,8 +1969,8 @@ namespace Procument.Data.Migrations
                     b.Property<string>("PaymentStatus")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
                         .HasDefaultValue("NotStarted");
 
                     b.Property<DateTime?>("PaymentSubmittedAt")
@@ -2141,6 +2183,49 @@ namespace Procument.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("ShipmentNoteTrackNumbers", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.SupplierQuoteCertificate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("MimeType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("SupplierQuoteId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("UploadedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierQuoteId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("SupplierQuoteCertificates", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.TrackNumberBox", b =>
@@ -2607,6 +2692,13 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasColumnType("decimal(18,8)");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -2618,6 +2710,9 @@ namespace Procument.Data.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("ReceivedAmount")
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -2690,7 +2785,7 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("ProformaInvoiceId");
 
-                    b.ToTable("FinalInvoices", (string)null);
+                    b.ToTable("Invoices", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.FinalInvoiceItem", b =>
@@ -2746,7 +2841,7 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("PartNumberId");
 
-                    b.ToTable("FinalInvoiceItems", (string)null);
+                    b.ToTable("InvoiceItems", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.Invoice", b =>
@@ -2800,7 +2895,14 @@ namespace Procument.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("PaymentStatus")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("PaymentTermDays")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PaymentTermStartedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<decimal?>("PrepaymentPercent")
                         .HasColumnType("decimal(18,2)");
@@ -2841,7 +2943,7 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("QuoteId");
 
-                    b.ToTable("Invoices", (string)null);
+                    b.ToTable("ProformaInvoices", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.InvoiceItem", b =>
@@ -2855,6 +2957,10 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("Discount")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("Condition")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime?>("ExpectedDeliveryDate")
                         .HasColumnType("datetime2");
 
@@ -2866,6 +2972,13 @@ namespace Procument.Data.Migrations
 
                     b.Property<long?>("QuoteItemId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasDefaultValue("Not Started");
 
                     b.Property<decimal>("TotalPrice")
                         .HasColumnType("decimal(18,2)");
@@ -2879,7 +2992,7 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("QuoteItemId");
 
-                    b.ToTable("InvoiceItems", (string)null);
+                    b.ToTable("ProformaInvoiceItems", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.PaymentBox", b =>
@@ -2972,6 +3085,17 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("PaymentRequestId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("PopFileName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PopInvoiceNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("PopUploadId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<long?>("ToPaymentBoxId")
                         .HasColumnType("bigint");
 
@@ -3003,6 +3127,10 @@ namespace Procument.Data.Migrations
                     b.HasIndex("PaymentBoxId");
 
                     b.HasIndex("PaymentRequestId");
+
+                    b.HasIndex("PopUploadId")
+                        .IsUnique()
+                        .HasFilter("[PopUploadId] IS NOT NULL");
 
                     b.HasIndex("ToSupplierId");
 
@@ -4040,6 +4168,25 @@ namespace Procument.Data.Migrations
                     b.Navigation("TrackNumber");
                 });
 
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.SupplierQuoteCertificate", b =>
+                {
+                    b.HasOne("Procument.Module.Purchasing.Entities.ProcumentRecord", "SupplierQuote")
+                        .WithMany("Certificates")
+                        .HasForeignKey("SupplierQuoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("SupplierQuote");
+
+                    b.Navigation("UploadedBy");
+                });
+
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.TrackNumberBox", b =>
                 {
                     b.HasOne("Procument.Module.Purchasing.Entities.POItemTrackNumber", "TrackNumber")
@@ -4518,6 +4665,8 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
                 {
+                    b.Navigation("Certificates");
+
                     b.Navigation("POItems");
 
                     b.Navigation("ShopRecords");

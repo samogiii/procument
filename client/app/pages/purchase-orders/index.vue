@@ -365,7 +365,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="item in group" :key="item.id" :class="{ 'selected-row': selections[item.id] }">
+                    <tr v-for="item in group" :key="item.id" :class="{ 'selected-row': selections[item.id], 'total-pn-focus-row': highlightedItemId === item.id }">
                       <td class="text-center">
                         <input type="checkbox" class="po-checkbox" :checked="selections[item.id]" @change="toggleSelect(item.id)" />
                       </td>
@@ -436,7 +436,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="item in items" :key="item.id" :class="{ 'selected-row': selections[item.id] }">
+                      <tr v-for="item in items" :key="item.id" :class="{ 'selected-row': selections[item.id], 'total-pn-focus-row': highlightedItemId === item.id }">
                         <td class="text-center">
                           <input type="checkbox" class="po-checkbox" :checked="selections[item.id]" @change="toggleSelect(item.id)" />
                         </td>
@@ -535,8 +535,7 @@
     </v-card>
 
     <!-- ══ Company preset picker — asked once, before the PO is created ══
-         The preset decides which of our companies buys: it drives the payment wallet the PO is
-         paid from and the company branding/bank block on the PO & Payment Request PDFs. ══ -->
+         The preset identifies the buying company for PO and payment request documents. ══ -->
     <v-dialog v-model="showPresetPickerDialog" max-width="560" persistent>
       <v-card class="glass-card">
         <v-card-title class="d-flex align-center pa-4 gap-2">
@@ -568,22 +567,6 @@
             class="mb-3"
           />
 
-          <!-- Only ask for a wallet when the preset actually has more than one -->
-          <v-select
-            v-if="presetWalletOptions.length > 1"
-            v-model="pendingCreate.walletId"
-            :items="presetWalletOptions"
-            item-title="label"
-            item-value="id"
-            label="Pay from Wallet"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-wallet-outline"
-            clearable
-            hide-details
-            class="mb-3"
-          />
-
           <!-- /companypresets is Admin/SuperAdmin/Expert only — other roles keep the old flow -->
           <v-alert
             v-if="!presetsLoading && presetOptions.length === 0"
@@ -594,25 +577,6 @@
           >
             No company presets available for your role — the PO will be created without one.
           </v-alert>
-          <v-alert
-            v-else-if="pendingCreate.presetId && presetWalletOptions.length === 0"
-            type="warning"
-            variant="tonal"
-            density="compact"
-            class="text-caption"
-          >
-            This preset has no payment wallet yet, so the choice cannot be stored on the PO.
-            Create a wallet for it in Payment Control first.
-          </v-alert>
-          <v-alert
-            v-else-if="presetWalletOptions.length === 1"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="text-caption"
-          >
-            Paid from <strong>{{ presetWalletOptions[0].label }}</strong>
-          </v-alert>
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-btn variant="text" @click="cancelCreate">Cancel</v-btn>
@@ -630,56 +594,7 @@
       </v-card>
     </v-dialog>
 
-    <!-- ══ Wallet picker dialog — HIDDEN: bank details now come from company presets ══ -->
-    <v-dialog v-if="false" v-model="showWalletPickerDialog" max-width="500" persistent>
-      <v-card class="glass-card">
-        <v-card-title class="d-flex align-center pa-4 gap-2">
-          <v-icon icon="mdi-wallet-outline" color="primary" />
-          Select Payment Wallet
-        </v-card-title>
-        <v-divider />
-        <v-card-text class="pa-4">
-          <p class="text-body-2 text-medium-emphasis mb-1">
-            Supplier: <strong>{{ pendingCreate?.supplierName }}</strong>
-          </p>
-          <p class="text-body-2 text-medium-emphasis mb-4">
-            Which wallet should be used to pay this supplier?
-          </p>
-          <v-select
-            v-model="pendingCreate.walletId"
-            :items="walletOptions"
-            item-title="label"
-            item-value="id"
-            label="Pay with Wallet *"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-bank-outline"
-            clearable
-          >
-            <template #item="{ item, props: itemProps }">
-              <v-list-item v-bind="itemProps">
-                <template #subtitle>
-                  <span class="text-caption text-medium-emphasis">{{ item.raw.company }}</span>
-                </template>
-              </v-list-item>
-            </template>
-          </v-select>
-        </v-card-text>
-        <v-card-actions class="pa-4">
-          <v-btn variant="text" @click="cancelCreate">Cancel</v-btn>
-          <v-spacer />
-          <v-btn
-            color="success"
-            variant="flat"
-            prepend-icon="mdi-plus"
-            :loading="creatingPo"
-            @click="confirmCreate"
-          >
-            Create PO
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+
 
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">
@@ -690,6 +605,7 @@
 
 <script setup lang="ts">
 const api = useApi()
+const route = useRoute()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const showAssignDialog = ref(false)
@@ -700,16 +616,20 @@ const allItems = ref<any[]>([])
 const editableItems = ref<any[]>([])
 const selections = ref<Record<number, boolean>>({})
 const activeTab = ref('orders')
+const highlightedItemId = ref<number | null>(null)
 const purchaseOrders = ref<any[]>([])
 const saving = ref(false)
 
+const requestedPoItemId = computed(() => {
+  const value = Number(route.query.poItemId)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+})
+
 // ── Company preset / wallet picker (before creating PO) ──────────────────────
-const walletOptions = ref<{ id: number; label: string; company: string; currency: string }[]>([])
-const showWalletPickerDialog = ref(false)
 const showPresetPickerDialog = ref(false)
 const creatingPo = ref(false)
-const pendingCreate = reactive<{ supplierName: string; group: any[]; walletId: number | null; presetId: number | null }>({
-  supplierName: '', group: [], walletId: null, presetId: null,
+const pendingCreate = reactive<{ supplierName: string; group: any[]; presetId: number | null }>({
+  supplierName: '', group: [], presetId: null,
 })
 
 // ── Company presets — the "which of our companies is buying" choice ──
@@ -733,41 +653,22 @@ const selectedPresetName = computed(
   () => apiPresets.value.find((p: any) => p.id === pendingCreate.presetId)?.name || ''
 )
 
-// Wallets belonging to the chosen preset (simple-list exposes the preset by company name).
-const presetWalletOptions = computed(() => {
-  if (!selectedPresetName.value) return []
-  return walletOptions.value.filter(w => w.company === selectedPresetName.value)
-})
-
 const pendingSelectedCount = computed(() => getSelectedFromGroup(pendingCreate.group).length)
 
-// Reset the wallet whenever the preset changes; auto-pick when there is only one.
-watch(() => pendingCreate.presetId, () => {
-  const wallets = presetWalletOptions.value
-  pendingCreate.walletId = wallets.length === 1 ? wallets[0].id : null
-})
-
-async function loadWallets() {
-  try {
-    const list = await api.get<any[]>('/payment-boxes/simple-list')
-    walletOptions.value = list.map((w: any) => ({
-      id: w.id,
-      // Wallets are identified by their own name, not the company preset behind them.
-      label: `${w.name} (${w.currency})`,
-      company: w.companyName,
-      currency: w.currency,
-    }))
-  } catch { /* silent */ }
-}
-
 const poStatusColorMap: Record<string, string> = {
-  'Waiting For Admin Approval': 'warning',
+  'Not Started': 'grey',
+  'Sourcing': 'purple',
+  'EndUser': 'cyan',
+  'In Shop': 'deep-orange',
+  'Received in Warehouse': 'orange',
+  'Waiting For Supplier Documents': 'blue',
+  'Waiting For PR': 'indigo',
   'Waiting For Payment': 'orange',
+  'PR Rejected': 'error',
   'Payment Done': 'success',
-  'Ship To Warehouse 1': 'indigo',
-  'Ship To Warehouse 2': 'deep-purple',
-  'Ship To Warehouse 3': 'blue-grey',
-  'Ship To Customer': 'info',
+  'Waiting For Shipment': 'amber',
+  'Ship to Warehouse': 'indigo',
+  'Waiting for Expert Approval Shipment': 'deep-purple',
   'Completed': 'teal',
   'Cancelled': 'grey',
   'Returned': 'error',
@@ -780,13 +681,19 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const poStatusOptions = [
-  { value: 'Waiting For Admin Approval', label: 'Waiting For Admin Approval', icon: 'mdi-shield-clock', color: 'warning' },
+  { value: 'Not Started', label: 'Not Started', icon: 'mdi-circle-outline', color: 'grey' },
+  { value: 'Sourcing', label: 'Sourcing', icon: 'mdi-source-branch', color: 'purple' },
+  { value: 'EndUser', label: 'EndUser', icon: 'mdi-account-check-outline', color: 'cyan' },
+  { value: 'In Shop', label: 'In Shop', icon: 'mdi-store-clock-outline', color: 'deep-orange' },
+  { value: 'Received in Warehouse', label: 'Received in Warehouse', icon: 'mdi-warehouse-check', color: 'orange' },
+  { value: 'Waiting For Supplier Documents', label: 'Waiting For Supplier Documents', icon: 'mdi-file-clock', color: 'blue' },
+  { value: 'Waiting For PR', label: 'Waiting For PR', icon: 'mdi-file-export-outline', color: 'indigo' },
   { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'orange' },
+  { value: 'PR Rejected', label: 'PR Rejected', icon: 'mdi-file-remove-outline', color: 'error' },
   { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'success' },
-  { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
-  { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
-  { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
-  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'info' },
+  { value: 'Waiting For Shipment', label: 'Waiting For Shipment', icon: 'mdi-truck-fast-outline', color: 'amber' },
+  { value: 'Ship to Warehouse', label: 'Ship to Warehouse', icon: 'mdi-warehouse', color: 'indigo' },
+  { value: 'Waiting for Expert Approval Shipment', label: 'Waiting for Expert Approval Shipment', icon: 'mdi-account-clock-outline', color: 'deep-purple' },
   { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
   { value: 'Returned', label: 'Returned', icon: 'mdi-keyboard-return', color: 'error' },
@@ -794,20 +701,6 @@ const poStatusOptions = [
 
 async function changePOStatus(po: any, newStatus: string) {
   if (newStatus === po.status) return
-  
-  // 1. If waiting for admin approval, manual change is blocked
-  if (po.adminApproval !== 'Approved' && po.status === 'Waiting For Admin Approval') {
-    showSnack('Cannot manually change status until SuperAdmin approves', 'warning')
-    return
-  }
-
-  // 2. If waiting for payment, manual change is blocked
-  if (po.adminApproval === 'Approved' && po.paymentStatus !== 'Submitted') {
-    showSnack('Cannot manually change status while Awaiting Payment', 'warning')
-    return
-  }
-
-  // Once payment status is 'Submitted' (Payment Done), admin can change freely.
 
   try {
     await api.patch(`/purchase-orders/${po.id}/status`, { status: newStatus })
@@ -869,11 +762,33 @@ function toggleGroupAll(group: any[]) {
 }
 
 // ── Load data ──
-onMounted(() => {
-  loadPurchaseOrders()
-  loadItems()
-  loadWallets()
-  loadPresets()
+function focusRequestedItem() {
+  const id = requestedPoItemId.value
+  if (id == null) return
+
+  const item = allItems.value.find(item => item.id === id)
+  if (!item) {
+    showSnack('This item is no longer available for a new Purchase Order.', 'warning')
+    return
+  }
+
+  selections.value[id] = true
+  highlightedItemId.value = id
+  window.setTimeout(() => {
+    if (highlightedItemId.value === id) highlightedItemId.value = null
+  }, 10_000)
+}
+
+onMounted(async () => {
+  const tab = route.query.tab
+  if (tab === 'warehouse' || tab === 'vendor-customer') activeTab.value = tab
+
+  await Promise.all([
+    loadPurchaseOrders(),
+    loadItems(),
+    loadPresets(),
+  ])
+  focusRequestedItem()
 })
 
 async function loadItems() {
@@ -951,7 +866,6 @@ function createPOFromGroup(supplierName: string, group: any[]) {
   if (selected.length === 0) return
   pendingCreate.supplierName = supplierName
   pendingCreate.group = group
-  pendingCreate.walletId = null
   // Default to Base 105, falling back to the only preset the user is allowed to use.
   const options = presetOptions.value
   pendingCreate.presetId = (options.find((p: any) => p.sortOrder === 105) || options[0])?.id ?? null
@@ -959,7 +873,6 @@ function createPOFromGroup(supplierName: string, group: any[]) {
 }
 
 function cancelCreate() {
-  showWalletPickerDialog.value = false
   showPresetPickerDialog.value = false
 }
 
@@ -972,25 +885,12 @@ async function confirmCreate() {
       supplierId: selected[0].supplierId || 0,
       invoiceId: selected[0].invoiceId || null,
       poItemIds: selected.map((item: any) => item.id),
-      // The preset is stored through its payment wallet — the backend resolves it when no
-      // explicit wallet is given, so the PO knows which company pays and prints on the PDF.
+      // Store the buying company independently from payment wallets.
       companyPresetId: pendingCreate.presetId || null,
-      preferredWalletId: pendingCreate.walletId || null,
     }
     const result = await api.post<any>('/purchase-orders', payload)
-    if (pendingCreate.presetId && !result.companyPresetId) {
-      showSnack(
-        `PO ${result.poNumber} created, but "${selectedPresetName.value}" has no payment wallet — company not stored on the PO.`,
-        'warning'
-      )
-    } else {
-      const company = result.companyPresetName || selectedPresetName.value
-      showSnack(
-        `PO ${result.poNumber} created for ${pendingCreate.supplierName}${company ? ` (${company})` : ''}!`,
-        'success'
-      )
-    }
-    showWalletPickerDialog.value = false
+    const company = result.companyPresetName || selectedPresetName.value
+    showSnack(`PO ${result.poNumber} created for ${pendingCreate.supplierName}${company ? ` (${company})` : ''}!`, 'success')
     showPresetPickerDialog.value = false
     await loadItems()
     await loadPurchaseOrders()
@@ -1186,17 +1086,24 @@ const filteredPOs = computed(() => applyPoFilters(purchaseOrders.value))
 <style scoped>
 .excel-container {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 280px);
   border-radius: 8px;
   border: 1px solid var(--card-border);
 }
 
 .po-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 700px;
+  overflow: visible !important;
 }
 
 .po-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   background: var(--toolbar-bg);
   color: rgb(var(--v-theme-on-surface), 0.6);
   font-weight: 600;
@@ -1207,6 +1114,7 @@ const filteredPOs = computed(() => applyPoFilters(purchaseOrders.value))
   border-bottom: 2px solid var(--excel-border);
   text-align: left;
   white-space: nowrap;
+  box-shadow: 0 1px 0 var(--excel-border);
 }
 
 .po-table tbody td {
@@ -1224,6 +1132,14 @@ const filteredPOs = computed(() => applyPoFilters(purchaseOrders.value))
 }
 .po-table tbody tr.selected-row {
   background: var(--cell-hover);
+}
+.po-table tbody tr.total-pn-focus-row {
+  background: rgba(255, 193, 7, 0.34);
+  animation: total-pn-focus-pulse 1s ease-in-out infinite;
+}
+
+@keyframes total-pn-focus-pulse {
+  50% { background: rgba(255, 152, 0, 0.58); }
 }
 
 .po-table tfoot td {

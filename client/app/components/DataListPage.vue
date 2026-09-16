@@ -103,10 +103,12 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          fixed-header
+          height="calc(100vh - 210px)"
           hover
           @update:options="loadServerItems"
           @click:row="onRowClick"
-          :class="{ 'clickable-rows': !!detailRoute }"
+          :class="{ 'clickable-rows': !!detailRoute, 'fixed-header-table': true }"
         >
           <!-- Pass-through all column slots from parent, excluding 'default' (dialogs) and 'actions' (header) -->
           <template v-for="name in Object.keys($slots).filter(k => k !== 'default' && k !== 'actions')" :key="name" #[name]="slotProps">
@@ -129,9 +131,11 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          fixed-header
+          height="calc(100vh - 210px)"
           hover
           @click:row="onRowClick"
-          :class="{ 'clickable-rows': !!detailRoute }"
+          :class="{ 'clickable-rows': !!detailRoute, 'fixed-header-table': true }"
         >
           <template v-for="name in Object.keys($slots).filter(k => k !== 'default' && k !== 'actions' && k !== 'tfoot')" :key="name" #[name]="slotProps">
             <slot :name="name" v-bind="slotProps ?? {}" />
@@ -405,3 +409,30 @@ if (!props.serverSide) {
   onMounted(() => loadClientItems())
 }
 </script>
+
+<style scoped>
+/* Keep column names available while the list itself scrolls.  The opaque
+   background and layer prevent row/status chips from showing through them. */
+:deep(.fixed-header-table .v-table__wrapper) {
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table) {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  overflow: visible !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table > thead) {
+  position: static !important;
+}
+
+:deep(.fixed-header-table thead th) {
+  position: sticky !important;
+  top: 0;
+  z-index: 11 !important;
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 0 rgba(var(--v-border-color), 0.7);
+}
+</style>

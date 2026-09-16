@@ -10,7 +10,8 @@ public class CreateInvoiceRequest
     public string? CustomerPONumber { get; set; }
     public DateTime? CustomerPODate { get; set; }
     public string? Subject { get; set; }
-    public string? PaymentStatus { get; set; }      // Net30 | CAD | Prepayment
+    public string? PaymentStatus { get; set; }      // Prepayment | CAD | Net | Credit
+    public int? PaymentTermDays { get; set; }
     public decimal? PrepaymentPercent { get; set; } // 1-100, only when PaymentStatus = "Prepayment"
     public List<CreateInvoiceItemRequest> Items { get; set; } = new();
 }
@@ -37,6 +38,7 @@ public class UpdateInvoiceRequest
     public DateTime? CustomerPODate { get; set; }
     public string? Subject { get; set; }
     public string? PaymentStatus { get; set; }
+    public int? PaymentTermDays { get; set; }
     public decimal? PrepaymentPercent { get; set; }
     public decimal? Tax { get; set; }
     public decimal? Shipping { get; set; }
@@ -51,7 +53,14 @@ public class UpdateInvoiceItemDiscountRequest
     // and Discount is computed from QuoteItem.UnitPrice (the original quote price).
     public int? Qty { get; set; }
     public decimal? UnitPrice { get; set; }
+    public string? Condition { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
+}
+
+public class RemoveInvoiceItemResponse
+{
+    public long RemovedItemId { get; set; }
+    public List<string> CancelledPurchaseOrders { get; set; } = new();
 }
 
 public class UpdateInvoiceItemsRequest
@@ -62,6 +71,7 @@ public class UpdateInvoiceItemsRequest
 public class PrepaymentCheckResponse
 {
     public string? PaymentStatus { get; set; }
+    public int? PaymentTermDays { get; set; }
     public decimal? PrepaymentPercent { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal RequiredAmount { get; set; }
@@ -80,6 +90,12 @@ public class InvoiceResponse
     public bool IsCancelled { get; set; }
     public DateTime? CancelledAt { get; set; }
     public string? PaymentStatus { get; set; }
+    public int? PaymentTermDays { get; set; }
+    public DateTime? PaymentTermStartedAt { get; set; }
+    public string? PaymentTermDisplay { get; set; }
+    public bool PaymentDueWarning { get; set; }
+    public decimal TotalPaid { get; set; }
+    public decimal OutstandingAmount { get; set; }
     public decimal? PrepaymentPercent { get; set; }
     public DateTime? DueDate { get; set; }
     public DateTime? DeadlineDate { get; set; }
@@ -129,6 +145,12 @@ public class InvoiceResponse
     public decimal? QuoteCoefYuan { get; set; }
     public decimal? QuoteExchangeRateYuan { get; set; }
 
+    /// <summary>Effective PI assignees. Explicit PI assignments replace RFQ/Quote defaults.</summary>
+    public List<InvoiceAssignedUserResponse> AssignedUsers { get; set; } = new();
+    /// <summary>Users assigned directly to the PI. Empty means source defaults are inherited.</summary>
+    public List<InvoiceAssignedUserResponse> DirectAssignedUsers { get; set; } = new();
+    public bool HasExplicitAssignments => DirectAssignedUsers.Count > 0;
+
     public List<InvoiceItemResponse> Items { get; set; } = new();
 }
 
@@ -140,6 +162,7 @@ public class InvoiceItemResponse
     public decimal TotalPrice { get; set; }
     public decimal? Discount { get; set; }
     public decimal FinalPrice => Discount.HasValue ? TotalPrice - Discount.Value : TotalPrice;
+    public string Status { get; set; } = "Not Started";
     // Original unit price from the source quote item — used by the UI to compute/display
     // the per-unit discount when the user edits UnitPrice directly.
     public decimal? OriginalUnitPrice { get; set; }
@@ -162,6 +185,29 @@ public class InvoiceItemResponse
     public string? Condition { get; set; }
     public string? CertName { get; set; }
     public string? LeadTime { get; set; }
+    /// <summary>Effective assignees. Item assignments take priority over PI assignments.</summary>
+    public List<InvoiceAssignedUserResponse> AssignedUsers { get; set; } = new();
+    public List<InvoiceAssignedUserResponse> DirectAssignedUsers { get; set; } = new();
+    public bool HasExplicitAssignments => DirectAssignedUsers.Count > 0;
+}
+
+public class InvoiceAssignedUserResponse
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+public class UpdateInvoiceAssignmentsRequest
+{
+    public List<long> InvoiceUserIds { get; set; } = new();
+    public List<UpdateInvoiceItemAssignmentsRequest> Items { get; set; } = new();
+}
+
+public class UpdateInvoiceItemAssignmentsRequest
+{
+    public long InvoiceItemId { get; set; }
+    /// <summary>Empty means inherit the PI assignment.</summary>
+    public List<long> UserIds { get; set; } = new();
 }
 
 public record SetDefaultWalletRequest(long? WalletId);

@@ -109,6 +109,15 @@
             active-color="primary"
             @click="mobile ? drawer = false : undefined"
           />
+          <v-list-item
+            v-if="authStore.isSuperAdmin"
+            to="/total-pn/column-access"
+            prepend-icon="mdi-table-column-cog"
+            title="Total Project Columns"
+            rounded="lg"
+            active-color="primary"
+            @click="mobile ? drawer = false : undefined"
+          />
           
           <v-list-item
             v-if="authStore.companyPresets"
@@ -376,7 +385,7 @@ watch(mobile, (isMobile) => {
 
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
-  { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', adminOnly: true, ilsOnly: false },
+  { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', totalPnMenu: true, adminOnly: false, ilsOnly: false },
   { title: 'Action Center', icon: 'mdi-alert-circle-outline', to: '/attention', actionCenter: true, adminOnly: false, ilsOnly: false },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false, ilsOnly: false },
   // { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
@@ -389,7 +398,7 @@ const allNavItems = [
   { title: 'Shipping', icon: 'mdi-warehouse', to: '/shipping', inventoryOnly: true },
   { title: 'Shipping Control', icon: 'mdi-truck-delivery-outline', to: '/total-shipping', inventoryOnly: true,  },
 
-  { title: 'Invoices', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
+  { title: 'Invoice and PackingList', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   // ── Shipping workflow ──
   {
     title: 'Shipping',
@@ -407,6 +416,7 @@ const allNavItems = [
     children:[
       { title: 'Payment Withdraw', icon: 'mdi-cash-multiple', to: '/payment', paymentMenu: true },
       { title: 'Payment Deposit', icon: 'mdi-cash-plus', to: '/payment/customer-payments', paymentMenu: true },
+      { title: 'Customer Credit Trace', icon: 'mdi-credit-card-clock-outline', to: '/payment/customer-credit', paymentMenu: true },
       { title: 'Wallets', icon: 'mdi-wallet-outline', to: '/payment-control', walletMenu: true },
     ]
   },
@@ -425,7 +435,7 @@ const allNavItems = [
 // Mirrors the route allowlist enforced in middleware/auth.global.ts.
 // Experts get a tight whitelist; Expert SYD additionally sees ILS.
 const EXPERT_NAV_PATHS = new Set<string>([
-  '/rfqs', '/procument', '/quotes', '/procurements', '/purchase-orders'
+  '/rfqs', '/procument', '/quotes', '/procurements', '/purchase-orders', '/total-pn'
 ])
 const EXPERT_SYD_NAV_PATHS = new Set<string>([...EXPERT_NAV_PATHS, '/ils', '/total-shipping', '/shipment-notes', '/shipping/ready-for-sn', '/shipping', '/inventory', '/catalog'])
 
@@ -485,6 +495,10 @@ const navBadges = computed(() => {
 
 const navItems = computed(() => {
   const filterItem = (item: any) => {
+    if (['/invoices', '/final-invoices'].includes(item.to) && ['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase())) return false
+    if (item.totalPnMenu) return authStore.totalPnMenu
+    if (item.customerMenu) return authStore.customerMenu
+
     // ── Hardcoded per-username whitelist — overrides everything else ────────
     // Users in RESTRICTED_USER_NAV see ONLY their allowed routes. Skip the
     // duplicate inventoryOnly Shipping entries so the Shipping group is the
@@ -524,6 +538,7 @@ const navItems = computed(() => {
     if (item.customerMenu     && !authStore.customerMenu)     return false
     if (item.actionCenter     && !authStore.actionCenter)     return false
     if (item.taskManager      && !authStore.taskManager)      return false
+    if (item.totalPnMenu      && !authStore.totalPnMenu)      return false
 
     // ILS-only pages: only for users with ilsMenu access
     if (item.ilsOnly && !authStore.ilsMenu) return false

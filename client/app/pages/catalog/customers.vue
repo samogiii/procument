@@ -94,6 +94,15 @@
             </div>
             <span v-else>—</span>
           </template>
+          <template #item.creditEnabled="{ item }">
+            <v-chip size="x-small" :color="item.creditEnabled ? 'success' : 'grey'" variant="tonal">
+              {{ item.creditEnabled ? 'Enabled' : 'Disabled' }}
+            </v-chip>
+          </template>
+          <template #item.maxCredit="{ item }">
+            <span v-if="item.creditEnabled">${{ Number(item.maxCredit || 0).toLocaleString() }}</span>
+            <span v-else>—</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" variant="text" size="x-small" @click="openDialog(item)" class="mr-1" />
             <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="confirmDelete(item.id)" />
@@ -203,6 +212,21 @@
           <v-text-field v-model.number="form.coef3" label="Coef 3" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
         </div>
       </template>
+
+      <template v-if="isAdmin">
+        <div class="text-caption font-weight-bold text-medium-emphasis text-uppercase mt-4 mb-1">Customer Credit</div>
+        <v-switch v-model="form.creditEnabled" label="Enable Credit payment term" color="success" hide-details class="mb-2" />
+        <v-text-field
+          v-if="form.creditEnabled"
+          v-model.number="form.maxCredit"
+          label="Max Credit (USD)"
+          type="number"
+          min="0"
+          step="0.01"
+          prefix="$"
+          class="mb-2"
+        />
+      </template>
     </CrudDialog>
 
     <ConfirmDialog
@@ -290,6 +314,7 @@ const defaultForm = () => ({
   piTermsAndConditions: '', companyType: null as string | null, country: '', emails: [] as string[],
   website: '',
   coef1: null as number | null, coef2: null as number | null, coef3: null as number | null,
+  creditEnabled: false, maxCredit: null as number | null,
 })
 const form = ref(defaultForm())
 const contactsList = ref<{name: string, email: string, phone: string}[]>([])
@@ -352,6 +377,7 @@ async function save() {
       coef1: num(form.value.coef1),
       coef2: num(form.value.coef2),
       coef3: num(form.value.coef3),
+      maxCredit: form.value.creditEnabled ? num(form.value.maxCredit) : null,
     }
     if (editingId.value) {
       await api.put(`/customers/${editingId.value}`, payload)
@@ -402,6 +428,9 @@ const headers = computed(() => {
   ]
   if (isAdmin.value) {
     h.splice(9, 0, { title: 'Base', key: 'base', width: '100px' })
+    h.splice(h.length - 2, 0,
+      { title: 'Credit', key: 'creditEnabled', width: '100px' },
+      { title: 'Max Credit', key: 'maxCredit', width: '130px' })
   }
   if (isSuperAdmin.value) {
     h.splice(h.length - 2, 0, { title: 'Coefs', key: 'coefs', sortable: false, width: '150px' })

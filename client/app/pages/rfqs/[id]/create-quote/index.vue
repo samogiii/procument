@@ -2,7 +2,7 @@
   <div class="create-quote-page">
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="backUrl" class="mr-1 flex-shrink-0" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" class="mr-1 flex-shrink-0" size="small" @click="$router.back()" />
       <div class="min-width-0">
         <h1 class="text-h6 text-sm-h5 font-weight-bold">{{ isEditMode ? 'Edit Quote' : 'Add Quote' }}</h1>
         <p class="text-caption text-medium-emphasis mt-1">

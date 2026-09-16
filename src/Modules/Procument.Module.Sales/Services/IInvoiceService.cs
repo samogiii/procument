@@ -6,12 +6,13 @@ namespace Procument.Module.Sales.Services;
 
 public interface IInvoiceService
 {
-    Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null);
+    Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null, List<string>? assignedUsers = null);
     Task<InvoiceResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<InvoiceResponse> CreateAsync(CreateInvoiceRequest request, long userId);
     Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request);
     Task<bool> UpdateB1InvoiceNumberAsync(long id, string? b1InvoiceNumber);
-    Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request);
+    Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request, long userId, bool isAdmin);
+    Task<RemoveInvoiceItemResponse?> RemoveItemAsync(long id, long itemId, long userId, bool isAdmin);
     Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, bool autoFinalize = false);
     Task<bool> GrantPermissionsAsync(List<long> invoiceIds, long targetUserId, string permission);
     Task<bool> DeleteAsync(long id);

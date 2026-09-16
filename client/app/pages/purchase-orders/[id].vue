@@ -1,7 +1,7 @@
 ﻿<template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/purchase-orders" class="mr-1 flex-shrink-0" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" class="mr-1 flex-shrink-0" size="small" @click="$router.back()" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">PO {{ po.poNumber || `#${route.params.id}` }}</h1>
       <!-- Company preset picked at PO creation — drives the paying wallet and the PDF branding -->
       <v-chip
@@ -110,6 +110,30 @@
       </v-col>
     </v-row>
 
+    <v-card class="glass-card mb-6">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-timeline-check-outline" class="mr-2" size="20" color="primary" />
+        Part Statuses
+      </v-card-title>
+      <v-card-text>
+        <v-table density="compact">
+          <thead><tr><th>Part</th><th>Status</th><th v-if="hasInShopParts">In Shop lead time</th></tr></thead>
+          <tbody>
+            <tr v-for="item in (po.items || [])" :key="item.id">
+              <td class="font-weight-medium">{{ item.partNumberName || '—' }}</td>
+              <td><v-chip size="small" :color="statusColorForPart(item.status)" variant="tonal">{{ item.displayStatus || item.status || 'Not Started' }}</v-chip></td>
+              <td v-if="hasInShopParts">
+                <v-text-field v-if="isItemInShop(item)" v-model.number="item.inShopLeadTimeDays" type="number" min="0" max="3650" suffix="days"
+                  density="compact" variant="outlined" hide-details style="max-width:150px" :loading="savingLeadTimeId === item.id"
+                  @change="saveInShopLeadTime(item)" />
+                <span v-else class="text-medium-emphasis">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+      </v-card-text>
+    </v-card>
+
     <!-- ── Subject (free-text; editable by anyone who can access this PO) ── -->
     <v-card class="glass-card mb-6">
       <v-card-title class="d-flex align-center">
@@ -138,151 +162,83 @@
       </v-card-text>
     </v-card>
 
-    <!-- ── Admin Approval (visible to Admin/SuperAdmin; action buttons for SuperAdmin only) ── -->
-    <v-card class="glass-card mb-6" v-if="isAdmin">
+    <!-- Documents are grouped by business owner so users can find the right upload quickly. -->
+    <v-card class="glass-card mb-6">
       <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-shield-check" class="mr-2" size="20" color="warning" />
-        Admin Approval
+        <v-icon icon="mdi-folder-multiple-outline" class="mr-2" size="20" color="primary" />
+        PO Document Center
+        <v-chip v-if="allPoDocumentCount" size="x-small" class="ml-2" variant="tonal" color="primary">
+          {{ allPoDocumentCount }} files
+        </v-chip>
         <v-spacer />
-        <v-chip
-          size="small"
-          :color="approvalColor(po.adminApproval)"
-          :prepend-icon="approvalIcon(po.adminApproval)"
-        >{{ po.adminApproval || 'Pending' }}</v-chip>
+        <v-btn size="small" variant="tonal" color="warning" prepend-icon="mdi-file-export-outline" @click="showPrDialog = true">
+          Payment Request (PR)
+        </v-btn>
       </v-card-title>
       <v-card-text>
-        <div v-if="po.adminApprovalNote" class="mb-3 text-body-2 text-medium-emphasis">
-          <strong>Note:</strong> {{ po.adminApprovalNote }}
-        </div>
-        <div v-if="po.adminApproval !== 'Approved' && isAdmin" class="d-flex flex-wrap gap-2">
-          <v-btn color="success" variant="flat" prepend-icon="mdi-check" :loading="approving" @click="approvePo">Accept</v-btn>
-          <v-btn color="error" variant="tonal" prepend-icon="mdi-close" :loading="approving" @click="showRejectDialog = true">Reject</v-btn>
-        </div>
-        <v-alert v-else-if="po.adminApproval !== 'Approved' && !isAdmin" type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-lock">
-          This PO is locked — only an Admin or SuperAdmin can Accept or Reject it.
-        </v-alert>
-        <v-alert v-else type="success" variant="tonal" density="compact" class="mt-2" icon="mdi-check-circle">
-          Approved{{ po.adminApprovalAt ? ' at ' + new Date(po.adminApprovalAt).toLocaleString() : '' }} — The PO has been accepted.
+        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+          Supplier Invoice and Supplier Bank Info move the PO to <strong>Waiting For PR</strong>. End User Documents are stored without changing the PO status.
         </v-alert>
 
-        <!-- ── Document Verification (visible after SuperAdmin approval) ── -->
-        <div v-if="po.adminApproval === 'Approved'" class="mt-4 pa-4 rounded border-dashed">
-          <div class="d-flex align-center mb-4">
+        <!-- <section class="document-section mb-5">
+          <div class="d-flex align-center mb-3">
+            <v-icon icon="mdi-account-file-outline" color="info" size="20" class="mr-2" />
             <div>
-              <div class="text-subtitle-2 font-weight-bold">Step 2: Document Verification</div>
-              <div class="text-caption text-medium-emphasis">Critical payment documents track.</div>
+              <div class="text-subtitle-2 font-weight-bold">Customer & PI Documents</div>
+              <div class="text-caption text-medium-emphasis">Documents received from the customer or issued with the PI.</div>
             </div>
-            <v-spacer />
-            <v-chip v-if="po.status !== 'Waiting For Documents' && po.status !== 'Waiting For Admin Approval'" color="success" size="small" prepend-icon="mdi-check-decagram">Documents Verified</v-chip>
-            <v-btn
-              v-else-if="po.status === 'Waiting For Documents'"
-              color="primary"
-              variant="flat"
-              prepend-icon="mdi-file-check"
-              :loading="approving"
-              @click="acceptDocuments"
-            >Accept Documents</v-btn>
           </div>
-
-          <v-divider class="mb-4" />
-
           <v-row dense>
-            <!-- Customer POP -->
-            <v-col cols="12" md="3">
-              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-primary), 0.03);">
-                <div class="d-flex align-center mb-3">
-                  <v-icon icon="mdi-account-cash" size="18" class="mr-2" color="primary" />
-                  <span class="text-caption font-weight-bold uppercase">Customer POP</span>
-                  <v-spacer />
-                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="primary" @click="triggerPiUpload('customer_pop')" />
-                </div>
-                <div v-if="piDocs.filter(f => f.category === 'customer_pop').length" class="d-flex flex-column gap-2">
-                  <div v-for="f in piDocs.filter(f => f.category === 'customer_pop')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
-                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                  </div>
-                </div>
-                <div v-else class="text-center py-2">
-                  <v-btn size="x-small" variant="tonal" color="primary" block prepend-icon="mdi-upload" @click="triggerPiUpload('customer_pop')">Upload</v-btn>
-                </div>
-              </div>
-            </v-col>
-            <!-- Customer PO -->
-            <v-col cols="12" md="3">
-              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-secondary), 0.03);">
-                <div class="d-flex align-center mb-3">
-                  <v-icon icon="mdi-file-document" size="18" class="mr-2" color="secondary" />
-                  <span class="text-caption font-weight-bold uppercase">Customer PO</span>
-                  <v-spacer />
-                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="secondary" @click="triggerPiUpload('customer_po')" />
-                </div>
-                <div v-if="piDocs.filter(f => f.category === 'customer_po').length" class="d-flex flex-column gap-2">
-                  <div v-for="f in piDocs.filter(f => f.category === 'customer_po')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
-                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                  </div>
-                </div>
-                <div v-else class="text-center py-2">
-                  <v-btn size="x-small" variant="tonal" color="secondary" block prepend-icon="mdi-upload" @click="triggerPiUpload('customer_po')">Upload</v-btn>
-                </div>
-              </div>
-            </v-col>
-            <!-- Our PI -->
-            <v-col cols="12" md="3">
-              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-info), 0.03);">
-                <div class="d-flex align-center mb-3">
-                  <v-icon icon="mdi-file-document-outline" size="18" class="mr-2" color="info" />
-                  <span class="text-caption font-weight-bold uppercase">Our PI</span>
-                  <v-spacer />
-                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="info" @click="triggerPiUpload('our_pi')" />
-                </div>
-                <div v-if="piDocs.filter(f => f.category === 'our_pi').length" class="d-flex flex-column gap-1">
-                  <div v-for="f in piDocs.filter(f => f.category === 'our_pi')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
-                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                  </div>
-                </div>
-                <div v-else class="text-center py-2">
-                  <v-btn size="x-small" variant="tonal" color="info" block prepend-icon="mdi-upload" @click="triggerPiUpload('our_pi')">Upload</v-btn>
-                </div>
-              </div>
-            </v-col>
-            <!-- Our POP to Supplier -->
-            <v-col cols="12" md="3">
-              <div class="pa-3 rounded border" style="background: rgba(var(--v-theme-success), 0.03);">
-                <div class="d-flex align-center mb-3">
-                  <v-icon icon="mdi-cash-register" size="18" class="mr-2" color="success" />
-                  <span class="text-caption font-weight-bold uppercase">Our POP</span>
-                  <v-spacer />
-                  <v-btn size="x-small" variant="text" icon="mdi-plus" color="success" @click="triggerUpload('our_pop')" />
-                </div>
-                <div v-if="supplierDocs.filter(f => f.category === 'our_pop').length" class="d-flex flex-column gap-1">
-                  <div v-for="f in supplierDocs.filter(f => f.category === 'our_pop')" :key="f.name + f.originalInvoiceId" class="d-flex align-center pa-1 rounded bg-surface hover-bg-surface-variant">
-                    <v-icon icon="mdi-file-pdf-box" size="14" color="error" class="mr-1" />
-                    <span class="text-caption text-truncate flex-grow-1" style="max-width: 200px;" :title="f.displayName || f.name">{{ f.displayName || f.name }}</span>
-                    <v-btn icon="mdi-download" size="x-small" variant="text" @click="downloadSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                    <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="deleteSupplierDoc(f.name, f.originalInvoiceId, f.category)" />
-                  </div>
-                </div>
-                <div v-else class="text-center py-2">
-                  <v-btn size="x-small" variant="tonal" color="success" block prepend-icon="mdi-upload" @click="triggerUpload('our_pop')">Upload</v-btn>
-                </div>
-              </div>
+            <v-col v-for="category in piDocumentCategories" :key="category.key" cols="12" md="4">
+              <DocumentCategoryCard
+                :category="category"
+                :files="documentFiles(category)"
+                :can-upload="canUploadDocument(category)"
+                :loading="uploadingPiDoc"
+                :deleting-file="deletingDoc"
+                :can-delete="isAdmin"
+                @upload="uploadDocument(category)"
+                @download="downloadSupplierDoc($event.name, $event.originalInvoiceId, $event.category)"
+                @delete="deleteSupplierDoc($event.name, $event.originalInvoiceId, $event.category)"
+              />
             </v-col>
           </v-row>
-          <input ref="piDocInputRef" type="file" class="d-none" @change="onPiDocSelected" />
-        </div>
+        </section> -->
+
+        <v-divider class="mb-5" />
+
+        <section class="document-section">
+          <div class="d-flex align-center mb-3">
+            <v-icon icon="mdi-truck-delivery-outline" color="success" size="20" class="mr-2" />
+            <div>
+              <div class="text-subtitle-2 font-weight-bold">Supplier & Payment Documents</div>
+              <div class="text-caption text-medium-emphasis">Supplier documents, End User documents, generated PO/DP files, and payment proof.</div>
+            </div>
+          </div>
+          <v-row dense>
+            <v-col v-for="category in supplierDocumentCategories" :key="category.key" cols="12" md="4">
+              <DocumentCategoryCard
+                :category="category"
+                :files="documentFiles(category)"
+                :can-upload="canUploadDocument(category)"
+                :loading="uploadingSupplierDoc"
+                :deleting-file="deletingDoc"
+                :can-delete="isAdmin"
+                @upload="uploadDocument(category)"
+                @download="downloadSupplierDoc($event.name, $event.originalInvoiceId, $event.category)"
+                @delete="deleteSupplierDoc($event.name, $event.originalInvoiceId, $event.category)"
+              />
+            </v-col>
+          </v-row>
+        </section>
+
+        <input ref="piDocInputRef" type="file" class="d-none" @change="onPiDocSelected" />
+        <input ref="supplierDocInputRef" type="file" class="d-none" @change="onSupplierDocSelected" />
       </v-card-text>
     </v-card>
 
-    <!-- ── Payment Approval (admin/payment only, visible if rejected or after admin approval) ── -->
-    <v-card class="glass-card mb-6" v-if="isAdmin && (po.adminApproval === 'Approved' || po.paymentApproval === 'Rejected')">
+    <!-- ── Payment request review ── -->
+    <v-card class="glass-card mb-6" v-if="isAdmin">
       <v-card-title class="d-flex align-center">
         <v-icon icon="mdi-cash-check" class="mr-2" size="20" color="success" />
         Payment Approval
@@ -298,7 +254,7 @@
       <v-card-text>
         <v-alert v-if="po.paymentApproval === 'Rejected'" type="error" variant="tonal" class="mb-3" icon="mdi-alert-circle">
           <strong>Rejected by Payment:</strong> {{ po.paymentApprovalNote }}
-          <div class="text-caption mt-1">Please check the files, replace if necessary, and resubmit (SuperAdmin must re-approve).</div>
+          <div class="text-caption mt-1">Delete the rejected PR, correct it, and download a new PR.</div>
         </v-alert>
         <div v-else-if="po.paymentStatus === 'Submitted'" class="text-body-2">
           Payment has been submitted and is pending final acceptance.
@@ -309,154 +265,7 @@
       </v-card-text>
     </v-card>
 
-    <!-- ── Supplier Documents (visible to everyone who can see the PO) ── -->
-    <v-card class="glass-card mb-6" v-if="po.invoiceId && po.supplierId">
-      <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-folder-multiple-outline" class="mr-2" size="20" color="primary" />
-        Supplier Documents
-        <v-chip v-if="supplierDocs.length" size="x-small" class="ml-2" variant="tonal" color="primary">{{ supplierDocs.length }}</v-chip>
-        <v-spacer />
-        <v-menu>
-          <template #activator="{ props: menuProps }">
-            <v-btn
-              variant="tonal"
-              color="primary"
-              size="small"
-              prepend-icon="mdi-upload"
-              append-icon="mdi-chevron-down"
-              :loading="uploadingSupplierDoc"
-              v-bind="menuProps"
-            >Upload</v-btn>
-          </template>
-          <v-list density="compact">
-            <v-list-item @click="triggerUpload('supplier_invoice')">
-              <template #prepend>
-                <v-icon icon="mdi-file-document-outline" size="18" color="primary" />
-              </template>
-              <v-list-item-title>Supplier Invoice</v-list-item-title>
-            </v-list-item>
-            <v-list-item @click="triggerUpload('supplier_bank_info')">
-              <template #prepend>
-                <v-icon icon="mdi-bank-outline" size="18" color="success" />
-              </template>
-              <v-list-item-title>Supplier Bank Info</v-list-item-title>
-            </v-list-item>
-            <v-list-item @click="showPrDialog = true">
-              <template #prepend>
-                <v-icon icon="mdi-file-export-outline" size="18" color="warning" />
-              </template>
-              <v-list-item-title>Payment Request (PR)</v-list-item-title>
-            </v-list-item>
-          </v-list>
-        </v-menu>
-        <input ref="supplierDocInputRef" type="file" class="d-none" @change="onSupplierDocSelected" />
-      </v-card-title>
-      <v-card-text>
-        <div v-if="!supplierDocs.length" class="text-body-2 text-medium-emphasis">
-          No supplier documents uploaded yet. Click <strong>Upload</strong> to add one.
-        </div>
-        <div v-else class="d-flex flex-column gap-2">
-          <div
-            v-for="f in supplierDocs"
-            :key="f.name"
-            class="d-flex align-center gap-3 pa-2 rounded file-row"
-          >
-            <v-icon icon="mdi-file-document-outline" color="primary" size="22" />
-            <div class="d-flex flex-column" style="min-width:0; flex:1;">
-              <span class="text-body-2 font-weight-medium text-truncate">{{ f.name }}</span>
-              <span class="text-caption text-medium-emphasis">
-                {{ formatBytes(f.size) }} · {{ new Date(f.modifiedAt).toLocaleString() }}
-              </span>
-            </div>
-            <v-btn size="small" variant="tonal" color="info" prepend-icon="mdi-download" @click="downloadSupplierDoc(f.name, undefined, f.category)">Download</v-btn>
-            <v-btn
-              v-if="isAdmin"
-              size="small"
-              variant="text"
-              color="error"
-              icon="mdi-delete"
-              :loading="deletingDoc === f.name"
-              @click="deleteSupplierDoc(f.name, undefined, f.category)"
-            />
-          </div>
-        </div>
-      </v-card-text>
-    </v-card>
-
-    <!-- ── Full RFQ → Quote → Invoice → PO Trail (Admin only) ── -->
-    <v-card class="glass-card mb-6" v-if="isAdmin && enriched">
-      <v-card-title>
-        <v-icon icon="mdi-chart-timeline-variant" class="mr-2" size="20" />
-        Item Trail — RFQ → Quote → Invoice → PO
-      </v-card-title>
-      <v-card-text class="pa-0">
-        <v-table density="compact" class="enriched-table header-border">
-          <thead>
-            <tr>
-              <th rowspan="2" class="border-end">Part</th>
-              <th rowspan="2" class="border-end">Description</th>
-              <th rowspan="2" class="text-center border-end">Qty</th>
-              <th rowspan="2" class="border-end">Customer Code</th>
-              <th rowspan="2" class="border-end">RFQ</th>
-
-
-              <th rowspan="2" class="border-end">Quote</th>
-              <th rowspan="2" class="border-end">PI</th>
-              <th colspan="2" class="text-center border-end grouped-header">PI Price</th>
-              <th colspan="2" class="text-center grouped-header">PO Price</th>
-            </tr>
-            <tr>
-              <th class="text-center sub-header">UP</th>
-              <th class="text-center sub-header border-end">TP</th>
-              <th class="text-center sub-header">UP</th>
-              <th class="text-center sub-header">TP</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(it, idx) in (enriched.items || [])" :key="idx">
-              <td class="font-weight-medium">{{ it.partNumber || '—' }}</td>
-              <td class="text-medium-emphasis" style="max-width: 250px; white-space: normal;">{{ it.description || '—' }}</td>
-              <td class="text-center">{{ it.qty }}</td>
-              <td>
-                <div class="d-flex flex-column">
-                  <span>{{ it.customerCode }}</span>
-                  <!-- <span v-if="it.customerCode" class="text-caption text-medium-emphasis"></span> -->
-                </div>
-              </td>
-              <td>
-                <NuxtLink v-if="it.rfqId" :to="`/rfqs/${it.rfqId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
-                  {{ it.rfqNumber || '—' }}
-                </NuxtLink>
-                <span v-else>—</span>
-              </td>
-              <td>
-                <NuxtLink v-if="it.quoteId" :to="`/quotes/${it.quoteId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
-                  {{ it.quoteNumber || '—' }}
-                </NuxtLink>
-                <span v-else>—</span>
-              </td>
-              <td>
-                <NuxtLink v-if="it.invoiceId" :to="`/invoices/${it.invoiceId}`" class="text-primary text-decoration-none hover-underline font-weight-medium">
-                  {{ it.invoiceNumber || '—' }}
-                </NuxtLink>
-                <span v-else>—</span>
-              </td>
-              <!-- Invoice Price -->
-              <td class="text-center">{{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice) : '—' }}</td>
-              <td class="text-center border-end font-weight-medium" style="background: rgba(var(--v-theme-on-surface), 0.02);">
-                {{ it.invoiceUnitPrice != null ? '$' + formatPrice(it.invoiceUnitPrice * it.qty) : '—' }}
-              </td>
-              <!-- PO Price -->
-              <td class="text-center">${{ formatPrice(it.poUnitPrice) }}</td>
-              <td class="text-center font-weight-bold" style="background: rgba(var(--v-theme-on-surface), 0.02);">
-                ${{ formatPrice(it.poTotalPrice) }}
-              </td>
-            </tr>
-          </tbody>
-        </v-table>
-      </v-card-text>
-    </v-card>
-
+    
     <!-- ── Import Details (Split into Bank and Shipping) ── -->
     <v-row>
       <v-col cols="12" md="6">
@@ -479,6 +288,12 @@
           </v-card-title>
           <v-card-text>
             <v-row dense>
+              <v-col cols="12">
+                <v-text-field v-model="importForm.beneficiary" label="Beneficiary" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field v-model="importForm.reference" label="Reference" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
+              </v-col>
               <v-col cols="12">
                 <v-text-field v-model="importForm.bankName" label="Bank Name" variant="outlined" density="compact" hide-details :readonly="!editingImport" class="mb-2" />
               </v-col>
@@ -975,22 +790,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Reject PO Dialog -->
-    <v-dialog v-model="showRejectDialog" max-width="480" persistent>
-      <v-card>
-        <v-card-title class="text-h6">Reject Purchase Order</v-card-title>
-        <v-card-text>
-          <p class="text-body-2 text-medium-emphasis mb-3">Provide a reason for rejection (optional):</p>
-          <v-textarea v-model="rejectionNote" label="Rejection Note" variant="outlined" rows="3" auto-grow />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
-          <v-btn color="error" variant="flat" :loading="approving" @click="rejectPo">Reject</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <!-- Assign User Dialog -->
     <v-dialog v-model="showAddAssignDialog" max-width="480">
       <v-card>
@@ -1155,19 +954,45 @@ watchEffect(() => setBreadcrumbLabel(po.value?.poNumber))
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+const savingLeadTimeId = ref<number | null>(null)
 
 const poStatuses = [
-  { value: 'Waiting For Admin Approval', label: 'Waiting For Admin Approval', icon: 'mdi-shield-clock', color: 'warning' },
-  { value: 'Waiting For Documents', label: 'Waiting For Documents', icon: 'mdi-file-clock', color: 'blue' },
+  { value: 'Not Started', label: 'Not Started', icon: 'mdi-circle-outline', color: 'grey' },
+  { value: 'Sourcing', label: 'Sourcing', icon: 'mdi-source-branch', color: 'purple' },
+  { value: 'EndUser', label: 'EndUser', icon: 'mdi-account-check-outline', color: 'cyan' },
+  { value: 'In Shop', label: 'In Shop', icon: 'mdi-store-clock-outline', color: 'deep-orange' },
+  { value: 'Received in Warehouse', label: 'Received in Warehouse', icon: 'mdi-warehouse-check', color: 'orange' },
+  { value: 'Waiting For Supplier Documents', label: 'Waiting For Supplier Documents', icon: 'mdi-file-clock', color: 'blue' },
+  { value: 'Waiting For PR', label: 'Waiting For PR', icon: 'mdi-file-export-outline', color: 'indigo' },
   { value: 'Waiting For Payment', label: 'Waiting For Payment', icon: 'mdi-clock-outline', color: 'orange' },
+  { value: 'PR Rejected', label: 'PR Rejected', icon: 'mdi-file-remove-outline', color: 'error' },
   { value: 'Payment Done', label: 'Payment Done', icon: 'mdi-cash-check', color: 'success' },
-  { value: 'Ship To Warehouse 1', label: 'Ship To Warehouse 1', icon: 'mdi-warehouse', color: 'indigo' },
-  { value: 'Ship To Warehouse 2', label: 'Ship To Warehouse 2', icon: 'mdi-warehouse', color: 'deep-purple' },
-  { value: 'Ship To Warehouse 3', label: 'Ship To Warehouse 3', icon: 'mdi-warehouse', color: 'blue-grey' },
-  { value: 'Ship To Customer', label: 'Ship To Customer', icon: 'mdi-account-arrow-right', color: 'info' },
+  { value: 'Waiting For Shipment', label: 'Waiting For Shipment', icon: 'mdi-truck-fast-outline', color: 'amber' },
+  { value: 'Ship to Warehouse', label: 'Ship to Warehouse', icon: 'mdi-warehouse', color: 'indigo' },
+  { value: 'Waiting for Expert Approval Shipment', label: 'Waiting for Expert Approval Shipment', icon: 'mdi-account-clock-outline', color: 'deep-purple' },
   { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
 ]
+
+function statusColorForPart(status: string) {
+  return poStatuses.find(s => s.value.toLowerCase() === (status || '').toLowerCase())?.color || 'grey'
+}
+
+function isItemInShop(item: any) {
+  return (item?.status || '').toLowerCase() === 'in shop'
+}
+
+const hasInShopParts = computed(() => (po.value?.items || []).some(isItemInShop))
+
+async function saveInShopLeadTime(item: any) {
+  savingLeadTimeId.value = item.id
+  try {
+    const result = await api.patch<any>(`/purchase-orders/items/${item.id}/in-shop`, { days: Number(item.inShopLeadTimeDays) || 0 })
+    Object.assign(item, result)
+    showSnack(`Lead time saved for ${item.partNumberName || 'part'}`, 'success')
+  } catch (e: any) { showSnack(e?.data?.message || 'Failed to save lead time', 'error') }
+  finally { savingLeadTimeId.value = null }
+}
 
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => authStore.isSuperAdmin)
@@ -1366,7 +1191,7 @@ async function loadAssignedUsers() {
 async function loadAllUsers() {
   try {
     const all = await api.get<any[]>('/users')
-    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
+    const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA', 'SDR']
     // Matching against username which is likely what 'GHS' etc are
     allUsers.value = all.filter(u => allowed.includes(u.username) || allowed.includes(u.name))
   } catch {
@@ -1426,7 +1251,7 @@ async function loadPresets() {
 const editingImport = ref(false)
 const savingImport = ref(false)
 const importForm = ref<any>({
-  bankName: '', bankAccountNumber: '', bankAddress: '',
+  beneficiary: '', reference: '', bankName: '', bankAccountNumber: '', bankAddress: '',
   bankCity: '', bankCountry: '',
   fedExAccount: '', courierName: '',
   shippingMethod: '', incoterms: '', notes: '',
@@ -1784,64 +1609,7 @@ function downloadInventoryDoc(docId: number, fileName = 'document', mimeType?: s
   docPreview.preview(`/shipping/documents/${docId}/file`, fileName, mimeType)
 }
 
-// ── Admin Approval ──
-const approving = ref(false)
-const showRejectDialog = ref(false)
-const rejectionNote = ref('')
 const enriched = ref<any>(null)
-
-function approvalColor(v: string | undefined) {
-  if (v === 'Approved') return 'success'
-  if (v === 'Rejected') return 'error'
-  return 'warning'
-}
-function approvalIcon(v: string | undefined) {
-  if (v === 'Approved') return 'mdi-check-circle'
-  if (v === 'Rejected') return 'mdi-close-circle'
-  return 'mdi-clock-outline'
-}
-
-async function approvePo() {
-  approving.value = true
-  try {
-    await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision: 'Approved', note: null })
-    po.value.adminApproval = 'Approved'
-    po.value.adminApprovalAt = new Date().toISOString()
-    // New Flow: After SuperAdmin approval, move to Waiting For Documents
-    po.value.status = 'Waiting For Documents'
-    await api.patch(`/purchase-orders/${po.value.id}/status`, { status: 'Waiting For Documents' })
-    showSnack('PO approved. Now waiting for documents verification.', 'success')
-  } catch { showSnack('Failed to approve', 'error') }
-  finally { approving.value = false }
-}
-
-async function acceptDocuments() {
-  approving.value = true
-  try {
-    // Transition from Waiting For Documents to Waiting For Payment
-    await api.patch(`/purchase-orders/${route.params.id}/status`, { status: 'Waiting For Payment' })
-    po.value.status = 'Waiting For Payment'
-    showSnack('Documents verified. Status moved to Waiting For Payment.', 'success')
-  } catch (err: any) {
-    const msg = err?.data?.message || err?.message || 'Failed to verify documents'
-    showSnack(msg, 'error')
-  }
-  finally { approving.value = false }
-}
-
-async function rejectPo() {
-  approving.value = true
-  try {
-    await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision: 'Rejected', note: rejectionNote.value || null })
-    po.value.adminApproval = 'Rejected'
-    po.value.adminApprovalNote = rejectionNote.value || null
-    po.value.status = 'Waiting For Admin Approval'
-    showRejectDialog.value = false
-    rejectionNote.value = ''
-    showSnack('PO rejected', 'warning')
-  } catch { showSnack('Failed to reject', 'error') }
-  finally { approving.value = false }
-}
 
 async function loadEnriched() {
   try {
@@ -1851,6 +1619,16 @@ async function loadEnriched() {
 
 // ── Supplier Documents ──
 type SupplierFile = { name: string; category: string; size: number; modifiedAt: string; invoiceNumber?: string; originalInvoiceId?: number; displayName?: string }
+type PoDocumentCategory = {
+  key: string
+  title: string
+  description: string
+  source: 'pi' | 'supplier'
+  upload: 'admin' | 'all' | 'none'
+  icon: string
+  color: string
+  readOnlyNote?: string
+}
 const supplierDocs = ref<SupplierFile[]>([])
 const piDocs = ref<SupplierFile[]>([])
 const uploadingSupplierDoc = ref(false)
@@ -1862,6 +1640,39 @@ const uploadCategory = ref<string>('supplier_invoice')
 const uploadPiCategory = ref<string>('customer_pop')
 const config = useRuntimeConfig()
 
+const piDocumentCategories: PoDocumentCategory[] = [
+  { key: 'customer_pop', title: 'Customer POP', description: 'Customer proof of payment', source: 'pi', upload: 'admin', icon: 'mdi-account-cash-outline', color: 'primary' },
+  { key: 'customer_po', title: 'Customer PO', description: 'Purchase order received from customer', source: 'pi', upload: 'admin', icon: 'mdi-file-sign', color: 'secondary' },
+  { key: 'our_pi', title: 'Our PI', description: 'Proforma invoice issued to customer', source: 'pi', upload: 'admin', icon: 'mdi-file-document-outline', color: 'info' },
+]
+
+const supplierDocumentCategories: PoDocumentCategory[] = [
+  { key: 'supplier_invoice', title: 'Supplier Invoice', description: 'Invoice received from supplier', source: 'supplier', upload: 'all', icon: 'mdi-receipt-text-outline', color: 'primary' },
+  { key: 'supplier_bank_info', title: 'Supplier Bank Info', description: 'Supplier payment instructions', source: 'supplier', upload: 'all', icon: 'mdi-bank-outline', color: 'success' },
+  { key: 'end_user_document', title: 'End User Document', description: 'End-user declaration or supporting file', source: 'supplier', upload: 'all', icon: 'mdi-account-file-text-outline', color: 'deep-purple' },
+  { key: 'our_pop', title: 'Our POP', description: 'Payment proof sent to supplier', source: 'supplier', upload: 'none', icon: 'mdi-cash-check', color: 'success', readOnlyNote: 'Uploaded from Payment' },
+  { key: 'dp', title: 'PR Document', description: 'Generated payment request document', source: 'supplier', upload: 'none', icon: 'mdi-file-certificate-outline', color: 'warning', readOnlyNote: 'Generated by the system' },
+  { key: 'po', title: 'Generated PO', description: 'Downloaded purchase-order PDF', source: 'supplier', upload: 'none', icon: 'mdi-file-pdf-box', color: 'error', readOnlyNote: 'Generated when the PO is downloaded' },
+]
+
+const allPoDocumentCount = computed(() => piDocs.value.length + supplierDocs.value.length)
+
+function documentFiles(category: PoDocumentCategory) {
+  const files = category.source === 'pi' ? piDocs.value : supplierDocs.value
+  return files.filter(file => file.category === category.key)
+}
+
+function canUploadDocument(category: PoDocumentCategory) {
+  if (category.upload === 'none') return false
+  if (category.upload === 'admin' && !isAdmin.value) return false
+  return !!po.value?.invoiceId && (category.source === 'pi' || !!po.value?.supplierId)
+}
+
+function uploadDocument(category: PoDocumentCategory) {
+  if (category.source === 'pi') triggerPiUpload(category.key)
+  else triggerUpload(category.key)
+}
+
 function triggerUpload(category: string) {
   uploadCategory.value = category
   supplierDocInputRef.value?.click()
@@ -1870,14 +1681,6 @@ function triggerUpload(category: string) {
 function triggerPiUpload(category: string) {
   uploadPiCategory.value = category
   piDocInputRef.value?.click()
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0, b = bytes
-  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++ }
-  return `${b.toFixed(b < 10 && i > 0 ? 1 : 0)} ${units[i]}`
 }
 
 async function loadSupplierDocs() {
@@ -1925,6 +1728,7 @@ async function loadSupplierDocs() {
           })).filter((f: any) =>
             f.category === 'supplier_invoice' ||
             f.category === 'supplier_bank_info' ||
+            f.category === 'end_user_document' ||
             f.category === 'our_pop' ||
             f.category === 'dp' ||
             // Auto-saved PO PDFs (written by PdfController.GeneratePo to <Invoice>/<Supplier>/PO/)
@@ -2128,21 +1932,11 @@ onMounted(async () => {
 async function changeStatus(newStatus: string) {
   if (newStatus === po.value.status) return
 
-  // 1. If waiting for admin approval, manual change is blocked
-  if (po.value.adminApproval !== 'Approved' && po.value.status === 'Waiting For Admin Approval') {
-    showSnack('Cannot manually change status until SuperAdmin approves', 'warning')
-    return
-  }
-
-  // 2. If waiting for payment, manual change is blocked
-  if (po.value.adminApproval === 'Approved' && po.value.paymentStatus !== 'Submitted') {
-    showSnack('Cannot manually change status while Awaiting Payment', 'warning')
-    return
-  }
-
   try {
     await api.patch(`/purchase-orders/${po.value.id}/status`, { status: newStatus })
     po.value.status = newStatus
+    if (newStatus === 'In Shop' || newStatus === 'EndUser') po.value.fulfillmentMode = newStatus
+    po.value = await api.get(`/purchase-orders/${route.params.id}`)
     showSnack(`Status changed to ${newStatus}`, 'success')
   } catch {
     showSnack('Failed to change status', 'error')

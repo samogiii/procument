@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/final-invoices" class="mr-1 flex-shrink-0" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" class="mr-1 flex-shrink-0" size="small" @click="$router.back()" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Invoice {{ inv.invoiceNumber || `#${route.params.id}` }}</h1>
       <!-- Base 1 number inherited from the source proforma; editable so it can be added
            where there is none or corrected where it was inherited. -->
@@ -107,12 +107,15 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <FinalInvoiceDocuments :invoice-id="Number(route.params.id)" ref="documentsRef" />
+
     <!-- The generator fetches its own pdf-data once and caches it, so editing the B1
          number must remount it; otherwise the PDF would still carry the previous one. -->
     <FinalInvoicePdfGenerator
       :key="inv.b1InvoiceNumber || 'no-b1-number'"
       v-model="showPdf"
       :invoice-id="String(route.params.id)"
+      @documents-updated="documentsRef?.loadDocuments()"
     />
   </div>
 </template>
@@ -131,6 +134,7 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 const showPdf = ref(false)
+const documentsRef = ref<{ loadDocuments: () => Promise<void> } | null>(null)
 
 const isAdmin = computed(() => authStore.isAdmin)
 const { statusColor } = useStatusColor()

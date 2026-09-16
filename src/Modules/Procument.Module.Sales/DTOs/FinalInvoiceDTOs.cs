@@ -20,6 +20,7 @@ public class FinalInvoiceResponse
     public string? CustomerPONumber { get; set; } = null;
     public long CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
+    public int? CustomerBase { get; set; }
     public string? CustomerCode { get; set; }
     public string? CustomerContactPerson { get; set; }
     public string? CustomerBillTo { get; set; }

@@ -34,6 +34,11 @@ public class UpsertSupplierQuoteRequest
     public string? ShippingPoint { get; set; }
 }
 
+public class CreateUnassignedRemainderRequest
+{
+    public int CoveredQty { get; set; }
+}
+
 public class FinalizeProcurementRequest
 {
     public string? Notes { get; set; }
@@ -77,6 +82,7 @@ public class ProcurementResponse
 
     public long InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
+    public string? InvoiceStatus { get; set; }
     public long? CustomerId { get; set; }
     public string? CustomerName { get; set; }
 

@@ -33,6 +33,12 @@ public class InventoryItemResponse
     public DateTime CreatedAt { get; set; }
 }
 
+public class DeleteSupplierInventoryResponse
+{
+    public long SupplierId { get; set; }
+    public int DeletedItems { get; set; }
+}
+
 public class BulkImportInventoryRequest
 {
     public List<BulkInventoryRow> Rows { get; set; } = new();

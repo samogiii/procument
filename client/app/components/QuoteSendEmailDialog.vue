@@ -123,6 +123,35 @@
 
           <v-divider class="my-4" />
 
+          <div class="text-caption font-weight-bold text-medium-emphasis mb-2">SUPPLIER CERTIFICATES</div>
+          <div v-if="certificates.length" class="d-flex flex-column gap-1 mb-3">
+            <div
+              v-for="certificate in certificates"
+              :key="certificate.id"
+              class="d-flex align-center gap-2 py-1"
+            >
+              <v-checkbox-btn
+                :model-value="selectedCertificateIds.includes(certificate.id)"
+                density="compact"
+                color="primary"
+                @update:model-value="toggleCertificate(certificate.id, $event)"
+              />
+              <v-icon icon="mdi-file-certificate-outline" color="error" size="18" />
+              <div class="flex-grow-1" style="min-width:0;">
+                <div class="text-body-2 text-truncate">{{ certificate.originalFileName }}</div>
+                <div class="text-caption text-medium-emphasis text-truncate">
+                  {{ certificate.partNumberName || 'Part' }} · {{ certificate.supplierName || 'Supplier' }}
+                </div>
+              </div>
+              <v-chip size="x-small" variant="tonal">{{ formatSize(certificate.fileSizeBytes) }}</v-chip>
+            </div>
+          </div>
+          <div v-else class="text-caption text-medium-emphasis mb-3">
+            No certificates are available for the selected quote parts.
+          </div>
+
+          <v-divider class="my-4" />
+
           <div class="text-caption font-weight-bold text-medium-emphasis mb-2">ADDITIONAL FILES</div>
           <v-file-input
             v-model="pickedExtraFiles"
@@ -186,6 +215,10 @@
                   <v-icon icon="mdi-paperclip" size="16" />
                   <span>{{ file.name }}</span>
                 </div>
+                <div v-for="certificate in selectedCertificates" :key="`preview-certificate-${certificate.id}`" class="d-flex align-center gap-2">
+                  <v-icon icon="mdi-file-certificate-outline" size="16" />
+                  <span>{{ certificate.originalFileName }}</span>
+                </div>
               </div>
             </v-card>
           </div>
@@ -213,7 +246,18 @@
 import { buildQuotePdfPayload, fetchQuotePdfBlob, buildQuotePdfFileName } from '~/composables/useQuotePdfPayload'
 import { buildQuoteExcelBlob, buildQuoteExcelPreviewHtml, buildQuoteExcelFileName } from '~/composables/useQuoteExcelPayload'
 
-const props = defineProps<{ quote: any, preset: any }>()
+interface SupplierCertificate {
+  id: number
+  supplierQuoteId: number
+  partNumberName?: string
+  supplierName?: string
+  originalFileName: string
+  fileSizeBytes: number
+}
+
+const props = withDefaults(defineProps<{ quote: any, preset: any, certificates?: SupplierCertificate[] }>(), {
+  certificates: () => [],
+})
 const model = defineModel<boolean>({ default: false })
 const emit = defineEmits<{ (e: 'sent'): void, (e: 'sent-folder-warning', message: string): void }>()
 
@@ -246,6 +290,19 @@ const excelPreviewHtml = ref('')
 // it drains into `extraFiles` so the user can add files in several batches.
 const extraFiles = ref<File[]>([])
 const pickedExtraFiles = ref<File[]>([])
+const selectedCertificateIds = ref<number[]>([])
+const certificates = computed(() => props.certificates)
+const selectedCertificates = computed(() =>
+  certificates.value.filter(certificate => selectedCertificateIds.value.includes(certificate.id)))
+
+function toggleCertificate(certificateId: number, selected: boolean | null) {
+  if (selected) {
+    if (!selectedCertificateIds.value.includes(certificateId))
+      selectedCertificateIds.value = [...selectedCertificateIds.value, certificateId]
+  } else {
+    selectedCertificateIds.value = selectedCertificateIds.value.filter(id => id !== certificateId)
+  }
+}
 
 // Backend caps the request at 20 MB; keep headroom for the multipart envelope.
 const MAX_TOTAL_BYTES = 18 * 1024 * 1024
@@ -298,10 +355,11 @@ const excelReady = computed(() => {
   return !!generatedExcelBlob.value && !generatingExcel.value
 })
 const hasAnyAttachment = computed(() =>
-  pdfMode.value !== 'none' || excelMode.value !== 'none' || extraFiles.value.length > 0)
+  pdfMode.value !== 'none' || excelMode.value !== 'none' || extraFiles.value.length > 0 || selectedCertificateIds.value.length > 0)
 
 const totalAttachmentSize = computed(() => {
   let total = extraFiles.value.reduce((sum, f) => sum + f.size, 0)
+  total += selectedCertificates.value.reduce((sum, certificate) => sum + certificate.fileSizeBytes, 0)
   if (pdfMode.value === 'upload') total += uploadedPdfFile.value?.size || 0
   else if (pdfMode.value === 'auto') total += generatedPdfBlob.value?.size || 0
   if (excelMode.value === 'upload') total += uploadedExcelFile.value?.size || 0
@@ -426,6 +484,7 @@ function resetForm() {
   uploadedExcelFile.value = null
   extraFiles.value = []
   pickedExtraFiles.value = []
+  selectedCertificateIds.value = certificates.value.map(certificate => certificate.id)
   generatedPdfBlob.value = null
   generatedExcelBlob.value = null
   excelPreviewHtml.value = ''
@@ -466,6 +525,9 @@ async function sendEmail() {
     }
     for (const file of extraFiles.value) {
       form.append('extraAttachments', file, file.name)
+    }
+    for (const certificateId of selectedCertificateIds.value) {
+      form.append('CertificateIds', String(certificateId))
     }
 
     const res: any = await $fetch(`${api.baseURL}/quotes/${props.quote.id}/send-email`, {

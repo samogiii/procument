@@ -15,6 +15,9 @@ public class PaymentTransaction
     public long? ToSupplierId { get; set; }
     public long? InvoiceId { get; set; }             // PI reference
     public long? PaymentRequestId { get; set; }      // RP reference
+    public Guid? PopUploadId { get; set; }
+    public string? PopFileName { get; set; }
+    public string? PopInvoiceNumber { get; set; }
     public string? Notes { get; set; }
     public bool IsAuto { get; set; }                 // true = system-created
     /// <summary>Wallet-side tag, "B1".."B7". Unrelated to Customer.Base access control.</summary>

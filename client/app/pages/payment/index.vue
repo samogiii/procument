@@ -1,9 +1,8 @@
-﻿<template>
+<template>
   <div>
     <div class="d-flex align-center mb-4 mb-md-6">
-      <h1 class="text-h6 text-sm-h5 font-weight-bold">Payment Withdraw</h1>
+      <h1 class="text-h6 text-sm-h5 font-weight-bold">Payments</h1>
       <v-spacer />
-      <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-swap-horizontal" class="mr-2" @click="openCreateTransfer">New Wallet Transfer</v-btn>
       <v-btn variant="text" size="small" prepend-icon="mdi-refresh" :loading="loading" @click="loadAll">Refresh</v-btn>
     </div>
 
@@ -11,17 +10,20 @@
       <v-tabs v-model="activeTab" bg-color="transparent" color="primary">
         <v-tab value="acceptance">
           <v-icon start size="18">mdi-shield-check-outline</v-icon>
-          Payment Acceptance
-          <v-chip v-if="acceptancePoBadge + acceptanceWtBadge" size="x-small" color="warning" variant="tonal" class="ml-2">
-            {{ acceptancePoBadge + acceptanceWtBadge }}
+          Payment Request
+          <v-chip v-if="acceptancePoBadge" size="x-small" color="warning" variant="tonal" class="ml-2">
+            {{ acceptancePoBadge }}
           </v-chip>
         </v-tab>
-        <v-tab value="withdraw">
-          <v-icon start size="18">mdi-cash-multiple</v-icon>
-          Withdraw Panel
-          <v-chip v-if="withdrawPoBadge + withdrawWtBadge" size="x-small" color="primary" variant="tonal" class="ml-2">
-            {{ withdrawPoBadge + withdrawWtBadge }}
-          </v-chip>
+        <v-tab value="remaining">
+          <v-icon start size="18">mdi-cash-clock</v-icon>
+          Ready To pay
+          <v-chip v-if="remainingPoRows.length" size="x-small" color="warning" variant="tonal" class="ml-2">{{ remainingPoRows.length }}</v-chip>
+        </v-tab>
+        <v-tab value="finished">
+          <v-icon start size="18">mdi-check-circle-outline</v-icon>
+          Finished Payments
+          <v-chip v-if="finishedPoRows.length" size="x-small" color="success" variant="tonal" class="ml-2">{{ finishedPoRows.length }}</v-chip>
         </v-tab>
       </v-tabs>
 
@@ -54,12 +56,9 @@
               <template #item.totalAmount="{ item }">
                 ${{ formatPrice(item.totalAmount) }}
               </template>
-              <template #item.preferredWalletName="{ item }">
-                <div v-if="item.preferredWalletName">
-                  <div class="text-caption font-weight-medium">{{ item.preferredWalletName }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ item.preferredWalletCompany }}</div>
-                </div>
-                <span v-else class="text-caption text-medium-emphasis">—</span>
+              <template #item.customerName="{ item }">{{ item.customerName || '—' }}</template>
+              <template #item.requestUsers="{ item }">
+                <span>{{ item.requestUsers?.length ? item.requestUsers.join(', ') : '—' }}</span>
               </template>
               <template #item.paymentApproval="{ item }">
                 <v-chip
@@ -75,125 +74,81 @@
                 <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye" @click.stop="openPo(item, 'accept')">Review</v-btn>
               </template>
             </v-data-table>
-
-            <!-- Wallet Transfer Requests -->
-            <div class="text-subtitle-2 mb-2 d-flex align-center">
-              <v-icon icon="mdi-swap-horizontal" size="18" class="mr-1" color="deep-purple" />
-              Wallet Transfer Requests
-              <v-chip size="x-small" color="deep-purple" variant="tonal" class="ml-2">{{ acceptanceTransfers.length }}</v-chip>
-            </div>
-            <v-data-table
-              :headers="walletAcceptanceHeaders"
-              :items="acceptanceTransfers"
-              :loading="wtLoading"
-              density="comfortable"
-              :items-per-page="25"
-              hover
-              class="cursor-pointer"
-              @click:row="(_, row) => openTransfer(row.item, 'accept')"
-            >
-              <template #item.withdrawAmount="{ item }">
-                <span class="font-weight-medium">{{ item.withdrawAmount }} {{ item.fromCurrency }}</span>
-                <span class="text-caption text-medium-emphasis mx-1">→</span>
-                <span class="font-weight-medium">{{ item.depositAmount }} {{ item.toCurrency }}</span>
-              </template>
-              <template #item.status="{ item }">
-                <v-chip size="small" :color="wtStatusColor(item.status)" :prepend-icon="wtStatusIcon(item.status)">
-                  {{ item.status }}
-                </v-chip>
-              </template>
-              <template #item.createdAt="{ item }">
-                {{ new Date(item.createdAt).toLocaleDateString() }}
-              </template>
-              <template #item.actions="{ item }">
-                <v-btn size="small" variant="tonal" color="deep-purple" prepend-icon="mdi-eye" @click.stop="openTransfer(item, 'accept')">Review</v-btn>
-              </template>
-            </v-data-table>
           </v-card-text>
         </v-tabs-window-item>
 
-        <!-- ═══════ TAB 2: Withdraw Panel ═══════ -->
-        <v-tabs-window-item value="withdraw">
+        <!-- ═══════ TAB 3: Remaining PO Payments ═══════ -->
+        <v-tabs-window-item value="remaining">
           <v-card-text>
-            <p class="text-body-2 text-medium-emphasis mb-4">
-              Upload proof of payment (POP) to supplier and submit accepted payment orders.
-            </p>
-
-            <!-- PO Withdraw -->
-            <div class="text-subtitle-2 mb-2 d-flex align-center">
-              <v-icon icon="mdi-file-document-outline" size="18" class="mr-1" color="primary" />
-              PO Payments
-              <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ withdrawQueue.length }}</v-chip>
-            </div>
+            <p class="text-body-2 text-medium-emphasis mb-4">Approved Purchase Orders that still have a supplier balance to pay.</p>
+            <v-card variant="tonal" color="warning" class="payment-total-card mb-4">
+              <v-card-text class="d-flex align-center py-3">
+                <v-icon icon="mdi-cash-clock" size="28" class="mr-3" />
+                <div>
+                  <div class="text-caption">Total Ready To Pay</div>
+                  <div class="text-h6 font-weight-bold">${{ formatPrice(remainingPaymentsTotal) }}</div>
+                </div>
+                <v-spacer />
+                <v-chip color="warning" variant="flat">{{ remainingPoRows.length }} PO{{ remainingPoRows.length === 1 ? '' : 's' }}</v-chip>
+              </v-card-text>
+            </v-card>
             <v-data-table
-              :headers="withdrawHeaders"
-              :items="withdrawQueue"
+              :headers="remainingPaymentHeaders"
+              :items="remainingPoRows"
               :loading="loading"
               density="comfortable"
               :items-per-page="25"
               hover
-              class="cursor-pointer mb-6"
+              class="cursor-pointer"
               @click:row="(_, row) => openPo(row.item, 'withdraw')"
             >
-              <template #item.totalAmount="{ item }">
-                ${{ formatPrice(item.totalAmount) }}
-              </template>
-              <template #item.preferredWalletName="{ item }">
-                <div v-if="item.preferredWalletName">
-                  <div class="text-caption font-weight-medium">{{ item.preferredWalletName }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ item.preferredWalletCompany }}</div>
-                </div>
-                <span v-else class="text-caption text-medium-emphasis">—</span>
-              </template>
-              <template #item.paymentStatus="{ item }">
-                <v-chip
-                  size="small"
-                  :color="item.paymentStatus === 'Submitted' ? 'success' : 'primary'"
-                  :prepend-icon="item.paymentStatus === 'Submitted' ? 'mdi-check-circle' : 'mdi-cash-multiple'"
-                >{{ item.paymentStatus === 'Submitted' ? 'Submitted' : 'Awaiting POP' }}</v-chip>
-              </template>
-              <template #item.adminApprovalAt="{ item }">
-                {{ item.adminApprovalAt ? new Date(item.adminApprovalAt).toLocaleDateString() : '—' }}
-              </template>
-              <template #item.actions="{ item }">
-                <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye" @click.stop="openPo(item, 'withdraw')">Open</v-btn>
-              </template>
+              <template #item.poNumber="{ item }"><span class="font-weight-bold">{{ item.poNumber }}</span></template>
+              <template #item.prNumber="{ item }"><span>{{ item.prNumber ? `PR-${item.prNumber}` : '—' }}</span></template>
+              <template #item.customerName="{ item }">{{ item.customerName || '—' }}</template>
+              <template #item.requestUsers="{ item }">{{ item.requestUsers?.length ? item.requestUsers.join(', ') : '—' }}</template>
+              <template #item.totalAmount="{ item }">${{ formatPrice(item.totalAmount) }}</template>
+              <template #item.paidAmount="{ item }">${{ formatPrice(item.paidAmount) }}</template>
+              <template #item.remainingAmount="{ item }"><span :class="item.remainingAmount > 0 ? 'text-warning font-weight-bold' : 'text-success font-weight-bold'">${{ formatPrice(item.remainingAmount) }}</span></template>
+              <template #item.paymentStatus="{ item }"><v-chip size="small" color="warning" variant="tonal">{{ item.waitingForFinalAmount ? 'Waiting For Final Amount' : 'Remaining' }}</v-chip></template>
+              <template #item.actions="{ item }"><v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye" @click.stop="openPo(item, 'withdraw')">Open</v-btn></template>
             </v-data-table>
+          </v-card-text>
+        </v-tabs-window-item>
 
-            <!-- Wallet Transfer Withdraw -->
-            <div class="text-subtitle-2 mb-2 d-flex align-center">
-              <v-icon icon="mdi-swap-horizontal" size="18" class="mr-1" color="deep-purple" />
-              Wallet Transfers — Upload POP & Execute
-              <v-chip size="x-small" color="deep-purple" variant="tonal" class="ml-2">{{ withdrawTransfers.length }}</v-chip>
-            </div>
+        <!-- ═══════ TAB 4: Finished PO Payments ═══════ -->
+        <v-tabs-window-item value="finished">
+          <v-card-text>
+            <p class="text-body-2 text-medium-emphasis mb-4">Purchase Orders whose supplier payments have been completed.</p>
+            <v-card variant="tonal" color="success" class="payment-total-card mb-4">
+              <v-card-text class="d-flex align-center py-3">
+                <v-icon icon="mdi-check-circle-outline" size="28" class="mr-3" />
+                <div>
+                  <div class="text-caption">Total Finished Payments</div>
+                  <div class="text-h6 font-weight-bold">${{ formatPrice(finishedPaymentsTotal) }}</div>
+                </div>
+                <v-spacer />
+                <v-chip color="success" variant="flat">{{ finishedPoRows.length }} PO{{ finishedPoRows.length === 1 ? '' : 's' }}</v-chip>
+              </v-card-text>
+            </v-card>
             <v-data-table
-              :headers="walletWithdrawHeaders"
-              :items="withdrawTransfers"
-              :loading="wtLoading"
+              :headers="remainingPaymentHeaders"
+              :items="finishedPoRows"
+              :loading="loading"
               density="comfortable"
               :items-per-page="25"
               hover
               class="cursor-pointer"
-              @click:row="(_, row) => openTransfer(row.item, 'withdraw')"
+              @click:row="(_, row) => openPo(row.item, 'withdraw')"
             >
-              <template #item.withdrawAmount="{ item }">
-                <span class="font-weight-medium">{{ item.withdrawAmount }} {{ item.fromCurrency }}</span>
-                <span class="text-caption text-medium-emphasis mx-1">→</span>
-                <span class="font-weight-medium">{{ item.depositAmount }} {{ item.toCurrency }}</span>
-              </template>
-              <template #item.status="{ item }">
-                <v-chip size="small" :color="wtStatusColor(item.status)" :prepend-icon="wtStatusIcon(item.status)">
-                  {{ item.status }}
-                </v-chip>
-              </template>
-              <template #item.createdAt="{ item }">
-                {{ new Date(item.createdAt).toLocaleDateString() }}
-              </template>
-              <template #item.actions="{ item }">
-                <v-btn size="small" variant="tonal" color="deep-purple" prepend-icon="mdi-upload" @click.stop="openTransfer(item, 'withdraw')">
-                  {{ item.status === 'Completed' ? 'View' : 'Upload POP' }}
-                </v-btn>
-              </template>
+              <template #item.poNumber="{ item }"><span class="font-weight-bold">{{ item.poNumber }}</span></template>
+              <template #item.prNumber="{ item }"><span>{{ item.prNumber ? `PR-${item.prNumber}` : '—' }}</span></template>
+              <template #item.customerName="{ item }">{{ item.customerName || '—' }}</template>
+              <template #item.requestUsers="{ item }">{{ item.requestUsers?.length ? item.requestUsers.join(', ') : '—' }}</template>
+              <template #item.totalAmount="{ item }">${{ formatPrice(item.totalAmount) }}</template>
+              <template #item.paidAmount="{ item }"><span class="text-success font-weight-bold">${{ formatPrice(item.paidAmount) }}</span></template>
+              <template #item.remainingAmount="{ item }"><span class="text-success font-weight-bold">${{ formatPrice(item.remainingAmount) }}</span></template>
+              <template #item.paymentStatus><v-chip size="small" color="success" variant="tonal">Finished</v-chip></template>
+              <template #item.actions="{ item }"><v-btn size="small" variant="tonal" color="success" prepend-icon="mdi-eye" @click.stop="openPo(item, 'withdraw')">Open</v-btn></template>
             </v-data-table>
           </v-card-text>
         </v-tabs-window-item>
@@ -211,8 +166,8 @@
           <v-chip v-if="dialogMode === 'accept'" size="small" color="warning" prepend-icon="mdi-clock-outline">
             {{ selectedPo.paymentApproval === 'Rejected' ? 'Previously Rejected' : 'Pending Acceptance' }}
           </v-chip>
-          <v-chip v-else size="small" :color="selectedPo.paymentStatus === 'Submitted' ? 'success' : 'primary'">
-            {{ selectedPo.paymentStatus === 'Submitted' ? 'Submitted' : 'Awaiting POP' }}
+          <v-chip v-else size="small" :color="waitingForFinalAmount ? 'warning' : selectedPo.paymentStatus === 'Submitted' ? 'success' : 'primary'">
+            {{ waitingForFinalAmount ? 'Waiting For Final Amount' : selectedPo.paymentStatus === 'Submitted' ? 'Submitted' : 'Awaiting POP' }}
           </v-chip>
         </v-card-title>
 
@@ -237,26 +192,22 @@
               <div class="text-body-2">{{ selectedPo.adminApprovalAt ? new Date(selectedPo.adminApprovalAt).toLocaleDateString() : '—' }}</div>
             </v-col>
             <v-col cols="12">
-              <v-card
-                variant="tonal"
-                :color="selectedPo.preferredWalletId ? 'primary' : 'grey'"
-                density="compact"
-                class="pa-3 d-flex align-center gap-3"
-              >
-                <v-icon icon="mdi-bank-outline" size="22" />
-                <div>
-                  <div class="text-caption text-medium-emphasis">Pay From Wallet</div>
-                  <div v-if="selectedPo.preferredWalletName" class="font-weight-bold text-body-2">
-                    {{ selectedPo.preferredWalletName }}
-                    <span class="text-caption text-medium-emphasis ml-1">· {{ selectedPo.preferredWalletCompany }}</span>
-                  </div>
-                  <div v-else class="text-body-2 text-medium-emphasis">No wallet selected</div>
-                </div>
-              </v-card>
+              <v-alert type="info" variant="tonal" density="compact">Paid to supplier: ${{ formatPrice(selectedPaid) }} · Remaining: ${{ formatPrice(selectedRemaining) }}. Select the actual wallet with each POP.</v-alert>
             </v-col>
           </v-row>
 
           <v-divider class="mb-4" />
+
+          <v-expansion-panels v-model="detailPanels" multiple variant="accordion" class="mb-4">
+            <v-expansion-panel value="documents">
+              <v-expansion-panel-title>
+                <div class="d-flex align-center">
+                  <v-icon icon="mdi-folder-information-outline" size="20" class="mr-2" color="primary" />
+                  <span class="font-weight-bold">Supporting Documents</span>
+                  <span class="text-caption text-medium-emphasis ml-2">Supplier invoice, bank info, payment request and customer POP</span>
+                </div>
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
 
           <!-- Supplier Invoice -->
           <div class="mb-4">
@@ -355,30 +306,77 @@
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No customer payments uploaded yet.</v-alert>
           </div>
 
-          <v-divider class="mb-4" />
+              </v-expansion-panel-text>
+            </v-expansion-panel>
 
-          <!-- TAB 2 ONLY: Our POP to Supplier -->
-          <div v-if="dialogMode === 'withdraw'" class="mb-4">
-            <div class="text-subtitle-2 mb-2 d-flex align-center">
-              <v-icon icon="mdi-cash-check" size="18" class="mr-1" color="warning" />
-              Our POP to Supplier
-            </div>
-            <div v-for="f in popFiles" :key="f.name" class="d-flex align-center gap-2 mb-2 pa-2 rounded file-row">
-              <v-icon :icon="f.name.includes('_final') ? 'mdi-file-star' : 'mdi-file-check'" :color="f.name.includes('_final') ? 'amber-darken-2' : 'success'" size="20" />
-              <div class="d-flex flex-column flex-grow-1">
-                <span class="text-body-2 font-weight-medium">{{ f.name }}</span>
-                <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
-              </div>
-              <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f.name, 'our_pop')" />
-            </div>
-            <div v-if="!isFinalPopUploaded" class="mt-2">
-              <v-btn variant="tonal" color="warning" prepend-icon="mdi-upload" :disabled="popFiles.length >= 10" @click="openPopUploadDialog">
-                {{ popFiles.length > 0 ? 'Add Another POP' : 'Upload POP File' }}
-              </v-btn>
-              <span v-if="popFiles.length >= 10" class="text-caption text-error ml-2">Max 10 POPs reached.</span>
-            </div>
-            <v-alert v-else type="success" variant="tonal" density="compact" icon="mdi-shield-check" class="mt-2">Final POP uploaded. No further uploads allowed.</v-alert>
-          </div>
+            <v-expansion-panel v-if="dialogMode === 'withdraw'" value="payment">
+              <v-expansion-panel-title>
+                <div class="d-flex align-center">
+                  <v-icon icon="mdi-cash-check" size="20" class="mr-2" color="warning" />
+                  <span class="font-weight-bold">Supplier Payment</span>
+                  <v-chip v-if="waitingForFinalAmount" size="x-small" color="warning" variant="flat" class="ml-2">Waiting For Final Amount</v-chip>
+                </div>
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <div v-for="payment in paymentHistory" :key="payment.id" class="d-flex align-center gap-2 mb-2 pa-2 rounded file-row">
+                  <v-chip size="x-small" :color="payment.category === 'Bank Fee and Others' ? 'orange' : 'primary'" variant="tonal">{{ payment.category }}</v-chip>
+                  <div class="flex-grow-1 text-body-2">
+                    PR-{{ payment.prNumber }} · {{ formatPrice(payment.walletAmount) }} {{ payment.walletCurrency }}
+                    <span v-if="payment.category === 'Supplier Payment'"> · ${{ formatPrice(payment.amount) }} supplier payment</span>
+                  </div>
+                  <v-btn v-if="payment.popFileName" size="small" icon="mdi-eye-outline" @click="downloadPaymentProof(payment)" />
+                </div>
+
+                <template v-if="waitingForFinalAmount && paymentDraft?.pop">
+                  <v-alert type="warning" variant="tonal" density="compact" class="my-3">
+                    The POP is saved. Keep this payment in Ready To Pay until the bank reports its final withdrawn amount.
+                  </v-alert>
+                  <v-text-field
+                    v-model.number="finalWalletAmount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    :prefix="currencySymbol(paymentDraft.walletCurrency)"
+                    :label="`Final withdrawn amount (${paymentDraft.walletCurrency}) *`"
+                    :hint="`Original POP debit: ${formatPrice(paymentDraft.pop.initialWalletAmount)} ${paymentDraft.walletCurrency}`"
+                    persistent-hint
+                    variant="outlined"
+                    class="mb-3"
+                  />
+                  <v-alert v-if="calculatedBankFee >= 0" type="info" variant="tonal" density="compact" class="mb-3">
+                    Bank Fee and Others: <strong>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(calculatedBankFee) }} {{ paymentDraft.walletCurrency }}</strong>
+                  </v-alert>
+                  <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="savingFinalAmount"
+                    :disabled="finalWalletAmount < Number(paymentDraft.pop.initialWalletAmount)" @click="saveFinalAmount">
+                    Save Final Amount &amp; Finish
+                  </v-btn>
+                </template>
+
+                <template v-else>
+                  <v-select v-model="pickerRequestId" :items="openRequests" item-title="label" item-value="id"
+                    label="Payment Request *" variant="outlined" class="mb-3" />
+                  <v-alert v-if="!openRequests.length" type="info" variant="tonal" class="mb-3">Create a payment request on the PO page before saving payment details.</v-alert>
+                  <v-text-field v-model.number="pickerAmount" type="number" min="0.01" step="0.01" prefix="$"
+                    label="Amount paid (USD) *" variant="outlined" :hint="`PR remaining: $${formatPrice(pickerRequest?.remainingAmount)}`" persistent-hint class="mb-3" />
+                  <v-select v-model="pickerWalletId" :items="walletBoxes" item-title="label" item-value="id"
+                    label="Withdrawn From Wallet *" variant="outlined" prepend-inner-icon="mdi-bank-outline" class="mb-3" />
+                  <v-text-field v-if="pickerWallet && pickerWallet.currency !== 'USD'" v-model.number="pickerExchangeRate"
+                    type="number" min="0.000001" step="0.000001" :label="`${pickerWallet.currency} per 1 USD *`" variant="outlined" />
+                  <p v-if="pickerWallet" class="text-body-2 mb-3">Wallet debit: {{ currencySymbol(pickerWallet.currency) }}{{ formatPrice(pickerAmount * (pickerWallet.currency === 'USD' ? 1 : pickerExchangeRate || 0)) }} {{ pickerWallet.currency }}</p>
+
+                  <div class="d-flex flex-wrap gap-2">
+                    <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="savingPaymentDetails"
+                      :disabled="!paymentDetailsValid" @click="savePaymentDetails">Save Payment Details</v-btn>
+                    <v-btn color="warning" variant="tonal" prepend-icon="mdi-upload" :disabled="!paymentDraft"
+                      @click="openPopUploadDialog">Upload POP</v-btn>
+                  </div>
+                  <v-alert v-if="paymentDraft" type="success" variant="tonal" density="compact" class="mt-3">
+                    Details saved for PR-{{ paymentDraft.prNumber }}. You can close this window and upload the POP later.
+                  </v-alert>
+                </template>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
 
           <!-- TAB 1: Accept / Reject Actions -->
           <div v-if="dialogMode === 'accept'">
@@ -391,227 +389,12 @@
             </div>
           </div>
 
-          <!-- TAB 2: Submit Action -->
-          <div v-else>
-            <v-alert v-if="selectedPo.paymentStatus === 'Submitted'" type="success" variant="tonal" icon="mdi-check-circle">
-              Payment submitted{{ selectedPo.paymentSubmittedAt ? ' at ' + new Date(selectedPo.paymentSubmittedAt).toLocaleString() : '' }}.
-            </v-alert>
-            <div v-else class="d-flex flex-column gap-2">
-              <div v-if="popFiles.length === 0" class="text-caption text-medium-emphasis text-center">Upload at least one POP file to enable submit.</div>
-              <v-btn color="success" variant="flat" prepend-icon="mdi-send-check" :disabled="popFiles.length === 0" :loading="submitting" @click="submitPayment">Submit Payment</v-btn>
-            </div>
-          </div>
+          <v-alert v-else type="info" variant="tonal" density="compact" class="mt-3">Each POP records the amount paid and debits the selected wallet. The PO is completed for payment automatically when its balance reaches zero.</v-alert>
         </v-card-text>
 
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="showDetail = false">Close</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- ═══════ Wallet Transfer Detail Dialog ═══════ -->
-    <v-dialog v-model="showWtDetail" max-width="680" scrollable>
-      <v-card v-if="selectedWt" class="glass-card">
-        <v-card-title class="d-flex align-center pa-4">
-          <v-icon icon="mdi-swap-horizontal" class="mr-2" color="deep-purple" />
-          Wallet Transfer #{{ selectedWt.id }}
-          <v-spacer />
-          <v-chip size="small" :color="wtStatusColor(selectedWt.status)" :prepend-icon="wtStatusIcon(selectedWt.status)">
-            {{ selectedWt.status }}
-          </v-chip>
-        </v-card-title>
-
-        <v-divider />
-
-        <v-card-text style="max-height: 75vh; overflow-y: auto;">
-          <!-- Transfer summary -->
-          <v-row dense class="mb-4 mt-2">
-            <v-col cols="12" sm="5">
-              <v-card variant="tonal" color="deep-purple" class="pa-3 text-center">
-                <div class="text-caption text-medium-emphasis mb-1">From Wallet</div>
-                <div class="font-weight-bold">{{ selectedWt.fromBoxName }}</div>
-                <div class="text-h6 font-weight-bold mt-1">{{ selectedWt.withdrawAmount }} <span class="text-body-2">{{ selectedWt.fromCurrency }}</span></div>
-              </v-card>
-            </v-col>
-            <v-col cols="12" sm="2" class="d-flex align-center justify-center">
-              <div class="text-center">
-                <v-icon icon="mdi-arrow-right-bold" color="deep-purple" size="28" />
-                <div v-if="selectedWt.exchangeRate" class="text-caption text-medium-emphasis mt-1">× {{ selectedWt.exchangeRate }}</div>
-              </div>
-            </v-col>
-            <v-col cols="12" sm="5">
-              <v-card variant="tonal" color="success" class="pa-3 text-center">
-                <div class="text-caption text-medium-emphasis mb-1">To Wallet</div>
-                <div class="font-weight-bold">{{ selectedWt.toBoxName }}</div>
-                <div class="text-h6 font-weight-bold mt-1">{{ selectedWt.depositAmount }} <span class="text-body-2">{{ selectedWt.toCurrency }}</span></div>
-              </v-card>
-            </v-col>
-          </v-row>
-
-          <v-row dense class="mb-4">
-            <v-col cols="6">
-              <div class="text-caption text-medium-emphasis">Requested By</div>
-              <div class="text-body-2">{{ selectedWt.createdByName }}</div>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-medium-emphasis">Date</div>
-              <div class="text-body-2">{{ new Date(selectedWt.createdAt).toLocaleString() }}</div>
-            </v-col>
-            <v-col v-if="selectedWt.notes" cols="12">
-              <div class="text-caption text-medium-emphasis">Notes</div>
-              <div class="text-body-2">{{ selectedWt.notes }}</div>
-            </v-col>
-          </v-row>
-
-          <v-divider class="mb-4" />
-
-          <!-- Rejection note (if rejected) -->
-          <v-alert v-if="selectedWt.status === 'Rejected'" type="error" variant="tonal" density="compact" icon="mdi-close-circle" class="mb-4">
-            <strong>Rejected:</strong> {{ selectedWt.rejectionNote || 'No reason provided.' }}
-          </v-alert>
-
-          <!-- POP section (shown in both modes for info, upload only in withdraw mode) -->
-          <div class="mb-4">
-            <div class="text-subtitle-2 mb-2 d-flex align-center">
-              <v-icon icon="mdi-cash-check" size="18" class="mr-1" color="warning" />
-              Proof of Payment (POP)
-            </div>
-            <div v-if="selectedWt.popFileName" class="d-flex align-center gap-2 pa-2 rounded file-row">
-              <v-icon icon="mdi-file-check" color="success" size="20" />
-              <span class="text-body-2 flex-grow-1">{{ selectedWt.popFileName }}</span>
-              <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadWtPop(selectedWt)" />
-            </div>
-            <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No POP uploaded yet.</v-alert>
-
-            <!-- Upload POP — only in withdraw mode when Accepted and not Completed -->
-            <div v-if="wtDialogMode === 'withdraw' && selectedWt.status === 'Accepted'" class="mt-3">
-              <v-btn variant="flat" color="deep-purple" prepend-icon="mdi-upload" :loading="wtUploading" @click="wtPopInputRef?.click()">
-                Upload POP &amp; Execute Transfer
-              </v-btn>
-              <div class="text-caption text-medium-emphasis mt-1">
-                Uploading the POP will automatically execute the wallet transfer.
-              </div>
-              <input ref="wtPopInputRef" type="file" class="d-none" @change="onWtPopSelected" />
-            </div>
-
-            <v-alert v-if="selectedWt.status === 'Completed'" type="success" variant="tonal" icon="mdi-check-circle" class="mt-3">
-              Transfer completed on {{ selectedWt.completedAt ? new Date(selectedWt.completedAt).toLocaleString() : '—' }}.
-              The wallet balances have been updated automatically.
-            </v-alert>
-          </div>
-
-          <v-divider class="mb-4" />
-
-          <!-- Accept / Reject — only in acceptance mode when Pending -->
-          <div v-if="wtDialogMode === 'accept' && selectedWt.status === 'Pending'">
-            <div class="d-flex gap-3">
-              <v-btn class="flex-grow-1" color="error" variant="tonal" prepend-icon="mdi-close-circle" :loading="wtRejecting" @click="showWtRejectDialog = true">Reject</v-btn>
-              <v-btn class="flex-grow-1" color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="wtAccepting" @click="acceptTransfer">Accept Transfer</v-btn>
-            </div>
-          </div>
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showWtDetail = false">Close</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- ═══════ Create Wallet Transfer Dialog ═══════ -->
-    <v-dialog v-model="showCreateWt" max-width="560">
-      <v-card class="glass-card">
-        <v-card-title class="pa-4">
-          <v-icon icon="mdi-swap-horizontal" class="mr-2" color="deep-purple" />
-          New Wallet Transfer Request
-        </v-card-title>
-        <v-divider />
-        <v-card-text class="pa-4">
-          <v-select
-            v-model="createWt.fromBoxId"
-            :items="walletBoxes"
-            item-title="label"
-            item-value="id"
-            label="From Wallet *"
-            variant="outlined"
-            density="comfortable"
-            class="mb-3"
-          />
-          <v-select
-            v-model="createWt.toBoxId"
-            :items="walletBoxes.filter(b => b.id !== createWt.fromBoxId)"
-            item-title="label"
-            item-value="id"
-            label="To Wallet *"
-            variant="outlined"
-            density="comfortable"
-            class="mb-3"
-          />
-          <v-text-field
-            v-model.number="createWt.withdrawAmount"
-            label="Withdraw Amount *"
-            type="number"
-            min="0"
-            variant="outlined"
-            density="comfortable"
-            class="mb-3"
-            :suffix="fromBoxCurrency"
-          />
-          <v-text-field
-            v-model.number="createWt.exchangeRate"
-            label="Exchange Rate (optional)"
-            type="number"
-            min="0"
-            step="0.0001"
-            variant="outlined"
-            density="comfortable"
-            class="mb-3"
-            hint="Leave blank if same currency"
-            persistent-hint
-          />
-          <!-- Deposited amount is derived: Exchange Rate × Withdraw Amount -->
-          <v-text-field
-            v-if="createWt.exchangeRate"
-            :model-value="wtRealAmount"
-            label="Real Amount"
-            variant="outlined"
-            density="comfortable"
-            class="mb-3"
-            readonly
-            :suffix="toBoxCurrency"
-            hint="Exchange Rate × Withdraw Amount — the amount deposited into the target wallet"
-            persistent-hint
-          />
-          <v-textarea
-            v-model="createWt.notes"
-            label="Notes (optional)"
-            rows="2"
-            variant="outlined"
-            density="comfortable"
-            hide-details
-          />
-        </v-card-text>
-        <v-card-actions class="pa-4">
-          <v-spacer />
-          <v-btn variant="text" @click="showCreateWt = false">Cancel</v-btn>
-          <v-btn color="deep-purple" variant="flat" :loading="wtCreating" :disabled="!createWtValid" @click="submitCreateTransfer">Create Request</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Wallet Transfer Reject Dialog -->
-    <v-dialog v-model="showWtRejectDialog" max-width="500">
-      <v-card class="glass-card">
-        <v-card-title class="pa-4">Reject Transfer Request</v-card-title>
-        <v-card-text class="pa-4">
-          <div class="mb-4 text-body-2">Rejecting Transfer #{{ selectedWt?.id }} will notify the requester.</div>
-          <v-textarea v-model="wtRejectionNote" label="Rejection Reason" rows="3" variant="outlined" density="comfortable" hide-details />
-        </v-card-text>
-        <v-card-actions class="pa-4">
-          <v-spacer />
-          <v-btn variant="text" @click="showWtRejectDialog = false">Cancel</v-btn>
-          <v-btn color="error" variant="tonal" :disabled="!wtRejectionNote.trim()" :loading="wtRejecting" @click="confirmRejectTransfer">Confirm Reject</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -634,7 +417,7 @@
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" location="bottom end">{{ snackbarText }}</v-snackbar>
 
-  <!-- ═══════ POP Upload Dialog (with wallet picker for first POP) ═══════ -->
+  <!-- ═══════ POP Upload Dialog — payment details are saved in the first modal ═══════ -->
   <v-dialog v-model="showWalletPickerDialog" max-width="520" persistent>
     <v-card class="glass-card">
       <v-card-title class="d-flex align-center pa-4 gap-2">
@@ -646,77 +429,19 @@
         <p class="text-body-2 text-medium-emphasis mb-4">
           PO: <strong>{{ selectedPo?.poNumber }}</strong> — Supplier: <strong>{{ selectedPo?.supplierName }}</strong>
         </p>
-
-        <!-- Wallet picker — shown only for the first POP upload -->
-        <template v-if="popFiles.length === 0">
-          <p class="text-body-2 mb-3">
-            <v-icon icon="mdi-information-outline" size="16" class="mr-1" color="info" />
-            Select which company wallet this payment was withdrawn from.
-          </p>
-          <v-alert
-            v-if="selectedPo?.preferredWalletId"
-            density="compact"
-            type="info"
-            variant="tonal"
-            class="mb-3"
-            icon="mdi-star-outline"
-          >
-            Preferred: <strong>{{ selectedPo.preferredWalletName }}</strong>
-          </v-alert>
-          <v-select
-            v-model="pickerWalletId"
-            :items="walletBoxes"
-            item-title="label"
-            item-value="id"
-            label="Withdrawn From Wallet *"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-bank-outline"
-            class="mb-3"
-          >
-            <template #item="{ item, props: itemProps }">
-              <v-list-item v-bind="itemProps">
-                <template #append>
-                  <v-chip v-if="item.raw.id === selectedPo?.preferredWalletId" size="x-small" color="info" variant="tonal">preferred</v-chip>
-                </template>
-              </v-list-item>
-            </template>
-          </v-select>
-        </template>
-
-        <!-- File picker -->
-        <v-file-input
-          v-model="popDialogFile"
-          label="POP File *"
-          variant="outlined"
-          density="comfortable"
-          prepend-icon="mdi-file-upload-outline"
-          class="mb-2"
-          clearable
-        />
-
-        <!-- Is Final POP -->
-        <v-checkbox
-          v-model="isFinalPop"
-          label="Is This Final POP?"
-          density="compact"
-          hide-details
-          color="amber-darken-2"
+        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+          Payment details are already saved. Add only the POP image or PDF here.
+        </v-alert>
+        <FileDropZone
+          :on-upload="uploadPopFiles"
+          label="Drag the POP image here or click to browse"
+          accept="image/*,application/pdf,.pdf,.png,.jpg,.jpeg"
+          :multiple="false"
         />
       </v-card-text>
       <v-card-actions class="pa-4">
-        <v-btn variant="text" @click="showWalletPickerDialog = false">Cancel</v-btn>
+        <v-btn variant="text" @click="showWalletPickerDialog = false">Close</v-btn>
         <v-spacer />
-        <v-btn
-          color="warning"
-          variant="flat"
-          :disabled="!popDialogFile || (popFiles.length === 0 && !pickerWalletId)"
-          :loading="uploadingPop"
-          @click="confirmPopUpload"
-        >
-          <v-icon start>mdi-upload</v-icon>
-          Upload POP
-        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -739,53 +464,89 @@ const docPreview = useDocPreview()
 
 type FileInfo = { name: string; size: number; modifiedAt: string; category: string }
 type POItem = any
-type WalletTransfer = {
-  id: number
-  fromBoxId: number; fromBoxName: string; fromCurrency: string
-  toBoxId: number; toBoxName: string; toCurrency: string
-  withdrawAmount: number; depositAmount: number; exchangeRate?: number
-  notes?: string; status: string; popFileName?: string; rejectionNote?: string
-  createdByName: string; createdAt: string; acceptedAt?: string; completedAt?: string
-}
 type WalletBox = { id: number; label: string; currency: string; company?: string }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-const activeTab = ref<'acceptance' | 'withdraw'>('acceptance')
+const activeTab = ref<'acceptance' | 'remaining' | 'finished'>('acceptance')
 
 // ── PO Queue ──────────────────────────────────────────────────────────────────
 const loading = ref(false)
 const queue = ref<POItem[]>([])
-const acceptanceQueue = computed(() => queue.value.filter(p => p.paymentApproval !== 'Accepted'))
-const withdrawQueue = computed(() => queue.value.filter(p => p.paymentApproval === 'Accepted'))
+const paymentRequests = ref<any[]>([])
+const isPaymentStage = (po: POItem) =>
+  po.paymentApproval === 'Accepted' || po.paymentStatus === 'Submitted'
+    || po.paymentStatus === 'PartiallyPaid' || po.paymentStatus === 'WaitingForFinalAmount'
+const acceptanceQueue = computed(() => queue.value.filter(p => !isPaymentStage(p)))
+// Older withdrawals were submitted before PaymentApproval and the supplier-payment
+// ledger existed. Keep them in the Remaining Payments history as well.
+const remainingPaymentQueue = computed(() => queue.value.filter(isPaymentStage))
+const paymentProgressRows = computed(() => remainingPaymentQueue.value.map(po => {
+  const requests = paymentRequests.value.filter(pr => pr.poId === po.id)
+  const totalAmount = Number(requests[0]?.poTotalAmount ?? po.totalAmount) || 0
+  const recordedPaidAmount = requests.reduce((sum, pr) => sum + Number(pr.paidAmount || 0), 0)
+  // A legacy submitted PO has no individual POP ledger entries, but its submitted
+  // status confirms that the full PO amount was paid before ledger tracking began.
+  const paidAmount = recordedPaidAmount > 0 || po.paymentStatus !== 'Submitted'
+    ? recordedPaidAmount
+    : totalAmount
+  return { ...po, totalAmount, paidAmount, prNumber: requests.map(pr => pr.prNumber).join(', '),
+    remainingAmount: Math.max(0, totalAmount - paidAmount), waitingForFinalAmount: po.paymentStatus === 'WaitingForFinalAmount' }
+}))
+const remainingPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount > 0 || po.waitingForFinalAmount))
+const finishedPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount <= 0 && !po.waitingForFinalAmount))
+const remainingPaymentsTotal = computed(() => remainingPoRows.value.reduce((sum, po) => sum + po.remainingAmount, 0))
+const finishedPaymentsTotal = computed(() => finishedPoRows.value.reduce((sum, po) => sum + po.paidAmount, 0))
 const acceptancePoBadge = computed(() => acceptanceQueue.value.length)
-const withdrawPoBadge = computed(() => withdrawQueue.value.filter(p => p.paymentStatus !== 'Submitted').length)
-
-// ── Wallet Transfers ──────────────────────────────────────────────────────────
-const wtLoading = ref(false)
-const walletTransfers = ref<WalletTransfer[]>([])
-const acceptanceTransfers = computed(() => walletTransfers.value.filter(t => t.status === 'Pending' || t.status === 'Rejected'))
-const withdrawTransfers = computed(() => walletTransfers.value.filter(t => t.status === 'Accepted' || t.status === 'Completed'))
-const acceptanceWtBadge = computed(() => acceptanceTransfers.value.filter(t => t.status === 'Pending').length)
-const withdrawWtBadge = computed(() => withdrawTransfers.value.filter(t => t.status === 'Accepted').length)
 
 // ── Wallet boxes (for create dialog) ─────────────────────────────────────────
 const walletBoxes = ref<WalletBox[]>([])
 
-// ── POP upload dialog (wallet picker + file picker) ───────────────────────────
+// ── Saved payment details + POP/final-bank-amount workflow ───────────────────
 const showWalletPickerDialog = ref(false)
 const pickerWalletId = ref<number | null>(null)
-const popDialogFile = ref<File | null>(null)
+const pickerRequestId = ref<number | null>(null)
+const pickerAmount = ref(0)
+const pickerExchangeRate = ref<number | null>(null)
+const paymentDraft = ref<any>(null)
+const savingPaymentDetails = ref(false)
+const savingFinalAmount = ref(false)
+const finalWalletAmount = ref(0)
+const paymentHistory = ref<any[]>([])
+const selectedRequests = computed(() => paymentRequests.value.filter(pr => pr.poId === selectedPo.value?.id))
+const openRequests = computed(() => selectedRequests.value.filter(pr => pr.remainingAmount > 0).map(pr => ({ ...pr, label: `PR-${pr.prNumber} · remaining $${formatPrice(pr.remainingAmount)}` })))
+const pickerRequest = computed(() => openRequests.value.find(pr => pr.id === pickerRequestId.value))
+const pickerWallet = computed(() => walletBoxes.value.find(w => w.id === pickerWalletId.value))
+const selectedTotal = computed(() => Number(selectedRequests.value[0]?.poTotalAmount ?? selectedPo.value?.totalAmount ?? 0))
+const selectedPaid = computed(() => {
+  const recorded = selectedRequests.value.reduce((sum, pr) => sum + Number(pr.paidAmount || 0), 0)
+  return recorded > 0 || selectedPo.value?.paymentStatus !== 'Submitted' ? recorded : selectedTotal.value
+})
+const selectedRemaining = computed(() => Math.max(0, selectedTotal.value - selectedPaid.value))
+const paymentDetailsValid = computed(() => !!pickerRequest.value && !!pickerWallet.value
+  && pickerAmount.value > 0 && pickerAmount.value <= pickerRequest.value.remainingAmount && pickerAmount.value <= selectedRemaining.value
+  && (pickerWallet.value.currency === 'USD' || Number(pickerExchangeRate.value) > 0))
+const waitingForFinalAmount = computed(() => selectedPo.value?.paymentStatus === 'WaitingForFinalAmount' || !!paymentDraft.value?.pop)
+const calculatedBankFee = computed(() => finalWalletAmount.value - Number(paymentDraft.value?.pop?.initialWalletAmount || 0))
+watch(pickerRequestId, () => {
+  if (paymentDraft.value?.paymentRequestId === pickerRequestId.value) return
+  pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
+})
+watch(pickerWalletId, () => {
+  if (paymentDraft.value?.walletId === pickerWalletId.value) return
+  pickerExchangeRate.value = null
+})
+
 
 // ── PO detail dialog ──────────────────────────────────────────────────────────
 const showDetail = ref(false)
 const selectedPo = ref<POItem | null>(null)
 const dialogMode = ref<'accept' | 'withdraw'>('accept')
+const detailPanels = ref<string[]>(['payment'])
 
 const supplierInvoiceFile = ref<FileInfo | null>(null)
 const bankInfoFiles = ref<FileInfo[]>([])
 const dpFiles = ref<FileInfo[]>([])
 const importDetail = ref<any>(null)
-const popFiles = ref<FileInfo[]>([])
 
 type CustomerPayment = { id: number; fileName: string; amount: number; notes?: string | null; createdAt: string }
 const customerPayments = ref<CustomerPayment[]>([])
@@ -793,80 +554,39 @@ const customerTotalPaid = ref(0)
 const customerInvoiceTotal = ref<number | null>(null)
 const customerIsPaid = ref(false)
 
-const isFinalPop = ref(false)
-const isFinalPopUploaded = computed(() => popFiles.value.some(f => f.name.includes('_final')))
-const uploadingPop = ref(false)
-const submitting = ref(false)
 const accepting = ref(false)
 const rejecting = ref(false)
 const showRejectDialog = ref(false)
 const rejectionNote = ref('')
 // popInputRef removed — POP upload is now handled via the dialog
 
-// ── Wallet Transfer detail dialog ─────────────────────────────────────────────
-const showWtDetail = ref(false)
-const selectedWt = ref<WalletTransfer | null>(null)
-const wtDialogMode = ref<'accept' | 'withdraw'>('accept')
-const wtAccepting = ref(false)
-const wtRejecting = ref(false)
-const wtUploading = ref(false)
-const showWtRejectDialog = ref(false)
-const wtRejectionNote = ref('')
-const wtPopInputRef = ref<HTMLInputElement | null>(null)
-
-// ── Create transfer dialog ────────────────────────────────────────────────────
-const showCreateWt = ref(false)
-const wtCreating = ref(false)
-const createWt = reactive({ fromBoxId: null as number | null, toBoxId: null as number | null, withdrawAmount: 0, exchangeRate: null as number | null, notes: '' })
-const fromBoxCurrency = computed(() => walletBoxes.value.find(b => b.id === createWt.fromBoxId)?.currency ?? '')
-const toBoxCurrency = computed(() => walletBoxes.value.find(b => b.id === createWt.toBoxId)?.currency ?? '')
-// Amount that actually lands in the target wallet: rate × withdraw (1:1 when no rate given).
-const wtRealAmount = computed(() =>
-  Math.round(createWt.withdrawAmount * (createWt.exchangeRate || 1) * 100) / 100
-)
-const createWtValid = computed(() => !!createWt.fromBoxId && !!createWt.toBoxId && createWt.withdrawAmount > 0)
-
 // ── Table headers ─────────────────────────────────────────────────────────────
 const acceptanceHeaders = [
   { title: 'PO Number', key: 'poNumber' },
   { title: 'Supplier', key: 'supplierName' },
   { title: 'Sales Order', key: 'invoiceNumber' },
+  { title: 'Customer', key: 'customerName' },
+  { title: 'Requested By', key: 'requestUsers', sortable: false },
   { title: 'Total', key: 'totalAmount' },
-  { title: 'Pay Wallet', key: 'preferredWalletName' },
   { title: 'Admin Approved', key: 'adminApprovalAt' },
   { title: 'Status', key: 'paymentApproval' },
   { title: '', key: 'actions', sortable: false, width: 120 },
 ]
-const withdrawHeaders = [
-  { title: 'PO Number', key: 'poNumber' },
+const remainingPaymentHeaders = [
+  { title: 'PO#', key: 'poNumber' },
+  { title: 'PR#', key: 'prNumber', sortable: false },
   { title: 'Supplier', key: 'supplierName' },
-  { title: 'Sales Order', key: 'invoiceNumber' },
-  { title: 'Pay Wallet', key: 'preferredWalletName' },
-  { title: 'Total', key: 'totalAmount' },
-  { title: 'Admin Approved', key: 'adminApprovalAt' },
-  { title: 'Status', key: 'paymentStatus' },
-  { title: '', key: 'actions', sortable: false, width: 120 },
+  { title: 'Customer', key: 'customerName' },
+  { title: 'Requested By', key: 'requestUsers', sortable: false },
+  { title: 'Total PO Price', key: 'totalAmount' },
+  { title: 'Paid to Supplier', key: 'paidAmount' },
+  { title: 'Remaining to Pay', key: 'remainingAmount' },
+  { title: 'Payment Status', key: 'paymentStatus' },
+  { title: '', key: 'actions', sortable: false, width: 100 },
 ]
-const walletAcceptanceHeaders = [
-  { title: 'From → To', key: 'fromBoxName' },
-  { title: 'Amount', key: 'withdrawAmount' },
-  { title: 'Requested By', key: 'createdByName' },
-  { title: 'Date', key: 'createdAt' },
-  { title: 'Status', key: 'status' },
-  { title: '', key: 'actions', sortable: false, width: 120 },
-]
-const walletWithdrawHeaders = [
-  { title: 'From → To', key: 'fromBoxName' },
-  { title: 'Amount', key: 'withdrawAmount' },
-  { title: 'Requested By', key: 'createdByName' },
-  { title: 'Date', key: 'createdAt' },
-  { title: 'Status', key: 'status' },
-  { title: '', key: 'actions', sortable: false, width: 140 },
-]
-
 // ── Load all data ─────────────────────────────────────────────────────────────
 async function loadAll() {
-  await Promise.all([loadQueue(), loadWalletTransfers(), loadWalletBoxes()])
+  await Promise.all([loadQueue(), loadPaymentRequests(), loadWalletBoxes()])
 }
 
 async function loadQueue() {
@@ -876,16 +596,14 @@ async function loadQueue() {
   finally { loading.value = false }
 }
 
-async function loadWalletTransfers() {
-  wtLoading.value = true
-  try { walletTransfers.value = await api.get<WalletTransfer[]>('/wallet-transfers') }
-  catch { showSnack('Failed to load wallet transfers', 'error') }
-  finally { wtLoading.value = false }
+async function loadPaymentRequests() {
+  try { paymentRequests.value = await api.get<any[]>('/paymentrequests') }
+  catch { paymentRequests.value = [] }
 }
 
 async function loadWalletBoxes() {
   try {
-    const boxes = await api.get<any[]>('/payment-boxes/simple-list')
+    const boxes = await api.get<any[]>('/supplier-payments/wallets')
     walletBoxes.value = boxes.map((b: any) => ({
       id: b.id,
       // Wallets are identified by their own name, not the company preset behind them.
@@ -898,15 +616,34 @@ async function loadWalletBoxes() {
 
 // ── PO actions ────────────────────────────────────────────────────────────────
 async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
-  selectedPo.value = po
+  selectedPo.value = queue.value.find(p => p.id === po.id) || po
+  paymentHistory.value = []
+  paymentDraft.value = null
+  detailPanels.value = mode === 'withdraw' ? ['payment'] : []
+  try {
+    await loadPaymentRequests()
+    paymentHistory.value = await api.get<any[]>(`/supplier-payments/po/${po.id}`)
+    paymentDraft.value = await api.get<any>(`/supplier-payments/po/${po.id}/draft`)
+  } catch { showSnack('Failed to load supplier payments', 'error') }
+  if (paymentDraft.value) {
+    pickerRequestId.value = paymentDraft.value.paymentRequestId
+    pickerWalletId.value = paymentDraft.value.walletId
+    pickerExchangeRate.value = paymentDraft.value.exchangeRate
+    pickerAmount.value = Number(paymentDraft.value.amount)
+    finalWalletAmount.value = Number(paymentDraft.value.pop?.initialWalletAmount || 0)
+  } else {
+    pickerRequestId.value = openRequests.value[0]?.id ?? null
+    pickerWalletId.value = null
+    pickerExchangeRate.value = null
+    pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
+    finalWalletAmount.value = 0
+  }
   dialogMode.value = mode
   showDetail.value = true
   supplierInvoiceFile.value = null
   bankInfoFiles.value = []
   dpFiles.value = []
   importDetail.value = null
-  popFiles.value = []
-  isFinalPop.value = false
   customerPayments.value = []
   customerTotalPaid.value = 0
   customerInvoiceTotal.value = null
@@ -931,11 +668,6 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
         supplierInvoiceFile.value = files.find((f: FileInfo) => f.category === 'supplier_invoice') || null
         bankInfoFiles.value = files.filter((f: FileInfo) => f.category === 'supplier_bank_info')
         dpFiles.value = files.filter((f: FileInfo) => f.category === 'dp')
-        popFiles.value = files.filter((f: FileInfo) => f.category === 'our_pop').sort((a, b) => {
-          const nA = parseInt(a.name.match(/\d+/)?.[0] || '0')
-          const nB = parseInt(b.name.match(/\d+/)?.[0] || '0')
-          return nA - nB
-        })
       }
     } catch {}
     try { importDetail.value = await api.get(`/purchase-orders/${po.id}/import-detail`) } catch {}
@@ -947,53 +679,84 @@ async function acceptPayment() {
   accepting.value = true
   try {
     await api.patch(`/purchase-orders/${selectedPo.value.id}/payment-approval`, { decision: 'Accepted' })
-    showSnack('Payment request accepted — moved to Withdraw Panel', 'success')
+    showSnack('Payment request accepted — moved to Remaining Payments', 'success')
     showDetail.value = false
     await loadQueue()
-    activeTab.value = 'withdraw'
+    activeTab.value = 'remaining'
   } catch (e: any) {
     showSnack(e?.data?.message || 'Accept failed', 'error')
   } finally { accepting.value = false }
 }
 
 function openPopUploadDialog() {
-  pickerWalletId.value = selectedPo.value?.preferredWalletId ?? null
-  popDialogFile.value = null
-  isFinalPop.value = false
+  if (!paymentDraft.value) {
+    showSnack('Save the payment details before uploading the POP', 'warning')
+    return
+  }
   showWalletPickerDialog.value = true
 }
 
-async function confirmPopUpload() {
-  if (!selectedPo.value || !popDialogFile.value) return
-  uploadingPop.value = true
+async function savePaymentDetails() {
+  if (!selectedPo.value || !paymentDetailsValid.value || savingPaymentDetails.value) return
+  savingPaymentDetails.value = true
   try {
-    // 1. Upload the POP file to the document store
+    paymentDraft.value = await api.post(`/supplier-payments/po/${selectedPo.value.id}/draft`, {
+      paymentRequestId: pickerRequestId.value,
+      walletId: pickerWalletId.value,
+      amount: pickerAmount.value,
+      exchangeRate: pickerWallet.value?.currency === 'USD' ? 1 : pickerExchangeRate.value,
+    })
+    showSnack('Payment details saved. You can upload the POP now or later.', 'success')
+    await loadPaymentRequests()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not save payment details', 'error')
+  } finally { savingPaymentDetails.value = false }
+}
+
+async function uploadPopFiles(files: File[], onProgress: (done: number) => void) {
+  if (!selectedPo.value || !paymentDraft.value || files.length === 0) return
+  try {
     const form = new FormData()
-    form.append('file', popDialogFile.value)
-    form.append('category', 'our_pop')
-    form.append('isFinal', isFinalPop.value.toString())
-    await $fetch(
-      `${api.baseURL}/documents/proforma-invoice/${selectedPo.value.invoiceId}/supplier/${selectedPo.value.supplierId}/upload`,
-      { method: 'POST', body: form, headers: { Authorization: `Bearer ${authStore.user?.token}` } }
-    )
-
-    // 2. On first POP: record wallet withdrawal transaction
-    if (popFiles.value.length === 0 && pickerWalletId.value) {
-      try {
-        await api.post(`/purchase-orders/${selectedPo.value.id}/record-pop-withdrawal`, { walletId: pickerWalletId.value })
-      } catch (e: any) {
-        // Conflict (409) means already recorded — treat as success
-        if (e?.response?.status !== 409 && e?.status !== 409) throw e
-      }
-    }
-
-    showSnack(isFinalPop.value ? 'Final POP uploaded' : 'POP uploaded successfully', 'success')
+    form.append('file', files[0]!)
+    await $fetch(`${api.baseURL}/supplier-payments/po/${selectedPo.value.id}/pop`, {
+      method: 'POST', body: form, headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    onProgress(1)
+    showSnack('POP uploaded. Waiting for the bank’s final withdrawn amount.', 'success')
     showWalletPickerDialog.value = false
-    popDialogFile.value = null
+    await loadQueue()
     await openPo(selectedPo.value, 'withdraw')
   } catch (e: any) {
-    showSnack(e?.data?.message || 'Upload failed', 'error')
-  } finally { uploadingPop.value = false }
+    showSnack(e?.data?.message || 'POP upload failed. The saved payment details were kept.', 'error')
+    throw e
+  }
+}
+
+async function saveFinalAmount() {
+  if (!selectedPo.value || !paymentDraft.value?.pop || savingFinalAmount.value) return
+  savingFinalAmount.value = true
+  try {
+    const result = await api.post<any>(`/supplier-payments/po/${selectedPo.value.id}/final-amount`, {
+      finalWalletAmount: finalWalletAmount.value,
+    })
+    showSnack(result.bankFee > 0
+      ? `Final amount saved. ${formatPrice(result.bankFee)} ${result.walletCurrency} recorded as Bank Fee and Others.`
+      : 'Final amount saved with no additional bank fee.', 'success')
+    showDetail.value = false
+    await loadAll()
+    activeTab.value = result.complete ? 'finished' : 'remaining'
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not save the final bank amount', 'error')
+  } finally { savingFinalAmount.value = false }
+}
+
+async function downloadPaymentProof(payment: any) {
+  try {
+    const blob = await $fetch<Blob>(`${api.baseURL}/supplier-payments/${payment.id}/file`, {
+      responseType: 'blob', headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    docPreview.previewBlob(blob, payment.popFileName)
+  } catch { showSnack('Failed to open payment proof', 'error') }
 }
 
 async function confirmReject() {
@@ -1009,118 +772,6 @@ async function confirmReject() {
   } catch (e: any) {
     showSnack(e?.data?.message || 'Rejection failed', 'error')
   } finally { rejecting.value = false }
-}
-
-async function submitPayment() {
-  if (!selectedPo.value) return
-  submitting.value = true
-  try {
-    const r = await api.patch<any>(`/purchase-orders/${selectedPo.value.id}/submit-payment`, {})
-    selectedPo.value.paymentStatus = 'Submitted'
-    selectedPo.value.paymentSubmittedAt = r?.paymentSubmittedAt || new Date().toISOString()
-    showSnack('Payment submitted successfully', 'success')
-    await loadQueue()
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Submit failed', 'error')
-  } finally { submitting.value = false }
-}
-
-// ── Wallet transfer actions ───────────────────────────────────────────────────
-function openTransfer(wt: WalletTransfer, mode: 'accept' | 'withdraw') {
-  selectedWt.value = wt
-  wtDialogMode.value = mode
-  wtRejectionNote.value = ''
-  showWtDetail.value = true
-}
-
-function openCreateTransfer() {
-  createWt.fromBoxId = null
-  createWt.toBoxId = null
-  createWt.withdrawAmount = 0
-  createWt.exchangeRate = null
-  createWt.notes = ''
-  showCreateWt.value = true
-}
-
-async function submitCreateTransfer() {
-  wtCreating.value = true
-  try {
-    await api.post('/wallet-transfers', {
-      fromBoxId: createWt.fromBoxId,
-      toBoxId: createWt.toBoxId,
-      withdrawAmount: createWt.withdrawAmount,
-      depositAmount: wtRealAmount.value,
-      exchangeRate: createWt.exchangeRate || null,
-      notes: createWt.notes || null,
-    })
-    showSnack('Transfer request created — pending acceptance', 'success')
-    showCreateWt.value = false
-    await loadWalletTransfers()
-    activeTab.value = 'acceptance'
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Failed to create transfer request', 'error')
-  } finally { wtCreating.value = false }
-}
-
-async function acceptTransfer() {
-  if (!selectedWt.value) return
-  wtAccepting.value = true
-  try {
-    await api.patch(`/wallet-transfers/${selectedWt.value.id}/review`, { decision: 'Accept', note: null })
-    showSnack('Transfer accepted — moved to Withdraw Panel', 'success')
-    showWtDetail.value = false
-    await loadWalletTransfers()
-    activeTab.value = 'withdraw'
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Accept failed', 'error')
-  } finally { wtAccepting.value = false }
-}
-
-async function confirmRejectTransfer() {
-  if (!selectedWt.value || !wtRejectionNote.value.trim()) return
-  wtRejecting.value = true
-  try {
-    await api.patch(`/wallet-transfers/${selectedWt.value.id}/review`, { decision: 'Reject', note: wtRejectionNote.value.trim() })
-    showSnack('Transfer rejected', 'warning')
-    showWtRejectDialog.value = false
-    showWtDetail.value = false
-    await loadWalletTransfers()
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Reject failed', 'error')
-  } finally { wtRejecting.value = false }
-}
-
-async function onWtPopSelected(e: Event) {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file || !selectedWt.value) return
-  wtUploading.value = true
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    await $fetch(
-      `${api.baseURL}/wallet-transfers/${selectedWt.value.id}/upload-pop`,
-      { method: 'POST', body: form, headers: { Authorization: `Bearer ${authStore.user?.token}` } }
-    )
-    showSnack('POP uploaded — transfer executed successfully!', 'success')
-    showWtDetail.value = false
-    await loadWalletTransfers()
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Upload failed', 'error')
-  } finally {
-    wtUploading.value = false
-    if (target) target.value = ''
-  }
-}
-
-async function downloadWtPop(wt: WalletTransfer) {
-  try {
-    const blob = await $fetch<Blob>(
-      `${api.baseURL}/wallet-transfers/${wt.id}/pop-file`,
-      { method: 'GET', responseType: 'blob', headers: { Authorization: `Bearer ${authStore.user?.token}` } }
-    )
-    docPreview.previewBlob(blob as Blob, wt.popFileName ?? 'pop')
-  } catch { showSnack('Failed to open file', 'error') }
 }
 
 // ── PO file downloads ─────────────────────────────────────────────────────────
@@ -1146,15 +797,11 @@ async function downloadSupplierFile(name: string, category: string) {
   } catch { showSnack('Failed to open file', 'error') }
 }
 
-// onPopSelected removed — POP upload is now handled by confirmPopUpload() via the dialog
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function wtStatusColor(status: string) {
-  return { Pending: 'warning', Accepted: 'primary', Completed: 'success', Rejected: 'error' }[status] ?? 'grey'
+function currencySymbol(currency: string) {
+  return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[currency] ?? `${currency} `
 }
-function wtStatusIcon(status: string) {
-  return { Pending: 'mdi-clock-outline', Accepted: 'mdi-check', Completed: 'mdi-check-circle', Rejected: 'mdi-close-circle' }[status] ?? 'mdi-help'
-}
+
 function formatPrice(v: any) {
   if (v == null || isNaN(Number(v))) return '0.00'
   return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1172,5 +819,9 @@ onMounted(loadAll)
 .file-row {
   background-color: rgba(var(--v-theme-on-surface), 0.06);
   border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.payment-total-card {
+  max-width: 440px;
 }
 </style>

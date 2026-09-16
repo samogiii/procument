@@ -18,8 +18,10 @@ export function useApi() {
             throw new Error('Session expired')
         }
 
+        // Let the browser add the multipart boundary for FormData uploads.
+        // JSON remains the default for the application's normal API requests.
         const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
+            ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
             ...options.headers,
         }
 
@@ -48,7 +50,7 @@ export function useApi() {
     return {
         baseURL,
         get: <T>(path: string, options: any = {}) => apiFetch<T>(path, options),
-        post: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'POST', body }),
+        post: <T>(path: string, body: any, options: any = {}) => apiFetch<T>(path, { method: 'POST', body, ...options }),
         put: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'PUT', body }),
         patch: <T>(path: string, body: any) => apiFetch<T>(path, { method: 'PATCH', body }),
         del: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),

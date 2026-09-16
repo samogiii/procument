@@ -87,7 +87,7 @@ public static class PaymentRequestDocument
                                     table.Cell().BorderBottom(0.3f).BorderColor(Colors.Grey.Lighten1).Padding(3).Text(value ?? "—").FontSize(9);
                                 }
 
-                                R("Company:", req.CompanyPayingTo);
+                                R("Beneficiary:", req.Beneficiary);
                                 R("Account No:", req.AccountNumber);
                                 R("Bank Name:", req.BankName);
                                 R("SWIFT:", req.SwiftCode);
@@ -114,12 +114,20 @@ public static class PaymentRequestDocument
                 });
 
                 // ── FOOTER ───────────────────────────────────────────────────────────
-                page.Footer().AlignCenter().Text(x =>
+                page.Footer().Row(row =>
                 {
-                    x.Span("Page ").FontSize(8);
-                    x.CurrentPageNumber().FontSize(8);
-                    x.Span(" of ").FontSize(8);
-                    x.TotalPages().FontSize(8);
+                    row.RelativeItem().AlignLeft().Text(x =>
+                    {
+                        x.Span("Bank Comments: ").Bold().FontSize(8);
+                        x.Span(req.Reference ?? "—").FontSize(8);
+                    });
+                    row.AutoItem().AlignRight().Text(x =>
+                    {
+                        x.Span("Page ").FontSize(8);
+                        x.CurrentPageNumber().FontSize(8);
+                        x.Span(" of ").FontSize(8);
+                        x.TotalPages().FontSize(8);
+                    });
                 });
             });
         });

@@ -140,13 +140,11 @@ public class ShippingController : ControllerBase
     }
 
     /// <summary>
-    /// Settle a whole track in one action — every part taken as arrived in full and accepted.
-    /// This is what puts the stock into the Ready-for-SN and transferable pools at the track's
-    /// warehouse, so a transfer that has landed can be used without a part-by-part review.
-    /// Shipping (SYD/Expert) and SuperAdmin only.
+    /// Record all expected parts as received and accept them without a second expert review.
+    /// Shipping admins, experts, and SuperAdmin can perform this bulk action.
     /// </summary>
     [HttpPost("track-numbers/{trackId:long}/receive-all")]
-    [Authorize(Roles = "SuperAdmin,Expert")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
     public async Task<ActionResult<ShippingTrackResponse>> ReceiveAll(
         long trackId,
         [FromBody] ReceiveTransferRequest? request = null)

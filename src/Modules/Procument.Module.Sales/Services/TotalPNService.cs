@@ -4,6 +4,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
+using Procument.Module.Purchasing.Services;
 using Procument.Module.RFQ.Entities;
 using Procument.Module.Sales.Entities;
 using Procument.Shared.DTOs;
@@ -63,6 +64,77 @@ public class TotalPNService : ITotalPNService
         return (unit, total);
     }
 
+    private async Task<(Dictionary<long, List<string>> ItemExperts, Dictionary<long, List<string>> InvoiceExperts, Dictionary<long, List<string>> DefaultExperts)>
+        LoadExpertAssignmentsAsync(List<long> invoiceIds, List<long> invoiceItemIds)
+    {
+        var invoiceIdStrings = invoiceIds.Select(id => id.ToString()).ToList();
+        var invoiceItemIdStrings = invoiceItemIds.Select(id => id.ToString()).ToList();
+        var sources = await _db.Set<InvoiceItem>()
+            .AsNoTracking()
+            .Where(item => invoiceItemIds.Contains(item.Id) && item.QuoteItem != null)
+            .Select(item => new
+            {
+                item.InvoiceId,
+                QuoteId = item.QuoteItem!.QuoteId,
+                QuoteOwnerId = item.QuoteItem.Quote.UserId,
+                RfqId = item.QuoteItem.Quote.RFQId,
+                RfqOwnerId = item.QuoteItem.Quote.RFQ.UserId,
+            })
+            .ToListAsync();
+        var quoteIdStrings = sources.Select(source => source.QuoteId.ToString()).Distinct().ToList();
+        var rfqIdStrings = sources.Select(source => source.RfqId.ToString()).Distinct().ToList();
+
+        var assignments = await _db.Set<EntityPermission>()
+            .Include(permission => permission.User)
+            .Where(permission =>
+                (permission.EntityName == "Invoice" && invoiceIdStrings.Contains(permission.EntityId)) ||
+                (permission.EntityName == "InvoiceItem" && invoiceItemIdStrings.Contains(permission.EntityId)) ||
+                (permission.EntityName == "Quote" && quoteIdStrings.Contains(permission.EntityId)) ||
+                (permission.EntityName == "RFQ" && rfqIdStrings.Contains(permission.EntityId)))
+            .Select(permission => new { permission.EntityName, permission.EntityId, permission.UserId, permission.User.Name })
+            .ToListAsync();
+
+        Dictionary<long, List<string>> Build(string entityName) => assignments
+            .Where(assignment => assignment.EntityName == entityName && long.TryParse(assignment.EntityId, out _))
+            .GroupBy(assignment => long.Parse(assignment.EntityId))
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(assignment => assignment.Name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name)
+                    .ToList());
+
+        var userIds = sources.Select(source => source.QuoteOwnerId)
+            .Concat(sources.Where(source => source.RfqOwnerId.HasValue).Select(source => source.RfqOwnerId!.Value))
+            .Distinct()
+            .ToList();
+        var ownerNames = await _db.Set<User>().AsNoTracking()
+            .Where(user => userIds.Contains(user.Id))
+            .ToDictionaryAsync(user => user.Id, user => user.Name);
+        var defaultExperts = new Dictionary<long, List<string>>();
+        foreach (var invoiceId in invoiceIds)
+        {
+            var invoiceSources = sources.Where(source => source.InvoiceId == invoiceId).ToList();
+            var quoteIds = invoiceSources.Select(source => source.QuoteId.ToString()).ToHashSet();
+            var rfqIds = invoiceSources.Select(source => source.RfqId.ToString()).ToHashSet();
+            defaultExperts[invoiceId] = invoiceSources.Select(source => source.QuoteOwnerId)
+                .Concat(invoiceSources.Where(source => source.RfqOwnerId.HasValue).Select(source => source.RfqOwnerId!.Value))
+                .Select(id => ownerNames.GetValueOrDefault(id))
+                .Concat(assignments.Where(assignment =>
+                    (assignment.EntityName == "Quote" && quoteIds.Contains(assignment.EntityId))
+                    || (assignment.EntityName == "RFQ" && rfqIds.Contains(assignment.EntityId)))
+                    .Select(assignment => assignment.Name))
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name)
+                .ToList();
+        }
+
+        return (Build("InvoiceItem"), Build("Invoice"), defaultExperts);
+    }
+
     public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
@@ -72,6 +144,8 @@ public class TotalPNService : ITotalPNService
         // Left-join with ProcurementItem (the worksheet) and POItem (the purchase).
         // Applying Includes to the source sets because they can't be applied to the anonymous type after join.
         var iiSet = _db.Set<InvoiceItem>()
+            // A cancelled Proforma Invoice is not an active project and must not appear in Total P/N.
+            .Where(i => !i.Invoice.IsCancelled)
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
             .Include(i => i.Invoice).ThenInclude(inv => inv.Quote)
             .Include(i => i.QuoteItem).ThenInclude(qi => qi!.ProcumentRecord).ThenInclude(pr => pr!.Supplier)
@@ -80,7 +154,14 @@ public class TotalPNService : ITotalPNService
         var piSet = _db.Set<ProcurementItem>()
             .Include(p => p.CurrentSupplier);
 
-        var poiSet = _db.Set<POItem>().Where(x => x.ReturnedAt == null)
+        var poiSet = _db.Set<POItem>().Where(x =>
+                // Returned PO items are historical only. Their procurement item is the single
+                // current source of truth when it is re-approved for a new PO.
+                x.ReturnedAt == null &&
+                // Keep unassigned PO items, but never join lines from cancelled/returned POs.
+                // This prevents those old PO rows from duplicating the re-opened procurement line.
+                (!x.POId.HasValue || (x.PurchaseOrder != null &&
+                    x.PurchaseOrder.Status != "Cancelled" && x.PurchaseOrder.Status != "Returned")))
             .Include(p => p.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(p => p.PartNumber)
             .Include(p => p.TrackNumbers)
@@ -97,21 +178,30 @@ public class TotalPNService : ITotalPNService
         // ── Permission / base filter ──
         if (!isSuperAdmin)
         {
+            var directAssignments = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "Invoice" || p.EntityName == "InvoiceItem")
+                .Select(p => new { p.EntityName, p.EntityId, p.UserId })
+                .ToListAsync();
             var perms = await _db.Set<EntityPermission>()
-                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "InvoiceItem" || p.EntityName == "Procurement" || p.EntityName == "PO"))
                 .Select(p => new { p.EntityName, p.EntityId })
                 .ToListAsync();
 
             var invIds  = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var invoiceItemIds = perms.Where(p => p.EntityName == "InvoiceItem").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var procIds = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var poIds   = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var assignedInvIds = directAssignments.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var assignedItemIds = directAssignments.Where(p => p.EntityName == "InvoiceItem").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
 
             baseQuery = baseQuery.Where(x =>
-                (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
-                invIds.Contains(x.ii.InvoiceId) ||
-                (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
-                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
-                (isAdmin && x.ii.Invoice.Quote.UserId == userId)); // Admins see their own invoices even if outside base
+                (assignedItemIds.Contains(x.ii.Id)
+                    ? invoiceItemIds.Contains(x.ii.Id)
+                    : assignedInvIds.Contains(x.ii.InvoiceId)
+                        ? invIds.Contains(x.ii.InvoiceId)
+                        : (x.ii.QuoteItem != null && x.ii.QuoteItem.Quote.RFQ.UserId == userId)
+                            || (x.pi != null && procIds.Contains(x.pi.ProcurementId))
+                            || (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value))));
         }
 
         // Keep only rows that have at least one valid part number (not null, empty, or literally "-")
@@ -186,22 +276,16 @@ public class TotalPNService : ITotalPNService
             .ApplyPaging(page)
             .ToListAsync();
 
-        // ── Batch-load helpers for creators/experts ──
-        var procIdsInPage = pageItems.Where(x => x.pi != null).Select(x => x.pi!.ProcurementId).Distinct().ToList();
-        var procMap = procIdsInPage.Count > 0
-            ? await _db.Set<Procurement>().Where(p => procIdsInPage.Contains(p.Id)).ToDictionaryAsync(p => p.Id)
-            : new Dictionary<long, Procurement>();
-
-        var quoteIdsInPage = pageItems.Select(x => x.ii.Invoice.QuoteId).Distinct().ToList();
-        var quoteMap = quoteIdsInPage.Count > 0
-            ? await _db.Set<Quote>().Where(q => quoteIdsInPage.Contains(q.Id)).ToDictionaryAsync(q => q.Id)
-            : new Dictionary<long, Quote>();
-
-        var allUserIds = procMap.Values.Where(p => p.CreatedByUserId.HasValue).Select(p => p.CreatedByUserId!.Value)
-            .Concat(quoteMap.Values.Select(q => q.UserId))
-            .Distinct().ToList();
-        var userMap = allUserIds.Count > 0
-            ? await _db.Set<User>().Where(u => allUserIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Name)
+        // Proforma Invoice assignments are authoritative. RFQ assignments are the fallback
+        // for an invoice that has not yet had any experts assigned directly to it.
+        var invoiceIdsInPage = pageItems.Select(x => x.ii.InvoiceId).Distinct().ToList();
+        var invoiceItemIdsInPage = pageItems.Select(x => x.ii.Id).Distinct().ToList();
+        var (itemExperts, invoiceExperts, defaultExperts) = await LoadExpertAssignmentsAsync(invoiceIdsInPage, invoiceItemIdsInPage);
+        var poItemSupplierIds = pageItems.Where(x => x.poi?.SupplierId != null)
+            .Select(x => x.poi!.SupplierId!.Value).Distinct().ToList();
+        var poItemSupplierNames = poItemSupplierIds.Count > 0
+            ? await _db.Set<Supplier>().Where(supplier => poItemSupplierIds.Contains(supplier.Id))
+                .ToDictionaryAsync(supplier => supplier.Id, supplier => supplier.Name)
             : new Dictionary<long, string>();
 
         // ── Final Invoices ──
@@ -258,9 +342,11 @@ public class TotalPNService : ITotalPNService
             var poi = x.poi;
             var po = poi?.PurchaseOrder;
 
-            //專家
-            string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
-            string? pExpert = pi != null && procMap.TryGetValue(pi.ProcurementId, out var ph) && ph.CreatedByUserId.HasValue && userMap.TryGetValue(ph.CreatedByUserId.Value, out var pun) ? pun : null;
+            var experts = itemExperts.TryGetValue(ii.Id, out var assignedItemExperts) && assignedItemExperts.Count > 0
+                ? assignedItemExperts
+                : invoiceExperts.TryGetValue(invoice.Id, out var assignedInvoiceExperts) && assignedInvoiceExperts.Count > 0
+                    ? assignedInvoiceExperts
+                    : defaultExperts.GetValueOrDefault(invoice.Id) ?? [];
 
             // Purchasing Price, Qty & Supplier Sync
             // Prioritize the Purchase Order (POItem) — it represents the final business commitment.
@@ -270,30 +356,22 @@ public class TotalPNService : ITotalPNService
             decimal purchUnit    = poi?.UnitPrice ?? pi?.UnitPrice ?? 0m;
             int     purchQty     = poi?.Qty ?? pi?.Qty ?? ii.Qty;
             decimal purchTotal   = purchQty * purchUnit;
-            string? supplierName = poi?.PurchaseOrder?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
+            string? supplierName = poi?.PurchaseOrder?.Supplier?.Name
+                ?? (poi?.SupplierId is long poItemSupplierId && poItemSupplierNames.TryGetValue(poItemSupplierId, out var poItemSupplierName)
+                    ? poItemSupplierName
+                    : null)
+                ?? pi?.CurrentSupplier?.Name
+                ?? pi?.SupplierName
+                ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
             var (sellUnit, sellTotal) = ResolveSellingPrice(ii);
             decimal rate = (customer?.CurrencyType == "Yuan" || customer?.CurrencyType == "Both") ? 7m : 1m;
 
-            // Status derivation logic
-            var status = "Not Started";
-            if (invoice.Status == "Running") status = "Under Contract";
-            if (poi != null) status = "Waiting For Payment";
-
-            // Check files
-            var fileKey = $"{invoice.InvoiceNumber}|{supplierName}";
-            var hasFiles = fileCategories.TryGetValue(fileKey, out var cats);
-            if (hasFiles && cats!.Contains("po")) status = "PO Sent";
-            if (hasFiles && cats!.Contains("supplier_invoice")) status = "Document Added";
-            if (po?.Status == "Waiting For Payment") status = "Waiting For Payment";
-            if (hasFiles && cats!.Contains("our_pop")) status = "Payment Done";
-            
-            // Explicit tracking status from DB (download triggers)
-            if (poi?.Status == "Waiting For Shipment") status = "Waiting For Shipment";
-            if (poi?.Status == "Waiting For supplier to ship") status = "Waiting For Shipment";
-            
-            // Terminal status: tracking added
-            if (poi?.TrackNumbers != null && poi.TrackNumbers.Any()) status = "Ship to Warehouse/Customer";
+            // POItem/PI line status is authoritative. Automatic workflow events write it once;
+            // this report only formats the In Shop countdown instead of re-deriving a different state.
+            var status = poi != null
+                ? PurchaseOrderStatusFlow.DisplayStatus(poi)
+                : ii.Status ?? PurchaseOrderStatusFlow.NotStarted;
 
             // Payment / Invoice meta
             FinalInvoice? fi = finalInvoiceMap.TryGetValue(invoice.Id, out var fiv) ? fiv : null;
@@ -304,10 +382,12 @@ public class TotalPNService : ITotalPNService
             {
                 Id = poi?.Id ?? -ii.Id, // Use negative InvoiceItemID as stable ID for unassigned rows
                 PurchaseOrderId = po?.Id,
+                PurchaseOrderStatus = po?.Status,
+                ProcurementId = pi?.ProcurementId,
+                ProcurementItemId = pi?.Id,
                 PONumber = po?.PONumber,
                 PORef = poi?.PORef,
-                QuotationExpert = qExpert,
-                ProcurementExpert = pExpert,
+                Experts = experts,
                 Customer = customer?.CustomerCode,
                 Supplier = supplierName,
                 PartNumber = poi?.PartNumber?.Name ?? pi?.PartNumberName ?? ii.QuoteItem?.PartNumber?.Name,
@@ -329,7 +409,10 @@ public class TotalPNService : ITotalPNService
                         .Where(s => !string.IsNullOrEmpty(s))
                         .Distinct())
                     : null,
+                InvoiceId = invoice.Id,
+                InvoiceItemId = ii.Id,
                 CustomerInvoiceNumber = invoice.InvoiceNumber,
+                ProformaInvoiceStatus = invoice.Status,
                 PurchasingUnitPriceUsd = purchUnit,
                 PurchasingTotalPriceUsd = purchTotal,
                 POAmount = po?.TotalAmount,
@@ -345,7 +428,7 @@ public class TotalPNService : ITotalPNService
                 InvDate = fi?.CreatedAt,
                 Received = recvTotal,
                 ReceivedDate = recvDate,
-                PaymentTerm = invoice.Status,
+                PaymentTerm = invoice.PaymentStatus,
                 CustomerDeliveryTime = invoice.DueDate,
                 Rate = rate,
                 TrackNumbers = poi?.TrackNumbers != null ? string.Join(", ", poi.TrackNumbers.Select(t => t.TrackNumber)) : null,
@@ -393,17 +476,19 @@ public class TotalPNService : ITotalPNService
         if (!isSuperAdmin)
         {
             var perms = await _db.Set<EntityPermission>()
-                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "InvoiceItem" || p.EntityName == "Procurement" || p.EntityName == "PO"))
                 .Select(p => new { p.EntityName, p.EntityId })
                 .ToListAsync();
 
             var invIds  = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var invoiceItemIds = perms.Where(p => p.EntityName == "InvoiceItem").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var procIds = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var poIds   = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
 
             baseQuery = baseQuery.Where(x =>
                 (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
                 invIds.Contains(x.ii.InvoiceId) ||
+                invoiceItemIds.Contains(x.ii.Id) ||
                 (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
                 (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
                 (isAdmin && x.ii.Invoice.Quote.UserId == userId));
@@ -431,24 +516,6 @@ public class TotalPNService : ITotalPNService
             .ApplyPaging(page)
             .ToListAsync();
 
-        // Batch-load experts
-        var procIdsInPage = pageItems.Where(x => x.pi != null).Select(x => x.pi!.ProcurementId).Distinct().ToList();
-        var procMap = procIdsInPage.Count > 0
-            ? await _db.Set<Procurement>().Where(p => procIdsInPage.Contains(p.Id)).ToDictionaryAsync(p => p.Id)
-            : new Dictionary<long, Procurement>();
-
-        var quoteIdsInPage = pageItems.Select(x => x.ii.Invoice.QuoteId).Distinct().ToList();
-        var quoteMap = quoteIdsInPage.Count > 0
-            ? await _db.Set<Quote>().Where(q => quoteIdsInPage.Contains(q.Id)).ToDictionaryAsync(q => q.Id)
-            : new Dictionary<long, Quote>();
-
-        var allUserIds = procMap.Values.Where(p => p.CreatedByUserId.HasValue).Select(p => p.CreatedByUserId!.Value)
-            .Concat(quoteMap.Values.Select(q => q.UserId))
-            .Distinct().ToList();
-        var userMap = allUserIds.Count > 0
-            ? await _db.Set<User>().Where(u => allUserIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Name)
-            : new Dictionary<long, string>();
-
         var rows = pageItems.Select(x =>
         {
             var ii = x.ii;
@@ -458,7 +525,6 @@ public class TotalPNService : ITotalPNService
             var poi = x.poi;
             var po = poi.PurchaseOrder;
 
-            string? qExpert = quoteMap.TryGetValue(invoice.QuoteId, out var qv) && userMap.TryGetValue(qv.UserId, out var qun) ? qun : null;
             string? supplierName = po?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
             // Buy price comes off the POItem below; sell price off the invoice line, through the
@@ -477,8 +543,8 @@ public class TotalPNService : ITotalPNService
                 PurchaseOrderId = po?.Id,
                 PONumber = po?.PONumber,
                 PORef = poi.PORef,
-                QuotationExpert = qExpert,
                 Customer = customer?.CustomerCode,
+                InvoiceId = invoice.Id,
                 CustomerInvoiceNumber = invoice.InvoiceNumber,
                 Supplier = supplierName,
 
@@ -597,19 +663,28 @@ public class TotalPNService : ITotalPNService
 
         if (!isSuperAdmin)
         {
+            var directAssignments = await _db.Set<EntityPermission>()
+                .Where(p => p.EntityName == "Invoice" || p.EntityName == "InvoiceItem")
+                .Select(p => new { p.EntityName, p.EntityId, p.UserId })
+                .ToListAsync();
             var perms = await _db.Set<EntityPermission>()
-                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "Procurement" || p.EntityName == "PO"))
+                .Where(p => p.UserId == userId && (p.EntityName == "Invoice" || p.EntityName == "InvoiceItem" || p.EntityName == "Procurement" || p.EntityName == "PO"))
                 .Select(p => new { p.EntityName, p.EntityId }).ToListAsync();
             var invIds   = perms.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var invoiceItemIds = perms.Where(p => p.EntityName == "InvoiceItem").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var procIds  = perms.Where(p => p.EntityName == "Procurement").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             var poIds    = perms.Where(p => p.EntityName == "PO").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var assignedInvIds = directAssignments.Where(p => p.EntityName == "Invoice").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
+            var assignedItemIds = directAssignments.Where(p => p.EntityName == "InvoiceItem").Select(p => long.TryParse(p.EntityId, out var l) ? l : -1L).Where(l => l > 0).ToHashSet();
             
             baseQuery = baseQuery.Where(x =>
-                (userBases != null && userBases.Length > 0 && (x.ii.Invoice.Customer.Base == null || userBases.Contains(x.ii.Invoice.Customer.Base.Value))) ||
-                invIds.Contains(x.ii.InvoiceId) ||
-                (x.pi != null && procIds.Contains(x.pi.ProcurementId)) ||
-                (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value)) ||
-                (isAdmin && x.ii.Invoice.Quote.UserId == userId));
+                (assignedItemIds.Contains(x.ii.Id)
+                    ? invoiceItemIds.Contains(x.ii.Id)
+                    : assignedInvIds.Contains(x.ii.InvoiceId)
+                        ? invIds.Contains(x.ii.InvoiceId)
+                        : (x.ii.QuoteItem != null && x.ii.QuoteItem.Quote.RFQ.UserId == userId)
+                            || (x.pi != null && procIds.Contains(x.pi.ProcurementId))
+                            || (x.poi != null && x.poi.POId.HasValue && poIds.Contains(x.poi.POId.Value))));
         }
 
         // Keep only rows that have at least one valid part number (not null, empty, or literally "-")
@@ -697,7 +772,11 @@ public class TotalPNService : ITotalPNService
     {
         var item = await _db.Set<POItem>().FindAsync(poItemId);
         if (item == null) return false;
-        if (request.Status != null) item.Status = request.Status;
+        if (request.Status != null)
+        {
+            item.Status = request.Status;
+            await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, new[] { item }, request.Status);
+        }
         if (request.Note != null) item.Note = request.Note;
         await _db.SaveChangesAsync();
         return true;

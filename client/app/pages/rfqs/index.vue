@@ -191,6 +191,7 @@
           </v-btn>
         </div>
         <v-data-table-server
+          class="fixed-header-table"
           :headers="headers"
           :items="items"
           :items-length="totalItems"
@@ -198,6 +199,8 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          fixed-header
+          height="calc(100vh - 210px)"
           :sort-by="sort.sortByModel.value"
           hover
           :row-props="getRowProps"
@@ -1532,7 +1535,7 @@ async function openAssignModal(rfq: any) {
     // 3. Ensure we have the target user list (only once)
     if (!quickAssignUsers.value.length) {
       const all = await api.get<any[]>('/users')
-      const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
+      const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA' , 'SDR']
       quickAssignUsers.value = all.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
     }
   } catch (e) {
@@ -2276,6 +2279,29 @@ async function submitRfq() {
 .cf-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .cf-filter-btn { opacity: 0.5; flex-shrink: 0; }
 .cf-filter-btn:hover, .cf-filter-btn.v-btn--active { opacity: 1; }
+
+:deep(.fixed-header-table .v-table__wrapper) {
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table) {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  overflow: visible !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table > thead) {
+  position: static !important;
+}
+
+:deep(.fixed-header-table thead th) {
+  position: sticky !important;
+  top: 0;
+  z-index: 11 !important;
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 0 rgba(var(--v-border-color), 0.7);
+}
 
 :deep(.unread-rfq-row) {
   background-color: rgba(66, 165, 245, 0.12) !important;

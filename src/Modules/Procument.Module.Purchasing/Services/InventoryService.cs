@@ -9,6 +9,7 @@ public interface IInventoryService
     Task<List<InventoryItemResponse>> GetAllAsync();
     Task<InventoryItemResponse> SaveAsync(SaveInventoryItemRequest request);
     Task<bool> DeleteAsync(long id);
+    Task<int> DeleteSupplierAsync(long supplierId);
     Task<BulkImportResult> BulkImportAsync(BulkImportInventoryRequest request);
     Task<List<InventoryItemResponse>> BulkSearchInventory(BulkSearch search);
 }
@@ -172,6 +173,13 @@ public class InventoryService : IInventoryService
         _db.Set<InventoryItem>().Remove(item);
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    public Task<int> DeleteSupplierAsync(long supplierId)
+    {
+        return _db.Set<InventoryItem>()
+            .Where(item => item.CompanyId == supplierId)
+            .ExecuteDeleteAsync();
     }
 
     public async Task<BulkImportResult> BulkImportAsync(BulkImportInventoryRequest request)

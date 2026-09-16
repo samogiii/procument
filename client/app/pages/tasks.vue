@@ -235,7 +235,7 @@ const editDialog = ref(false)
 const formValid = ref(false)
 const editFormValid = ref(false)
 
-const allowedUsers = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
+const allowedUsers = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA', 'SDR']
 
 const newTask = ref({
   title: '',

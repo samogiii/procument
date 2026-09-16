@@ -49,5 +49,6 @@ public class ProcumentRecord : BaseEntity
     public User? User { get; set; }
     public ProcumentRecord? ParentProcument { get; set; }
     public ICollection<ProcumentRecord> ShopRecords { get; set; } = new List<ProcumentRecord>();
+    public ICollection<SupplierQuoteCertificate> Certificates { get; set; } = new List<SupplierQuoteCertificate>();
     public ICollection<POItem> POItems { get; set; } = new List<POItem>();
 }

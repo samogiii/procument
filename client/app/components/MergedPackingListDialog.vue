@@ -292,6 +292,7 @@ watch(model, (open) => {
   loadError.value = ''
   packages.value = [{ weight: '', dimensions: '' }]
   packingDate.value = new Date().toISOString().slice(0, 10)
+  selectedPreset.value = ''
   loadInvoices()
   loadPresets()
 })
@@ -313,12 +314,17 @@ async function loadPresets() {
   presetsLoading.value = true
   try {
     apiPresets.value = await api.get<any[]>('/companypresets')
-    if (!selectedPreset.value && apiPresets.value.length) selectedPreset.value = apiPresets.value[0].name
+    if (mergedData.value) selectCustomerBasePreset(mergedData.value.customerBase)
   } catch {
     apiPresets.value = []
   } finally {
     presetsLoading.value = false
   }
+}
+
+function selectCustomerBasePreset(customerBase: number | null | undefined) {
+  const preset = apiPresets.value.find((p: any) => Number(p.sortOrder) === Number(customerBase))
+  selectedPreset.value = preset?.name ?? apiPresets.value[0]?.name ?? ''
 }
 
 // ── Same-customer constraint ──
@@ -372,6 +378,7 @@ watch(pickedIds, async (ids) => {
     const data = await api.post<any>('/final-invoices/packing-list-data', { invoiceIds: [...ids] })
     if (token !== loadToken) return
     mergedData.value = data
+    selectCustomerBasePreset(data.customerBase)
     selectAllParts()
   } catch (e: any) {
     if (token !== loadToken) return

@@ -84,7 +84,7 @@
             <div class="text-caption text-info">{{ d.acceptedPOs }}/{{ d.totalPOs }} accepted</div>
           </v-card>
         </v-col>
-        <v-col cols="12" sm="6" md="3">
+        <v-col v-if="!isBlockedFromInvoices" cols="12" sm="6" md="3">
           <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/invoices')">
             <div class="d-flex align-center mb-2">
               <v-avatar color="warning" size="36" variant="tonal"><v-icon icon="mdi-receipt-text" size="20" /></v-avatar>
@@ -96,7 +96,7 @@
             <div class="text-caption text-warning clickable-sub" @click.stop="navigateTo('/invoices?status=Paid')">Paid: ${{ fmtNum(d.paidInvoiceValue) }}</div>
           </v-card>
         </v-col>
-        <v-col cols="12" sm="6" md="3">
+        <v-col v-if="!isBlockedFromInvoices" cols="12" sm="6" md="3">
           <v-card class="glass-card pa-4">
             <div class="d-flex align-center mb-2">
               <v-avatar color="secondary" size="36" variant="tonal"><v-icon icon="mdi-trending-up" size="20" /></v-avatar>
@@ -311,6 +311,7 @@
 <script setup lang="ts">
 const api = useApi()
 const authStore = useAuthStore()
+const isBlockedFromInvoices = computed(() => ['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase()))
 const isAdmin = computed(() => authStore.isAdmin)
 const loading = ref(true)
 const d = ref<any>({})
@@ -426,7 +427,9 @@ const statCards = computed(() => {
     { title: 'RFQs', value: v.totalRfqs ?? 0, icon: 'mdi-file-document-outline', color: 'primary', borderColor: c.primary, to: '/rfqs' },
     { title: 'Assigned RFQs', value: v.rfqCount ?? 0, icon: 'mdi-file-check-outline', color: 'purple', borderColor: '#9C27B0', to: '/rfqs' },
     { title: 'Quotes', value: v.totalQuotes ?? 0, icon: 'mdi-currency-usd', color: 'info', borderColor: c.info, to: '/quotes' },
-    { title: 'Invoices', value: v.totalInvoices ?? 0, icon: 'mdi-receipt-text-outline', color: 'warning', borderColor: c.warning, to: '/invoices' },
+    ...(!isBlockedFromInvoices.value
+      ? [{ title: 'Invoices', value: v.totalInvoices ?? 0, icon: 'mdi-receipt-text-outline', color: 'warning', borderColor: c.warning, to: '/invoices' }]
+      : []),
     { title: 'POs', value: v.totalPOs ?? 0, icon: 'mdi-package-variant-closed', color: 'secondary', borderColor: c.secondary, to: '/purchase-orders' },
     { title: 'Pending RFQs', value: v.pendingRfqs ?? 0, icon: 'mdi-file-clock-outline', color: 'error', borderColor: c.error, to: '/rfqs?status=Open' },
   ]

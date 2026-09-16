@@ -28,4 +28,6 @@ public class Customer : AuditableEntity
     public decimal? Coef1 { get; set; }
     public decimal? Coef2 { get; set; }
     public decimal? Coef3 { get; set; }
+    public bool CreditEnabled { get; set; }
+    public decimal? MaxCredit { get; set; }
 }

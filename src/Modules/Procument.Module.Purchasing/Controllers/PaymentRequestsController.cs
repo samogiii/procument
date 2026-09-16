@@ -7,6 +7,7 @@ namespace Procument.Module.Purchasing.Controllers;
 public class CreatePaymentRequestBody
 {
     public long? CompanyPresetId { get; set; }
+    public decimal? Amount { get; set; }
 }
 
 [ApiController]
@@ -51,7 +52,16 @@ public class PaymentRequestsController : ControllerBase
     [HttpPost("po/{poId}")]
     public async Task<ActionResult<PaymentRequestResponse>> Create(long poId, [FromBody] CreatePaymentRequestBody? body = null)
     {
-        return await _service.CreateAsync(poId, body?.CompanyPresetId);
+        try { return await _service.CreateAsync(poId, body?.CompanyPresetId, body?.Amount); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPatch("{id}/amount")]
+    public async Task<ActionResult<PaymentRequestResponse>> UpdateAmount(long id, [FromBody] CreatePaymentRequestBody body)
+    {
+        if (!body.Amount.HasValue) return BadRequest(new { message = "Amount is required." });
+        try { return await _service.UpdateAmountAsync(id, body.Amount.Value); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
 

@@ -13,6 +13,8 @@ public class PurchaseOrder : BaseEntity
     /// Ship To Customer | Completed | Cancelled | Returned (items recycled back into Procurement).
     /// </summary>
     public string Status { get; set; } = "Draft";
+    /// <summary>Optional fulfilment route selected while the PO is in progress: EndUser or In Shop.</summary>
+    public string? FulfillmentMode { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? RejectionNote { get; set; }
     /// <summary>Free-text subject/title for the PO (mirrors Invoice.Subject). Editable on the PO page.</summary>
@@ -57,6 +59,8 @@ public class PurchaseOrder : BaseEntity
     // ─── Payment Wallet Preference ───
     /// <summary>Wallet selected at PO creation time — used as the default debit wallet on payment acceptance.</summary>
     public long? PreferredWalletId { get; set; }
+    /// <summary>The buying company, independent of the wallet used for each payment.</summary>
+    public long? CompanyPresetId { get; set; }
     // Foreign keys
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }

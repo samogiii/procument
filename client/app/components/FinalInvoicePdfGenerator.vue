@@ -284,6 +284,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{ invoiceId: number | string }>()
+const emit = defineEmits<{ (e: 'documents-updated'): void }>()
 const model = defineModel<boolean>({ default: false })
 const api = useApi()
 
@@ -303,9 +304,17 @@ const selectedPreset = ref<string>('Custom')
 
 async function loadPresets() {
   presetsLoading.value = true
-  try { apiPresets.value = await api.get<any[]>('/companypresets') }
+  try {
+    apiPresets.value = await api.get<any[]>('/companypresets')
+  }
   catch { apiPresets.value = [] }
   finally { presetsLoading.value = false }
+}
+
+/** Use the company preset assigned to the invoice customer's base. */
+function selectCustomerBasePreset(customerBase: number | null | undefined) {
+  const preset = apiPresets.value.find((p: any) => Number(p.sortOrder) === Number(customerBase))
+  selectedPreset.value = preset?.name ?? apiPresets.value[0]?.name ?? 'Custom'
 }
 
 const companyPresetOptions = computed(() => [
@@ -319,11 +328,6 @@ const theme = computed(() => {
     primary: preset?.primaryColor || '#1a2744',
     accent:  preset?.accentColor  || '#2563eb',
   }
-})
-
-watch(apiPresets, (presets) => {
-  if (!presets.length) return
-  if (selectedPreset.value === 'Custom') selectedPreset.value = presets[0].name
 })
 
 watch(selectedPreset, async (val) => {
@@ -545,7 +549,8 @@ function onLogoUpload(files: File[] | File | null) {
 
 watch(model, async (open) => {
   if (open) {
-    loadPresets()
+    selectedPreset.value = 'Custom'
+    await loadPresets()
     if (!pdfData.value.invoiceNumber) {
       loadingData.value = true
       try {
@@ -589,6 +594,7 @@ watch(model, async (open) => {
       } catch (e) { console.error('[FinalInvoicePdf] Failed to load data', e) }
       finally { loadingData.value = false }
     }
+    selectCustomerBasePreset(pdfData.value.customerBase)
   }
 })
 
@@ -896,6 +902,18 @@ const renderedHtml = computed(() => {
 
 const pdfContent = ref<HTMLElement | null>(null)
 
+async function saveGeneratedDocument(blob: Blob, filename: string, category: 'invoice' | 'packing_list') {
+  const authStore = useAuthStore()
+  const form = new FormData()
+  form.append('file', new File([blob], filename, { type: 'application/pdf' }))
+  form.append('category', category)
+  await $fetch(`${api.baseURL}/documents/final-invoice/${props.invoiceId}/upload`, {
+    method: 'POST',
+    body: form,
+    headers: { Authorization: `Bearer ${authStore.user?.token}` },
+  })
+}
+
 async function downloadPdf() {
   generating.value = true
   try {
@@ -986,12 +1004,19 @@ async function downloadPdf() {
       link.href = url
       const customerName = (d.customerName || '').replace(/\s+/g, '_')
       const currencySuffix = curr.currency.includes('CNY') ? ' - Yuan' : ' - Dollar'
-      link.setAttribute('download', `${docNumber.value || 'FinalInvoice'}-${customerName}${currencySuffix}.pdf`)
+      const fileName = `${docNumber.value || 'FinalInvoice'}-${customerName}${currencySuffix}.pdf`
+      link.setAttribute('download', fileName)
       document.body.appendChild(link)
       link.click()
       link.parentNode?.removeChild(link)
       window.URL.revokeObjectURL(url)
+      try {
+        await saveGeneratedDocument(response, fileName, 'invoice')
+      } catch (uploadError) {
+        console.warn('Final invoice PDF auto-save failed:', uploadError)
+      }
     }
+    emit('documents-updated')
   } catch (err) { console.error('PDF generation failed:', err) }
   finally { generating.value = false }
 }
@@ -1054,11 +1079,18 @@ async function downloadPackingList() {
     const link = document.createElement('a')
     link.href = url
     const customerName = (d.customerName || '').replace(/\s+/g, '_')
-    link.setAttribute('download', `PackingList-${docNumber.value || 'Invoice'}-${customerName}.pdf`)
+    const fileName = `PackingList-${docNumber.value || 'Invoice'}-${customerName}.pdf`
+    link.setAttribute('download', fileName)
     document.body.appendChild(link)
     link.click()
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
+    try {
+      await saveGeneratedDocument(response, fileName, 'packing_list')
+      emit('documents-updated')
+    } catch (uploadError) {
+      console.warn('Packing list PDF auto-save failed:', uploadError)
+    }
     showPackingDialog.value = false
   } catch (err) { console.error('Packing List PDF generation failed:', err) }
   finally { generatingPacking.value = false }

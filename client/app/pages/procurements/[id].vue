@@ -6,7 +6,7 @@
   <div v-else-if="procurement">
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-3 mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/procurements" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="$router.back()" />
       <div>
         <div class="d-flex align-center gap-2">
           <h1 class="text-h5 font-weight-bold">{{ procurement.procurementNumber }}</h1>
@@ -114,6 +114,9 @@
     </v-card>
 
     <!-- Items Grid -->
+    <v-alert v-if="!isInvoicePurchaseEditable" type="info" variant="tonal" class="mb-4">
+      Purchase items are read-only until the Proforma Invoice status is <strong>Waiting For Prepayment</strong> or <strong>Running</strong>.
+    </v-alert>
     <div v-for="(item, idx) in procurement.items" :key="item.id" class="mb-4">
       <v-card class="glass-card overflow-hidden" :class="{ 'opacity-60': item.itemStatus === 'Cancelled' }">
         <!-- Collapsed Summary -->
@@ -185,7 +188,7 @@
           </div>
 
           <div style="width: 120px;" class="text-center">
-            <v-menu v-if="!isFinalizedOrCancelled">
+            <v-menu v-if="!isPurchaseItemsReadOnly">
               <template #activator="{ props }">
                 <v-chip 
                   v-bind="props" 
@@ -308,7 +311,7 @@
                   </v-chip>
                 </div>
                 <v-btn
-                  v-if="!isFinalizedOrCancelled"
+                  v-if="!isPurchaseItemsReadOnly"
                   size="x-small"
                   color="primary"
                   variant="flat"
@@ -343,7 +346,7 @@
                         <!-- Checkbox — multiple selections split this part into one PO line per supplier -->
                         <v-checkbox
                           :model-value="sq.isSelected"
-                          :readonly="isFinalizedOrCancelled || sq.hasActivePOItem"
+                          :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem"
                           color="success"
                           density="compact"
                           hide-details
@@ -356,15 +359,15 @@
                           v-model="sq.supplierName"
                           class="quote-input"
                           placeholder="Name..."
-                          :readonly="isFinalizedOrCancelled || sq.hasActivePOItem"
+                          :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem"
                           list="procurement-supplier-suggestions"
                           @input="onSupplierNameInput(sq, ($event.target as HTMLInputElement).value)"
                           @blur="saveSupplierQuote(item, sq)"
                         />
                       </td>
-                      <td><input type="text" v-model="sq.alt" class="quote-input" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="text" v-model="sq.alt" class="quote-input" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <td>
-                        <select v-model="sq.condition" class="quote-input" :disabled="isFinalizedOrCancelled || sq.hasActivePOItem" @change="saveSupplierQuote(item, sq)">
+                        <select v-model="sq.condition" class="quote-input" :disabled="isPurchaseItemsReadOnly || sq.hasActivePOItem" @change="saveSupplierQuote(item, sq)">
                           <option value="NE">NE</option>
                           <option value="OH">OH</option>
                           <option value="SV">SV</option>
@@ -374,12 +377,12 @@
                       </td>
                       <!-- Qty is always the Invoice accepted qty — read-only so all suppliers are compared on equal footing -->
                       <td class="text-center text-caption font-weight-bold px-2">{{ item.acceptedQty }}</td>
-                      <td><input type="number" v-model.number="sq.price" class="quote-input text-right" step="0.01" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td><input type="number" v-model.number="sq.shippingCost" class="quote-input text-right" step="0.01" placeholder="0.00" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="number" v-model.number="sq.price" class="quote-input text-right" step="0.01" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="number" v-model.number="sq.shippingCost" class="quote-input text-right" step="0.01" placeholder="0.00" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <!-- Total = Invoice Qty × Supplier Price -->
                       <td class="text-right text-caption font-weight-bold px-2">${{ formatPrice((item.acceptedQty || 0) * (sq.price || 0)) }}</td>
-                      <td><input type="text" v-model="sq.leadTime" class="quote-input" placeholder="e.g. 3-5 days" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
-                      <td><input type="text" v-model="sq.note" class="quote-input" :readonly="isFinalizedOrCancelled || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="text" v-model="sq.leadTime" class="quote-input" placeholder="e.g. 3-5 days" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
+                      <td><input type="text" v-model="sq.note" class="quote-input" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
 
                       <!-- Action cell -->
                       <td class="text-center px-1">
@@ -405,7 +408,7 @@
                         </template>
                         <!-- Non-selected row: delete button (non-admin or unselected) -->
                         <v-btn
-                          v-else-if="!sq.isSelected && !isFinalizedOrCancelled"
+                          v-else-if="!sq.isSelected && !isPurchaseItemsReadOnly"
                           icon="mdi-delete"
                           variant="text"
                           size="x-small"
@@ -589,6 +592,12 @@ const supplierSuggestions = ref<{ id: number; name: string; username?: string; s
 const isFinalizedOrCancelled = computed(() => 
   procurement.value?.status === 'Finalized' || procurement.value?.status === 'Cancelled'
 )
+const isInvoicePurchaseEditable = computed(() =>
+  ['Waiting For Prepayment', 'Running'].includes(procurement.value?.invoiceStatus)
+)
+const isPurchaseItemsReadOnly = computed(() =>
+  isFinalizedOrCancelled.value || !isInvoicePurchaseEditable.value
+)
 
 function showSnack(text: string, color = 'success') {
   snackbarText.value = text
@@ -637,7 +646,7 @@ async function loadDetail() {
 
       if (!users.value.length) {
         const allUsers = await api.get<any[]>('/users')
-        const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA']
+        const allowed = ['GHS', 'MOR', 'MRD', 'SYD', 'AMJ', 'SHBN', 'MGH', 'AHM','AZA' , 'SDR']
         users.value = allUsers.filter(u => allowed.includes(u.name) || allowed.includes(u.username))
       }
     }
@@ -725,7 +734,7 @@ function summaryTotal(item: any): number {
 
 // ── Item Edits ──
 async function updateItem(item: any, patch: any) {
-  if (isFinalizedOrCancelled.value) return
+  if (isPurchaseItemsReadOnly.value) return
   try {
     await api.patch(`/procurements/${procurement.value.id}/items/${item.id}`, patch)
     Object.assign(item, patch)
@@ -753,7 +762,7 @@ function addSupplierQuote(item: any) {
 }
 
 async function saveSupplierQuote(item: any, sq: any) {
-  if (isFinalizedOrCancelled.value || !sq.supplierName.trim()) return
+  if (isPurchaseItemsReadOnly.value || !sq.supplierName.trim()) return
   try {
     const typed = (sq.supplierName || '').trim().toLowerCase()
     const match = supplierSuggestions.value.find(s => s.name.toLowerCase() === typed)
@@ -804,7 +813,7 @@ function onSupplierNameInput(sq: any, val: string) {
 }
 
 async function selectSupplierQuote(item: any, sq: any) {
-  if (isFinalizedOrCancelled.value || !sq.id) return
+  if (isPurchaseItemsReadOnly.value || !sq.id) return
   // Multi-select: backend toggles this single quote. Optimistically flip locally so
   // the chip + checkbox react instantly; loadDetail() resyncs derived item.UnitPrice etc.
   const wasSelected = sq.isSelected
@@ -820,7 +829,7 @@ async function selectSupplierQuote(item: any, sq: any) {
 }
 
 async function deleteSupplierQuote(item: any, sq: any) {
-  if (isFinalizedOrCancelled.value) return
+  if (isPurchaseItemsReadOnly.value) return
   if (!sq.id) {
     item.supplierQuotes = item.supplierQuotes.filter((q: any) => q !== sq)
     return

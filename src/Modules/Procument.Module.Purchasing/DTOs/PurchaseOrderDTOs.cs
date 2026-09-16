@@ -8,13 +8,9 @@ public class CreatePORequest
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }
     public List<long> POItemIds { get; set; } = new();
-    /// <summary>Wallet chosen at creation time — used as the default debit wallet on payment acceptance.</summary>
+    /// <summary>Legacy field; new POs select their actual debit wallet with each POP.</summary>
     public long? PreferredWalletId { get; set; }
-    /// <summary>
-    /// Company preset chosen at creation time (which of our companies buys / pays / appears on the PDF).
-    /// Persisted indirectly: the preset's payment wallet becomes <see cref="PreferredWalletId"/>, so the
-    /// preset can always be resolved back from the PO without any extra column.
-    /// </summary>
+    /// <summary>The buying company printed on PO and payment request documents.</summary>
     public long? CompanyPresetId { get; set; }
 }
 
@@ -43,12 +39,16 @@ public class POResponse
     public DateTime? PODate { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
+    public string? FulfillmentMode { get; set; }
     public DateTime CreatedAt { get; set; }
     public long SupplierId { get; set; }
     public string SupplierName { get; set; } = string.Empty;
     public long? InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
     public long? CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    /// <summary>Existing users assigned to the PO, including the originating requester where available.</summary>
+    public List<string> RequestUsers { get; set; } = [];
     public string? RejectionNote { get; set; }
     public string? Subject { get; set; }
     public string AdminApproval { get; set; } = "Pending";
@@ -63,11 +63,11 @@ public class POResponse
     public decimal? ProcessingFee { get; set; }
     public decimal? Shipping { get; set; }
     public decimal? Tax { get; set; }
-    /// <summary>Wallet chosen at creation time — pre-selected in the payment acceptance wallet picker.</summary>
+    /// <summary>Legacy wallet preference; never used to select a payment wallet.</summary>
     public long? PreferredWalletId { get; set; }
     public string? PreferredWalletName { get; set; }
     public string? PreferredWalletCompany { get; set; }
-    /// <summary>Company preset behind the preferred wallet — the company this PO is placed / paid from.</summary>
+    /// <summary>The company placing this PO, independent of payment wallets.</summary>
     public long? CompanyPresetId { get; set; }
     public string? CompanyPresetName { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
@@ -124,7 +124,17 @@ public class POItemResponse
     public string? Condition { get; set; }
     public long? SupplierId { get; set; }
     public string? SupplierName { get; set; }
+    public string Status { get; set; } = "Not Started";
+    public int? InShopLeadTimeDays { get; set; }
+    public DateTime? InShopStartedAt { get; set; }
+    public int? InShopRemainingDays { get; set; }
+    public string DisplayStatus { get; set; } = "Not Started";
     public List<TrackNumberResponse> TrackNumbers { get; set; } = new();
+}
+
+public class UpdatePOItemInShopRequest
+{
+    public int Days { get; set; }
 }
 
 // ──── Import Detail DTOs ────
@@ -133,6 +143,8 @@ public class POImportDetailResponse
 {
     public long Id { get; set; }
     public long PurchaseOrderId { get; set; }
+    public string? Beneficiary { get; set; }
+    public string? Reference { get; set; }
     public string? BankName { get; set; }
     public string? BankAccountNumber { get; set; }
     public string? BankAddress { get; set; }
@@ -150,6 +162,8 @@ public class POImportDetailResponse
 
 public class SavePOImportDetailRequest
 {
+    public string? Beneficiary { get; set; }
+    public string? Reference { get; set; }
     public string? BankName { get; set; }
     public string? BankAccountNumber { get; set; }
     public string? BankAddress { get; set; }
@@ -282,10 +296,13 @@ public class TotalPNRowResponse
 {
     public long Id { get; set; }                       // POItem.Id (used by inline edit)
     public long? PurchaseOrderId { get; set; }         // PurchaseOrder.Id (used for navigation link)
+    public string? PurchaseOrderStatus { get; set; }
+    public long? ProcurementId { get; set; }
+    public long? ProcurementItemId { get; set; }
     public string? PONumber { get; set; }              // PurchaseOrder.PONumber, null until assigned
     public int? PORef { get; set; }                    // POItem.PORef (line # within PO)
-    public string? QuotationExpert { get; set; }       // Quote.User.Name
-    public string? ProcurementExpert { get; set; }     // Procurement.CreatedByUser.Name
+    /// <summary>Users assigned to the Proforma Invoice; falls back to RFQ assignments when the invoice has none.</summary>
+    public List<string> Experts { get; set; } = [];
     public string? Customer { get; set; }              // Invoice.Customer.Name
     public string? Supplier { get; set; }              // resolved supplier name
     public string? PartNumber { get; set; }            // POItem.PartNumber.Name
@@ -296,7 +313,10 @@ public class TotalPNRowResponse
     public string? Warehouse { get; set; }             // RFQ.ExType → "Warehouse" / "Vendor" / "Customer"
     public string? SerialNumber { get; set; }          // SN# — from ShipmentNote(s) linked to this PO item's track numbers
     public string? ShippingStatus { get; set; }        // POItemTrackNumber.Status (most recent / joined)
+    public long? InvoiceId { get; set; }               // Proforma Invoice.Id (used for navigation link)
+    public long InvoiceItemId { get; set; }
     public string? CustomerInvoiceNumber { get; set; } // Invoice.InvoiceNumber (PI# to Customer)
+    public string? ProformaInvoiceStatus { get; set; }
     public decimal PurchasingUnitPriceUsd { get; set; }
     public decimal PurchasingTotalPriceUsd { get; set; }
     public decimal? POAmount { get; set; }             // PurchaseOrder.TotalAmount
@@ -312,7 +332,7 @@ public class TotalPNRowResponse
     public DateTime? InvDate { get; set; }             // FinalInvoice.CreatedAt
     public decimal? Received { get; set; }             // sum of CustomerPayment.Amount on the proforma
     public DateTime? ReceivedDate { get; set; }        // most-recent CustomerPayment.CreatedAt
-    public string? PaymentTerm { get; set; }           // Invoice.Status (Net30/Paid/Accepted)
+    public string? PaymentTerm { get; set; }           // PI payment term (Prepayment/CAD/Net/Credit)
     public DateTime? CustomerDeliveryTime { get; set; }// Invoice.DueDate
     public decimal Rate { get; set; }                  // Customer.CurrencyType=="Yuan"|"Both" → 7, else 1
     public string? TrackNumbers { get; set; }          // joined POItemTrackNumber.TrackNumber list

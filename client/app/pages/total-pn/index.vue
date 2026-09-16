@@ -9,6 +9,14 @@
         </div>
       </div>
       <v-spacer />
+      <div class="d-flex flex-wrap align-center gap-2 total-price-summary">
+        <v-chip color="primary" variant="tonal" class="font-weight-bold">
+          Total Purchase: ${{ formatPrice(visibleTotals.purchase) }}
+        </v-chip>
+        <v-chip color="success" variant="tonal" class="font-weight-bold">
+          Total Sell: ${{ formatPrice(visibleTotals.sell) }}
+        </v-chip>
+      </div>
       <v-chip v-if="tpnActiveFilterCount > 0" color="primary" size="small" closable @click:close="tpnClearAllFilters">
         {{ tpnActiveFilterCount }} filter{{ tpnActiveFilterCount > 1 ? 's' : '' }} active
       </v-chip>
@@ -35,9 +43,9 @@
           >
             Columns
             <v-badge
-              v-if="visibleColumns.length < ALL_COLUMNS.length"
+              v-if="visibleColumns.length < availableColumns.length"
               color="error"
-              :content="String(ALL_COLUMNS.length - visibleColumns.length)"
+              :content="String(availableColumns.length - visibleColumns.length)"
               inline
               class="ml-1"
             />
@@ -104,7 +112,11 @@
         <p class="text-body-2 text-medium-emphasis">No rows.</p>
       </div>
 
-      <div v-else class="excel-container" :style="{ maxHeight: tableMaxHeight }">
+      <div v-else>
+      <div ref="topScroll" class="excel-scroll-top" @scroll="syncScrollFromTop">
+        <div :style="{ width: `${tableScrollWidth}px` }" />
+      </div>
+      <div ref="tableScroll" class="excel-container" :style="{ maxHeight: tableMaxHeight }" @scroll="syncScrollFromTable">
         <table class="tpn-table">
           <thead>
             <tr>
@@ -141,11 +153,7 @@
               <!-- PO Ref# -->
               <th v-if="visibleColumns.includes('poRef')"><div class="tpn-th-inner"><span class="tpn-th-label">PO Ref#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poRef']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poRef']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poRef')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poRef', val) }" @click.stop="tpnToggleFilter('poRef', val)"><v-checkbox-btn :model-value="tpnColFilters['poRef']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poRef', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poRef')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poRef')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poRef'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poRef'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poRef')" /></v-card></v-menu></div></th>
 
-              <!-- Quotation Expert -->
-              <th v-if="visibleColumns.includes('quotationExpert')"><div class="tpn-th-inner"><span class="tpn-th-label">Quotation Expert</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['quotationExpert']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['quotationExpert']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('quotationExpert')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('quotationExpert', val) }" @click.stop="tpnToggleFilter('quotationExpert', val)"><v-checkbox-btn :model-value="tpnColFilters['quotationExpert']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('quotationExpert', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('quotationExpert')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('quotationExpert')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['quotationExpert'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['quotationExpert'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('quotationExpert')" /></v-card></v-menu></div></th>
-
-              <!-- Procurement Expert -->
-              <th v-if="visibleColumns.includes('procurementExpert')"><div class="tpn-th-inner"><span class="tpn-th-label">Procurement Expert</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['procurementExpert']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['procurementExpert']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('procurementExpert')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('procurementExpert', val) }" @click.stop="tpnToggleFilter('procurementExpert', val)"><v-checkbox-btn :model-value="tpnColFilters['procurementExpert']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('procurementExpert', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('procurementExpert')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('procurementExpert')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['procurementExpert'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['procurementExpert'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('procurementExpert')" /></v-card></v-menu></div></th>
+              <th v-if="visibleColumns.includes('experts')"><div class="tpn-th-inner"><span class="tpn-th-label">Expert</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['experts']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['experts']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('experts')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('experts', val) }" @click.stop="tpnToggleFilter('experts', val)"><v-checkbox-btn :model-value="tpnColFilters['experts']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('experts', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('experts')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('experts')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['experts'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['experts'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('experts')" /></v-card></v-menu></div></th>
 
               <!-- Customer — sortable -->
               <th v-if="visibleColumns.includes('customer')">
@@ -194,8 +202,6 @@
 
               <th v-if="visibleColumns.includes('purchasingUnitPriceUsd')" class="text-right">Purchasing Unit Price (USD)</th>
               <th v-if="visibleColumns.includes('purchasingTotalPriceUsd')" class="text-right">Purchasing Total Price (USD)</th>
-              <th v-if="visibleColumns.includes('poAmount')" class="text-right">PO Amount</th>
-
               <!-- DP# -->
               <th v-if="visibleColumns.includes('dpNumber')"><div class="tpn-th-inner"><span class="tpn-th-label">DP#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['dpNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['dpNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('dpNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('dpNumber', val) }" @click.stop="tpnToggleFilter('dpNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['dpNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('dpNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('dpNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('dpNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['dpNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['dpNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('dpNumber')" /></v-card></v-menu></div></th>
 
@@ -213,7 +219,6 @@
               <th v-if="visibleColumns.includes('sellingTotalPriceUsd')" class="text-right">Selling Total Price (USD)</th>
               <th v-if="visibleColumns.includes('sellingUnitPriceYuan')" class="text-right">Selling Unit Price (Yuan)</th>
               <th v-if="visibleColumns.includes('sellingTotalPriceYuan')" class="text-right">Selling Total Price (Yuan)</th>
-              <th v-if="visibleColumns.includes('invAmount')" class="text-right">INV Amount</th>
               <!-- PO Date — filterable -->
               <th v-if="visibleColumns.includes('poDate')"><div class="tpn-th-inner"><span class="tpn-th-label">PO Date</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poDate']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poDate']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poDate')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poDate', val) }" @click.stop="tpnToggleFilter('poDate', val)"><v-checkbox-btn :model-value="tpnColFilters['poDate']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poDate', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poDate')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poDate')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poDate'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poDate'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poDate')" /></v-card></v-menu></div></th>
 
@@ -245,37 +250,73 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, idx) in filteredRows" :key="r.id">
+            <tr
+              v-for="(r, idx) in filteredRows"
+              :key="r.id"
+              :class="[rowStatusClass(r.status), { 'missing-supplier-row': r.supplier === 'No Supplier' }]"
+            >
               <td class="text-center">{{ (page - 1) * pageSize + idx + 1 }}</td>
               <td v-if="visibleColumns.includes('poNumber')" class="font-weight-bold">
                 <NuxtLink v-if="r.poNumber && r.purchaseOrderId" :to="`/purchase-orders/${r.purchaseOrderId}`" class="text-primary text-decoration-none hover-underline">
                   {{ r.poNumber }}
                 </NuxtLink>
+                <button
+                  v-else-if="r.id > 0"
+                  type="button"
+                  class="missing-po-link"
+                  title="Open this item in Purchase Orders"
+                  @click="openMissingPo(r)"
+                >
+                  Create PO
+                </button>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
               <td v-if="visibleColumns.includes('poRef')" class="text-center">{{ r.poRef ?? '-' }}</td>
-              <td v-if="visibleColumns.includes('quotationExpert')">{{ r.quotationExpert || '-' }}</td>
-              <td v-if="visibleColumns.includes('procurementExpert')">{{ r.procurementExpert || '-' }}</td>
-              <td v-if="visibleColumns.includes('customer')">{{ r.customer || '-' }}</td>
-              <td v-if="visibleColumns.includes('supplier')">{{ r.supplier || '-' }}</td>
-              <td v-if="visibleColumns.includes('partNumber')" class="cell-pn">{{ r.partNumber || '-' }}</td>
-              <td v-if="visibleColumns.includes('description')">{{ r.description || '-' }}</td>
+              <td v-if="visibleColumns.includes('experts')">
+                <div v-if="r.experts?.length" class="d-flex flex-wrap gap-1">
+                  <v-chip v-for="expert in r.experts" :key="expert" size="x-small" color="primary" variant="tonal">
+                    {{ expert }}
+                  </v-chip>
+                </div>
+                <span v-else class="text-medium-emphasis">-</span>
+              </td>
+              <td v-if="visibleColumns.includes('customer')" class="cell-wrap">{{ r.customer || '-' }}</td>
+              <td v-if="visibleColumns.includes('supplier')" class="cell-wrap">
+                <button
+                  v-if="canOpenSupplierEditor(r)"
+                  type="button"
+                  class="supplier-link"
+                  @click="openSupplierEditor(r)"
+                >
+                  {{ r.supplier || 'Select supplier' }}
+                </button>
+                <span v-else class="cell-wrap">{{ r.supplier || '-' }}</span>
+              </td>
+              <td v-if="visibleColumns.includes('partNumber')" class="cell-pn cell-wrap">{{ r.partNumber || '-' }}</td>
+              <td v-if="visibleColumns.includes('description')" class="cell-wrap">{{ r.description || '-' }}</td>
               <td v-if="visibleColumns.includes('qty')" class="text-center">{{ r.qty }}</td>
               <td v-if="visibleColumns.includes('condition')">{{ r.condition || '-' }}</td>
-              <td v-if="visibleColumns.includes('priority')">{{ r.priority || '-' }}</td>
-              <td v-if="visibleColumns.includes('warehouse')">{{ r.warehouse || '-' }}</td>
+              <td v-if="visibleColumns.includes('priority')" class="cell-wrap">{{ r.priority || '-' }}</td>
+              <td v-if="visibleColumns.includes('warehouse')" class="cell-wrap">{{ r.warehouse || '-' }}</td>
               <td v-if="visibleColumns.includes('serialNumber')">
                 <v-chip v-if="r.serialNumber" size="x-small" color="primary" variant="tonal" class="font-weight-bold">
                   {{ r.serialNumber }}
                 </v-chip>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('customerInvoiceNumber')">{{ r.customerInvoiceNumber || '-' }}</td>
+              <td v-if="visibleColumns.includes('customerInvoiceNumber')">
+                <NuxtLink
+                  v-if="r.invoiceId && r.customerInvoiceNumber"
+                  :to="`/invoices/${r.invoiceId}`"
+                  class="text-primary text-decoration-none hover-underline font-weight-medium"
+                >
+                  {{ r.customerInvoiceNumber }}
+                </NuxtLink>
+                <span v-else>{{ r.customerInvoiceNumber || '-' }}</span>
+              </td>
               <td v-if="visibleColumns.includes('purchasingUnitPriceUsd')" class="text-right">${{ formatPrice(r.purchasingUnitPriceUsd) }}</td>
               <td v-if="visibleColumns.includes('purchasingTotalPriceUsd')" class="text-right cell-price">${{ formatPrice(r.purchasingTotalPriceUsd) }}</td>
-              <td v-if="visibleColumns.includes('poAmount')" class="text-right">{{ r.poAmount != null ? `$${formatPrice(r.poAmount)}` : '-' }}</td>
-              <td v-if="visibleColumns.includes('dpNumber')">{{ r.dpNumber || '-' }}</td>
-              <td v-if="visibleColumns.includes('supplierDeliveryTime')">{{ r.supplierDeliveryTime || '-' }}</td>
+              <td v-if="visibleColumns.includes('supplierDeliveryTime')" class="cell-wrap">{{ r.supplierDeliveryTime || '-' }}</td>
               <td v-if="visibleColumns.includes('status')">
                 <select
                   :value="r.status || 'Not Started'"
@@ -283,6 +324,7 @@
                   :class="statusColorClass(r.status)"
                   @change="updateStatus(r, ($event.target as HTMLSelectElement).value)"
                 >
+                  <option v-if="isInShopCountdown(r.status)" :value="r.status">{{ r.status }}</option>
                   <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
                 </select>
               </td>
@@ -290,7 +332,6 @@
               <td v-if="visibleColumns.includes('sellingTotalPriceUsd')" class="text-right cell-price">${{ formatPrice(r.sellingTotalPriceUsd) }}</td>
               <td v-if="visibleColumns.includes('sellingUnitPriceYuan')" class="text-right">¥{{ formatPrice(r.sellingUnitPriceYuan) }}</td>
               <td v-if="visibleColumns.includes('sellingTotalPriceYuan')" class="text-right cell-price">¥{{ formatPrice(r.sellingTotalPriceYuan) }}</td>
-              <td v-if="visibleColumns.includes('invAmount')" class="text-right">{{ r.invAmount != null ? `$${formatPrice(r.invAmount)}` : '-' }}</td>
               <td v-if="visibleColumns.includes('poDate')" class="text-caption">{{ formatDate(r.poDate) }}</td>
               <td v-if="visibleColumns.includes('invDate')" class="text-caption">{{ formatDate(r.invDate) }}</td>
               <td v-if="visibleColumns.includes('received')" class="text-right">{{ r.received != null ? `$${formatPrice(r.received)}` : '-' }}</td>
@@ -303,7 +344,7 @@
               </td>
               <td v-if="visibleColumns.includes('customerDeliveryTime')" class="text-caption">{{ formatDate(r.customerDeliveryTime) }}</td>
               <td v-if="visibleColumns.includes('rate')" class="text-center text-caption">{{ r.rate }}</td>
-              <td v-if="visibleColumns.includes('trackNumbers')" class="text-caption">{{ r.trackNumbers || '-' }}</td>
+              <td v-if="visibleColumns.includes('trackNumbers')" class="text-caption cell-wrap">{{ r.trackNumbers || '-' }}</td>
               <td v-if="visibleColumns.includes('shippingStatus')">
                 <v-chip v-if="r.shippingStatus" size="x-small" :color="shippingStatusColor(r.shippingStatus)" variant="tonal" class="font-weight-bold">
                   {{ r.shippingStatus }}
@@ -324,19 +365,10 @@
           </tbody>
         </table>
       </div>
+      </div>
 
       <!-- Pagination footer -->
-      <div class="d-flex flex-wrap align-center gap-3 pa-3 border-t">
-        <span class="text-caption text-medium-emphasis">
-          {{ totalCount }} rows
-          <template v-if="totalCount > 0">
-            • showing {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, totalCount) }}
-          </template>
-          <template v-if="tpnActiveFilterCount > 0">
-            • <strong>{{ filteredRows.length }}</strong> after filters
-          </template>
-        </span>
-        <v-spacer />
+      <div class="d-flex flex-wrap align-center justify-end gap-3 pa-3 border-t">
         <div class="d-flex align-center gap-2">
           <span class="text-caption text-medium-emphasis">Rows per page:</span>
           <v-select
@@ -348,6 +380,9 @@
             style="width: 90px;"
             @update:model-value="onPageSizeChange"
           />
+          <span class="text-caption text-medium-emphasis text-no-wrap">
+            {{ rangeStart }}–{{ rangeEnd }} of {{ totalCount }} rows
+          </span>
         </div>
         <v-pagination
           v-if="totalPages > 1"
@@ -355,10 +390,63 @@
           :length="totalPages"
           :total-visible="7"
           density="compact"
-          @update:model-value="load"
+          @update:model-value="onPageChange"
         />
       </div>
     </v-card>
+
+    <v-dialog v-model="supplierDialog" max-width="1100" @update:model-value="onSupplierDialogChange">
+      <v-card v-if="supplierEditor.row">
+        <v-card-title class="d-flex align-center gap-2 flex-wrap">
+          <v-icon icon="mdi-truck-cog-outline" color="primary" />
+          Check purchase items — {{ supplierEditor.row.partNumber }}
+          <v-spacer />
+          <v-chip size="small" variant="tonal">Qty {{ supplierEditor.item?.qty ?? supplierEditor.row.qty }}</v-chip>
+          <v-btn icon="mdi-close" variant="text" size="small" @click="supplierDialog = false" />
+        </v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            Select one or more suppliers. Multiple selected rows create separate PO items using each row's quantity and price.
+          </p>
+          <div class="supplier-editor-table-wrap">
+            <table class="supplier-editor-table">
+              <thead><tr><th>Select</th><th>Supplier</th><th>Alt P/N</th><th>Qty</th><th>Price (USD)</th><th>Condition</th><th>Lead time</th><th>Approve</th></tr></thead>
+              <tbody>
+                <tr v-for="quote in supplierEditor.quotes" :key="quote.id || quote.tempId" :class="{ 'selected-supplier-row': quote.isSelected }">
+                  <td><v-checkbox-btn v-model="quote.isSelected" color="success" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model="quote.supplierName" class="supplier-editor-input" placeholder="Supplier name" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model="quote.alt" class="supplier-editor-input" placeholder="Alternative P/N" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model.number="quote.qty" class="supplier-editor-input number-input" type="number" min="1" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model.number="quote.price" class="supplier-editor-input number-input" type="number" min="0" step="0.01" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model="quote.condition" class="supplier-editor-input" :disabled="savingSupplierChanges" /></td>
+                  <td><input v-model="quote.leadTime" class="supplier-editor-input" :disabled="savingSupplierChanges" /></td>
+                  <td>
+                    <v-btn v-if="isAdmin && quote.isSelected && !quote.hasActivePOItem" size="x-small" color="success" variant="tonal" :loading="approvingQuoteId === quote.id" :disabled="!quote.id || savingSupplierChanges" @click="approveSupplierQuote(quote)">Approve</v-btn>
+                    <v-chip v-else-if="quote.hasActivePOItem" size="x-small" color="success" variant="tonal">Approved</v-chip>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <v-btn class="mt-3" size="small" color="primary" variant="tonal" prepend-icon="mdi-plus" :disabled="savingSupplierChanges" @click="addSupplierQuote">Add supplier</v-btn>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" :disabled="savingSupplierChanges" @click="supplierDialog = false">Cancel</v-btn>
+          <v-spacer />
+          <v-btn color="primary" variant="flat" :loading="savingSupplierChanges" @click="saveSupplierChanges">Save changes</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showPoCancellationWarning" max-width="560" persistent>
+      <v-card>
+        <v-card-title class="text-warning">Cancel existing PO?</v-card-title>
+        <v-card-text>
+          PO <strong>{{ supplierEditor.row?.poNumber }}</strong> is still open. Saving supplier, quantity, or price changes will cancel it permanently and reopen this item for approval. You will need to create a new PO afterwards.
+        </v-card-text>
+        <v-card-actions><v-btn variant="text" @click="showPoCancellationWarning = false">Keep PO</v-btn><v-spacer /><v-btn color="error" variant="flat" :loading="savingSupplierChanges" @click="confirmPoCancellationAndSave">Cancel PO and continue</v-btn></v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="2000" location="bottom right">
       {{ snackbarText }}
@@ -368,6 +456,9 @@
 
 <script setup lang="ts">
 const api = useApi()
+const router = useRouter()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 
 interface ColumnConfig {
   key: string
@@ -377,8 +468,7 @@ interface ColumnConfig {
 const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'poNumber', label: 'PO#' },
   { key: 'poRef', label: 'PO Ref#' },
-  { key: 'quotationExpert', label: 'Quotation Expert' },
-  { key: 'procurementExpert', label: 'Procurement Expert' },
+  { key: 'experts', label: 'Expert' },
   { key: 'customer', label: 'Customer' },
   { key: 'supplier', label: 'Supplier' },
   { key: 'partNumber', label: 'P/N' },
@@ -391,15 +481,12 @@ const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'customerInvoiceNumber', label: 'PI# to Customer' },
   { key: 'purchasingUnitPriceUsd', label: 'Purchasing Unit Price (USD)' },
   { key: 'purchasingTotalPriceUsd', label: 'Purchasing Total Price (USD)' },
-  { key: 'poAmount', label: 'PO Amount' },
-  { key: 'dpNumber', label: 'DP#' },
   { key: 'supplierDeliveryTime', label: 'Supplier Delivery Time' },
   { key: 'status', label: 'Status' },
   { key: 'sellingUnitPriceUsd', label: 'Selling Unit Price (USD)' },
   { key: 'sellingTotalPriceUsd', label: 'Selling Total Price (USD)' },
   { key: 'sellingUnitPriceYuan', label: 'Selling Unit Price (Yuan)' },
   { key: 'sellingTotalPriceYuan', label: 'Selling Total Price (Yuan)' },
-  { key: 'invAmount', label: 'INV Amount' },
   { key: 'poDate', label: 'PO Date' },
   { key: 'invDate', label: 'INV Date' },
   { key: 'received', label: 'Received' },
@@ -413,26 +500,33 @@ const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'note', label: 'NOTE 02' }
 ]
 
-const visibleColumns = ref<string[]>(ALL_COLUMNS.map(c => c.key))
-const COL_VISIBILITY_STORAGE_KEY = 'total-pn-column-visibility'
+const serverAllowedColumnKeys = ref<string[]>([])
+const availableColumns = computed(() => ALL_COLUMNS.filter(column => serverAllowedColumnKeys.value.includes(column.key)))
+const visibleColumns = ref<string[]>([])
+const COL_VISIBILITY_STORAGE_KEY = computed(() => `total-pn-column-visibility:${authStore.user?.id ?? 'anonymous'}`)
 
-if (import.meta.client) {
-  try {
-    const raw = localStorage.getItem(COL_VISIBILITY_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        const validKeys = ALL_COLUMNS.map(c => c.key)
-        visibleColumns.value = parsed.filter(k => validKeys.includes(k))
-      }
-    }
-  } catch {}
+async function loadColumnAccess() {
+  const allowed = await api.get<string[]>('/po-items/total-pn/columns')
+  const validAllowed = allowed.filter(key => ALL_COLUMNS.some(column => column.key === key))
+  serverAllowedColumnKeys.value = validAllowed
+
+  let saved: string[] = []
+  if (import.meta.client) {
+    try {
+      const raw = localStorage.getItem(COL_VISIBILITY_STORAGE_KEY.value)
+      const parsed = raw ? JSON.parse(raw) : []
+      if (Array.isArray(parsed)) saved = parsed
+    } catch {}
+  }
+  visibleColumns.value = saved.length
+    ? saved.filter(key => validAllowed.includes(key))
+    : [...validAllowed]
 }
 
 function saveColumnVisibility() {
   if (!import.meta.client) return
   try {
-    localStorage.setItem(COL_VISIBILITY_STORAGE_KEY, JSON.stringify(visibleColumns.value))
+    localStorage.setItem(COL_VISIBILITY_STORAGE_KEY.value, JSON.stringify(visibleColumns.value))
   } catch {}
 }
 
@@ -448,7 +542,7 @@ function toggleColumn(key: string) {
 }
 
 function resetColumns() {
-  visibleColumns.value = ALL_COLUMNS.map(c => c.key)
+  visibleColumns.value = availableColumns.value.map(c => c.key)
   saveColumnVisibility()
 }
 
@@ -456,21 +550,50 @@ const columnSearchQuery = ref('')
 
 const filteredColumnList = computed(() => {
   const q = columnSearchQuery.value.trim().toLowerCase()
-  if (!q) return ALL_COLUMNS
-  return ALL_COLUMNS.filter(c => c.label.toLowerCase().includes(q))
+  if (!q) return availableColumns.value
+  return availableColumns.value.filter(c => c.label.toLowerCase().includes(q))
 })
 
 const loading = ref(true)
 const rows = ref<any[]>([])
-const totalCount = ref(0)
+const topScroll = ref<HTMLElement | null>(null)
+const tableScroll = ref<HTMLElement | null>(null)
+const tableScrollWidth = ref(0)
+const serverTotalCount = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
-const pageSizeOptions = [25, 50, 100, 200,500,1000,2000]
+const PAGE_SIZE_STORAGE_KEY = 'total-pn-page-size'
+const pageSizeOptions = [25, 50, 100, 200, 500, 1000, 2000]
+const storedPageSize = import.meta.client ? Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY)) : 50
+const pageSize = ref(pageSizeOptions.includes(storedPageSize) ? storedPageSize : 50)
+const loadedAllRows = ref(false)
+const totalCount = computed(() => loadedAllRows.value ? locallyFilteredRows.value.length : serverTotalCount.value)
 const totalPages = computed(() => pageSize.value > 0 ? Math.ceil(totalCount.value / pageSize.value) : 1)
+const rangeStart = computed(() => totalCount.value > 0 ? (page.value - 1) * pageSize.value + 1 : 0)
+const rangeEnd = computed(() => totalCount.value > 0 ? Math.min(rangeStart.value + filteredRows.value.length - 1, totalCount.value) : 0)
 const tableMaxHeight = computed(() => `calc(100vh - 260px)`)
 const search = ref('')
 const sortBy = ref('')
 const sortDesc = ref(false)
+
+function updateTableScrollWidth() {
+  tableScrollWidth.value = tableScroll.value?.scrollWidth ?? 0
+}
+
+function syncScrollFromTop() {
+  if (topScroll.value && tableScroll.value) {
+    tableScroll.value.scrollLeft = topScroll.value.scrollLeft
+  }
+}
+
+function syncScrollFromTable() {
+  if (topScroll.value && tableScroll.value) {
+    topScroll.value.scrollLeft = tableScroll.value.scrollLeft
+  }
+}
+
+watch([rows, visibleColumns], () => {
+  nextTick(updateTableScrollWidth)
+}, { deep: true })
 
 // ── Column filter state ──────────────────────────────────────────────────────
 
@@ -484,11 +607,17 @@ const SERVER_SIDE_FILTER_KEYS = new Set([
   'poNumber', 'supplier', 'paymentTerm', 'status', 'shippingStatus',
 ])
 
+const hasClientSideFilters = computed(() => TPN_COLUMNS.some(column =>
+  !SERVER_SIDE_FILTER_KEYS.has(column.key) && tpnColFilters[column.key]?.size > 0
+))
+const requiresLocalPaging = computed(() =>
+  hasClientSideFilters.value || !!search.value?.trim() || pageSize.value > 500
+)
+
 const TPN_COLUMNS = [
   { key: 'poNumber',              field: (r: any) => r.poNumber },
   { key: 'poRef',                 field: (r: any) => r.poRef },
-  { key: 'quotationExpert',       field: (r: any) => r.quotationExpert },
-  { key: 'procurementExpert',     field: (r: any) => r.procurementExpert },
+  { key: 'experts',               field: (r: any) => r.experts },
   { key: 'customer',              field: (r: any) => r.customer },
   { key: 'supplier',              field: (r: any) => r.supplier },
   { key: 'partNumber',            field: (r: any) => r.partNumber },
@@ -499,7 +628,6 @@ const TPN_COLUMNS = [
   { key: 'warehouse',             field: (r: any) => r.warehouse },
   { key: 'serialNumber',          field: (r: any) => r.serialNumber },
   { key: 'customerInvoiceNumber', field: (r: any) => r.customerInvoiceNumber },
-  { key: 'dpNumber',              field: (r: any) => r.dpNumber },
   { key: 'status',                field: (r: any) => r.status },
   { key: 'poDate',                field: (r: any) => r.poDate ? new Date(r.poDate).toLocaleDateString() : null },
   { key: 'invDate',               field: (r: any) => r.invDate ? new Date(r.invDate).toLocaleDateString() : null },
@@ -592,6 +720,17 @@ const tpnActiveFilterCount = computed(() =>
   Object.values(tpnColFilters).filter(s => s && s.size > 0).length
 )
 
+function tpnCellValues(raw: unknown): string[] {
+  const values = Array.isArray(raw) ? raw : [raw]
+  const normalized = values
+    .map(value => value != null && String(value).trim() !== '' ? String(value) : '(Blank)')
+  return normalized.length ? normalized : ['(Blank)']
+}
+
+function tpnRowMatchesFilter(row: any, column: typeof TPN_COLUMNS[number], selected: Set<string>) {
+  return tpnCellValues(column.field(row)).some(value => selected.has(value))
+}
+
 /** All unique values for a column — from backend options (server-side) or current page rows (client-side). */
 function tpnUniqueVals(key: string): string[] {
   const s = (tpnFilterSearch[key] || '').toLowerCase()
@@ -606,9 +745,9 @@ function tpnUniqueVals(key: string): string[] {
   if (!col) return []
   const vals = new Set<string>()
   for (const r of rows.value) {
-    const raw = col.field(r)
-    const v = raw != null && String(raw).trim() !== '' ? String(raw) : '(Blank)'
-    if (!s || v.toLowerCase().includes(s)) vals.add(v)
+    for (const value of tpnCellValues(col.field(r))) {
+      if (!s || value.toLowerCase().includes(s)) vals.add(value)
+    }
   }
   return [...vals].sort((a, b) => a === '(Blank)' ? 1 : b === '(Blank)' ? -1 : a.localeCompare(b))
 }
@@ -618,7 +757,18 @@ function tpnUniqueValsAvail(key: string): string[] {
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
     const search = (tpnFilterSearch[key] || '').toLowerCase()
     const opts = filterOptions.value[key] ?? []
-    return search ? opts.filter(v => v.toLowerCase().includes(search)) : opts
+    const available = opts
+    const clientFilters = TPN_COLUMNS.filter(column =>
+      !SERVER_SIDE_FILTER_KEYS.has(column.key) && column.key !== key && tpnColFilters[column.key]?.size)
+    if (clientFilters.length === 0) return search ? available.filter(v => v.toLowerCase().includes(search)) : available
+
+    const allowed = new Set<string>()
+    for (const row of rows.value) {
+      if (!clientFilters.every(column => tpnRowMatchesFilter(row, column, tpnColFilters[column.key]))) continue
+      const column = TPN_COLUMNS.find(candidate => candidate.key === key)
+      if (column) tpnCellValues(column.field(row)).forEach(value => allowed.add(value))
+    }
+    return available.filter(value => allowed.has(value) && (!search || value.toLowerCase().includes(search)))
   }
 
   const col = TPN_COLUMNS.find(c => c.key === key)
@@ -631,14 +781,12 @@ function tpnUniqueValsAvail(key: string): string[] {
       if (c.key === key || SERVER_SIDE_FILTER_KEYS.has(c.key)) continue
       const sel = tpnColFilters[c.key]
       if (!sel || sel.size === 0) continue
-      const rawV = c.field(r)
-      const cv = rawV != null && String(rawV).trim() !== '' ? String(rawV) : '(Blank)'
-      if (!sel.has(cv)) { ok = false; break }
+      if (!tpnRowMatchesFilter(r, c, sel)) { ok = false; break }
     }
     if (!ok) continue
-    const raw = col.field(r)
-    const v = raw != null && String(raw).trim() !== '' ? String(raw) : '(Blank)'
-    if (!s || v.toLowerCase().includes(s)) vals.add(v)
+    for (const value of tpnCellValues(col.field(r))) {
+      if (!s || value.toLowerCase().includes(s)) vals.add(value)
+    }
   }
   return [...vals].sort((a, b) => a === '(Blank)' ? 1 : b === '(Blank)' ? -1 : a.localeCompare(b))
 }
@@ -672,10 +820,11 @@ function tpnToggleFilter(key: string, val: string) {
   tpnColFilters[key] = new Set(tpnColFilters[key]) // trigger reactivity
   saveTpnFilters()
   resetOtherShowAll(key)
-  // Server-side filters → go back to page 1 and reload
+  page.value = 1
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
-    page.value = 1
     reloadRowsAndAvailableOptions()
+  } else {
+    load()
   }
 }
 
@@ -683,9 +832,11 @@ function tpnClearFilter(key: string) {
   if (tpnColFilters[key]) tpnColFilters[key] = new Set()
   saveTpnFilters()
   resetOtherShowAll(key)
+  page.value = 1
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
-    page.value = 1
     reloadRowsAndAvailableOptions()
+  } else {
+    load()
   }
 }
 
@@ -696,9 +847,11 @@ function tpnSelectAll(key: string) {
   tpnColFilters[key] = new Set(vals)
   saveTpnFilters()
   resetOtherShowAll(key)
+  page.value = 1
   if (SERVER_SIDE_FILTER_KEYS.has(key)) {
-    page.value = 1
     reloadRowsAndAvailableOptions()
+  } else {
+    load()
   }
 }
 
@@ -730,16 +883,34 @@ function sortIcon(key: string) {
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
+const supplierDialog = ref(false)
+const showPoCancellationWarning = ref(false)
+const savingSupplierChanges = ref(false)
+const approvingQuoteId = ref<number | null>(null)
+const supplierEditor = reactive<{ row: any; item: any; quotes: any[]; originalSelection: Record<number, boolean>; originalState: string }>({
+  row: null,
+  item: null,
+  quotes: [],
+  originalSelection: {},
+  originalState: '',
+})
 
 const statusOptions = [
   'Not Started',
-  'Under Contract',
+  'Sourcing',
+  'EndUser',
+  'In Shop',
+  'Received in Warehouse',
+  'Waiting For Supplier Documents',
+  'Waiting For PR',
   'Waiting For Payment',
-  'PO Sent',
-  'Document Added',
+  'PR Rejected',
   'Payment Done',
   'Waiting For Shipment',
-  'Ship to Warehouse/Customer',
+  'Ship to Warehouse',
+  'Waiting for Expert Approval Shipment',
+  'Completed',
+  'Returned',
   'Cancelled',
 ]
 
@@ -747,6 +918,231 @@ function showSnack(text: string, color = 'success') {
   snackbarText.value = text
   snackbarColor.value = color
   snackbar.value = true
+}
+
+function openMissingPo(row: any) {
+  const tab = row.warehouse === 'Warehouse' ? 'warehouse' : 'vendor-customer'
+  router.push({
+    path: '/purchase-orders',
+    query: {
+      source: 'total-pn',
+      poItemId: String(row.id),
+      tab,
+    },
+  })
+}
+
+async function openSupplierEditor(row: any) {
+  if (!canOpenSupplierEditor(row)) {
+    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running.', 'warning')
+    return
+  }
+  try {
+    let editorRow = row
+    let procurement: any
+    if (row.procurementId && row.procurementItemId) {
+      procurement = await api.get<any>(`/procurements/${row.procurementId}`)
+    } else {
+      procurement = await api.post<any>(`/procurements/from-invoice/${row.invoiceId}`, {})
+      const invoiceItemId = row.invoiceItemId ?? (row.id < 0 ? -row.id : null)
+      const createdItem = procurement.items?.find((candidate: any) => candidate.sourceInvoiceItemId === invoiceItemId)
+      if (!createdItem) throw new Error('Purchase item not found')
+      editorRow = { ...row, procurementId: procurement.id, procurementItemId: createdItem.id }
+    }
+    const item = procurement.items?.find((candidate: any) => candidate.id === editorRow.procurementItemId)
+    if (!item) throw new Error('Purchase item not found')
+
+    // Older unassigned rows were created before RFQ quote choices were copied
+    // to the remainder.  Reuse the choices from their matching item so users
+    // can assign the outstanding quantity without having to enter suppliers again.
+    const needsRfqChoices = item.supplierName === 'No Supplier' && !(item.supplierQuotes?.length)
+    const matchingItem = needsRfqChoices
+      ? procurement.items?.find((candidate: any) =>
+          candidate.id !== item.id &&
+          candidate.sourceInvoiceItemId === item.sourceInvoiceItemId &&
+          candidate.supplierQuotes?.length)
+      : null
+    const quoteSource = matchingItem?.supplierQuotes ?? item.supplierQuotes ?? []
+    const supplierQuotes = quoteSource.map((quote: any) => matchingItem
+      ? {
+          ...quote,
+          id: null,
+          tempId: `rfq-${quote.id}`,
+          qty: item.qty,
+          isSelected: false,
+          hasActivePOItem: false,
+        }
+      : { ...quote, tempId: quote.id })
+
+    supplierEditor.row = editorRow
+    supplierEditor.item = item
+    supplierEditor.quotes = supplierQuotes
+    supplierEditor.originalSelection = Object.fromEntries(supplierEditor.quotes
+      .filter((quote: any) => quote.id)
+      .map((quote: any) => [quote.id, !!quote.isSelected]))
+    supplierEditor.originalState = supplierQuoteState()
+    supplierDialog.value = true
+  } catch {
+    showSnack('Purchase-item suppliers are not available right now.', 'warning')
+  }
+}
+
+function addSupplierQuote() {
+  if (!canEditSupplier(supplierEditor.row)) return
+  supplierEditor.quotes.push({
+    tempId: `new-${Date.now()}`,
+    supplierName: '',
+    qty: supplierEditor.item?.qty ?? supplierEditor.row?.qty ?? 1,
+    price: 0,
+    condition: supplierEditor.item?.condition ?? supplierEditor.row?.condition ?? 'NE',
+    alt: supplierEditor.item?.alt ?? '',
+    leadTime: '',
+    isSelected: false,
+    hasActivePOItem: false,
+  })
+}
+
+function hasOpenPurchaseOrder() {
+  const status = supplierEditor.row?.purchaseOrderStatus
+  return !!supplierEditor.row?.purchaseOrderId && !['Completed', 'Cancelled', 'Returned'].includes(status)
+}
+
+function supplierQuoteState() {
+  return JSON.stringify(supplierEditor.quotes.map((quote: any) => ({
+    id: quote.id ?? null,
+    supplierName: quote.supplierName?.trim() ?? '',
+    qty: Number(quote.qty) || 0,
+    price: Number(quote.price) || 0,
+    condition: quote.condition ?? '',
+    alt: quote.alt ?? '',
+    leadTime: quote.leadTime ?? '',
+    isSelected: !!quote.isSelected,
+  })))
+}
+
+async function saveSupplierChanges() {
+  if (!canEditSupplier(supplierEditor.row)) {
+    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running.', 'warning')
+    return
+  }
+  if (supplierQuoteState() === supplierEditor.originalState) {
+    supplierDialog.value = false
+    return
+  }
+  if (hasOpenPurchaseOrder()) {
+    showPoCancellationWarning.value = true
+    return
+  }
+  await persistSupplierChanges()
+}
+
+async function confirmPoCancellationAndSave() {
+  showPoCancellationWarning.value = false
+  savingSupplierChanges.value = true
+  try {
+    await api.patch(`/purchase-orders/${supplierEditor.row.purchaseOrderId}/status`, { status: 'Cancelled' })
+    supplierEditor.quotes.forEach((quote: any) => { quote.hasActivePOItem = false })
+    await persistSupplierChanges(true)
+  } catch (error: any) {
+    showSnack('The existing Purchase Order was kept.', 'warning')
+  } finally {
+    savingSupplierChanges.value = false
+  }
+}
+
+async function resetApprovalWhenNoPoExists() {
+  if (hasOpenPurchaseOrder() || !supplierEditor.item?.hasActivePOItem) return
+  await api.post(`/procurements/${supplierEditor.row.procurementId}/items/${supplierEditor.row.procurementItemId}/reset-approval`, {})
+  supplierEditor.item.hasActivePOItem = false
+  supplierEditor.quotes.forEach((quote: any) => { quote.hasActivePOItem = false })
+}
+
+async function persistSupplierChanges(alreadySaving = false) {
+  const procurementId = supplierEditor.row.procurementId
+  const itemId = supplierEditor.row.procurementItemId
+  if (!alreadySaving) savingSupplierChanges.value = true
+  try {
+    await resetApprovalWhenNoPoExists()
+    for (const quote of supplierEditor.quotes) {
+      if (!quote.supplierName?.trim()) continue
+      const saved = await api.post<any>(`/procurements/${procurementId}/items/${itemId}/supplier-quotes`, {
+        id: quote.id || null,
+        supplierId: quote.supplierId || null,
+        supplierName: quote.supplierName,
+        qty: Number(quote.qty) || 0,
+        price: Number(quote.price) || 0,
+        condition: quote.condition,
+        alt: quote.alt,
+        leadTime: quote.leadTime,
+      })
+      const shouldBeSelected = !!quote.isSelected
+      Object.assign(quote, saved)
+      quote.isSelected = shouldBeSelected
+    }
+
+    for (const quote of supplierEditor.quotes) {
+      if (!quote.id) continue
+      const wasSelected = supplierEditor.originalSelection[quote.id]
+      const isSelected = !!quote.isSelected
+      if (isSelected && wasSelected) {
+        // Re-select after editing so the procurement item's displayed supplier/price is
+        // recalculated from this revised quote without changing the final selection state.
+        await api.post(`/procurements/${procurementId}/items/${itemId}/supplier-quotes/${quote.id}/select`, {})
+        await api.post(`/procurements/${procurementId}/items/${itemId}/supplier-quotes/${quote.id}/select`, {})
+      } else if (wasSelected !== isSelected) {
+        await api.post(`/procurements/${procurementId}/items/${itemId}/supplier-quotes/${quote.id}/select`, {})
+      }
+      supplierEditor.originalSelection[quote.id] = isSelected
+    }
+
+    const coveredQty = supplierEditor.quotes
+      .filter((quote: any) => quote.isSelected && quote.supplierName?.trim() !== 'No Supplier')
+      .reduce((total: number, quote: any) => total + (Number(quote.qty) || 0), 0)
+    const itemQty = Number(supplierEditor.item?.qty) || 0
+    if (supplierEditor.row?.supplier !== 'No Supplier' && coveredQty > 0 && coveredQty < itemQty) {
+      await api.post(`/procurements/${procurementId}/items/${itemId}/create-unassigned-remainder`, { coveredQty })
+      showSnack(`${itemQty - coveredQty} item(s) have no supplier yet. They are highlighted in red in Total P/N.`)
+    }
+
+    supplierEditor.originalState = supplierQuoteState()
+    showSnack('Supplier changes saved. You can continue editing or close this window to refresh Total P/N.')
+  } catch (error: any) {
+    showSnack('Changes were not saved. Review the supplier rows and try again.', 'warning')
+  } finally {
+    if (!alreadySaving) savingSupplierChanges.value = false
+  }
+}
+
+async function approveSupplierQuote(quote: any) {
+  if (!canEditSupplier(supplierEditor.row)) return
+  if (!quote.id || approvingQuoteId.value) return
+  approvingQuoteId.value = quote.id
+  try {
+    await api.post(`/procurements/${supplierEditor.row.procurementId}/items/${supplierEditor.row.procurementItemId}/supplier-quotes/${quote.id}/approve`, {})
+    quote.hasActivePOItem = true
+    showSnack('Supplier approved. You can continue editing or close this window to refresh Total P/N.')
+  } catch (error: any) {
+    // The supplier may have been changed since the dialog opened. Keep the modal open so
+    // the user can save the current selection again instead of exposing a backend error.
+    showSnack('Save the supplier selection, then approve it.', 'warning')
+  } finally {
+    approvingQuoteId.value = null
+  }
+}
+
+function canEditSupplier(row: any) {
+  return canOpenSupplierEditor(row) && !!row?.procurementId && !!row?.procurementItemId
+}
+
+function canOpenSupplierEditor(row: any) {
+  const invoiceStatus = row?.proformaInvoiceStatus ?? row?.paymentTerm
+  return !!row?.invoiceId &&
+    ['Waiting For Prepayment', 'Running'].includes(invoiceStatus)
+}
+
+async function onSupplierDialogChange(isOpen: boolean) {
+  if (isOpen) return
+  await load()
 }
 
 function formatPrice(v: number | null | undefined) {
@@ -761,8 +1157,10 @@ function formatDate(v: string | null | undefined) {
 }
 
 function statusColorClass(status: string | null | undefined) {
+  if (isInShopCountdown(status) || status === 'In Shop') return 'status-warning'
   switch (status) {
-    case 'Ship to Warehouse/Customer': return 'status-success'
+    case 'Ship to Warehouse':
+    case 'Completed': return 'status-success'
     case 'Payment Done': return 'status-info'
     case 'Waiting For Shipment':
     case 'Document Added':
@@ -773,6 +1171,19 @@ function statusColorClass(status: string | null | undefined) {
     case 'Cancelled': return 'status-error'
     default: return 'status-grey'
   }
+}
+
+function rowStatusClass(status: string | null | undefined) {
+  switch ((status || '').trim().toLowerCase()) {
+    case 'enduser': return 'tpn-row-end-user'
+    case 'payment done': return 'tpn-row-payment-done'
+    case 'waiting for expert approval shipment': return 'tpn-row-expert-shipment'
+    default: return ''
+  }
+}
+
+function isInShopCountdown(status: string | null | undefined) {
+  return /^in shop \(\d+ days?\)$/i.test(status || '')
 }
 
 function shippingStatusColor(status: string) {
@@ -798,10 +1209,11 @@ function paymentTermColor(term: string) {
 async function load() {
   loading.value = true
   try {
+    const loadAll = requiresLocalPaging.value
     // Build query object — $fetch serialises arrays as repeated keys: ?partNumbers=X&partNumbers=Y
     const query: Record<string, any> = {
-      page: page.value,
-      pageSize: pageSize.value,
+      page: loadAll ? 1 : page.value,
+      pageSize: loadAll ? -1 : pageSize.value,
     }
     if (sortBy.value) { query.sortBy = sortBy.value; query.sortDesc = sortDesc.value }
 
@@ -820,7 +1232,8 @@ async function load() {
 
     const res = await api.get<any>('/po-items/total-pn', { query })
     rows.value = res.items ?? res.Items ?? []
-    totalCount.value = res.totalCount ?? res.TotalCount ?? rows.value.length
+    serverTotalCount.value = res.totalCount ?? res.TotalCount ?? rows.value.length
+    loadedAllRows.value = loadAll
   } catch {
     showSnack('Failed to load Total Project', 'error')
   } finally {
@@ -829,11 +1242,16 @@ async function load() {
 }
 
 function onPageSizeChange() {
+  if (import.meta.client) localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(pageSize.value))
   page.value = 1
   load()
 }
 
-const filteredRows = computed(() => {
+function onPageChange() {
+  if (!loadedAllRows.value) load()
+}
+
+const locallyFilteredRows = computed(() => {
   let result = rows.value
 
   // Text search
@@ -843,7 +1261,7 @@ const filteredRows = computed(() => {
       const blob = [
         r.poNumber, r.partNumber, r.description, r.customer, r.supplier,
         r.customerInvoiceNumber, r.status, r.note, r.priority, r.warehouse,
-        r.quotationExpert, r.procurementExpert, r.trackNumbers,
+        ...(r.experts ?? []), r.trackNumbers,
         r.serialNumber, r.shippingStatus
       ].filter(Boolean).join(' ').toLowerCase()
       return blob.includes(q)
@@ -852,17 +1270,38 @@ const filteredRows = computed(() => {
 
   // Column filters
   for (const col of TPN_COLUMNS) {
+    // These filters have already been applied before backend pagination.
+    if (SERVER_SIDE_FILTER_KEYS.has(col.key)) continue
     const selected = tpnColFilters[col.key]
     if (!selected || selected.size === 0) continue
     result = result.filter(r => {
-      const raw = col.field(r)
-      const cellVal = raw != null && String(raw).trim() !== '' ? String(raw) : '(Blank)'
-      return selected.has(cellVal)
+      return tpnRowMatchesFilter(r, col, selected)
     })
   }
 
   return result
 })
+
+const filteredRows = computed(() => {
+  if (!loadedAllRows.value) return locallyFilteredRows.value
+  const start = (page.value - 1) * pageSize.value
+  return locallyFilteredRows.value.slice(start, start + pageSize.value)
+})
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(search, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 1
+    load()
+  }, 300)
+})
+
+const visibleTotals = computed(() => filteredRows.value.reduce((totals, row) => {
+  totals.purchase += Number(row.purchasingTotalPriceUsd) || 0
+  totals.sell += Number(row.sellingTotalPriceUsd) || 0
+  return totals
+}, { purchase: 0, sell: 0 }))
 
 async function updateStatus(row: any, newStatus: string) {
   const old = row.status
@@ -895,8 +1334,7 @@ function exportCsv() {
   const columnsMap: { key: string; label: string; value: (r: any) => any }[] = [
     { key: 'poNumber', label: 'PO#', value: (r) => r.poNumber },
     { key: 'poRef', label: 'PO Ref#', value: (r) => r.poRef },
-    { key: 'quotationExpert', label: 'Quotation Expert', value: (r) => r.quotationExpert },
-    { key: 'procurementExpert', label: 'Procurement Expert', value: (r) => r.procurementExpert },
+    { key: 'experts', label: 'Expert', value: (r) => (r.experts ?? []).join(', ') },
     { key: 'customer', label: 'Customer', value: (r) => r.customer },
     { key: 'supplier', label: 'Supplier', value: (r) => r.supplier },
     { key: 'partNumber', label: 'P/N', value: (r) => r.partNumber },
@@ -909,15 +1347,12 @@ function exportCsv() {
     { key: 'customerInvoiceNumber', label: 'PI# to Customer', value: (r) => r.customerInvoiceNumber },
     { key: 'purchasingUnitPriceUsd', label: 'Purchasing Unit Price (USD)', value: (r) => r.purchasingUnitPriceUsd },
     { key: 'purchasingTotalPriceUsd', label: 'Purchasing Total Price (USD)', value: (r) => r.purchasingTotalPriceUsd },
-    { key: 'poAmount', label: 'PO Amount', value: (r) => r.poAmount },
-    { key: 'dpNumber', label: 'DP#', value: (r) => r.dpNumber },
     { key: 'supplierDeliveryTime', label: 'Supplier Delivery Time', value: (r) => r.supplierDeliveryTime },
     { key: 'status', label: 'Status', value: (r) => r.status },
     { key: 'sellingUnitPriceUsd', label: 'Selling Unit Price (USD)', value: (r) => r.sellingUnitPriceUsd },
     { key: 'sellingTotalPriceUsd', label: 'Selling Total Price (USD)', value: (r) => r.sellingTotalPriceUsd },
     { key: 'sellingUnitPriceYuan', label: 'Selling Unit Price (Yuan)', value: (r) => r.sellingUnitPriceYuan },
     { key: 'sellingTotalPriceYuan', label: 'Selling Total Price (Yuan)', value: (r) => r.sellingTotalPriceYuan },
-    { key: 'invAmount', label: 'INV Amount', value: (r) => r.invAmount },
     { key: 'poDate', label: 'PO Date', value: (r) => r.poDate },
     { key: 'invDate', label: 'INV Date', value: (r) => r.invDate },
     { key: 'received', label: 'Received', value: (r) => r.received },
@@ -957,6 +1392,7 @@ function exportCsv() {
 }
 
 onMounted(async () => {
+  await loadColumnAccess()
   await Promise.all([
     load(),
     loadFilterOptions(),
@@ -976,10 +1412,23 @@ onMounted(async () => {
   border-radius: 8px;
 }
 
+.excel-scroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 16px;
+  margin-bottom: 4px;
+}
+
+.excel-scroll-top > div {
+  min-height: 1px;
+}
+
 .tpn-table {
   width: max-content;
   min-width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: visible !important;
   font-size: 12px;
 }
 
@@ -994,9 +1443,10 @@ onMounted(async () => {
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.4px;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 190px;
   color: rgb(var(--v-theme-on-surface));
-  z-index: 1;
+  z-index: 4;
 }
 
 /* A selected Excel-style filter makes its whole header easy to spot. */
@@ -1019,8 +1469,50 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+.tpn-table tbody td.cell-wrap {
+  width: 180px;
+  min-width: 120px;
+  max-width: 220px;
+  white-space: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .tpn-table tbody tr:hover {
   background: rgba(var(--v-theme-primary), 0.04);
+}
+
+.tpn-table tbody tr.missing-supplier-row {
+  background: rgba(244, 67, 54, 0.14);
+}
+
+.tpn-table tbody tr.missing-supplier-row:hover {
+  background: rgba(244, 67, 54, 0.22);
+}
+
+/* Workflow highlights take priority over the generic missing-supplier color. */
+.tpn-table tbody tr.tpn-row-end-user {
+  background: rgba(255, 152, 0, 0.18);
+}
+
+.tpn-table tbody tr.tpn-row-end-user:hover {
+  background: rgba(255, 152, 0, 0.28);
+}
+
+.tpn-table tbody tr.tpn-row-payment-done {
+  background: rgba(76, 175, 80, 0.17);
+}
+
+.tpn-table tbody tr.tpn-row-payment-done:hover {
+  background: rgba(76, 175, 80, 0.27);
+}
+
+.tpn-table tbody tr.tpn-row-expert-shipment {
+  background: rgba(255, 213, 0, 0.22);
+}
+
+.tpn-table tbody tr.tpn-row-expert-shipment:hover {
+  background: rgba(255, 213, 0, 0.32);
 }
 
 .tpn-th-inner {
@@ -1031,7 +1523,7 @@ onMounted(async () => {
 
 .tpn-th-label {
   flex: 1;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .tpn-filter-btn {
@@ -1120,6 +1612,37 @@ onMounted(async () => {
 .status-grey    { color: rgba(var(--v-theme-on-surface), 0.6); }
 
 .hover-underline:hover { text-decoration: underline !important; }
+
+.missing-po-link {
+  color: rgb(var(--v-theme-primary));
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.supplier-link {
+  color: rgb(var(--v-theme-primary));
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+  white-space: normal;
+  text-align: left;
+}
+
+.supplier-editor-table-wrap { overflow-x: auto; border: 1px solid rgba(var(--v-border-color), 0.5); border-radius: 6px; }
+.supplier-editor-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.supplier-editor-table th, .supplier-editor-table td { padding: 8px; border-bottom: 1px solid rgba(var(--v-border-color), 0.35); text-align: left; }
+.supplier-editor-table th { font-size: 11px; text-transform: uppercase; color: rgba(var(--v-theme-on-surface), 0.65); }
+.selected-supplier-row { background: rgba(76, 175, 80, 0.10); }
+.supplier-editor-input { width: 100%; min-width: 80px; padding: 5px 7px; border: 1px solid rgba(var(--v-border-color), 0.55); border-radius: 4px; background: transparent; color: inherit; }
+.number-input { text-align: right; }
 
 .sortable-th {
   cursor: pointer;

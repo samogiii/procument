@@ -2,7 +2,7 @@
   <div>
     <!-- Header -->
     <div class="d-flex flex-wrap align-center gap-2 mb-4">
-      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="navigateTo('/ils')" />
+      <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="$router.back()" />
       <div>
         <h1 class="text-h5 font-weight-bold" style="font-family: monospace;">
           {{ item?.partNumberName || 'ILS Item' }}

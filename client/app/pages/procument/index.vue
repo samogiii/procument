@@ -3,6 +3,15 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <h1 class="text-h5 font-weight-bold">RFQ Items</h1>
       <v-spacer />
+      <v-btn
+        color="success"
+        variant="tonal"
+        prepend-icon="mdi-microsoft-excel"
+        :disabled="loading || allItems.length === 0"
+        @click="exportFilteredItems"
+      >
+        Export Excel
+      </v-btn>
     </div>
 
     <!-- Rejected Supplier Banner (user-facing) -->
@@ -195,6 +204,7 @@
         </div>
 
         <v-data-table-server
+          class="fixed-header-table"
           :headers="headers"
           :items="allItems"
           :items-length="totalItems"
@@ -202,6 +212,8 @@
           v-model:page="currentPage"
           v-model:items-per-page="currentItemsPerPage"
           :items-per-page-options="pageOptions"
+          fixed-header
+          height="calc(100vh - 210px)"
           :sort-by="sort.sortByModel.value"
           hover
           density="comfortable"
@@ -1183,6 +1195,8 @@
 </template>
 
 <script setup lang="ts">
+import { downloadExcel } from '~/utils/exportExcel'
+
 const api = useApi()
 const authStore = useAuthStore()
 const { statusColor: rfqStatusColor } = useStatusColor()
@@ -1267,9 +1281,13 @@ const colPnOpts = computed(() =>
 // Customers: from filter-options (full DB, cascades with toolbar filters)
 // allCustomerOptions is already populated by loadFilterOptions()
 // format: { title: customerCode, value: customerName }
+const customerOptions = ref<{ title: string; value: string }[]>([])
+const allCustomerOptions = ref<{ title: string; value: string }[]>([])
 
 // Users: from filter-options (full DB)
 // allUserOptions is already populated — format: { id, name }
+const userOptions = ref<{ id: number; name: string }[]>([])
+const allUserOptions = ref<{ id: number; name: string }[]>([])
 
 // ── Per-column show-all toggles (false = available only, true = show all DB values) ──
 const showAllCondOpts = ref(false)
@@ -1499,10 +1517,6 @@ const headers = [
   { title: 'Received Date', key: 'createdAt' },
 ]
 
-const userOptions = ref<{ id: number; name: string }[]>([])
-const customerOptions = ref<{ title: string; value: string }[]>([])
-const allUserOptions = ref<{ id: number; name: string }[]>([])
-const allCustomerOptions = ref<{ title: string; value: string }[]>([])
 const showAllUsers = ref(false)
 const showAllCustomers = ref(false)
 
@@ -1603,6 +1617,23 @@ function getRowProps({ item }: { item: any }) {
 // ── Data Loading ──
 const lastProcumentOpts = ref<any>({ page: pf.page.value, itemsPerPage: pf.itemsPerPage.value })
 
+function buildProcumentParams(page: number, pageSize: number) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  sort.appendTo(params)
+  if (search.value?.trim()) params.set('search', search.value.trim())
+  if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
+  if (statusFilter.value?.length) (statusFilter.value as string[]).forEach(status => params.append('status', status))
+  if (userFilter.value?.length) (userFilter.value as number[]).forEach(userId => params.append('userIds', String(userId)))
+  if (customerFilter.value?.length) (customerFilter.value as string[]).forEach(customer => params.append('customerSearch', customer))
+  if (colPn.value?.length) (colPn.value as string[]).forEach(partNumber => params.append('colPartNames', partNumber))
+  if (colCond.value?.length) (colCond.value as string[]).forEach(condition => params.append('conditions', condition))
+  if (colRfqId.value?.length) (colRfqId.value as string[]).forEach(rfqId => params.append('rfqIds', rfqId))
+  if (colRfqName.value?.length) (colRfqName.value as string[]).forEach(rfqName => params.append('rfqNames', rfqName))
+  if (showPendingOnly.value) params.set('pendingOnly', 'true')
+  if (showNoQuote.value) params.set('includeNoQuote', 'true')
+  return params
+}
+
 async function loadServerPage(opts?: any) {
   if (opts) {
     sort.capture(opts)
@@ -1613,19 +1644,7 @@ async function loadServerPage(opts?: any) {
   const { page, itemsPerPage } = lastProcumentOpts.value
   loading.value = true
   try {
-    const params = new URLSearchParams({ page: String(page), pageSize: String(itemsPerPage) })
-    sort.appendTo(params)
-    if (search.value?.trim()) params.set('search', search.value.trim())
-    if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
-    if (statusFilter.value?.length) (statusFilter.value as string[]).forEach((s: string) => params.append('status', s))
-    if (userFilter.value?.length) (userFilter.value as number[]).forEach((id: number) => params.append('userIds', String(id)))
-    if (customerFilter.value?.length) (customerFilter.value as string[]).forEach((c: string) => params.append('customerSearch', c))
-    if (colPn.value?.length) (colPn.value as string[]).forEach((v: string) => params.append('colPartNames', v))
-    if (colCond.value?.length) (colCond.value as string[]).forEach((v: string) => params.append('conditions', v))
-    if (colRfqId.value?.length) (colRfqId.value as string[]).forEach((v: string) => params.append('rfqIds', v))
-    if (colRfqName.value?.length) (colRfqName.value as string[]).forEach((v: string) => params.append('rfqNames', v))
-    if (showPendingOnly.value) params.set('pendingOnly', 'true')
-    if (showNoQuote.value) params.set('includeNoQuote', 'true')
+    const params = buildProcumentParams(page, itemsPerPage)
     const res = await api.get<any>(`/procument-page?${params.toString()}`)
     const batch: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
     totalItems.value = (!Array.isArray(res) && res != null) ? (res.totalCount ?? res.TotalCount ?? batch.length) : batch.length
@@ -1670,6 +1689,37 @@ async function loadServerPage(opts?: any) {
   } finally {
     loading.value = false
   }
+}
+
+function exportFilteredItems() {
+  if (loading.value || allItems.value.length === 0) return
+  try {
+    downloadExcel(allItems.value.map(item => ({
+      'RFQ #': item.rfqId,
+      'RFQ Name': item.rfqName || '',
+      'Part Number': item.partNumberName || '',
+      'Description': item.description || '',
+      'Qty': item.qty,
+      'Condition': item.condition || '',
+      'Customer': item.customerCode || '',
+      'Status': item.rfqStatus || 'Open',
+      'Suppliers': item.supplierQuotes?.length ?? 0,
+      'Assigned Users': (item.assignedUsers || []).map((user: any) => user.name).join(', '),
+      'Deadline': formatExportDate(item.leadTime),
+      'Received Date': formatExportDate(item.createdAt),
+    })), `RFQ-Items-${new Date().toISOString().slice(0, 10)}`, 'RFQ Items')
+
+    showSnack(`Exported ${allItems.value.length} RFQ items from this page.`, 'success')
+  } catch (error) {
+    console.error('Failed to export RFQ items:', error)
+    showSnack('Failed to export RFQ items.', 'error')
+  }
+}
+
+function formatExportDate(value?: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString()
 }
 
 async function loadData() {
@@ -2124,6 +2174,29 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 </script>
 
 <style scoped>
+:deep(.fixed-header-table .v-table__wrapper) {
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table) {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  overflow: visible !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table > thead) {
+  position: static !important;
+}
+
+:deep(.fixed-header-table thead th) {
+  position: sticky !important;
+  top: 0;
+  z-index: 11 !important;
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 0 rgba(var(--v-border-color), 0.7);
+}
+
 .proc-th-inner { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .proc-th-inner--filtered { color: rgb(var(--v-theme-primary)); font-weight: 700; }
 .proc-filter-btn { opacity: 0.5; flex-shrink: 0; }

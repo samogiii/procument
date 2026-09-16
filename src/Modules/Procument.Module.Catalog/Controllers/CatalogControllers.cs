@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Shared.DTOs;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Catalog.Controllers;
 
@@ -91,6 +92,8 @@ public class CustomersController : ControllerBase
                 c.Coef1,
                 c.Coef2,
                 c.Coef3,
+                c.CreditEnabled,
+                c.MaxCredit,
                 c.IsActive,
                 c.CreatedAt
             })
@@ -173,6 +176,8 @@ public class CustomersController : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] CustomerDto dto)
     {
+        if (dto.CreditEnabled && (!dto.MaxCredit.HasValue || dto.MaxCredit.Value < 0))
+            return BadRequest("Max Credit must be zero or greater when customer credit is enabled.");
         var entity = new Customer
         {
             Name = dto.Name,
@@ -194,6 +199,8 @@ public class CustomersController : ControllerBase
             Emails = dto.Emails,
             Website = dto.Website,
             Contacts = dto.Contacts,
+            CreditEnabled = dto.CreditEnabled,
+            MaxCredit = dto.CreditEnabled ? dto.MaxCredit : null,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
@@ -212,6 +219,8 @@ public class CustomersController : ControllerBase
     [HttpPut("{id:long}")]
     public async Task<ActionResult> Update(long id, [FromBody] CustomerDto dto)
     {
+        if (dto.CreditEnabled && (!dto.MaxCredit.HasValue || dto.MaxCredit.Value < 0))
+            return BadRequest("Max Credit must be zero or greater when customer credit is enabled.");
         var entity = await _db.Set<Customer>().FindAsync(id);
         if (entity == null) return NotFound();
 
@@ -234,6 +243,8 @@ public class CustomersController : ControllerBase
         entity.Emails = dto.Emails;
         entity.Website = dto.Website;
         entity.Contacts = dto.Contacts;
+        entity.CreditEnabled = dto.CreditEnabled;
+        entity.MaxCredit = dto.CreditEnabled ? dto.MaxCredit : null;
         // Quote coefficients are SuperAdmin-only — other roles leave the stored values untouched
         if (User.IsInRole("SuperAdmin"))
         {
@@ -318,6 +329,8 @@ public class CustomerDto
     public decimal? Coef1 { get; set; }
     public decimal? Coef2 { get; set; }
     public decimal? Coef3 { get; set; }
+    public bool CreditEnabled { get; set; }
+    public decimal? MaxCredit { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -397,20 +410,22 @@ public class SuppliersController : ControllerBase
     {
         var names = (dto.Names ?? new List<string>())
             .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => n.Trim())
+            .Select(SupplierNameNormalizer.Clean)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (names.Count == 0) return Ok(new { missing = Array.Empty<string>() });
 
-        var lowered = names.Select(n => n.ToLower()).ToList();
+        // Compare in memory using the same normalization used by the quote saver.
+        // SQL LOWER() alone does not remove non-breaking/repeated/trailing spaces.
         var existing = (await _db.Set<Supplier>()
-                .Where(s => lowered.Contains(s.Name.ToLower()))
-                .Select(s => s.Name.ToLower())
+                .AsNoTracking()
+                .Select(s => s.Name)
                 .ToListAsync())
-            .ToHashSet();
+            .Select(SupplierNameNormalizer.Key)
+            .ToHashSet(StringComparer.Ordinal);
 
-        var missing = names.Where(n => !existing.Contains(n.ToLower())).ToList();
+        var missing = names.Where(n => !existing.Contains(SupplierNameNormalizer.Key(n))).ToList();
         return Ok(new { missing });
     }
 
@@ -471,7 +486,7 @@ public class SuppliersController : ControllerBase
         if (entity == null) return NotFound();
         if (entity.Status != "Rejected") return BadRequest("Supplier is not in Rejected status.");
 
-        var trimmedName = dto.Name.Trim();
+        var trimmedName = SupplierNameNormalizer.Clean(dto.Name);
 
         // Check if an Approved supplier with this name already exists
         var existing = await _db.Set<Supplier>()
@@ -506,7 +521,7 @@ public class SuppliersController : ControllerBase
     {
         var entity = new Supplier
         {
-            Name = dto.Name,
+            Name = SupplierNameNormalizer.Clean(dto.Name),
             Username = dto.Username,
             Description = dto.Description,
             Dependency = dto.Dependency,
@@ -529,7 +544,7 @@ public class SuppliersController : ControllerBase
         var entity = await _db.Set<Supplier>().FindAsync(id);
         if (entity == null) return NotFound();
 
-        entity.Name = dto.Name;
+        entity.Name = SupplierNameNormalizer.Clean(dto.Name);
         entity.Username = dto.Username;
         entity.Description = dto.Description;
         entity.Dependency = dto.Dependency;
@@ -553,7 +568,7 @@ public class SuppliersController : ControllerBase
         var entity = await _db.Set<Supplier>().FindAsync(id);
         if (entity == null) return NotFound();
 
-        if (!string.IsNullOrWhiteSpace(dto.Name)) entity.Name = dto.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(dto.Name)) entity.Name = SupplierNameNormalizer.Clean(dto.Name);
         entity.Email = dto.Email;
         entity.Phone = dto.Phone;
         entity.Address = dto.Address;

@@ -261,7 +261,7 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         using var cmd = conn.CreateCommand();
         var baseList = string.Join(",", userBases);
-        cmd.CommandText = $"SELECT COUNT(1) FROM Invoices i JOIN Customers c ON c.Id = i.CustomerId WHERE i.Id = @invId AND (c.[Base] IS NULL OR c.[Base] IN ({baseList}))";
+        cmd.CommandText = $"SELECT COUNT(1) FROM ProformaInvoices i JOIN Customers c ON c.Id = i.CustomerId WHERE i.Id = @invId AND (c.[Base] IS NULL OR c.[Base] IN ({baseList}))";
         var p = cmd.CreateParameter();
         p.ParameterName = "@invId";
         p.Value = invoiceId;
@@ -305,43 +305,18 @@ public class PurchaseOrderService : IPurchaseOrderService
         return MapToResponse(po, invoiceNumber, overriddenSuppliers);
     }
 
-    /// <summary>
-    /// Resolve the payment wallet (PaymentBox) that belongs to a company preset. USD boxes win,
-    /// then the lowest Id. Raw SQL keeps PaymentBox (Sales module) out of this module's model.
-    /// </summary>
-    private async Task<long?> ResolveWalletForPresetAsync(long companyPresetId)
-    {
-        var conn = _db.Database.GetDbConnection();
-        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT TOP 1 Id FROM PaymentBoxes
-                            WHERE CompanyPresetId = @presetId
-                            ORDER BY CASE WHEN Currency = 'USD' THEN 0 ELSE 1 END, Id";
-        var p = cmd.CreateParameter();
-        p.ParameterName = "@presetId";
-        p.Value = companyPresetId;
-        cmd.Parameters.Add(p);
-        var result = await cmd.ExecuteScalarAsync();
-        return result == null || result == DBNull.Value ? null : Convert.ToInt64(result);
-    }
-
     /// <summary>Create PO and assign existing unassigned POItems to it.</summary>
     public async Task<POResponse> CreateAsync(CreatePORequest request)
     {
-        // The company preset picked at creation time is stored through its payment wallet:
-        // PreferredWalletId → PaymentBox → CompanyPreset. An explicit wallet always wins.
-        var walletId = request.PreferredWalletId;
-        if (walletId == null && request.CompanyPresetId.HasValue)
-            walletId = await ResolveWalletForPresetAsync(request.CompanyPresetId.Value);
-
         var po = new PurchaseOrder
         {
             PONumber = "", // Will be set after getting Id
             SupplierId = request.SupplierId,
             InvoiceId = request.InvoiceId,
-            Status = "Waiting For Admin Approval",
+            Status = PurchaseOrderStatusFlow.NotStarted,
+            AdminApproval = "Approved",
             CreatedAt = DateTime.UtcNow,
-            PreferredWalletId = walletId,
+            CompanyPresetId = request.CompanyPresetId,
         };
 
         _db.Set<PurchaseOrder>().Add(po);
@@ -495,14 +470,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         // Already in a terminal state — no further transitions allowed
         if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return false;
 
-        // Allowed Statuses
-        var allowed = new[] {
-            "Draft", "Waiting For Admin Approval", "Waiting For Documents", "Waiting For Payment",
-            "PO Sent", "Document Added", "Payment Done", "Waiting For Shipment",
-            "Ship To Warehouse 1", "Ship To Warehouse 2",
-            "Ship To Warehouse 3", "Ship To Customer", "Completed", "Cancelled", "Issue"
-        };
-        if (!allowed.Contains(newStatus)) return false;
+        if (!PurchaseOrderStatusFlow.AllowedStatuses.Contains(newStatus)) return false;
 
         // ── Cancellation: always allowed regardless of current state or role ──
         if (newStatus == "Cancelled")
@@ -523,7 +491,11 @@ public class PurchaseOrderService : IPurchaseOrderService
 
             var now = DateTime.UtcNow;
             foreach (var item in liveItems)
+            {
+                item.Status = PurchaseOrderStatusFlow.Cancelled;
                 item.ReturnedAt = now;
+            }
+            await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, liveItems, PurchaseOrderStatusFlow.Cancelled);
 
             await _db.SaveChangesAsync();
 
@@ -544,54 +516,33 @@ public class PurchaseOrderService : IPurchaseOrderService
                 catch { /* non-fatal */ }
             }
 
-            // 4. Flip the linked Invoice status to "PO Cancelled" (raw SQL — avoids circular module dep)
-            if (po.InvoiceId.HasValue)
-            {
-                try
-                {
-                    var conn = _db.Database.GetDbConnection();
-                    if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "UPDATE Invoices SET Status = 'PO Cancelled' WHERE Id = @id";
-                    var p = cmd.CreateParameter(); p.ParameterName = "@id"; p.Value = po.InvoiceId.Value;
-                    cmd.Parameters.Add(p);
-                    await cmd.ExecuteNonQueryAsync();
-                }
-                catch { /* non-fatal — invoice update is cosmetic */ }
-            }
-
             return true;
         }
 
-        // Restriction: Only Admin or SuperAdmin can manually set back to "Waiting For Admin Approval"
-        if (!isAdmin && newStatus == "Waiting For Admin Approval")
+        if (newStatus is PurchaseOrderStatusFlow.InShop or PurchaseOrderStatusFlow.EndUser)
         {
-            return false;
+            po.Status = newStatus;
+            po.FulfillmentMode = newStatus;
+            var prePaymentItems = await _db.Set<POItem>()
+                .Where(i => i.POId == po.Id && i.ReturnedAt == null &&
+                    i.Status != PurchaseOrderStatusFlow.PaymentDone &&
+                    i.Status != PurchaseOrderStatusFlow.WaitingForShipment &&
+                    i.Status != PurchaseOrderStatusFlow.ShipToWarehouse &&
+                    i.Status != PurchaseOrderStatusFlow.WaitingForExpertShipmentApproval &&
+                    i.Status != PurchaseOrderStatusFlow.Completed)
+                .ToListAsync();
+            foreach (var item in prePaymentItems)
+            {
+                item.Status = newStatus;
+                if (newStatus == PurchaseOrderStatusFlow.InShop)
+                    item.InShopStartedAt ??= DateTime.UtcNow;
+            }
+            await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, prePaymentItems, newStatus);
         }
-
-        // Block manual status changes during approval/payment workflow
-        // 1. If waiting for Admin approval
-        if (po.AdminApproval != "Approved" && po.Status == "Waiting For Admin Approval")
+        else
         {
-            // Only Admin or SuperAdmin can override or correct status at this stage
-            if (!isAdmin) return false;
+            await PurchaseOrderStatusFlow.ApplyAsync(_db, po, newStatus);
         }
-
-        // 2. If waiting for Documents
-        if (po.Status == "Waiting For Documents" && newStatus != "Waiting For Payment" && newStatus != "Cancelled")
-        {
-            // Must go to Waiting For Payment next, or be cancelled
-            if (!isAdmin) return false;
-        }
-
-        // 3. If waiting for Payment (Admin approved but payment not yet submitted)
-        if (po.AdminApproval == "Approved" && po.Status == "Waiting For Payment" && po.PaymentStatus != "Submitted")
-        {
-            // Even Admin/SuperAdmin shouldn't skip the payment submission step manually via status change
-            if (!isAdmin && newStatus != "Waiting For Documents") return false;
-        }
-
-        po.Status = newStatus;
         await _db.SaveChangesAsync();
 
         // Completed → close the loop on source ProcurementItems
@@ -708,7 +659,12 @@ public class PurchaseOrderService : IPurchaseOrderService
         List<long> skipped = [];
         List<string> warnings = [];
         if (fullReturnIds.Count > 0)
+        {
+            var returnedItems = liveItems.Where(i => fullReturnIds.Contains(i.Id)).ToList();
+            foreach (var item in returnedItems) item.Status = PurchaseOrderStatusFlow.Returned;
+            await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, returnedItems, PurchaseOrderStatusFlow.Returned);
             (reopened, skipped, warnings) = await _procurementService.RecyclePOItemsAsync(fullReturnIds, po.Id, reason, userId);
+        }
 
         // Recompute PO total from whatever remains live
         var remaining = await _db.Set<POItem>()
@@ -873,7 +829,7 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         using var cmd = conn.CreateCommand();
         var ids = string.Join(",", invoiceItemIds);
-        cmd.CommandText = $"SELECT ii.Id AS InvoiceItemId, i.Id AS InvoiceId, i.InvoiceNumber FROM InvoiceItems ii INNER JOIN Invoices i ON ii.InvoiceId = i.Id WHERE ii.Id IN ({ids})";
+        cmd.CommandText = $"SELECT ii.Id AS InvoiceItemId, i.Id AS InvoiceId, i.InvoiceNumber FROM ProformaInvoiceItems ii INNER JOIN ProformaInvoices i ON ii.InvoiceId = i.Id WHERE ii.Id IN ({ids})";
 
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
@@ -897,7 +853,7 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         using var cmd = conn.CreateCommand();
         var baseList = string.Join(",", userBases);
-        cmd.CommandText = $"SELECT i.Id FROM Invoices i JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
+        cmd.CommandText = $"SELECT i.Id FROM ProformaInvoices i JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync()) result.Add(reader.GetInt64(0));
         return result;
@@ -912,7 +868,7 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         using var cmd = conn.CreateCommand();
         var baseList = string.Join(",", userBases);
-        cmd.CommandText = $"SELECT ii.Id FROM InvoiceItems ii JOIN Invoices i ON i.Id = ii.InvoiceId JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
+        cmd.CommandText = $"SELECT ii.Id FROM ProformaInvoiceItems ii JOIN ProformaInvoices i ON i.Id = ii.InvoiceId JOIN Customers c ON c.Id = i.CustomerId WHERE c.[Base] IS NULL OR c.[Base] IN ({baseList})";
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync()) result.Add(reader.GetInt64(0));
         return result;
@@ -928,7 +884,7 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         using var cmd = conn.CreateCommand();
         var ids = string.Join(",", invoiceIds);
-        cmd.CommandText = $"SELECT Id, InvoiceNumber FROM Invoices WHERE Id IN ({ids})";
+        cmd.CommandText = $"SELECT Id, InvoiceNumber FROM ProformaInvoices WHERE Id IN ({ids})";
 
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
@@ -946,6 +902,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         PODate = po.PODate,
         TotalAmount = po.TotalAmount,
         Status = po.Status,
+        FulfillmentMode = po.FulfillmentMode,
         CreatedAt = po.CreatedAt,
         SupplierId = po.SupplierId,
         SupplierName = po.Supplier?.Name ?? "",
@@ -964,8 +921,9 @@ public class PurchaseOrderService : IPurchaseOrderService
         ProcessingFee = po.ProcessingFee,
         Shipping = po.Shipping,
         Tax = po.Tax,
-        // Wallet chosen at creation time — carries the company preset (resolved by the controller).
+        // Legacy wallet preference is retained for historical responses.
         PreferredWalletId = po.PreferredWalletId,
+        CompanyPresetId = po.CompanyPresetId,
         Items = po.POItems.Select(i => {
             string? sName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))
@@ -988,6 +946,11 @@ public class PurchaseOrderService : IPurchaseOrderService
                 Condition = i.Condition,
                 SupplierId = i.SupplierId,
                 SupplierName = sName ?? "Unknown Supplier",
+                Status = i.Status ?? PurchaseOrderStatusFlow.NotStarted,
+                InShopLeadTimeDays = i.InShopLeadTimeDays,
+                InShopStartedAt = i.InShopStartedAt,
+                InShopRemainingDays = PurchaseOrderStatusFlow.RemainingInShopDays(i),
+                DisplayStatus = PurchaseOrderStatusFlow.DisplayStatus(i),
                 TrackNumbers = (i.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => new TrackNumberResponse
                 {
                     Id = t.Id,

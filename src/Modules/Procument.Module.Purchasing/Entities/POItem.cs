@@ -41,6 +41,10 @@ public class POItem : BaseEntity
     public string? Note { get; set; }
     /// <summary>Sequential line number within the parent PO. Assigned on PO creation, null while unassigned.</summary>
     public int? PORef { get; set; }
+    /// <summary>Original In Shop duration entered for this line.</summary>
+    public int? InShopLeadTimeDays { get; set; }
+    /// <summary>UTC date from which the In Shop countdown is calculated.</summary>
+    public DateTime? InShopStartedAt { get; set; }
 
     // Navigation
     public PurchaseOrder? PurchaseOrder { get; set; }

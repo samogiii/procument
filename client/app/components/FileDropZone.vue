@@ -34,7 +34,7 @@
     <input
       ref="inputEl"
       type="file"
-      multiple
+      :multiple="multiple"
       :accept="accept"
       class="d-none"
       @change="onPick"
@@ -105,10 +105,12 @@ const props = withDefaults(defineProps<{
   label?: string
   accept?: string
   compact?: boolean
+  multiple?: boolean
 }>(), {
   label: 'Drag files here or click to browse',
   accept: 'image/*,application/pdf,.pdf,.png,.jpg,.jpeg',
   compact: false,
+  multiple: true,
 })
 
 const inputEl = ref<HTMLInputElement | null>(null)
@@ -161,7 +163,9 @@ function hasFiles(e: DragEvent) {
 
 function add(list: FileList | null) {
   if (!list?.length) return
-  for (const file of Array.from(list)) {
+  const files = props.multiple ? Array.from(list) : [list[0]!]
+  if (!props.multiple) clearAll()
+  for (const file of files) {
     // Dropping a folder yields a zero-byte entry with no type — skip it rather
     // than posting something the server will reject.
     if (file.size === 0 && !file.type) continue

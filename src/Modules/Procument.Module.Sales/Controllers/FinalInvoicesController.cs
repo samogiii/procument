@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,6 +10,7 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Services;
 
 using Procument.Shared.Services;
+using System.Security.Claims;
 
 
 
@@ -22,9 +24,11 @@ namespace Procument.Module.Sales.Controllers;
 
 [Authorize(Roles = "Admin,SuperAdmin")]
 
-public class FinalInvoicesController : ControllerBase
+public class FinalInvoicesController : ControllerBase, IAsyncActionFilter
 
 {
+
+    private static readonly HashSet<string> BlockedInvoiceUsers = new(StringComparer.OrdinalIgnoreCase) { "AHM", "MOR" };
 
     private readonly IFinalInvoiceService _service;
 
@@ -40,6 +44,18 @@ public class FinalInvoicesController : ControllerBase
 
         _lockGuard = lockGuard;
 
+    }
+
+    async Task IAsyncActionFilter.OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var userName = User.FindFirst(ClaimTypes.Name)?.Value;
+        if (!string.IsNullOrWhiteSpace(userName) && BlockedInvoiceUsers.Contains(userName))
+        {
+            context.Result = NotFound();
+            return;
+        }
+
+        await next();
     }
 
 
@@ -294,6 +310,8 @@ public class FinalInvoicesController : ControllerBase
 
             customerName = fi.CustomerName,
 
+            customerBase = fi.CustomerBase,
+
             customerContactPerson = fi.CustomerContactPerson,
 
             customerBillTo = fi.CustomerBillTo,
@@ -401,6 +419,7 @@ public class FinalInvoicesController : ControllerBase
         {
             customerId = primary.CustomerId,
             customerName = primary.CustomerName,
+            customerBase = primary.CustomerBase,
             customerCode = primary.CustomerCode,
             customerContactPerson = primary.CustomerContactPerson,
             customerBillTo = primary.CustomerBillTo,

@@ -125,6 +125,16 @@
           <template #item.totalItems="{ item }">
             <v-chip size="small" color="primary" variant="tonal">{{ item.totalItems }}</v-chip>
           </template>
+          <template #item.actions="{ item }">
+            <v-btn
+              icon="mdi-delete"
+              size="x-small"
+              variant="text"
+              color="error"
+              title="Remove supplier and all inventory parts"
+              @click.stop="confirmDeleteSupplier(item)"
+            />
+          </template>
         </v-data-table>
       </v-card-text>
     </v-card>
@@ -440,6 +450,14 @@
         </v-card-text>
         <v-divider />
         <v-card-actions class="pa-4 pt-3">
+          <v-btn
+            color="error"
+            variant="tonal"
+            prepend-icon="mdi-delete"
+            @click="confirmDeleteSupplier(selectedSupplier)"
+          >
+            Remove Supplier & Parts
+          </v-btn>
           <v-spacer />
           <v-btn variant="text" @click="showSupplierDialog = false">Close</v-btn>
         </v-card-actions>
@@ -457,6 +475,25 @@
           <v-spacer />
           <v-btn variant="text" @click="showDeleteConfirm = false">Cancel</v-btn>
           <v-btn color="error" variant="flat" :loading="deleteSaving" @click="doDelete">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete Supplier Inventory Confirm -->
+    <v-dialog v-model="showSupplierDeleteConfirm" max-width="480">
+      <v-card>
+        <v-card-title class="pa-4 pb-2">Remove Supplier from Inventory?</v-card-title>
+        <v-card-text>
+          This will remove <strong>{{ supplierDeleteTarget?.companyName }}</strong> and all
+          <strong>{{ supplierDeleteTarget?.totalItems ?? supplierItems.length }}</strong> of their parts from Inventory.
+          The supplier's purchasing and invoice history will not be deleted.
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showSupplierDeleteConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="supplierDeleteSaving" @click="doDeleteSupplier">
+            Remove Supplier & Parts
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -489,6 +526,7 @@ interface InventoryForm {
 const loading = ref(false)
 const saving = ref(false)
 const deleteSaving = ref(false)
+const supplierDeleteSaving = ref(false)
 const allItems = ref<any[]>([])
 const search = ref('')
 const conditionFilter = ref<string[]>([])
@@ -590,6 +628,7 @@ const headers = [
 const supplierListHeaders = [
   { title: 'Company', key: 'companyName', width: '250px' },
   { title: 'Total Items', key: 'totalItems', width: '120px' },
+  { title: '', key: 'actions', width: '70px', sortable: false },
 ]
 
 onMounted(loadItems)
@@ -802,6 +841,42 @@ async function doDelete() {
     showSnack('Failed to delete', 'error')
   } finally {
     deleteSaving.value = false
+  }
+}
+
+// ── Delete Supplier Inventory ──
+const showSupplierDeleteConfirm = ref(false)
+const supplierDeleteTarget = ref<any>(null)
+
+function confirmDeleteSupplier(supplier: any) {
+  if (!supplier?.companyId) return
+  supplierDeleteTarget.value = {
+    ...supplier,
+    totalItems: supplier.totalItems ?? allItems.value.filter(i => i.companyId === supplier.companyId).length,
+  }
+  showSupplierDeleteConfirm.value = true
+}
+
+async function doDeleteSupplier() {
+  if (!supplierDeleteTarget.value?.companyId) return
+  supplierDeleteSaving.value = true
+  try {
+    const supplierId = supplierDeleteTarget.value.companyId
+    const result = await api.del<{ supplierId: number; deletedItems: number }>(`/inventory/suppliers/${supplierId}`)
+    allItems.value = allItems.value.filter(i => i.companyId !== supplierId)
+
+    if (selectedSupplier.value?.companyId === supplierId) {
+      showSupplierDialog.value = false
+      selectedSupplier.value = null
+    }
+
+    showSupplierDeleteConfirm.value = false
+    supplierDeleteTarget.value = null
+    showSnack(`${result.deletedItems} inventory ${result.deletedItems === 1 ? 'part' : 'parts'} removed`)
+  } catch (e: any) {
+    showSnack(e?.data?.error || 'Failed to remove supplier from inventory', 'error')
+  } finally {
+    supplierDeleteSaving.value = false
   }
 }
 

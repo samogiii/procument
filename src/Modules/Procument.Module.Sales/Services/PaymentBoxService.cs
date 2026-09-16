@@ -79,6 +79,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 t.ToType,
                 t.ToType == "Supplier"
                     ? t.ToSupplier?.Name
+                    : t.ToType == "BankFee" ? "Bank Fee and Others"
                     : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
                 t.ToSupplierId,
                 t.Invoice?.InvoiceNumber,
@@ -153,6 +154,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                     t.Type == "Withdraw"
                         ? (t.ToType == "Supplier"
                             ? t.ToSupplier?.Name
+                            : t.ToType == "BankFee" ? "Bank Fee and Others"
                             : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet")
                         : null,
                     t.ToSupplierId,
@@ -330,7 +332,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             TxCurrency = req.Currency,
             ExchangeRate = req.ExchangeRate,
             ToPaymentBoxId = req.ToPaymentBoxId,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = req.CreatedAt ?? DateTime.UtcNow
         };
         _db.Set<PaymentTransaction>().Add(tx);
         await _db.SaveChangesAsync();
@@ -366,6 +368,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             tx.FromCustomerId,
             tx.ToType,
             tx.ToType == "Supplier" ? tx.ToSupplier?.Name
+                : tx.ToType == "BankFee" ? "Bank Fee and Others"
                 : tx.ToType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
             tx.ToSupplierId,
             tx.Invoice?.InvoiceNumber,
@@ -386,6 +389,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var tx = await _db.Set<PaymentTransaction>().FindAsync(txId);
         if (tx == null) return null;
+
+        // Automatic POP, supplier-payment and bank-fee rows may need accounting
+        // corrections after import. Keep their automatic/document provenance on
+        // the transaction, but allow SuperAdmin to edit the wallet ledger values.
 
         tx.Type = req.Type;
         tx.Amount = req.Amount;
@@ -435,6 +442,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             tx.FromCustomerId,
             tx.ToType,
             tx.ToType == "Supplier" ? tx.ToSupplier?.Name
+                : tx.ToType == "BankFee" ? "Bank Fee and Others"
                 : tx.ToType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
             tx.ToSupplierId,
             tx.Invoice?.InvoiceNumber,
@@ -455,6 +463,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var tx = await _db.Set<PaymentTransaction>().FindAsync(txId);
         if (tx == null) return false;
+        if (tx.PopUploadId.HasValue || (tx.IsAuto && tx.ToType == "BankFee"))
+            throw new ArgumentException("POP payments and bank fees cannot be deleted through wallet transactions.");
         _db.Set<PaymentTransaction>().Remove(tx);
         await _db.SaveChangesAsync();
         return true;
@@ -513,36 +523,20 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
 
     // ── Auto-deposit / Auto-withdraw ─────────────────────────────────────────
 
-    public async Task TryAutoDepositAsync(long invoiceId, decimal amount, long customerId, string? currency = null, decimal? exchangeRate = null, long? explicitBoxId = null)
+    public async Task<bool> TryAutoDepositAsync(long invoiceId, decimal amount, long customerId, string? currency = null, decimal? exchangeRate = null, long? explicitBoxId = null, string? popFileName = null)
     {
-        PaymentBox? box = null;
+        var normalizedCurrency = string.IsNullOrWhiteSpace(currency)
+            ? "USD"
+            : currency.Trim().ToUpperInvariant();
+        if (!explicitBoxId.HasValue) return false;
 
-        // Prefer explicit box (set at PI creation time)
-        if (explicitBoxId.HasValue)
-            box = await _db.Set<PaymentBox>().FirstOrDefaultAsync(b => b.Id == explicitBoxId.Value);
+        // Customer POPs must go to the exact wallet selected on the PI. Never
+        // silently redirect money to the first wallet in a company preset.
+        var box = await _db.Set<PaymentBox>().FirstOrDefaultAsync(b => b.Id == explicitBoxId.Value);
+        if (box == null) return false;
 
-        // Fallback: resolve via customer base → preset → first matching box
-        if (box == null)
-        {
-            var customer = await _db.Set<Customer>()
-                .FirstOrDefaultAsync(c => c.Id == customerId);
-            if (customer?.Base == null) return;
-
-            var preset = await _db.Set<CompanyPreset>()
-                .FirstOrDefaultAsync(p => p.SortOrder == customer.Base);
-            if (preset == null) return;
-
-            box = await _db.Set<PaymentBox>()
-                .FirstOrDefaultAsync(b => b.CompanyPresetId == preset.Id
-                    && (currency == null || b.Currency == currency));
-
-            // Fallback to any box for this preset when currency doesn't match
-            if (box == null)
-                box = await _db.Set<PaymentBox>()
-                    .FirstOrDefaultAsync(b => b.CompanyPresetId == preset.Id);
-        }
-
-        if (box == null) return;
+        var isSameCurrency = string.Equals(box.Currency, normalizedCurrency, StringComparison.OrdinalIgnoreCase);
+        if (!isSameCurrency && (!exchangeRate.HasValue || exchangeRate.Value <= 0)) return false;
 
         _db.Set<PaymentTransaction>().Add(new PaymentTransaction
         {
@@ -553,12 +547,17 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             FromCustomerId = customerId,
             ToType = "MotherWallet",
             InvoiceId = invoiceId,
+            PopUploadId = Guid.NewGuid(),
+            PopFileName = popFileName,
             IsAuto = true,
-            TxCurrency = currency,
-            ExchangeRate = exchangeRate,
+            TxCurrency = normalizedCurrency,
+            // Amount * ExchangeRate is the value posted to the wallet. A null
+            // factor means the POP and wallet already use the same currency.
+            ExchangeRate = isSameCurrency ? null : exchangeRate,
             CreatedAt = DateTime.UtcNow
         });
         await _db.SaveChangesAsync();
+        return true;
     }
 
     public async Task TryAutoWithdrawAsync(long supplierId, decimal amount, long? companyPresetId, long? paymentRequestId, long? explicitBoxId = null)
@@ -592,6 +591,17 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             CreatedAt = DateTime.UtcNow
         });
         await _db.SaveChangesAsync();
+    }
+
+    public async Task<Dictionary<long, decimal>> GetSupplierPaidAmountsAsync(IEnumerable<long> paymentRequestIds)
+    {
+        var ids = paymentRequestIds.ToArray();
+        return await _db.Set<PaymentTransaction>()
+            .Where(t => t.PaymentRequestId.HasValue && ids.Contains(t.PaymentRequestId.Value)
+                && t.Type == "Withdraw" && t.ToType == "Supplier")
+            .GroupBy(t => t.PaymentRequestId!.Value)
+            .Select(g => new { Id = g.Key, Paid = g.Sum(t => t.Amount) })
+            .ToDictionaryAsync(t => t.Id, t => t.Paid);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

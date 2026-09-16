@@ -31,7 +31,7 @@ public class InvoiceService : IInvoiceService
         _b1Service = b1Service;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null, List<string>? assignedUsers = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .AsNoTracking()
@@ -49,13 +49,30 @@ public class InvoiceService : IInvoiceService
             var permittedIds = permittedInvoiceIdsStr
                 .Select(id => long.TryParse(id, out var l) ? l : -1)
                 .ToList();
+            var permittedItemIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "InvoiceItem")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .ToList();
+            var sourcePermissions = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && (p.EntityName == "Quote" || p.EntityName == "RFQ"))
+                .Select(p => new { p.EntityName, p.EntityId })
+                .ToListAsync();
+            var permittedQuoteIds = sourcePermissions.Where(p => p.EntityName == "Quote")
+                .Select(p => long.TryParse(p.EntityId, out var id) ? id : -1).Where(id => id > 0).ToList();
+            var permittedRfqIds = sourcePermissions.Where(p => p.EntityName == "RFQ")
+                .Select(p => long.TryParse(p.EntityId, out var id) ? id : -1).Where(id => id > 0).ToList();
 
             query = query.Where(i =>
                 i.Customer == null ||
                 i.Customer.Base == null ||
                 userBases.Contains(i.Customer.Base.Value) ||
                 permittedIds.Contains(i.Id) ||
-                i.Quote.UserId == userId);
+                i.InvoiceItems.Any(item => permittedItemIds.Contains(item.Id)
+                    || (item.QuoteItem != null && (item.QuoteItem.Quote.UserId == userId
+                        || item.QuoteItem.Quote.RFQ.UserId == userId
+                        || permittedQuoteIds.Contains(item.QuoteItem.QuoteId)
+                        || permittedRfqIds.Contains(item.QuoteItem.Quote.RFQId)))));
         }
         else if (!isAdmin)
         {
@@ -67,8 +84,26 @@ public class InvoiceService : IInvoiceService
             var permittedIds = permittedInvoiceIdsStr
                 .Select(id => long.TryParse(id, out var l) ? l : -1)
                 .ToList();
+            var permittedItemIds = (await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && p.EntityName == "InvoiceItem")
+                .Select(p => p.EntityId).ToListAsync())
+                .Select(id => long.TryParse(id, out var l) ? l : -1)
+                .ToList();
+            var sourcePermissions = await _db.Set<EntityPermission>()
+                .Where(p => p.UserId == userId && (p.EntityName == "Quote" || p.EntityName == "RFQ"))
+                .Select(p => new { p.EntityName, p.EntityId })
+                .ToListAsync();
+            var permittedQuoteIds = sourcePermissions.Where(p => p.EntityName == "Quote")
+                .Select(p => long.TryParse(p.EntityId, out var id) ? id : -1).Where(id => id > 0).ToList();
+            var permittedRfqIds = sourcePermissions.Where(p => p.EntityName == "RFQ")
+                .Select(p => long.TryParse(p.EntityId, out var id) ? id : -1).Where(id => id > 0).ToList();
 
-            query = query.Where(i => i.Quote.UserId == userId || permittedIds.Contains(i.Id));
+            query = query.Where(i => permittedIds.Contains(i.Id)
+                || i.InvoiceItems.Any(item => permittedItemIds.Contains(item.Id)
+                    || (item.QuoteItem != null && (item.QuoteItem.Quote.UserId == userId
+                        || item.QuoteItem.Quote.RFQ.UserId == userId
+                        || permittedQuoteIds.Contains(item.QuoteItem.QuoteId)
+                        || permittedRfqIds.Contains(item.QuoteItem.Quote.RFQId)))));
         }
 
         // By default, hide cancelled invoices unless "Cancelled" is explicitly requested
@@ -139,6 +174,33 @@ public class InvoiceService : IInvoiceService
         if (bases?.Count > 0)
             query = query.Where(i => i.Customer != null && i.Customer.Base != null && bases.Contains(i.Customer.Base.Value));
 
+        if (assignedUsers?.Count > 0)
+        {
+            var selectedUserIds = await _db.Set<User>()
+                .Where(user => assignedUsers.Contains(user.Name))
+                .Select(user => user.Id)
+                .ToListAsync();
+            if (selectedUserIds.Count == 0)
+            {
+                query = query.Where(_ => false);
+            }
+            else
+            {
+                query = query.Where(invoice =>
+                    _db.Set<EntityPermission>().Any(permission => permission.EntityName == "Invoice"
+                        && permission.EntityId == invoice.Id.ToString()
+                        && selectedUserIds.Contains(permission.UserId))
+                    || (!_db.Set<EntityPermission>().Any(permission => permission.EntityName == "Invoice"
+                            && permission.EntityId == invoice.Id.ToString())
+                        && invoice.InvoiceItems.Any(item => item.QuoteItem != null
+                            && (selectedUserIds.Contains(item.QuoteItem.Quote.UserId)
+                                || (item.QuoteItem.Quote.RFQ.UserId.HasValue && selectedUserIds.Contains(item.QuoteItem.Quote.RFQ.UserId.Value))
+                                || _db.Set<EntityPermission>().Any(permission => selectedUserIds.Contains(permission.UserId)
+                                    && ((permission.EntityName == "Quote" && permission.EntityId == item.QuoteItem.QuoteId.ToString())
+                                        || (permission.EntityName == "RFQ" && permission.EntityId == item.QuoteItem.Quote.RFQId.ToString())))))));
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(pnSearch))
         {
             var s = pnSearch.Trim();
@@ -173,10 +235,19 @@ public class InvoiceService : IInvoiceService
         var items = await query
             .ApplyPaging(page)
             .ToListAsync();
+        var itemIds = items.Select(i => i.Id).ToList();
+        var paidByInvoice = itemIds.Count == 0 ? new Dictionary<long, decimal>() : await _db.Set<CustomerPayment>()
+            .Where(p => itemIds.Contains(p.InvoiceId))
+            .GroupBy(p => p.InvoiceId)
+            .Select(g => new { InvoiceId = g.Key, Total = g.Sum(p => p.Amount) })
+            .ToDictionaryAsync(x => x.InvoiceId, x => x.Total);
+
+        var responses = items.Select(i => MapToResponse(i, paidByInvoice.GetValueOrDefault(i.Id))).ToList();
+        await PopulateAssignmentsAsync(responses, includeItems: false);
 
         return new PagedResult<InvoiceResponse>
         {
-            Items = items.Select(MapToResponse).ToList(),
+            Items = responses,
             TotalCount = totalCount,
             TotalAmountSum = totalAmountSum,
             Page = page.Page,
@@ -211,6 +282,33 @@ public class InvoiceService : IInvoiceService
             var hasPermission = await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "View")
                              || await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "Edit");
 
+            if (!hasPermission)
+            {
+                var invoiceItemPermissionIds = invoice.InvoiceItems.Select(item => item.Id.ToString()).ToList();
+                hasPermission = await _db.Set<EntityPermission>().AnyAsync(permission => permission.UserId == userId
+                    && permission.EntityName == "InvoiceItem" && invoiceItemPermissionIds.Contains(permission.EntityId));
+            }
+
+            if (!hasPermission)
+            {
+                var sourceAccess = await _db.Set<InvoiceItem>()
+                    .Where(item => item.InvoiceId == id && item.QuoteItem != null)
+                    .Select(item => new
+                    {
+                        item.QuoteItem!.QuoteId,
+                        QuoteOwnerId = item.QuoteItem.Quote.UserId,
+                        RfqId = item.QuoteItem.Quote.RFQId,
+                        RfqOwnerId = item.QuoteItem.Quote.RFQ.UserId,
+                    })
+                    .ToListAsync();
+                var quoteIds = sourceAccess.Select(source => source.QuoteId.ToString()).ToList();
+                var rfqIds = sourceAccess.Select(source => source.RfqId.ToString()).ToList();
+                hasPermission = sourceAccess.Any(source => source.QuoteOwnerId == userId || source.RfqOwnerId == userId)
+                    || await _db.Set<EntityPermission>().AnyAsync(permission => permission.UserId == userId
+                        && ((permission.EntityName == "Quote" && quoteIds.Contains(permission.EntityId))
+                            || (permission.EntityName == "RFQ" && rfqIds.Contains(permission.EntityId))));
+            }
+
             if (!hasPermission) return null;
         }
 
@@ -222,7 +320,31 @@ public class InvoiceService : IInvoiceService
             ? await _db.Set<CompanyPresetBankAccount>().AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoice.DefaultBankAccountId.Value)
             : null;
 
-        var response = MapToResponse(invoice);
+        var totalPaid = await _db.Set<CustomerPayment>().Where(p => p.InvoiceId == invoice.Id).SumAsync(p => (decimal?)p.Amount) ?? 0;
+        var invoiceItemIds = invoice.InvoiceItems.Select(item => item.Id).ToList();
+        List<POItem> inShopItems = invoiceItemIds.Count == 0
+            ? []
+            : await _db.Set<POItem>()
+                .AsNoTracking()
+                .Where(item => item.InvoiceItemId.HasValue
+                    && invoiceItemIds.Contains(item.InvoiceItemId.Value)
+                    && item.ReturnedAt == null
+                    && item.Status == PurchaseOrderStatusFlow.InShop
+                    && (!item.POId.HasValue || (item.PurchaseOrder != null
+                        && item.PurchaseOrder.Status != PurchaseOrderStatusFlow.Cancelled
+                        && item.PurchaseOrder.Status != PurchaseOrderStatusFlow.Returned)))
+                .ToListAsync();
+        var itemDisplayStatuses = inShopItems
+            .GroupBy(item => item.InvoiceItemId!.Value)
+            .ToDictionary(
+                group => group.Key,
+                group => PurchaseOrderStatusFlow.DisplayStatus(group
+                    .OrderByDescending(item => item.InShopStartedAt)
+                    .ThenByDescending(item => item.Id)
+                    .First()));
+
+        var response = MapToResponse(invoice, totalPaid, itemDisplayStatuses);
+        await PopulateAssignmentsAsync([response], includeItems: true);
         if (wallet != null)
         {
             response.WalletBankName = wallet.BankName;
@@ -279,15 +401,16 @@ public class InvoiceService : IInvoiceService
                 Qty = itemReq.Qty,
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,
-                ExpectedDeliveryDate = itemReq.ExpectedDeliveryDate
+                Condition = quoteItem.Condition,
+                ExpectedDeliveryDate = itemReq.ExpectedDeliveryDate,
+                Status = "Not Started"
             });
         }
 
         var initialStatus = "Draft";
-        if (request.PaymentStatus == "Prepayment" && request.PrepaymentPercent.HasValue && request.PrepaymentPercent.Value > 0)
-        {
-            initialStatus = "Waiting For PrePayment";
-        }
+        var paymentTerm = InvoicePaymentTerms.Normalize(request.PaymentStatus, request.PaymentTermDays);
+        if (paymentTerm.Term == InvoicePaymentTerms.Credit)
+            await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, primaryQuote.CustomerId, totalAmount);
 
         var invoice = new Invoice
         {
@@ -298,8 +421,9 @@ public class InvoiceService : IInvoiceService
             CustomerId = primaryQuote.CustomerId,
             TotalAmount = totalAmount,
             Status = initialStatus,
-            PaymentStatus = request.PaymentStatus,
-            PrepaymentPercent = request.PaymentStatus == "Prepayment" ? request.PrepaymentPercent : null,
+            PaymentStatus = paymentTerm.Term,
+            PaymentTermDays = paymentTerm.Days,
+            PrepaymentPercent = paymentTerm.Term == InvoicePaymentTerms.Prepayment ? request.PrepaymentPercent : null,
             DueDate = request.DueDate,
             DeadlineDate = request.DeadlineDate,
             CustomerPONumber = request.CustomerPONumber,
@@ -316,6 +440,38 @@ public class InvoiceService : IInvoiceService
         invoice.InvoiceNumber = $"PI-{invoice.Id}";
         await _db.SaveChangesAsync();
 
+        // Seed the PI with everyone who worked on its source Quotes/RFQs. Item rows
+        // inherit this list until an admin gives that item its own assignment.
+        var sourceQuotes = quoteItems.Select(item => item.Quote).DistinctBy(quote => quote.Id).ToList();
+        var sourceRfqIds = sourceQuotes.Select(quote => quote.RFQId).Distinct().ToList();
+        var sourceQuoteIdStrings = sourceQuotes.Select(quote => quote.Id.ToString()).ToList();
+        var sourceRfqIdStrings = sourceRfqIds.Select(rfqId => rfqId.ToString()).ToList();
+        var sourceUsers = sourceQuotes.Select(quote => quote.UserId).ToHashSet();
+        var rfqOwners = await _db.Set<Procument.Module.RFQ.Entities.RFQHeader>()
+            .Where(rfq => sourceRfqIds.Contains(rfq.Id) && rfq.UserId.HasValue)
+            .Select(rfq => rfq.UserId!.Value)
+            .ToListAsync();
+        sourceUsers.UnionWith(rfqOwners);
+        var sourcePermissions = await _db.Set<EntityPermission>()
+            .Where(permission =>
+                (permission.EntityName == "Quote" && sourceQuoteIdStrings.Contains(permission.EntityId))
+                || (permission.EntityName == "RFQ" && sourceRfqIdStrings.Contains(permission.EntityId)))
+            .Select(permission => permission.UserId)
+            .ToListAsync();
+        sourceUsers.UnionWith(sourcePermissions);
+        foreach (var assignedUserId in sourceUsers)
+        {
+            _db.Set<EntityPermission>().Add(new EntityPermission
+            {
+                UserId = assignedUserId,
+                EntityName = "Invoice",
+                EntityId = invoice.Id.ToString(),
+                Permission = "Edit",
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+        if (sourceUsers.Count > 0) await _db.SaveChangesAsync();
+
         // Create the document folder for this Proforma Invoice
         try { _documentStorage.EnsureProformaInvoiceFolder(invoice.InvoiceNumber); }
         catch { /* folder creation must not fail invoice creation */ }
@@ -323,13 +479,16 @@ public class InvoiceService : IInvoiceService
         return await GetByIdAsync(invoice.Id, userId, true) ?? throw new Exception("Failed to load created invoice");
     }
 
-    public async Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request)
+    public async Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request, long userId, bool isAdmin)
     {
         var invoice = await _db.Set<Invoice>()
             .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.QuoteItem)
+            .Include(i => i.Quote)
+                .ThenInclude(quote => quote.RFQ)
             .FirstOrDefaultAsync(i => i.Id == id);
         if (invoice == null) return false;
+        if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return false;
 
         foreach (var itemReq in request.Items)
         {
@@ -366,18 +525,174 @@ public class InvoiceService : IInvoiceService
 
             if (itemReq.ExpectedDeliveryDate.HasValue)
                 item.ExpectedDeliveryDate = itemReq.ExpectedDeliveryDate;
+
+            item.Condition = string.IsNullOrWhiteSpace(itemReq.Condition)
+                ? null
+                : itemReq.Condition.Trim();
         }
 
         // Recalculate invoice total as sum of final prices
-        invoice.TotalAmount = invoice.InvoiceItems.Sum(ii => ii.TotalPrice);
+        var newTotal = invoice.InvoiceItems.Sum(ii => ii.TotalPrice);
+        if (invoice.PaymentStatus == InvoicePaymentTerms.Credit)
+            await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, invoice.CustomerId, newTotal, invoice.Id);
+        invoice.TotalAmount = newTotal;
+
+        // Final Invoices are kept live with their source PI. Only rows included in
+        // this request are changed; tracking/certificate fields remain untouched.
+        var changedItemIds = request.Items.Select(item => item.Id).Distinct().ToList();
+        var finalItems = await _db.Set<FinalInvoiceItem>()
+            .Where(item => item.InvoiceItemId.HasValue && changedItemIds.Contains(item.InvoiceItemId.Value))
+            .ToListAsync();
+        var invoiceItemsById = invoice.InvoiceItems.ToDictionary(item => item.Id);
+        foreach (var finalItem in finalItems)
+        {
+            if (!finalItem.InvoiceItemId.HasValue
+                || !invoiceItemsById.TryGetValue(finalItem.InvoiceItemId.Value, out var sourceItem)) continue;
+            finalItem.Qty = sourceItem.Qty;
+            finalItem.UnitPrice = sourceItem.UnitPrice;
+            finalItem.TotalPrice = sourceItem.TotalPrice;
+            finalItem.Discount = sourceItem.Discount;
+            finalItem.Condition = sourceItem.Condition ?? sourceItem.QuoteItem?.Condition;
+        }
+
+        var finalInvoices = await _db.Set<FinalInvoice>()
+            .Where(finalInvoice => finalInvoice.ProformaInvoiceId == id)
+            .ToListAsync();
+        foreach (var finalInvoice in finalInvoices)
+            finalInvoice.TotalAmount = newTotal;
 
         await _db.SaveChangesAsync();
         return true;
     }
 
+    public async Task<RemoveInvoiceItemResponse?> RemoveItemAsync(long id, long itemId, long userId, bool isAdmin)
+    {
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<RemoveInvoiceItemResponse?>(async () =>
+        {
+            _db.ChangeTracker.Clear();
+            return await RemoveItemInTransactionAsync(id, itemId, userId, isAdmin);
+        });
+    }
+
+    private async Task<RemoveInvoiceItemResponse?> RemoveItemInTransactionAsync(long id, long itemId, long userId, bool isAdmin)
+    {
+        var invoice = await _db.Set<Invoice>()
+            .Include(i => i.InvoiceItems)
+            .Include(i => i.Quote)
+                .ThenInclude(quote => quote.RFQ)
+            .FirstOrDefaultAsync(i => i.Id == id);
+        var item = invoice?.InvoiceItems.FirstOrDefault(invoiceItem => invoiceItem.Id == itemId);
+        if (invoice == null || item == null) return null;
+        if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return null;
+
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var now = DateTime.UtcNow;
+
+        var linkedPoItems = await _db.Set<POItem>()
+            .Where(poItem => poItem.InvoiceItemId == itemId && poItem.ReturnedAt == null)
+            .ToListAsync();
+        var linkedPoIds = linkedPoItems
+            .Where(poItem => poItem.POId.HasValue)
+            .Select(poItem => poItem.POId!.Value)
+            .Distinct()
+            .ToList();
+        var linkedPos = linkedPoIds.Count == 0
+            ? []
+            : await _db.Set<PurchaseOrder>().Where(po => linkedPoIds.Contains(po.Id)).ToListAsync();
+
+        // Removing one ordered PI line cancels its containing PO as requested. All
+        // live lines on that PO are retired together so no partial ghost PO remains.
+        var allPoItemsToRetire = linkedPoIds.Count == 0
+            ? linkedPoItems
+            : await _db.Set<POItem>()
+                .Where(poItem => poItem.ReturnedAt == null
+                    && (poItem.InvoiceItemId == itemId
+                        || (poItem.POId.HasValue && linkedPoIds.Contains(poItem.POId.Value))
+                        || (poItem.POId == null && poItem.ReturnedFromPOId.HasValue
+                            && linkedPoIds.Contains(poItem.ReturnedFromPOId.Value))))
+                .ToListAsync();
+        foreach (var poItem in allPoItemsToRetire)
+        {
+            poItem.Status = PurchaseOrderStatusFlow.Cancelled;
+            poItem.ReturnedAt = now;
+            if (poItem.InvoiceItemId == itemId) poItem.InvoiceItemId = null;
+        }
+        foreach (var po in linkedPos)
+            po.Status = PurchaseOrderStatusFlow.Cancelled;
+
+        if (linkedPoIds.Count > 0)
+        {
+            var linkedProcurements = await _db.Set<Procurement>()
+                .Where(procurement => procurement.InvoiceId == id)
+                .ToListAsync();
+            foreach (var procurement in linkedProcurements)
+                procurement.Status = "Open";
+        }
+
+        var otherAffectedInvoiceItemIds = allPoItemsToRetire
+            .Where(poItem => poItem.InvoiceItemId.HasValue && poItem.InvoiceItemId.Value != itemId)
+            .Select(poItem => poItem.InvoiceItemId!.Value)
+            .Distinct()
+            .ToList();
+        if (otherAffectedInvoiceItemIds.Count > 0)
+        {
+            var otherInvoiceItems = await _db.Set<InvoiceItem>()
+                .Where(invoiceItem => otherAffectedInvoiceItemIds.Contains(invoiceItem.Id))
+                .ToListAsync();
+            foreach (var otherInvoiceItem in otherInvoiceItems)
+                otherInvoiceItem.Status = PurchaseOrderStatusFlow.Cancelled;
+        }
+
+        var procurementItems = await _db.Set<ProcurementItem>()
+            .Where(procurementItem => procurementItem.SourceInvoiceItemId == itemId)
+            .ToListAsync();
+        foreach (var procurementItem in procurementItems)
+            procurementItem.ItemStatus = "Cancelled";
+
+        var finalItems = await _db.Set<FinalInvoiceItem>()
+            .Where(finalItem => finalItem.InvoiceItemId == itemId)
+            .ToListAsync();
+        _db.Set<FinalInvoiceItem>().RemoveRange(finalItems);
+
+        var itemPermissions = await _db.Set<EntityPermission>()
+            .Where(permission => permission.EntityName == "InvoiceItem" && permission.EntityId == itemId.ToString())
+            .ToListAsync();
+        _db.Set<EntityPermission>().RemoveRange(itemPermissions);
+
+        _db.Set<InvoiceItem>().Remove(item);
+        invoice.TotalAmount = invoice.InvoiceItems.Where(invoiceItem => invoiceItem.Id != itemId).Sum(invoiceItem => invoiceItem.TotalPrice);
+
+        var finalInvoices = await _db.Set<FinalInvoice>()
+            .Where(finalInvoice => finalInvoice.ProformaInvoiceId == id)
+            .ToListAsync();
+        foreach (var finalInvoice in finalInvoices)
+            finalInvoice.TotalAmount = invoice.TotalAmount;
+
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return new RemoveInvoiceItemResponse
+        {
+            RemovedItemId = itemId,
+            CancelledPurchaseOrders = linkedPos.Select(po => po.PONumber).OrderBy(number => number).ToList(),
+        };
+    }
+
+    private async Task<bool> CanEditItemsAsync(Invoice invoice, long userId)
+    {
+        if (invoice.Quote?.UserId == userId || invoice.Quote?.RFQ?.UserId == userId) return true;
+
+        var itemIdStrings = invoice.InvoiceItems.Select(item => item.Id.ToString()).ToList();
+        return await _db.Set<EntityPermission>().AnyAsync(permission => permission.UserId == userId
+            && permission.Permission == "Edit"
+            && ((permission.EntityName == "Invoice" && permission.EntityId == invoice.Id.ToString())
+                || (permission.EntityName == "InvoiceItem" && itemIdStrings.Contains(permission.EntityId))));
+    }
+
     public async Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request)
     {
-        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        var invoice = await _db.Set<Invoice>().Include(i => i.InvoiceItems).FirstOrDefaultAsync(i => i.Id == id);
         if (invoice == null) return false;
 
         if (request.DueDate.HasValue) invoice.DueDate = request.DueDate.Value;
@@ -390,14 +705,13 @@ public class InvoiceService : IInvoiceService
         if (request.ProcessingFee.HasValue) invoice.ProcessingFee = request.ProcessingFee.Value;
         if (request.PaymentStatus != null)
         {
-            invoice.PaymentStatus = request.PaymentStatus;
-            invoice.PrepaymentPercent = request.PaymentStatus == "Prepayment" ? request.PrepaymentPercent : null;
-
-            // Auto-advance to Waiting For PrePayment if still in Draft and we have a prepayment percentage
-            if (invoice.Status == "Draft" && invoice.PaymentStatus == "Prepayment" && invoice.PrepaymentPercent.HasValue && invoice.PrepaymentPercent.Value > 0)
-            {
-                invoice.Status = "Waiting For PrePayment";
-            }
+            var paymentTerm = InvoicePaymentTerms.Normalize(request.PaymentStatus, request.PaymentTermDays);
+            if (paymentTerm.Term == InvoicePaymentTerms.Credit)
+                await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, invoice.CustomerId, invoice.TotalAmount, invoice.Id);
+            invoice.PaymentStatus = paymentTerm.Term;
+            invoice.PaymentTermDays = paymentTerm.Days;
+            invoice.PaymentTermStartedAt = null;
+            invoice.PrepaymentPercent = paymentTerm.Term == InvoicePaymentTerms.Prepayment ? request.PrepaymentPercent : null;
         }
 
         await _db.SaveChangesAsync();
@@ -429,18 +743,21 @@ public class InvoiceService : IInvoiceService
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (invoice == null) return false;
-        if (!isAdmin && invoice.Quote.UserId != userId) return false;
+        if (!isAdmin && invoice.Quote.UserId != userId)
+        {
+            var hasPermission = await _permissionService.HasPermissionAsync(userId, "Invoice", id.ToString(), "Edit");
+            if (!hasPermission) return false;
+        }
 
         // Allowed invoice workflow statuses
         var allowedStatuses = new[]
         {
-            "Draft", "Pending", "Running",
-            "Waiting For PrePayment", "Delivered", "Finish"
+            "Draft", "Waiting For Prepayment", "Running", "Finish"
         };
         if (!allowedStatuses.Contains(status)) return false;
 
-        // Only admin can move past Pending
-        var adminOnlyStatuses = new[] { "Running", "Waiting For PrePayment", "Delivered", "Finish" };
+        // Assigned users may start work; only admins may force an invoice to Finish.
+        var adminOnlyStatuses = new[] { "Finish" };
         if (adminOnlyStatuses.Contains(status) && !isAdmin) return false;
 
         // ── QTY mismatch guard: block auto-finalize when invoice qty differs from quote qty ──
@@ -463,7 +780,15 @@ public class InvoiceService : IInvoiceService
             }
         }
 
+        if (status == "Running" && invoice.PaymentStatus == InvoicePaymentTerms.Credit)
+            await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, invoice.CustomerId, invoice.TotalAmount, invoice.Id);
         invoice.Status = status;
+
+        if (status is "Running" or "Waiting For Prepayment")
+        {
+            foreach (var item in invoice.InvoiceItems)
+                item.Status = "Sourcing";
+        }
 
         // Stamp PaidDate when reaching the terminal Finish state
         if (status == "Finish" && invoice.PaidDate == null)
@@ -471,9 +796,9 @@ public class InvoiceService : IInvoiceService
 
         await _db.SaveChangesAsync();
 
-        // Spin up the Procurement layer when admin accepts the invoice (Running).
+        // Spin up the Procurement layer as soon as the invoice enters either purchase-editable state.
         // Idempotent — safe to call even if a Procurement already exists for this invoice.
-        if (status == "Running")
+        if (status is "Waiting For Prepayment" or "Running")
         {
             try
             {
@@ -505,12 +830,14 @@ public class InvoiceService : IInvoiceService
     /// </summary>
     public async Task<bool> CancelAsync(long id)
     {
-        var invoice = await _db.Set<Invoice>().FindAsync(id);
+        var invoice = await _db.Set<Invoice>().Include(i => i.InvoiceItems).FirstOrDefaultAsync(i => i.Id == id);
         if (invoice == null || invoice.IsCancelled) return false;
 
         invoice.IsCancelled = true;
         invoice.CancelledAt = DateTime.UtcNow;
         invoice.Status = "Cancelled";
+        foreach (var invoiceItem in invoice.InvoiceItems)
+            invoiceItem.Status = "Cancelled";
 
         // ── 1. Cancel all POs linked to this invoice (skip already-terminal ones) ──
         var terminalPOStatuses = new[] { "Completed", "Returned", "Cancelled" };
@@ -586,7 +913,98 @@ public class InvoiceService : IInvoiceService
         };
     }
 
-    private static InvoiceResponse MapToResponse(Invoice i)
+    private async Task PopulateAssignmentsAsync(
+        List<InvoiceResponse> responses,
+        bool includeItems)
+    {
+        if (responses.Count == 0) return;
+
+        var invoiceIds = responses.Select(response => response.Id).Distinct().ToList();
+        var invoiceIdStrings = invoiceIds.Select(id => id.ToString()).ToList();
+        var sources = await _db.Set<InvoiceItem>()
+            .AsNoTracking()
+            .Where(item => invoiceIds.Contains(item.InvoiceId) && item.QuoteItem != null)
+            .Select(item => new
+            {
+                item.InvoiceId,
+                InvoiceItemId = item.Id,
+                QuoteId = item.QuoteItem!.QuoteId,
+                QuoteOwnerId = item.QuoteItem.Quote.UserId,
+                RfqId = item.QuoteItem.Quote.RFQId,
+                RfqOwnerId = item.QuoteItem.Quote.RFQ.UserId,
+            })
+            .ToListAsync();
+
+        var quoteIdStrings = sources.Select(source => source.QuoteId.ToString()).Distinct().ToList();
+        var rfqIdStrings = sources.Select(source => source.RfqId.ToString()).Distinct().ToList();
+        var itemIdStrings = includeItems
+            ? sources.Select(source => source.InvoiceItemId.ToString()).Distinct().ToList()
+            : [];
+
+        var permissions = await _db.Set<EntityPermission>()
+            .AsNoTracking()
+            .Where(permission =>
+                (permission.EntityName == "Invoice" && invoiceIdStrings.Contains(permission.EntityId))
+                || (includeItems && permission.EntityName == "InvoiceItem" && itemIdStrings.Contains(permission.EntityId))
+                || (permission.EntityName == "Quote" && quoteIdStrings.Contains(permission.EntityId))
+                || (permission.EntityName == "RFQ" && rfqIdStrings.Contains(permission.EntityId)))
+            .Select(permission => new { permission.EntityName, permission.EntityId, permission.UserId })
+            .ToListAsync();
+
+        var allUserIds = sources.Select(source => source.QuoteOwnerId)
+            .Concat(sources.Where(source => source.RfqOwnerId.HasValue).Select(source => source.RfqOwnerId!.Value))
+            .Concat(permissions.Select(permission => permission.UserId))
+            .Distinct()
+            .ToList();
+        var userNames = await _db.Set<User>().AsNoTracking()
+            .Where(user => allUserIds.Contains(user.Id))
+            .ToDictionaryAsync(user => user.Id, user => user.Name);
+
+        List<InvoiceAssignedUserResponse> ToUsers(IEnumerable<long> ids) => ids
+            .Distinct()
+            .Where(userNames.ContainsKey)
+            .Select(id => new InvoiceAssignedUserResponse { Id = id, Name = userNames[id] })
+            .OrderBy(user => user.Name)
+            .ToList();
+
+        foreach (var response in responses)
+        {
+            var invoiceSources = sources.Where(source => source.InvoiceId == response.Id).ToList();
+            var directIds = permissions
+                .Where(permission => permission.EntityName == "Invoice" && permission.EntityId == response.Id.ToString())
+                .Select(permission => permission.UserId);
+            var directUsers = ToUsers(directIds);
+
+            var quoteIds = invoiceSources.Select(source => source.QuoteId.ToString()).ToHashSet();
+            var rfqIds = invoiceSources.Select(source => source.RfqId.ToString()).ToHashSet();
+            var defaultIds = invoiceSources.Select(source => source.QuoteOwnerId)
+                .Concat(invoiceSources.Where(source => source.RfqOwnerId.HasValue).Select(source => source.RfqOwnerId!.Value))
+                .Concat(permissions.Where(permission =>
+                    (permission.EntityName == "Quote" && quoteIds.Contains(permission.EntityId))
+                    || (permission.EntityName == "RFQ" && rfqIds.Contains(permission.EntityId)))
+                    .Select(permission => permission.UserId));
+
+            response.DirectAssignedUsers = directUsers;
+            response.AssignedUsers = directUsers.Count > 0 ? directUsers : ToUsers(defaultIds);
+
+            if (!includeItems) continue;
+            foreach (var item in response.Items)
+            {
+                var itemDirectIds = permissions
+                    .Where(permission => permission.EntityName == "InvoiceItem" && permission.EntityId == item.Id.ToString())
+                    .Select(permission => permission.UserId);
+                item.DirectAssignedUsers = ToUsers(itemDirectIds);
+                item.AssignedUsers = item.DirectAssignedUsers.Count > 0
+                    ? item.DirectAssignedUsers
+                    : response.AssignedUsers.Select(user => new InvoiceAssignedUserResponse { Id = user.Id, Name = user.Name }).ToList();
+            }
+        }
+    }
+
+    private static InvoiceResponse MapToResponse(
+        Invoice i,
+        decimal totalPaid = 0,
+        IReadOnlyDictionary<long, string>? itemDisplayStatuses = null)
     {
         // Build rank map from the full ordered RFQ item list (same logic as QuoteService).
         // Null-safe: on the list endpoint RFQ.RFQItems is NOT eagerly loaded, so guard the
@@ -610,6 +1028,12 @@ public class InvoiceService : IInvoiceService
             IsCancelled = i.IsCancelled,
             CancelledAt = i.CancelledAt,
             PaymentStatus = i.PaymentStatus,
+            PaymentTermDays = i.PaymentTermDays,
+            PaymentTermStartedAt = i.PaymentTermStartedAt,
+            PaymentTermDisplay = InvoicePaymentTerms.Display(i, totalPaid),
+            PaymentDueWarning = InvoicePaymentTerms.IsDueWarning(i, totalPaid),
+            TotalPaid = totalPaid,
+            OutstandingAmount = Math.Max(0, i.TotalAmount - totalPaid),
             PrepaymentPercent = i.PrepaymentPercent,
             DueDate = i.DueDate,
             DeadlineDate = i.DeadlineDate,
@@ -651,6 +1075,7 @@ public class InvoiceService : IInvoiceService
                 UnitPrice = ii.UnitPrice,
                 TotalPrice = ii.TotalPrice,
                 Discount = ii.Discount,
+                Status = itemDisplayStatuses?.GetValueOrDefault(ii.Id) ?? ii.Status,
                 OriginalUnitPrice = ii.QuoteItem?.UnitPrice,
                 ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
                 QuoteItemId = ii.QuoteItemId,
@@ -660,7 +1085,7 @@ public class InvoiceService : IInvoiceService
                 PartNumberName = ii.QuoteItem?.PartNumber?.Name ?? "",
                 Alt = ii.QuoteItem?.Alt,
                 Description = ii.QuoteItem?.PartNumber?.Description ?? "",
-                Condition = ii.QuoteItem?.Condition,
+                Condition = ii.Condition ?? ii.QuoteItem?.Condition,
                 CertName = ii.QuoteItem?.ProcumentRecord?.CertName,
                 LeadTime = ii.QuoteItem?.ProcumentRecord?.LeadTime
             }).ToList() ?? new()

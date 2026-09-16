@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <v-btn icon="mdi-arrow-left" variant="text" to="/quotes" class="mr-1 flex-shrink-0" size="small" />
+      <v-btn icon="mdi-arrow-left" variant="text" class="mr-1 flex-shrink-0" size="small" @click="$router.back()" />
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Quote {{ quote.quoteNumber || `#${route.params.id}` }}</h1>
       <!-- Base 1 quote number, auto-generated; editable so it can be added where there
            is none or corrected where it was generated. -->
@@ -170,6 +170,69 @@
       {{ quote.rejectionNote }}
     </v-alert>
     <QuoteDocuments v-if="quote.id" :quote-id="quote.id" ref="documentsRef" />
+
+    <v-card v-if="quote.rfqId" class="glass-card mb-5">
+      <v-card-title class="d-flex align-center gap-2 pa-4 pb-2">
+        <v-icon icon="mdi-certificate-outline" color="primary" size="20" />
+        <span class="text-body-1 font-weight-bold">Supplier Certificates</span>
+        <v-chip v-if="selectedSupplierCertificates.length" size="x-small" color="primary" variant="tonal">
+          {{ selectedSupplierCertificates.length }}
+        </v-chip>
+      </v-card-title>
+      <v-card-text class="pa-0">
+        <div v-if="supplierCertificatesLoading" class="d-flex justify-center align-center py-6">
+          <v-progress-circular indeterminate color="primary" size="26" width="3" />
+        </div>
+        <v-alert v-else-if="supplierCertificatesError" type="error" variant="tonal" class="ma-4">
+          {{ supplierCertificatesError }}
+        </v-alert>
+        <v-table v-else-if="selectedSupplierCertificates.length" density="compact" class="certificate-table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Part Number</th>
+              <th>Supplier</th>
+              <th>Uploaded</th>
+              <th class="text-center">Download</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="certificate in selectedSupplierCertificates" :key="certificate.id">
+              <td>
+                <div class="d-flex align-center gap-2 py-2">
+                  <v-icon icon="mdi-file-pdf-box" color="error" size="20" />
+                  <div>
+                    <div class="text-body-2 font-weight-medium">{{ certificate.originalFileName }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ formatFileSize(certificate.fileSizeBytes) }}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="cell-pn">{{ certificate.partNumberName || '—' }}</td>
+              <td>{{ certificate.supplierName || '—' }}</td>
+              <td class="text-caption text-medium-emphasis">
+                {{ new Date(certificate.uploadedAt).toLocaleDateString() }}
+              </td>
+              <td class="text-center">
+                <v-btn
+                  icon="mdi-download-outline"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  :loading="downloadingCertificateId === certificate.id"
+                  :aria-label="`Download ${certificate.originalFileName}`"
+                  @click="downloadSupplierCertificate(certificate)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+        <div v-else class="text-center text-medium-emphasis py-6 px-4">
+          <v-icon icon="mdi-certificate-outline" size="28" class="mb-2" />
+          <div class="text-body-2">No supplier certificates have been uploaded for the parts selected in this quote.</div>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <!-- Rejection History: show rejected quotes when current quote is active -->
     <v-card
       v-if="rejectedSiblings.length"
@@ -503,6 +566,7 @@
       v-model="showSendEmailDialog"
       :quote="quote"
       :preset="activeSmtpPreset"
+      :certificates="selectedSupplierCertificates"
       @sent="onEmailSent"
       @sent-folder-warning="onSentFolderWarning"
     />
@@ -596,6 +660,30 @@ const allProcRecords = ref<any[]>([])
 const selectedProcIds = ref(new Set<number>())
 const loading = ref(true)
 const showAllItems = ref(false)
+
+type SupplierCertificate = {
+  id: number
+  supplierQuoteId: number
+  partNumberName?: string
+  supplierName?: string
+  originalFileName: string
+  fileSizeBytes: number
+  uploadedAt: string
+  uploadedByName?: string
+}
+
+const supplierCertificates = ref<SupplierCertificate[]>([])
+const selectedSupplierCertificates = computed(() => {
+  const selectedSupplierQuoteIds = new Set<number>(
+    (quote.value?.items || [])
+      .map((item: any) => Number(item.procumentRecordId))
+      .filter((id: number) => Number.isFinite(id) && id > 0)
+  )
+  return supplierCertificates.value.filter(certificate => selectedSupplierQuoteIds.has(certificate.supplierQuoteId))
+})
+const supplierCertificatesLoading = ref(false)
+const supplierCertificatesError = ref('')
+const downloadingCertificateId = ref<number | null>(null)
 
 // Rejection history — other rejected quotes for the same RFQ
 const rejectedSiblings = ref<any[]>([])
@@ -734,6 +822,8 @@ async function loadQuote() {
       } catch {
         // RFQ fetch failed, continue without enrichment
       }
+
+      await loadSupplierCertificates(q.rfqId)
     }
 
     quote.value = q
@@ -752,6 +842,48 @@ async function loadQuote() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadSupplierCertificates(rfqId: number) {
+  supplierCertificatesLoading.value = true
+  supplierCertificatesError.value = ''
+  try {
+    supplierCertificates.value = await api.get<SupplierCertificate[]>(
+      `/rfqs/${rfqId}/supplier-quotes/certificates`
+    )
+  } catch {
+    supplierCertificates.value = []
+    supplierCertificatesError.value = 'Could not load supplier certificates.'
+  } finally {
+    supplierCertificatesLoading.value = false
+  }
+}
+
+async function downloadSupplierCertificate(certificate: SupplierCertificate) {
+  if (!quote.value.rfqId) return
+  downloadingCertificateId.value = certificate.id
+  try {
+    const blob = await api.get<Blob>(
+      `/rfqs/${quote.value.rfqId}/supplier-quotes/${certificate.supplierQuoteId}/certificates/${certificate.id}/download`,
+      { responseType: 'blob' }
+    )
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = certificate.originalFileName
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    showSnack('Certificate download failed', 'error')
+  } finally {
+    downloadingCertificateId.value = null
+  }
+}
+
+function formatFileSize(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function getProcRecords(rfqItemId: number) {
@@ -1165,6 +1297,14 @@ function showSnack(text: string, color: string) {
 </script>
 
 <style scoped>
+.certificate-table {
+  overflow-x: auto;
+}
+
+.certificate-table :deep(table) {
+  min-width: 720px;
+}
+
 .detail-table-wrap {
   overflow-x: auto;
 }

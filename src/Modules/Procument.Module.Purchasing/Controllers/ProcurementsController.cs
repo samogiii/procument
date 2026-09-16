@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
@@ -77,6 +77,26 @@ public class ProcurementsController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    /// <summary>Creates the editable procurement snapshot for an invoice in a purchase-editable status, if it does not already exist.</summary>
+    [HttpPost("from-invoice/{invoiceId:long}")]
+    [Auditable("Procurement", "EnsureFromInvoice")]
+    public async Task<ActionResult<ProcurementResponse>> EnsureFromInvoice(long invoiceId)
+    {
+        var (userId, _, _, _) = GetCurrentUser();
+        try
+        {
+            return Ok(await _service.CreateFromAcceptedInvoiceAsync(invoiceId, userId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     /// <summary>Edit one procurement item (editable fields only — source/RFQ/Quote/Supplier snapshots are immutable).</summary>
     [HttpPatch("{id:long}/items/{itemId:long}")]
     [Auditable("Procurement", "UpdateItem", CaptureBody = true)]
@@ -99,6 +119,17 @@ public class ProcurementsController : ControllerBase
 
         var result = await _service.UpsertSupplierQuoteAsync(id, itemId, request, userId);
         return result == null ? BadRequest(new { message = "Unable to upsert supplier quote." }) : Ok(result);
+    }
+
+    /// <summary>Splits an under-covered purchase item into a visible No Supplier remainder.</summary>
+    [HttpPost("{id:long}/items/{itemId:long}/create-unassigned-remainder")]
+    [Auditable("Procurement", "CreateUnassignedRemainder", CaptureBody = true)]
+    public async Task<IActionResult> CreateUnassignedRemainder(long id, long itemId, [FromBody] CreateUnassignedRemainderRequest request)
+    {
+        var (userId, isAdmin, _, _) = GetCurrentUser();
+        if (!await _service.UserCanAccessItemAsync(id, itemId, userId, isAdmin)) return Forbid();
+        var ok = await _service.CreateUnassignedRemainderAsync(id, itemId, request.CoveredQty);
+        return ok ? Ok() : BadRequest(new { message = "Unable to create the unassigned remainder." });
     }
 
     /// <summary>Mark a supplier quote as selected — updates CurrentSupplierId / UnitPrice on the parent item.</summary>
@@ -171,6 +202,32 @@ public class ProcurementsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Reset an approved line that has not yet been placed on a Purchase Order, so its supplier quote can be edited and approved again.</summary>
+    [HttpPost("{id:long}/items/{itemId:long}/reset-approval")]
+    [Auditable("Procurement", "ResetSupplierApproval")]
+    public async Task<IActionResult> ResetApproval(long id, long itemId)
+    {
+        var (userId, isAdmin, _, _) = GetCurrentUser();
+        if (!await _service.UserCanAccessItemAsync(id, itemId, userId, isAdmin)) return Forbid();
+        var procurement = await _db.Set<Procurement>().FirstOrDefaultAsync(p => p.Id == id);
+        var item = await _db.Set<ProcurementItem>().FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == id);
+        if (procurement == null || item == null || procurement.Status == "Cancelled")
+            return BadRequest(new { message = "This purchase item is no longer available for editing." });
+
+        if (!await _service.CanEditPurchaseItemsAsync(id))
+            return BadRequest(new { message = "Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running." });
+
+        var approvedItems = await _db.Set<POItem>()
+            .Where(poItem => poItem.SourceProcurementItemId == itemId && poItem.POId == null && poItem.ReturnedAt == null)
+            .ToListAsync();
+        foreach (var approvedItem in approvedItems) approvedItem.ReturnedAt = DateTime.UtcNow;
+
+        item.ItemStatus = "Open";
+        if (procurement.Status == "Finalized") procurement.Status = "Reopened";
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
     /// <summary>Cancel a procurement — admin abort before finalization.</summary>
     [HttpPost("{id:long}/cancel")]
     [Authorize(Roles = "Admin,SuperAdmin")]
@@ -228,7 +285,7 @@ public class ProcurementsController : ControllerBase
             .SqlQuery<string>($@"
                 SELECT DISTINCT c.CustomerCode AS [Value]
                 FROM Procurements p
-                JOIN Invoices i ON i.Id = p.InvoiceId
+                JOIN ProformaInvoices i ON i.Id = p.InvoiceId
                 JOIN Customers c ON c.Id = i.CustomerId
                 WHERE c.CustomerCode IS NOT NULL
                 ORDER BY c.CustomerCode")

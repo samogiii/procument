@@ -95,6 +95,12 @@ export default defineVuetifyConfiguration({
         },
         VDataTableServer: {
             density: 'comfortable',
+            fixedHeader: true,
+            height: '65vh',
+        },
+        VDataTable: {
+            fixedHeader: true,
+            height: '65vh',
         },
         VTooltip: {
             color: 'tooltip',

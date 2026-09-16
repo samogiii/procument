@@ -409,6 +409,8 @@ public class PaymentRequestPdfRequest
 
     // Supplier Bank Details (receiving company)
     public string? CompanyPayingTo { get; set; }
+    public string? Beneficiary { get; set; }
+    public string? Reference { get; set; }
     public string? AccountNumber { get; set; }
     public string? BankName { get; set; }
     public string? SwiftCode { get; set; }

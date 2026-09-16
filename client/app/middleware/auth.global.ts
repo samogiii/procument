@@ -16,6 +16,7 @@ const EXPERT_ALLOWED_PREFIXES = [
     '/purchase-orders',
     '/tasks',
     '/attention',
+    '/total-pn',
 ] as const
 
 // Expert SYD gets the full Expert allowlist PLUS /ils, shipment notes, and ready-for-sn.
@@ -37,9 +38,13 @@ function matchesAnyPrefix(path: string, prefixes: readonly string[]): boolean {
 // Routes gated by a named feature permission rather than by role.
 const FEATURE_GATED_PREFIXES: ReadonlyArray<{ prefix: string; feature: string }> = [
     { prefix: '/payment-control', feature: 'walletMenu' },
+    { prefix: '/catalog/customers', feature: 'customerMenu' },
+    { prefix: '/total-pn', feature: 'totalPnMenu' },
 ]
 
-export default defineNuxtRouteMiddleware((to) => {
+const BLOCKED_INVOICE_USERS = new Set(['AHM', 'MOR'])
+
+export default defineNuxtRouteMiddleware(async (to) => {
     if (import.meta.server) return
 
     const authStore = useAuthStore()
@@ -47,7 +52,7 @@ export default defineNuxtRouteMiddleware((to) => {
 
     // Load menu permissions from the API once per session (after restoring from storage)
     if (authStore.isAuthenticated && Object.values(authStore.featurePermissions).every(v => v.length === 0)) {
-        authStore.loadMenuPermissions()  // fire-and-forget — non-blocking
+        await authStore.loadMenuPermissions()
     }
 
     // If user has a token but it's expired, log them out
@@ -67,16 +72,23 @@ export default defineNuxtRouteMiddleware((to) => {
         return navigateTo('/dashboard')
     }
 
+    if (authStore.isAuthenticated && BLOCKED_INVOICE_USERS.has((authStore.user?.name ?? '').toUpperCase()) && matchesAnyPrefix(to.path, ['/invoices', '/final-invoices'])) {
+        throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
+    }
+
     // ── Feature-gated routes ───────────────────────────────────────────
     // Applies to every role, SuperAdmin included. Typing the URL is denied the
     // same way as a hidden nav entry.
     if (authStore.isAuthenticated) {
+        let grantedFeatureRoute = false
         for (const { prefix, feature } of FEATURE_GATED_PREFIXES) {
             if (!matchesAnyPrefix(to.path, [prefix])) continue
             if (!(authStore as any)[feature]) {
                 throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
             }
+            grantedFeatureRoute = true
         }
+        if (grantedFeatureRoute) return
     }
 
     // ── Role-scoped route allowlist ────────────────────────────────────

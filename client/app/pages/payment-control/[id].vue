@@ -2,7 +2,7 @@
   <v-container fluid class="pa-4">
     <!-- Header -->
     <div class="d-flex align-start gap-3 mb-6 flex-wrap">
-      <v-btn icon="mdi-arrow-left" variant="text" @click="navigateTo('/payment-control')" />
+      <v-btn icon="mdi-arrow-left" variant="text" @click="$router.back()" />
       <div class="flex-1-1">
         <div class="d-flex align-center gap-2">
           <span class="text-h5 font-weight-bold">{{ detail ? boxLabel(detail) : '' }}</span>
@@ -13,10 +13,10 @@
         <!-- Stat chips -->
         <div v-if="detail" class="d-flex gap-2 flex-wrap">
           <v-chip color="success" variant="tonal" prepend-icon="mdi-arrow-down-circle">
-            +{{ formatPrice(detail.totalDeposit) }}
+            +{{ currencySymbol(detail.currency) }}{{ formatPrice(detail.totalDeposit) }}
           </v-chip>
           <v-chip color="error" variant="tonal" prepend-icon="mdi-arrow-up-circle">
-            -{{ formatPrice(detail.totalWithdraw) }}
+            -{{ currencySymbol(detail.currency) }}{{ formatPrice(detail.totalWithdraw) }}
           </v-chip>
         </div>
       </div>
@@ -281,17 +281,27 @@
 
         <!-- Deposit -->
         <template #item.deposit="{ item }">
-          <span v-if="item.deposit != null" class="text-success font-weight-medium text-no-wrap">
-            +{{ currencySymbol(item.txCurrency || detail?.currency || '') }}{{ formatPrice(item.deposit) }}
-          </span>
+          <div v-if="item.deposit != null" class="text-no-wrap">
+            <span class="text-success font-weight-medium">
+              +{{ currencySymbol(detail?.currency || '') }}{{ formatPrice(walletTransactionAmount(item, 'deposit') || 0) }}
+            </span>
+            <div v-if="isConvertedTransaction(item)" class="text-caption text-medium-emphasis">
+              {{ currencySymbol(item.txCurrency || '') }}{{ formatPrice(item.deposit) }} × {{ item.exchangeRate }}
+            </div>
+          </div>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
 
         <!-- Withdraw -->
         <template #item.withdraw="{ item }">
-          <span v-if="item.withdraw != null" class="text-error font-weight-medium text-no-wrap">
-            -{{ currencySymbol(item.txCurrency || detail?.currency || '') }}{{ formatPrice(item.withdraw) }}
-          </span>
+          <div v-if="item.withdraw != null" class="text-no-wrap">
+            <span class="text-error font-weight-medium">
+              -{{ currencySymbol(detail?.currency || '') }}{{ formatPrice(walletTransactionAmount(item, 'withdraw') || 0) }}
+            </span>
+            <div v-if="isConvertedTransaction(item)" class="text-caption text-medium-emphasis">
+              {{ currencySymbol(item.txCurrency || '') }}{{ formatPrice(item.withdraw) }} × {{ item.exchangeRate }}
+            </div>
+          </div>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
 
@@ -315,7 +325,7 @@
           <template v-if="item.type === 'Withdraw'">
             <div class="d-flex align-center gap-1">
               <v-icon
-                :icon="item.toType === 'Wallet' ? 'mdi-bank-transfer' : item.toType === 'MotherWallet' ? 'mdi-bank-outline' : 'mdi-truck-outline'"
+                :icon="item.toType === 'Wallet' ? 'mdi-bank-transfer' : item.toType === 'MotherWallet' ? 'mdi-bank-outline' : item.toType === 'BankFee' ? 'mdi-bank-minus' : 'mdi-truck-outline'"
                 size="14"
                 class="text-medium-emphasis"
               />
@@ -378,7 +388,7 @@
             class="font-weight-medium"
             :class="item.balance >= 0 ? 'text-success' : 'text-error'"
           >
-            {{ formatPrice(item.balance) }}
+            {{ currencySymbol(detail?.currency || '') }}{{ formatPrice(item.balance) }}
           </span>
         </template>
 
@@ -519,8 +529,8 @@
 
           <!-- Transfer UI -->
           <template v-if="txForm.type === 'Transfer'">
-            <v-alert type="info" variant="tonal" density="compact" icon="mdi-shield-check-outline" class="mb-3">
-              Transfer requests require acceptance and POP upload before execution. They will appear in <strong>Payment Withdraw</strong>.
+            <v-alert type="info" variant="tonal" density="compact" icon="mdi-information-outline" class="mb-3">
+              The transfer is accepted immediately and appears in <strong>Wallets → Ready To Transfer</strong>. No money moves until its POP is uploaded.
             </v-alert>
             <v-autocomplete
               v-model="txForm.toBoxId"
@@ -717,13 +727,14 @@
           </template>
 
           <v-text-field
-            v-if="txForm.id"
+            v-if="txForm.type !== 'Transfer'"
             v-model="txForm.createdAt"
             label="Transaction Date/Time"
             type="datetime-local"
             variant="outlined"
             density="comfortable"
             class="mb-3"
+            required
           />
 
           <!-- Notes -->
@@ -1104,8 +1115,17 @@ function bounds(values: number[]) {
   return { lo: Math.min(...values), hi: Math.max(...values) }
 }
 
-const depositBounds = computed(() => bounds(allTx.value.filter(t => t.deposit != null).map(t => t.deposit!)))
-const withdrawBounds = computed(() => bounds(allTx.value.filter(t => t.withdraw != null).map(t => t.withdraw!)))
+function walletTransactionAmount(t: TransactionRow, field: 'deposit' | 'withdraw') {
+  const amount = t[field]
+  return amount == null ? null : amount * (t.exchangeRate ?? 1)
+}
+
+function isConvertedTransaction(t: TransactionRow) {
+  return t.exchangeRate != null && t.txCurrency !== detail.value?.currency
+}
+
+const depositBounds = computed(() => bounds(allTx.value.map(t => walletTransactionAmount(t, 'deposit')).filter((v): v is number => v != null)))
+const withdrawBounds = computed(() => bounds(allTx.value.map(t => walletTransactionAmount(t, 'withdraw')).filter((v): v is number => v != null)))
 const balanceBounds = computed(() => bounds(allTx.value.map(t => t.balance)))
 
 const displayedTransactions = computed(() =>
@@ -1114,8 +1134,8 @@ const displayedTransactions = computed(() =>
       const sel = colFilter.selected[key]
       if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
     }
-    if (!rangeFilter.matches('deposit', t.deposit)) return false
-    if (!rangeFilter.matches('withdraw', t.withdraw)) return false
+    if (!rangeFilter.matches('deposit', walletTransactionAmount(t, 'deposit'))) return false
+    if (!rangeFilter.matches('withdraw', walletTransactionAmount(t, 'withdraw'))) return false
     if (!rangeFilter.matches('balance', t.balance)) return false
     return true
   })
@@ -1131,19 +1151,11 @@ function clearFilters() {
 }
 
 // ── Footer totals ─────────────────────────────────────────────────────────────
-/**
- * Deposits and withdrawals are recorded in the transaction's own currency, so
- * they are summed per currency rather than added into one misleading figure.
- */
+/** Sum the visible rows in the wallet's own currency. */
 function sumByCurrency(rows: TransactionRow[], field: 'deposit' | 'withdraw') {
-  const map = new Map<string, number>()
-  for (const r of rows) {
-    const v = r[field]
-    if (v == null) continue
-    const c = r.txCurrency || detail.value?.currency || ''
-    map.set(c, (map.get(c) ?? 0) + v)
-  }
-  return [...map].map(([currency, total]) => ({ currency, total }))
+  const currency = detail.value?.currency || ''
+  const total = rows.reduce((sum, row) => sum + (walletTransactionAmount(row, field) ?? 0), 0)
+  return total ? [{ currency, total }] : []
 }
 
 const depositTotals = computed(() => sumByCurrency(displayedTransactions.value, 'deposit'))
@@ -1198,7 +1210,7 @@ function openEditTx(tx: TransactionRow) {
     transferExchangeRate: null,
     base: tx.base,
     notes: tx.notes || '',
-    createdAt: tx.createdAt ? new Date(tx.createdAt).toISOString().slice(0, 16) : '',
+    createdAt: tx.createdAt ? toDateTimeLocal(tx.createdAt) : toDateTimeLocal(),
   }
   // The picked customer/supplier may sit outside the seeded page — pull it back in by label.
   selectedCustomer.value = null
@@ -1241,7 +1253,7 @@ function buildSubmitFn(): (() => Promise<void>) | null {
       currency: isSameCurrency ? null : form.currency,
       exchangeRate: isSameCurrency ? null : form.exchangeRate,
       toPaymentBoxId: null,
-      createdAt: form.id ? new Date(form.createdAt).toISOString() : new Date().toISOString(),
+      createdAt: new Date(form.createdAt).toISOString(),
     }
     if (form.id) {
       return () => api.patch(`/payment-boxes/${id.value}/transactions/${form.id}`, body)
@@ -1255,7 +1267,7 @@ async function saveTx() {
   const submitFn = buildSubmitFn()
   if (!submitFn) return
 
-  // Transfers go to pending approval — skip negative balance check and immediate deduction
+  // Transfers wait for POP execution — skip negative balance check and immediate deduction.
   if (txForm.value.type === 'Transfer') {
     await executeSubmit(submitFn)
     return
@@ -1293,7 +1305,7 @@ async function executeSubmit(submitFn: () => Promise<void>) {
     txDialog.value = false
     resetForm()
     if (isTransfer) {
-      snackbarText.value = 'Transfer request submitted — pending acceptance in Payment Withdraw'
+      snackbarText.value = 'Transfer accepted — upload its POP in Wallets → Ready To Transfer'
       snackbarColor.value = 'deep-purple'
       snackbar.value = true
     } else {
@@ -1331,8 +1343,15 @@ function resetForm() {
     transferExchangeRate: null,
     base: null,
     notes: '',
-    createdAt: '',
+    createdAt: toDateTimeLocal(),
   }
+}
+
+/** Format an instant for a datetime-local input without changing the user's local time. */
+function toDateTimeLocal(value: Date | string = new Date()) {
+  const date = new Date(value)
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
 }
 
 const toBoxCurrency = computed(() =>
@@ -1393,14 +1412,16 @@ function doExport() {
     if (to && d > to) return false
     return true
   }).map(t => ({
-    Deposit: t.deposit ?? '',
-    Withdraw: t.withdraw ?? '',
+    Deposit: walletTransactionAmount(t, 'deposit') ?? '',
+    Withdraw: walletTransactionAmount(t, 'withdraw') ?? '',
     From: t.fromName ?? '',
     To: t.toName ?? '',
     'PI#': t.piNumber ?? '',
     'PR#': t.prNumber ?? '',
     Base: t.base ?? '',
-    Currency: t.txCurrency ?? detail.value?.currency ?? '',
+    Currency: detail.value?.currency ?? '',
+    'Original Amount': t.deposit ?? t.withdraw ?? '',
+    'Original Currency': t.txCurrency ?? detail.value?.currency ?? '',
     'Exchange Rate': t.exchangeRate ?? '',
     Notes: t.notes ?? '',
     Source: t.isAuto ? 'Auto' : 'Manual',

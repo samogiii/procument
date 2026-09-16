@@ -17,10 +17,12 @@ public interface IProcurementService
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<bool> UserCanAccessAsync(long procurementId, long userId, bool isAdmin);
     Task<bool> UserCanAccessItemAsync(long procurementId, long itemId, long userId, bool isAdmin);
+    Task<bool> CanEditPurchaseItemsAsync(long procurementId);
 
     Task<bool> UpdateItemAsync(long procurementId, long itemId, UpdateProcurementItemRequest request);
 
     Task<ProcurementSupplierQuoteResponse?> UpsertSupplierQuoteAsync(long procurementId, long itemId, UpsertSupplierQuoteRequest request, long userId);
+    Task<bool> CreateUnassignedRemainderAsync(long procurementId, long itemId, int coveredQty);
     Task<bool> DeleteSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId);
     Task<bool> SelectSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId);
 

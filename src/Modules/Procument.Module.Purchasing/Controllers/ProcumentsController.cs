@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
@@ -91,5 +92,44 @@ public class SupplierQuotesController : ControllerBase
         var (userId, isAdmin) = GetUserContext();
         var ok = await _procumentService.UpdateOrderAsync(rfqId, request.Items, userId, isAdmin);
         return ok ? Ok() : NotFound();
+    }
+
+    /// <summary>List all supplier certificate PDFs for an RFQ, enriched with part and supplier names.</summary>
+    [HttpGet("certificates")]
+    public async Task<ActionResult<List<SupplierQuoteCertificateResponse>>> GetCertificatesForRfq(long rfqId)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        return Ok(await _procumentService.GetCertificatesForRfqAsync(rfqId, userId, isAdmin));
+    }
+
+    /// <summary>List certificate PDFs attached to one supplier-part quote.</summary>
+    [HttpGet("{quoteId:long}/certificates")]
+    public async Task<ActionResult<List<SupplierQuoteCertificateResponse>>> GetCertificates(long rfqId, long quoteId)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        return Ok(await _procumentService.GetCertificatesAsync(rfqId, quoteId, userId, isAdmin));
+    }
+
+    /// <summary>Upload one or more PDF certificates for one saved supplier-part quote.</summary>
+    [HttpPost("{quoteId:long}/certificates")]
+    [Auditable("ProcumentRecord", "UploadCertificate")]
+    public async Task<ActionResult<List<SupplierQuoteCertificateResponse>>> UploadCertificates(
+        long rfqId,
+        long quoteId,
+        [FromForm] List<IFormFile> files)
+    {
+        var result = await _procumentService.UploadCertificatesAsync(rfqId, quoteId, GetUserId(), files);
+        return Ok(result);
+    }
+
+    /// <summary>Download a certificate PDF.</summary>
+    [HttpGet("{quoteId:long}/certificates/{certificateId:long}/download")]
+    public async Task<IActionResult> DownloadCertificate(long rfqId, long quoteId, long certificateId)
+    {
+        var (userId, isAdmin) = GetUserContext();
+        var result = await _procumentService.DownloadCertificateAsync(rfqId, quoteId, certificateId, userId, isAdmin);
+        if (result == null) return NotFound();
+        var (stream, fileName, mimeType) = result.Value;
+        return File(stream, mimeType, fileName);
     }
 }

@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
-      <h1 class="text-h5 font-weight-bold">Final Invoices</h1>
+      <h1 class="text-h5 font-weight-bold">Invoices And Packing List</h1>
       <v-spacer />
       <v-btn
         prepend-icon="mdi-package-variant-closed-plus"
@@ -11,7 +11,7 @@
       >
         Merge Packing Lists
       </v-btn>
-      <v-btn prepend-icon="mdi-plus" color="primary" @click="showAddDialog = true">Create Final Invoice</v-btn>
+      <v-btn prepend-icon="mdi-plus" color="primary" @click="showAddDialog = true">Create Invoice</v-btn>
     </div>
 
     <v-card class="glass-card">
@@ -119,11 +119,14 @@
         </div>
 
         <v-data-table-server
+          class="fixed-header-table"
           :headers="headers"
           :items="serverItems"
           :items-length="totalItems"
           :loading="loading"
           :items-per-page="50"
+          fixed-header
+          height="calc(100vh - 210px)"
           density="comfortable"
           hover
           @update:options="onTableOptions"
@@ -474,3 +477,28 @@ async function createFinalInvoice() {
   }
 }
 </script>
+
+<style scoped>
+:deep(.fixed-header-table .v-table__wrapper) {
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table) {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  overflow: visible !important;
+}
+
+:deep(.fixed-header-table .v-table__wrapper > table > thead) {
+  position: static !important;
+}
+
+:deep(.fixed-header-table thead th) {
+  position: sticky !important;
+  top: 0;
+  z-index: 11 !important;
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 0 rgba(var(--v-border-color), 0.7);
+}
+</style>

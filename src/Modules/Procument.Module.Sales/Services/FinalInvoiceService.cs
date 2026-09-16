@@ -218,16 +218,15 @@ public class FinalInvoiceService : IFinalInvoiceService
     }
 
     /// <summary>
-    /// PO statuses that are considered "active enough" for Net30 invoices.
-    /// Net30 skips the payment workflow, so we never wait for "Completed" —
+    /// PO statuses that are considered active enough for deferred customer terms.
+    /// Net, CAD and Credit do not wait for the customer's payment before invoicing —
     /// any PO that has moved past draft/admin-approval is sufficient.
     /// </summary>
-    private static readonly string[] Net30EligiblePoStatuses =
+    private static readonly string[] DeferredTermEligiblePoStatuses =
     [
-        "Waiting For Documents", "Waiting For Payment", "PO Sent", "Document Added",
-        "Payment Done", "Waiting For Shipment",
-        "Ship To Warehouse 1", "Ship To Warehouse 2", "Ship To Warehouse 3",
-        "Ship To Customer", "Completed"
+        "Waiting For Supplier Documents", "Waiting For PR", "Waiting For Payment",
+        "PR Rejected", "Payment Done", "Waiting For Shipment", "Ship to Warehouse",
+        "Waiting for Expert Approval Shipment", "Completed"
     ];
 
     public async Task<List<EligibleProformaResponse>> GetEligibleProformasAsync()
@@ -238,8 +237,8 @@ public class FinalInvoiceService : IFinalInvoiceService
             .Include(i => i.Customer)
             .Where(i => !finalInvoiceProformaIds.Contains(i.Id) && !i.IsCancelled)
             .Where(i =>
-                i.PaymentStatus == "Net30"
-                    ? _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && Net30EligiblePoStatuses.Contains(po.Status))
+                i.PaymentStatus != InvoicePaymentTerms.Prepayment
+                    ? _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && DeferredTermEligiblePoStatuses.Contains(po.Status))
                     : _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && po.Status == "Completed"))
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
@@ -257,8 +256,7 @@ public class FinalInvoiceService : IFinalInvoiceService
 
     /// <summary>
     /// Check if a final invoice can be created for the given proforma invoice.
-    /// Net30: any PO past draft/approval stage qualifies (payment workflow is skipped).
-    /// Other payment types: at least one PO must be fully Completed.
+    /// Deferred customer terms: any PO past sourcing qualifies. Prepayment requires a completed PO.
     /// </summary>
     public async Task<bool> CanCreateFinalInvoice(long proformaInvoiceId)
     {
@@ -274,10 +272,10 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         if (invoice == null || invoice.IsCancelled) return false;
 
-        if (invoice.PaymentStatus == "Net30")
+        if (invoice.PaymentStatus != InvoicePaymentTerms.Prepayment)
         {
             return await _db.Set<PurchaseOrder>()
-                .AnyAsync(po => po.InvoiceId == proformaInvoiceId && Net30EligiblePoStatuses.Contains(po.Status));
+                .AnyAsync(po => po.InvoiceId == proformaInvoiceId && DeferredTermEligiblePoStatuses.Contains(po.Status));
         }
 
         return await _db.Set<PurchaseOrder>()
@@ -300,6 +298,14 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         if (proforma == null)
             throw new InvalidOperationException("Proforma invoice not found.");
+
+        if (proforma.PaymentStatus == InvoicePaymentTerms.Credit)
+            await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, proforma.CustomerId, proforma.TotalAmount, proforma.Id);
+
+        if (proforma.PaymentStatus is InvoicePaymentTerms.Net or InvoicePaymentTerms.Cad)
+            proforma.PaymentTermStartedAt ??= DateTime.UtcNow;
+        if (proforma.PaymentStatus != InvoicePaymentTerms.Prepayment && proforma.Status != "Finish")
+            proforma.Status = "Running";
 
         // Generate invoice number
         //var count = await _db.Set<FinalInvoice>().CountAsync();
@@ -387,7 +393,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                 UnitPrice = ii.UnitPrice,   // Sell price from proforma
                 TotalPrice = ii.TotalPrice,
                 Discount = ii.Discount,     // Copy discount from proforma item
-                Condition = quoteItem?.Condition,
+                Condition = ii.Condition ?? quoteItem?.Condition,
                 CertName = proc?.CertName,
                 TrackNumber = track?.TrackNumbers ?? "",
                 Carrier = track?.Carrier ?? "",
@@ -472,6 +478,7 @@ public class FinalInvoiceService : IFinalInvoiceService
             CustomerPONumber = fi.ProformaInvoice?.CustomerPONumber,
             CustomerId = fi.CustomerId,
             CustomerName = fi.Customer?.Name ?? "",
+            CustomerBase = fi.Customer?.Base,
             CustomerCode = fi.Customer?.CustomerCode,
             CustomerContactPerson = fi.Customer?.ContactPerson,
             CustomerBillTo = fi.Customer?.BillTo,

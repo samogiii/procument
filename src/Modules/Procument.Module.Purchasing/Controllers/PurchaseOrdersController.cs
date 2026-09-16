@@ -71,9 +71,7 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Resolve the company preset behind a PO's preferred wallet. The preset picked when the PO was
-    /// created is stored as PreferredWalletId → PaymentBox → CompanyPreset; raw SQL keeps PaymentBox
-    /// (Sales module) out of this module's model.
+    /// Resolve the buying company for legacy POs that predate the direct CompanyPresetId column.
     /// </summary>
     private async Task<(long PresetId, string PresetName, string WalletName)?> ResolvePresetForWalletAsync(long? walletId)
     {
@@ -108,9 +106,14 @@ public class PurchaseOrdersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Fill CompanyPresetId / CompanyPresetName / PreferredWalletName from the PO's preferred wallet.</summary>
+    /// <summary>Fill buying-company information, falling back to a legacy wallet preference when necessary.</summary>
     private async Task FillCompanyPresetAsync(POResponse po)
     {
+        if (po.CompanyPresetId.HasValue)
+        {
+            po.CompanyPresetName = (await _db.Set<CompanyPreset>().FindAsync(po.CompanyPresetId.Value))?.Name;
+            return;
+        }
         var preset = await ResolvePresetForWalletAsync(po.PreferredWalletId);
         if (preset == null) return;
         po.CompanyPresetId = preset.Value.PresetId;
@@ -359,6 +362,30 @@ public class PurchaseOrdersController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    /// <summary>Start or reset the per-line In Shop day countdown.</summary>
+    [HttpPatch("items/{id:long}/in-shop")]
+    [Auditable("POItem", "SetInShopLeadTime", CaptureBody = true)]
+    public async Task<IActionResult> SetInShopLeadTime(long id, [FromBody] UpdatePOItemInShopRequest request)
+    {
+        if (request.Days < 0 || request.Days > 3650)
+            return BadRequest(new { message = "Lead time must be between 0 and 3650 days." });
+        var item = await _db.Set<POItem>().FirstOrDefaultAsync(i => i.Id == id && i.ReturnedAt == null);
+        if (item == null) return NotFound();
+        item.Status = PurchaseOrderStatusFlow.InShop;
+        item.InShopLeadTimeDays = request.Days;
+        item.InShopStartedAt = DateTime.UtcNow;
+        await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, new[] { item }, PurchaseOrderStatusFlow.InShop);
+        await _db.SaveChangesAsync();
+        return Ok(new
+        {
+            item.Status,
+            item.InShopLeadTimeDays,
+            item.InShopStartedAt,
+            InShopRemainingDays = PurchaseOrderStatusFlow.RemainingInShopDays(item),
+            DisplayStatus = PurchaseOrderStatusFlow.DisplayStatus(item),
+        });
+    }
+
     /// <summary>Delete a purchase order.</summary>
     [HttpDelete("{id:long}")]
     [Auditable("PurchaseOrder", "Delete")]
@@ -448,8 +475,8 @@ public class PurchaseOrdersController : ControllerBase
             createdAt = po.CreatedAt,
             totalAmount = po.TotalAmount,
             orderedBy,
-            companyPresetId = poPreset?.PresetId,
-            companyPresetName = poPreset?.PresetName,
+            companyPresetId = po.CompanyPresetId ?? poPreset?.PresetId,
+            companyPresetName = po.CompanyPresetId.HasValue ? (await _db.Set<CompanyPreset>().FindAsync(po.CompanyPresetId.Value))?.Name : poPreset?.PresetName,
             supplier = new
             {
                 id = po.SupplierId,
@@ -559,6 +586,8 @@ public class PurchaseOrdersController : ControllerBase
         {
             Id = detail.Id,
             PurchaseOrderId = detail.PurchaseOrderId,
+            Beneficiary = detail.Beneficiary,
+            Reference = detail.Reference,
             BankName = detail.BankName,
             BankAccountNumber = detail.BankAccountNumber,
             BankAddress = detail.BankAddress,
@@ -593,6 +622,8 @@ public class PurchaseOrdersController : ControllerBase
             _db.Set<POImportDetail>().Add(detail);
         }
 
+        detail.Beneficiary = request.Beneficiary;
+        detail.Reference = request.Reference;
         detail.BankName = request.BankName;
         detail.BankAccountNumber = request.BankAccountNumber;
         detail.BankAddress = request.BankAddress;
@@ -613,6 +644,8 @@ public class PurchaseOrdersController : ControllerBase
         {
             Id = detail.Id,
             PurchaseOrderId = detail.PurchaseOrderId,
+            Beneficiary = detail.Beneficiary,
+            Reference = detail.Reference,
             BankName = detail.BankName,
             BankAccountNumber = detail.BankAccountNumber,
             BankAddress = detail.BankAddress,
@@ -677,6 +710,13 @@ public class PurchaseOrdersController : ControllerBase
         };
 
         _db.Set<POItemTrackNumber>().Add(track);
+        item.Status = PurchaseOrderStatusFlow.ShipToWarehouse;
+        await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, new[] { item }, PurchaseOrderStatusFlow.ShipToWarehouse);
+        if (item.POId.HasValue)
+        {
+            var po = await _db.Set<PurchaseOrder>().FindAsync(item.POId.Value);
+            if (po != null) po.Status = PurchaseOrderStatusFlow.ShipToWarehouse;
+        }
         await _db.SaveChangesAsync();
 
         // Notify Inventory users assigned to this warehouse
@@ -904,7 +944,7 @@ public class PurchaseOrdersController : ControllerBase
 
         if (request.Decision == "Approved")
         {
-            po.Status = "Waiting For Payment";
+            po.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
         }
 
         await _db.SaveChangesAsync();
@@ -933,7 +973,7 @@ public class PurchaseOrdersController : ControllerBase
         return Ok(new { po.AdminApproval, po.AdminApprovalNote, po.AdminApprovalAt });
     }
 
-    /// <summary>Payment submits POP/supplier invoice for an approved PO.</summary>
+    /// <summary>Payment submits POP/supplier invoice after the PR has been accepted.</summary>
     [HttpPatch("{id:long}/submit-payment")]
     [Authorize(Roles = "Payment,AHM,Admin,SuperAdmin")]
     [Auditable("PurchaseOrder", "SubmitPayment")]
@@ -941,8 +981,11 @@ public class PurchaseOrdersController : ControllerBase
     {
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return NotFound();
-        if (po.AdminApproval != "Approved")
-            return BadRequest(new { message = "PO must be Admin-Approved before payment can be submitted." });
+        await _db.Entry(po).Reference(p => p.ImportDetail).LoadAsync();
+        var requestIds = await _db.Set<PaymentRequest>().Where(p => p.POId == id).Select(p => p.Id).ToListAsync();
+        var paid = (await _paymentLedgerService.GetSupplierPaidAmountsAsync(requestIds)).Values.Sum();
+        if (paid < SupplierPaymentAmounts.Total(po))
+            return BadRequest(new { message = "The PO still has an unpaid balance. Upload the remaining payments first." });
 
         var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         long.TryParse(userIdStr, out var userId);
@@ -950,22 +993,26 @@ public class PurchaseOrdersController : ControllerBase
         po.PaymentStatus = "Submitted";
         po.PaymentSubmittedAt = DateTime.UtcNow;
         po.PaymentSubmittedBy = userId > 0 ? userId : null;
-        po.Status = "Payment Done";
+        await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.PaymentDone);
         await _db.SaveChangesAsync();
 
         return Ok(new { po.PaymentStatus, po.PaymentSubmittedAt, po.Status });
     }
 
-    /// <summary>Payment queue: POs approved by admin. Payment and Admin roles see these.</summary>
+    /// <summary>Payment queue: POs whose PR is ready, rejected, or being paid.</summary>
     [HttpGet("payment-queue")]
     [Authorize(Roles = "Payment,AHM,Admin,SuperAdmin")]
     public async Task<ActionResult<List<POResponse>>> GetPaymentQueue()
     {
         var pos = await _db.Set<PurchaseOrder>()
-            .Where(p => p.AdminApproval == "Approved"
-                     && p.Status != "Cancelled"
-                     && p.Status != "Returned")
-            .OrderByDescending(p => p.AdminApprovalAt)
+            .Where(p => p.Status != "Cancelled"
+                     && p.Status != "Returned"
+                     && (p.Status == PurchaseOrderStatusFlow.WaitingForPayment
+                         || p.Status == PurchaseOrderStatusFlow.PrRejected
+                         || p.PaymentStatus == "PartiallyPaid"
+                         || p.PaymentStatus == "WaitingForFinalAmount"
+                         || p.PaymentStatus == "Submitted"))
+            .OrderByDescending(p => p.CreatedAt)
             .Include(p => p.Supplier)
             .ToListAsync();
 
@@ -980,10 +1027,65 @@ public class PurchaseOrdersController : ControllerBase
             if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
             var ids = string.Join(",", invoiceIds);
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"SELECT Id, CustomerId FROM Invoices WHERE Id IN ({ids})";
+            cmd.CommandText = $"SELECT Id, CustomerId FROM ProformaInvoices WHERE Id IN ({ids})";
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
                 customerMap[reader.GetInt64(0)] = reader.GetInt64(1);
+        }
+
+        var customerIds = customerMap.Values.Distinct().ToList();
+        var customerNameMap = customerIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _db.Set<Customer>()
+                .Where(c => customerIds.Contains(c.Id))
+                .ToDictionaryAsync(c => c.Id, c => c.Name);
+
+        // PO permissions already contain the users inherited from the originating
+        // RFQ/procurement plus the non-admin user who created the PO. Reuse those
+        // records instead of adding payment-specific database fields.
+        var poIdStrings = pos.Select(p => p.Id.ToString()).ToList();
+        var poAssignments = await _db.Set<EntityPermission>()
+            .Where(p => p.EntityName == "PO" && poIdStrings.Contains(p.EntityId))
+            .Include(p => p.User)
+            .Select(p => new { p.EntityId, p.User.Name })
+            .ToListAsync();
+        var requestUserMap = poAssignments
+            .Where(p => long.TryParse(p.EntityId, out _))
+            .GroupBy(p => long.Parse(p.EntityId))
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(p => p.Name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name)
+                    .ToList());
+
+        // Admin-created POs are not always assigned back to the admin. The existing
+        // action audit records the creator, so include that user without new storage.
+        var poCreationAudits = await _db.Set<AuditLog>()
+            .Where(a => a.EntityName == "PurchaseOrder"
+                     && a.Action == "Create"
+                     && a.UserId.HasValue
+                     && poIdStrings.Contains(a.EntityId))
+            .Select(a => new { a.EntityId, UserId = a.UserId!.Value })
+            .ToListAsync();
+        var creatorIds = poCreationAudits.Select(a => a.UserId).Distinct().ToList();
+        var creatorNameMap = creatorIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _db.Set<User>()
+                .Where(u => creatorIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.Name);
+        foreach (var audit in poCreationAudits)
+        {
+            if (!long.TryParse(audit.EntityId, out var poId)
+                || !creatorNameMap.TryGetValue(audit.UserId, out var creatorName)) continue;
+            if (!requestUserMap.TryGetValue(poId, out var names))
+                requestUserMap[poId] = names = [];
+            if (!names.Contains(creatorName, StringComparer.OrdinalIgnoreCase))
+            {
+                names.Add(creatorName);
+                names.Sort(StringComparer.OrdinalIgnoreCase);
+            }
         }
 
         // Resolve preferred wallet names
@@ -1013,6 +1115,12 @@ public class PurchaseOrdersController : ControllerBase
             InvoiceId = p.InvoiceId,
             InvoiceNumber = p.InvoiceId.HasValue && invoiceMap.ContainsKey(p.InvoiceId.Value) ? invoiceMap[p.InvoiceId.Value] : null,
             CustomerId = p.InvoiceId.HasValue && customerMap.ContainsKey(p.InvoiceId.Value) ? customerMap[p.InvoiceId.Value] : null,
+            CustomerName = p.InvoiceId.HasValue
+                && customerMap.TryGetValue(p.InvoiceId.Value, out var customerId)
+                && customerNameMap.TryGetValue(customerId, out var customerName)
+                    ? customerName
+                    : null,
+            RequestUsers = requestUserMap.TryGetValue(p.Id, out var requestUsers) ? requestUsers : [],
             AdminApproval = p.AdminApproval,
             AdminApprovalNote = p.AdminApprovalNote,
             AdminApprovalAt = p.AdminApprovalAt,
@@ -1056,7 +1164,7 @@ public class PurchaseOrdersController : ControllerBase
             var ids = string.Join(",", invoiceItemIds);
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $"SELECT ii.Id, ii.InvoiceId, inv.InvoiceNumber, ii.UnitPrice, ii.QuoteItemId FROM InvoiceItems ii INNER JOIN Invoices inv ON ii.InvoiceId = inv.Id WHERE ii.Id IN ({ids})";
+                cmd.CommandText = $"SELECT ii.Id, ii.InvoiceId, inv.InvoiceNumber, ii.UnitPrice, ii.QuoteItemId FROM ProformaInvoiceItems ii INNER JOIN ProformaInvoices inv ON ii.InvoiceId = inv.Id WHERE ii.Id IN ({ids})";
                 using var r = await cmd.ExecuteReaderAsync();
                 while (await r.ReadAsync())
                 {
@@ -1167,10 +1275,9 @@ public class PurchaseOrdersController : ControllerBase
 
         if (request.Decision == "Rejected")
         {
-            // Reset AdminApproval and PaymentStatus so Admin/Expert can fix it
-            po.AdminApproval = "Pending";
+            // The expert must delete the rejected PR and generate/download a replacement.
             po.PaymentStatus = "NotStarted";
-            po.Status = "Waiting For Admin Approval";
+            await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.PrRejected);
 
             // Notify Admin/SuperAdmin/Expert
             var userIds = await _db.Set<User>()
@@ -1190,6 +1297,10 @@ public class PurchaseOrdersController : ControllerBase
                 });
             }
         }
+        else if (request.Decision == "Accepted")
+        {
+            await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.WaitingForPayment);
+        }
 
         await _db.SaveChangesAsync();
 
@@ -1197,43 +1308,13 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Called by the Withdraw Panel user when they upload a POP — records which wallet was debited.
-    /// The wallet transaction is created here instead of at acceptance time.
+    /// Legacy endpoint retained to guide older clients to the POP flow that records the amount and wallet together.
     /// </summary>
     [HttpPost("{id:long}/record-pop-withdrawal")]
     [Authorize(Roles = "Payment,AHM,Admin,SuperAdmin")]
     public async Task<IActionResult> RecordPopWithdrawal(long id, [FromBody] PopWithdrawRequest request)
     {
-        var po = await _db.Set<PurchaseOrder>().FindAsync(id);
-        if (po == null) return NotFound();
-
-        if (po.PaymentApproval != "Accepted")
-            return BadRequest(new { message = "Payment has not been accepted yet." });
-
-        var pr = await _db.Set<PaymentRequest>().FirstOrDefaultAsync(r => r.POId == po.Id);
-
-        // Prevent duplicate withdrawal transactions via raw SQL check (avoids cross-module entity dependency)
-        if (pr != null)
-        {
-            var conn = _db.Database.GetDbConnection();
-            if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(1) FROM PaymentTransactions WHERE PaymentRequestId = @prId AND Type = 'Withdraw'";
-            var p = cmd.CreateParameter(); p.ParameterName = "@prId"; p.Value = pr.Id; cmd.Parameters.Add(p);
-            var count = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
-            if (count > 0)
-                return Conflict(new { message = "A withdrawal has already been recorded for this payment." });
-        }
-
-        // DISABLED: auto-withdraw paused per business decision
-        // await _paymentLedgerService.TryAutoWithdrawAsync(
-        //     po.SupplierId,
-        //     po.TotalAmount ?? 0,
-        //     pr?.CompanyPresetId,
-        //     pr?.Id,
-        //     request.WalletId);
-
-        return Ok(new { message = "Withdrawal recorded." });
+        return BadRequest(new { message = "Upload a POP with its payment request, amount and wallet through supplier-payments." });
     }
 
     private async Task<Dictionary<long, string>> ResolveInvoiceNumbersAsync(List<long> invoiceIds)
@@ -1244,7 +1325,7 @@ public class PurchaseOrdersController : ControllerBase
         var conn = _db.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT Id, InvoiceNumber FROM Invoices WHERE Id IN ({string.Join(",", invoiceIds)})";
+        cmd.CommandText = $"SELECT Id, InvoiceNumber FROM ProformaInvoices WHERE Id IN ({string.Join(",", invoiceIds)})";
         using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
         {

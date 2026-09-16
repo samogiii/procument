@@ -35,6 +35,7 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     shippingMenu:    [],
     actionCenter:    [],
     taskManager:     [],
+    totalPnMenu:     [],
 }
 
 /**
@@ -120,6 +121,7 @@ export const useAuthStore = defineStore('auth', {
         shippingMenu():     boolean { return (this as any).isSuperAdmin || this.can('shippingMenu') },
         actionCenter():     boolean { return (this as any).isSuperAdmin || this.can('actionCenter') },
         taskManager():      boolean { return (this as any).isSuperAdmin || this.can('taskManager') },
+        totalPnMenu():       boolean { return (this as any).isSuperAdmin || this.can('totalPnMenu') },
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'

@@ -67,12 +67,26 @@ public class SupplierQuoteResponse
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
     public int SortOrder { get; set; }
+    public int CertificateCount { get; set; }
     public List<SupplierQuoteResponse> ShopRecords { get; set; } = new();
 }
 
 public class UpdateSupplierQuotesOrderRequest
 {
     public List<SupplierQuoteOrderEntry> Items { get; set; } = new();
+}
+
+public class SupplierQuoteCertificateResponse
+{
+    public long Id { get; set; }
+    public long SupplierQuoteId { get; set; }
+    public string? PartNumberName { get; set; }
+    public string? SupplierName { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public string? MimeType { get; set; }
+    public long FileSizeBytes { get; set; }
+    public DateTime UploadedAt { get; set; }
+    public string? UploadedByName { get; set; }
 }
 
 public class SupplierQuoteOrderEntry

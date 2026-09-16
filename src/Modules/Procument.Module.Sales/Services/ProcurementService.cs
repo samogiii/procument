@@ -24,6 +24,13 @@ public class ProcurementService : IProcurementService
     // ────────────────────────────────────────────────────────────────
     public async Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false)
     {
+        var invoiceStatus = await _db.Set<Invoice>()
+            .Where(invoice => invoice.Id == invoiceId)
+            .Select(invoice => invoice.Status)
+            .FirstOrDefaultAsync();
+        if (invoiceStatus is not ("Waiting For Prepayment" or "Running"))
+            throw new InvalidOperationException("Procurement is available only while the Proforma Invoice is Waiting For Prepayment or Running.");
+
         // Idempotent: return existing active Procurement if already created for this invoice.
         // Cancelled procurements are ignored — a PO cancellation resets the cycle, so a new
         // Procurement must be created from scratch when the invoice restarts.
@@ -157,41 +164,56 @@ public class ProcurementService : IProcurementService
             _db.Set<ProcurementItem>().Add(item);
             await _db.SaveChangesAsync();
 
-            // ── Auto-assign users from source RFQ to this Procurement Item ──
-            if (rfq != null)
+            // Assignment priority: PI item → whole PI → source Quote/RFQ defaults.
+            var usersToAssign = await _db.Set<EntityPermission>()
+                .Where(permission => permission.EntityName == "InvoiceItem" && permission.EntityId == ii.Id.ToString())
+                .Select(permission => new { permission.UserId, permission.Permission })
+                .ToListAsync();
+
+            if (usersToAssign.Count == 0)
             {
-                var rfqIdStr = rfq.Id.ToString();
-                var rfqPermissions = await _db.Set<EntityPermission>()
-                    .Where(p => p.EntityName == "RFQ" && p.EntityId == rfqIdStr)
+                usersToAssign = await _db.Set<EntityPermission>()
+                    .Where(permission => permission.EntityName == "Invoice" && permission.EntityId == invoice.Id.ToString())
+                    .Select(permission => new { permission.UserId, permission.Permission })
                     .ToListAsync();
-
-                var usersToAssign = rfqPermissions.Select(p => new { p.UserId, p.Permission }).ToList();
-                
-                // Also include the RFQ owner as an 'Edit' user if not already there
-                if (rfq.UserId.HasValue && !usersToAssign.Any(u => u.UserId == rfq.UserId.Value))
-                {
-                    usersToAssign.Add(new { UserId = rfq.UserId.Value, Permission = "Edit" });
-                }
-
-                foreach (var u in usersToAssign)
-                {
-                    var exists = await _db.Set<EntityPermission>()
-                        .AnyAsync(p => p.UserId == u.UserId && p.EntityName == "Procurement" && p.EntityId == item.Id.ToString());
-                    
-                    if (!exists)
-                    {
-                        _db.Set<EntityPermission>().Add(new EntityPermission
-                        {
-                            UserId = u.UserId,
-                            EntityName = "Procurement",
-                            EntityId = item.Id.ToString(),
-                            Permission = u.Permission,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-                }
-                await _db.SaveChangesAsync();
             }
+
+            if (usersToAssign.Count == 0)
+            {
+                if (qi != null)
+                {
+                    var quoteOwnerId = await _db.Set<Quote>().Where(quote => quote.Id == qi.QuoteId).Select(quote => quote.UserId).FirstOrDefaultAsync();
+                    if (quoteOwnerId > 0) usersToAssign.Add(new { UserId = quoteOwnerId, Permission = "Edit" });
+
+                    var quotePermissions = await _db.Set<EntityPermission>()
+                        .Where(permission => permission.EntityName == "Quote" && permission.EntityId == qi.QuoteId.ToString())
+                        .Select(permission => new { permission.UserId, permission.Permission })
+                        .ToListAsync();
+                    usersToAssign.AddRange(quotePermissions);
+                }
+                if (rfq != null)
+                {
+                    if (rfq.UserId.HasValue) usersToAssign.Add(new { UserId = rfq.UserId.Value, Permission = "Edit" });
+                    var rfqPermissions = await _db.Set<EntityPermission>()
+                        .Where(permission => permission.EntityName == "RFQ" && permission.EntityId == rfq.Id.ToString())
+                        .Select(permission => new { permission.UserId, permission.Permission })
+                        .ToListAsync();
+                    usersToAssign.AddRange(rfqPermissions);
+                }
+            }
+
+            foreach (var assignment in usersToAssign.GroupBy(user => user.UserId).Select(group => group.First()))
+            {
+                _db.Set<EntityPermission>().Add(new EntityPermission
+                {
+                    UserId = assignment.UserId,
+                    EntityName = "Procurement",
+                    EntityId = item.Id.ToString(),
+                    Permission = assignment.Permission,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+            await _db.SaveChangesAsync();
 
             // Clone ProcumentRecords tied to this RFQItem into ProcurementSupplierQuote rows
             if (rfqItem != null)
@@ -626,7 +648,7 @@ public class ProcurementService : IProcurementService
             ? await _db.Set<Invoice>()
                 .AsNoTracking()
                 .Where(i => invoiceIds.Contains(i.Id))
-                .Select(i => new { i.Id, i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.CustomerCode })
+                .Select(i => new { i.Id, i.InvoiceNumber, i.Status, i.CustomerId, CustomerName = i.Customer.CustomerCode })
                 .ToDictionaryAsync(x => x.Id)
             : new();
 
@@ -638,6 +660,7 @@ public class ProcurementService : IProcurementService
                 if (invoiceMap.TryGetValue(r.InvoiceId, out var inv))
                 {
                     h.InvoiceNumber = inv.InvoiceNumber;
+                    h.InvoiceStatus = inv.Status;
                     h.CustomerId = inv.CustomerId;
                     h.CustomerName = inv.CustomerName;
                 }
@@ -702,6 +725,18 @@ public class ProcurementService : IProcurementService
             .AnyAsync(p => p.UserId == userId && p.EntityName == "Procurement" && p.EntityId == itemId.ToString());
     }
 
+    public async Task<bool> CanEditPurchaseItemsAsync(long procurementId)
+    {
+        var procurement = await _db.Set<Procurement>().AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == procurementId);
+        return procurement != null &&
+               // A finalized procurement can still be reopened when its approved POItem
+               // has not been attached to a real PO yet. The reset endpoint performs
+               // that reopen before supplier edits continue.
+               procurement.Status != "Cancelled" &&
+               await IsInvoicePurchaseEditableAsync(procurement.InvoiceId);
+    }
+
     private async Task<ProcurementResponse?> GetByIdInternalAsync(long id, long userId = 0, bool isAdmin = true)
     {
         var proc = await _db.Set<Procurement>()
@@ -719,11 +754,12 @@ public class ProcurementService : IProcurementService
         var inv = await _db.Set<Invoice>()
             .AsNoTracking()
             .Where(i => i.Id == proc.InvoiceId)
-            .Select(i => new { i.InvoiceNumber, i.CustomerId, CustomerName = i.Customer.CustomerCode })
+            .Select(i => new { i.InvoiceNumber, i.Status, i.CustomerId, CustomerName = i.Customer.CustomerCode })
             .FirstOrDefaultAsync();
         if (inv != null)
         {
             resp.InvoiceNumber = inv.InvoiceNumber;
+            resp.InvoiceStatus = inv.Status;
             resp.CustomerId = inv.CustomerId;
             resp.CustomerName = inv.CustomerName;
         }
@@ -858,6 +894,7 @@ public class ProcurementService : IProcurementService
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null) return false;
         if (proc.Status is "Finalized" or "Cancelled") return false;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
 
         var item = await _db.Set<ProcurementItem>()
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
@@ -893,6 +930,7 @@ public class ProcurementService : IProcurementService
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null) return null;
         if (proc.Status is "Finalized" or "Cancelled") return null;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
 
         var item = await _db.Set<ProcurementItem>()
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
@@ -989,10 +1027,132 @@ public class ProcurementService : IProcurementService
         return MapSupplierQuote(sq);
     }
 
+    public async Task<bool> CreateUnassignedRemainderAsync(long procurementId, long itemId, int coveredQty)
+    {
+        var proc = await _db.Set<Procurement>().FindAsync(procurementId);
+        if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
+
+        var item = await _db.Set<ProcurementItem>()
+            .Include(i => i.SupplierQuotes)
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
+        if (item == null || coveredQty < 1) return false;
+
+        // The PI quantity remains the source of truth. This allows a later edit of the
+        // covered supplier qty to update the same No Supplier remainder instead of
+        // repeatedly creating more incomplete rows.
+        var invoiceQty = await _db.Set<InvoiceItem>()
+            .Where(i => i.Id == item.SourceInvoiceItemId)
+            .Select(i => (int?)i.Qty)
+            .FirstOrDefaultAsync() ?? item.AcceptedQty;
+        if (coveredQty >= invoiceQty) return true;
+
+        var remainderQty = invoiceQty - coveredQty;
+        item.Qty = coveredQty;
+        item.UpdatedAt = DateTime.UtcNow;
+
+        var remainder = await _db.Set<ProcurementItem>()
+            .Include(i => i.SupplierQuotes)
+            .FirstOrDefaultAsync(i =>
+            i.ProcurementId == procurementId &&
+            i.SourceInvoiceItemId == item.SourceInvoiceItemId &&
+            i.Id != item.Id &&
+            i.SupplierName == "No Supplier" &&
+            i.CurrentSupplierId == null &&
+            i.ItemStatus != "Cancelled");
+
+        if (remainder != null)
+        {
+            remainder.Qty = remainderQty;
+            remainder.AcceptedQty = remainderQty;
+            remainder.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            var maxSort = await _db.Set<ProcurementItem>()
+                .Where(i => i.ProcurementId == procurementId)
+                .Select(i => (int?)i.SortOrder).MaxAsync() ?? 0;
+            remainder = new ProcurementItem
+            {
+                ProcurementId = item.ProcurementId,
+                SourceRfqId = item.SourceRfqId,
+                SourceRfqItemId = item.SourceRfqItemId,
+                RfqName = item.RfqName,
+                RfqExType = item.RfqExType,
+                PartNumberId = item.PartNumberId,
+                PartNumberName = item.PartNumberName,
+                PartNumberDescription = item.PartNumberDescription,
+                RfqQty = item.RfqQty,
+                RfqCondition = item.RfqCondition,
+                RfqUnit = item.RfqUnit,
+                RfqPriority = item.RfqPriority,
+                RfqAlt = item.RfqAlt,
+                RfqNote = item.RfqNote,
+                SourceQuoteId = item.SourceQuoteId,
+                SourceQuoteItemId = item.SourceQuoteItemId,
+                QuoteNumber = item.QuoteNumber,
+                QuoteUnitPrice = item.QuoteUnitPrice,
+                QuoteQty = remainderQty,
+                QuoteCondition = item.QuoteCondition,
+                QuoteAlt = item.QuoteAlt,
+                QuoteLeadTimeDays = item.QuoteLeadTimeDays,
+                SourceInvoiceItemId = item.SourceInvoiceItemId,
+                AcceptedQty = remainderQty,
+                AcceptedUnitPrice = item.AcceptedUnitPrice,
+                Qty = remainderQty,
+                UnitPrice = 0m,
+                Condition = item.Condition,
+                Alt = item.Alt,
+                SupplierName = "No Supplier",
+                ItemStatus = "Open",
+                SortOrder = maxSort + 1,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.Set<ProcurementItem>().Add(remainder);
+        }
+
+        // Keep the RFQ's existing supplier choices available on the red remainder row.
+        // They are deliberately unselected: the user must explicitly choose a supplier
+        // for the remaining quantity before it can be approved into a PO.
+        if (remainder.SupplierQuotes.Count == 0)
+        {
+            var sortOrder = 0;
+            foreach (var sourceQuote in item.SupplierQuotes.OrderBy(q => q.SortOrder).ThenBy(q => q.Id))
+            {
+                remainder.SupplierQuotes.Add(new ProcurementSupplierQuote
+                {
+                    SupplierId = sourceQuote.SupplierId,
+                    SupplierName = sourceQuote.SupplierName,
+                    Price = sourceQuote.Price,
+                    Qty = remainderQty,
+                    Condition = sourceQuote.Condition,
+                    Unit = sourceQuote.Unit,
+                    Alt = sourceQuote.Alt,
+                    LeadTime = sourceQuote.LeadTime,
+                    CertName = sourceQuote.CertName,
+                    ShippingCost = sourceQuote.ShippingCost,
+                    Note = sourceQuote.Note,
+                    TagDate = sourceQuote.TagDate,
+                    ShippingPoint = sourceQuote.ShippingPoint,
+                    IsSelected = false,
+                    SourceProcumentRecordId = sourceQuote.SourceProcumentRecordId,
+                    SortOrder = ++sortOrder,
+                    CreatedAt = DateTime.UtcNow,
+                    AddedByUserId = sourceQuote.AddedByUserId,
+                });
+            }
+        }
+
+        if (proc.Status == "Open") proc.Status = "Sourcing";
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> DeleteSupplierQuoteAsync(long procurementId, long itemId, long supplierQuoteId)
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
 
         var sq = await _db.Set<ProcurementSupplierQuote>()
             .FirstOrDefaultAsync(q => q.Id == supplierQuoteId && q.ProcurementItemId == itemId);
@@ -1027,6 +1187,7 @@ public class ProcurementService : IProcurementService
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
 
         var item = await _db.Set<ProcurementItem>()
             .Include(i => i.SupplierQuotes)
@@ -1219,6 +1380,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Finalized" or "Cancelled") return null;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
 
         var createdItemIds = new List<long>();
         foreach (var pi in proc.Items)
@@ -1268,6 +1430,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Cancelled") return null;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
 
         var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
         if (pi == null) return null;
@@ -1340,6 +1503,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Cancelled") return null;
+        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
 
         var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
         if (pi == null) return null;
@@ -1487,6 +1651,11 @@ public class ProcurementService : IProcurementService
             .SumAsync(p => (int?)p.Qty) ?? 0;
         return approvedQty >= item.AcceptedQty;
     }
+
+    private Task<bool> IsInvoicePurchaseEditableAsync(long invoiceId) =>
+        _db.Set<Invoice>().AnyAsync(invoice =>
+            invoice.Id == invoiceId &&
+            (invoice.Status == "Waiting For Prepayment" || invoice.Status == "Running"));
 
     // ────────────────────────────────────────────────────────────────
     // Mapping helpers

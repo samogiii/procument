@@ -51,30 +51,13 @@ public class WalletTransferService : IWalletTransferService
             ExchangeRate = req.ExchangeRate,
             Notes = req.Notes,
             CreatedByUserId = userId,
+            Status = "Accepted",
+            AcceptedByUserId = userId,
+            AcceptedAt = DateTime.UtcNow,
         };
         _db.Set<WalletTransferPending>().Add(transfer);
         await _db.SaveChangesAsync();
         return (await GetByIdAsync(transfer.Id))!;
-    }
-
-    public async Task<bool> ReviewAsync(long id, string decision, string? note, long userId)
-    {
-        var transfer = await _db.Set<WalletTransferPending>().FindAsync(id);
-        if (transfer == null) return false;
-
-        if (decision == "Accept")
-        {
-            transfer.Status = "Accepted";
-            transfer.AcceptedByUserId = userId;
-            transfer.AcceptedAt = DateTime.UtcNow;
-        }
-        else
-        {
-            transfer.Status = "Rejected";
-            transfer.RejectionNote = note;
-        }
-        await _db.SaveChangesAsync();
-        return true;
     }
 
     public async Task<bool> UploadPopAndExecuteAsync(long id, IFormFile file, long userId, string storageRoot)

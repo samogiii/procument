@@ -4,6 +4,8 @@ namespace Procument.Module.Purchasing.Entities;
 
 public class POImportDetail : BaseEntity
 {
+    public string? Beneficiary { get; set; }
+    public string? Reference { get; set; }
     public string? BankName { get; set; }
     public string? BankAccountNumber { get; set; }
     public string? BankAddress { get; set; }

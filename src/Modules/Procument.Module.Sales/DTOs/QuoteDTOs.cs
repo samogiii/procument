@@ -36,6 +36,7 @@ public class SendQuoteEmailRequest
     public string? ToName { get; set; }
     public string Subject { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
+    public List<long> CertificateIds { get; set; } = new();
 }
 
 // ──── Response DTOs ────

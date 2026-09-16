@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <v-dialog v-model="model" max-width="520">
     <v-card class="glass-card">
       <v-card-title class="d-flex align-center pa-4">
@@ -7,8 +7,20 @@
       </v-card-title>
       <v-card-text class="pa-4">
         <p class="text-body-2 text-medium-emphasis mb-4">
-          Generate a Payment Request document. This will create a permanent record in the database with a PR Number (starting from 1501).
+          Create a partial or full payment request for this PO, or edit and download an existing request.
         </p>
+
+        <v-alert v-if="requestError" type="error" variant="tonal" class="mb-3">{{ requestError }}</v-alert>
+        <v-select v-model="selectedRequestId" :items="requestOptions" item-title="label" item-value="id"
+          label="Payment request" variant="outlined" :loading="loadingRequests" class="mb-3" />
+        <p class="text-body-2 mb-3">PO total: ${{ formatPrice(poTotal) }} · Paid to supplier: ${{ formatPrice(totalPaid) }} · Remaining: ${{ formatPrice(Math.max(0, poTotal - totalPaid)) }}</p>
+        <v-text-field v-model.number="requestAmount" label="Amount to request (USD)" type="number" min="0.01" step="0.01"
+          prefix="$" variant="outlined" :hint="`Available for this request: $${formatPrice(availableAmount)}`" persistent-hint class="mb-3" />
+        <p v-if="selectedRequest" class="text-caption mb-3">This PR: paid ${{ formatPrice(selectedRequest.paidAmount) }} · remaining ${{ formatPrice(selectedRequest.remainingAmount) }}</p>
+        <v-btn v-if="selectedRequest && props.po?.status === 'PR Rejected'" color="error" variant="tonal"
+          prepend-icon="mdi-delete" class="mb-3" :loading="deletingRequest" @click="deleteRejectedRequest">
+          Delete rejected PR
+        </v-btn>
 
         <v-select
           v-model="selectedPresetId"
@@ -71,6 +83,7 @@
           color="primary"
           variant="flat"
           :loading="generating"
+          :disabled="loadingRequests || requestAmount <= 0 || requestAmount > availableAmount || requestAmount < (selectedRequest?.paidAmount || 0)"
           prepend-icon="mdi-download"
           @click="checkAndGenerate"
         >Generate & Download</v-btn>
@@ -127,6 +140,31 @@ const api = useApi()
 const authStore = useAuthStore()
 const config = useRuntimeConfig()
 const generating = ref(false)
+const deletingRequest = ref(false)
+
+const requestError = ref('')
+const loadingRequests = ref(false)
+const requests = ref<any[]>([])
+const selectedRequestId = ref(0)
+const requestAmount = ref(0)
+const selectedRequest = computed(() => requests.value.find(r => r.id === selectedRequestId.value))
+const poTotal = computed(() => requests.value[0]?.poTotalAmount ?? (Number(props.po?.totalAmount || 0) + Number(props.po?.processingFee || 0) + Number(props.po?.shipping || 0) + Number(props.po?.tax || 0) + Number(props.importDetail?.wirefee || 0)))
+const totalPaid = computed(() => requests.value.reduce((sum, r) => sum + Number(r.paidAmount || 0), 0))
+const availableAmount = computed(() => Math.max(0, poTotal.value - requests.value.filter(r => r.id !== selectedRequestId.value).reduce((sum, r) => sum + Number(r.amount || 0), 0)))
+const requestOptions = computed(() => [{ id: 0, label: 'Create new payment request' }, ...requests.value.map(r => ({ id: r.id, label: `PR-${r.prNumber} · $${formatPrice(r.amount)} · paid $${formatPrice(r.paidAmount)}` }))])
+watch(selectedRequestId, () => { requestAmount.value = selectedRequest.value?.amount ?? availableAmount.value })
+watch(model, async (open) => {
+  if (!open) return
+  requestError.value = ''
+  loadingRequests.value = true
+  try {
+    const all = await api.get<any[]>('/paymentrequests')
+    requests.value = all.filter(r => Number(r.poId) === Number(props.poId))
+    selectedRequestId.value = 0
+    requestAmount.value = availableAmount.value
+  } catch { requestError.value = 'Could not load payment requests. Reopen this dialog to retry.' }
+  finally { loadingRequests.value = false }
+})
 
 const isAdmin = computed(() => authStore.isAdmin)
 const wireFee = ref(0)
@@ -139,6 +177,20 @@ const popCheck = ref<any>(null)
 
 function formatPrice(val: number) {
   return (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+async function deleteRejectedRequest() {
+  if (!selectedRequest.value) return
+  deletingRequest.value = true
+  requestError.value = ''
+  try {
+    await api.del(`/paymentrequests/${selectedRequest.value.id}`)
+    requests.value = requests.value.filter(r => r.id !== selectedRequest.value.id)
+    selectedRequestId.value = 0
+    requestAmount.value = availableAmount.value
+  } catch (e: any) {
+    requestError.value = e?.data?.message || 'The rejected PR could not be deleted.'
+  } finally { deletingRequest.value = false }
 }
 
 const bankFeeItems = [
@@ -224,10 +276,15 @@ async function generate() {
   showPOPWarning.value = false
   generating.value = true
   try {
-    // 1. Create / fetch PR record
-    const pr = await api.post<any>(`/paymentrequests/po/${props.poId}`, {
-      companyPresetId: selectedPresetId.value ?? null,
-    })
+    requestError.value = ''
+    const pr = selectedRequestId.value
+      ? await api.patch<any>(`/paymentrequests/${selectedRequestId.value}/amount`, { amount: Number(requestAmount.value) })
+      : await api.post<any>(`/paymentrequests/po/${props.poId}`, {
+          companyPresetId: selectedPresetId.value ?? null,
+          amount: Number(requestAmount.value),
+        })
+    requests.value = [...requests.value.filter(r => r.id !== pr.id), pr]
+    selectedRequestId.value = pr.id
 
     // 2. Build PDF payload
     const preset = selectedPreset.value
@@ -265,6 +322,8 @@ async function generate() {
 
       // Supplier bank details
       companyPayingTo: props.po?.supplierName,
+      beneficiary: props.importDetail?.beneficiary,
+      reference: props.importDetail?.reference,
       accountNumber: props.importDetail?.bankAccountNumber,
       bankName: props.importDetail?.bankName,
       swiftCode: props.importDetail?.swiftCode,
@@ -275,7 +334,7 @@ async function generate() {
       items,
       itemsTotal,
       wireFee: Number(wireFee.value || 0),
-      grandTotal: itemsTotal + Number(wireFee.value || 0),
+      grandTotal: Number(pr.amount),
 
       bankFeeOption: bankFeeOption.value,
 
@@ -299,7 +358,7 @@ async function generate() {
     const prNum = String(pr.prNumber).padStart(5, '0')
     const custCode = customerCode.value || 'Unknown'
     const supplierPart = (props.po?.supplierName || 'Supplier').replace(/[/\\?%*:|"<>]/g, '-').trim()
-    const grandTotalStr = `$${(itemsTotal + Number(wireFee.value || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const grandTotalStr = `$${Number(pr.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     const fileName = `${grandTotalStr}-${prNum}-${custCode}-${supplierPart}.pdf`
 
     const url = window.URL.createObjectURL(blob)
@@ -322,9 +381,12 @@ async function generate() {
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
     })
 
+    // A successfully generated and downloaded PR enters the payment queue.
+    await api.patch(`/purchase-orders/${props.poId}/status`, { status: 'Waiting For Payment' })
+
     model.value = false
   } catch (e: any) {
-    console.error('Failed to generate PR', e)
+    requestError.value = e?.data?.message || 'Failed to generate payment request.'
   } finally {
     generating.value = false
   }

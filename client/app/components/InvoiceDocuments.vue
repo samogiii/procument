@@ -57,9 +57,12 @@
                   <div class="flex-grow-1 min-width-0">
                     <span class="text-caption text-truncate d-block" :title="f.name">{{ f.name }}</span>
                     <!-- Show amount for Customer POP files -->
-                    <span v-if="cat.key === 'customer_pop' && getPaymentForFile(f.name)" class="text-caption text-success font-weight-medium">
-                      ${{ formatAmount(getPaymentForFile(f.name)!.amount) }}
-                    </span>
+                    <div v-if="cat.key === 'customer_pop' && getPaymentForFile(f.name)" class="text-caption text-success font-weight-medium">
+                      ${{ formatAmount(getPaymentForFile(f.name)!.amount) }} USD
+                      <span v-if="getPaymentForFile(f.name)!.currency !== 'USD'" class="d-block text-medium-emphasis">
+                        {{ currencySymbol(getPaymentForFile(f.name)!.currency) }}{{ formatAmount(getPaymentForFile(f.name)!.receivedAmount) }} {{ getPaymentForFile(f.name)!.currency }}
+                      </span>
+                    </div>
                   </div>
                   <v-btn size="x-small" variant="text" color="info" icon="mdi-download" @click="downloadPI(f)" />
                   <v-btn size="x-small" variant="text" color="error" icon="mdi-delete" @click="deletePI(f)" />
@@ -146,6 +149,35 @@
           Upload Customer POP
         </v-card-title>
         <v-card-text class="pa-4">
+          <v-alert
+            v-if="depositWallet"
+            type="success"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+            icon="mdi-wallet-check-outline"
+          >
+            Automatic deposit to <strong>{{ depositWallet.name }}</strong>
+            ({{ depositWallet.currency }})<span v-if="depositWallet.companyName"> · {{ depositWallet.companyName }}</span>
+          </v-alert>
+          <v-select
+            v-else-if="walletOptions.length"
+            v-model="selectedPopWalletId"
+            :items="walletOptions"
+            item-title="title"
+            item-value="value"
+            label="Bank / Deposit Wallet"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            hint="Required because this PI has no bank selected. The choice will be saved to the PI and Final Invoice."
+            persistent-hint
+            prepend-inner-icon="mdi-bank-outline"
+            @update:model-value="onPopWalletChanged"
+          />
+          <v-alert v-else type="warning" variant="tonal" density="compact" class="mb-4">
+            No bank / deposit wallets are available. Create a wallet in Payment Control first.
+          </v-alert>
           <v-row dense class="mb-3">
             <v-col cols="7">
               <v-text-field
@@ -164,27 +196,39 @@
             <v-col cols="5">
               <v-select
                 v-model="popCurrency"
-                :items="currencies"
+                :items="popCurrencyOptions"
                 label="Currency"
                 variant="outlined"
                 density="comfortable"
+                hint="Currency shown on the customer's POP"
+                persistent-hint
                 @update:model-value="popExchangeRate = null"
               />
             </v-col>
           </v-row>
           <v-text-field
-            v-if="popCurrency !== 'USD'"
+            v-if="needsPopExchangeRate"
             v-model.number="popExchangeRate"
-            :label="`Exchange Rate (1 ${popCurrency} = ? USD)`"
+            :label="popExchangeRateLabel"
             type="number"
             min="0"
             step="0.0001"
             variant="outlined"
             density="comfortable"
             class="mb-3"
-            hint="Used to record the USD equivalent in the wallet"
+            :hint="popExchangeRateHint"
             persistent-hint
           />
+          <v-alert
+            v-if="popConversionPreview"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            Customer deposit: ${{ formatAmount(popConversionPreview.customerUsd) }} USD.
+            The wallet receives {{ currencySymbol(walletCurrency) }}{{ formatAmount(popConversionPreview.walletAmount) }} {{ walletCurrency }}.
+          </v-alert>
           <v-text-field
             v-model="popNotes"
             label="Notes (optional)"
@@ -207,7 +251,7 @@
             variant="flat"
             prepend-icon="mdi-upload"
             :loading="uploadingPop"
-            :disabled="!popFile || !popAmount || popAmount <= 0"
+            :disabled="!popDepositWallet || !popFile || !popAmount || popAmount <= 0 || (needsPopExchangeRate && (!popExchangeRate || popExchangeRate <= 0))"
             @click="submitPopUpload"
           >Upload</v-btn>
         </v-card-actions>
@@ -223,7 +267,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 
-const props = defineProps<{ invoiceId: number | string }>()
+type DepositWallet = { id: number; name: string; companyName?: string; currency: string }
+const props = defineProps<{ invoiceId: number | string; depositWallet?: DepositWallet | null; wallets?: DepositWallet[] }>()
+const emit = defineEmits<{ walletSelected: [walletId: number] }>()
+const depositWallet = computed(() => props.depositWallet ?? null)
 
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
@@ -231,7 +278,7 @@ const api = useApi()
 
 type FileInfo = { name: string; category: string; size: number; modifiedAt: string }
 type SupplierSection = { supplierId: number; supplierName: string; files: FileInfo[] }
-type PaymentRecord = { id: number; fileName: string; amount: number; notes?: string; createdAt: string }
+type PaymentRecord = { id: number; fileName: string; amount: number; receivedAmount: number; currency: string; exchangeRate?: number; notes?: string; createdAt: string }
 type PaymentInfo = { payments: PaymentRecord[]; totalPaid: number; invoiceTotal: number; isPaid: boolean }
 
 const loading = ref(false)
@@ -270,12 +317,44 @@ const popExchangeRate = ref<number | null>(null)
 const popNotes = ref('')
 const popFile = ref<File | null>(null)
 const popFileInputRef = ref<HTMLInputElement | null>(null)
+const selectedPopWalletId = ref<number | null>(null)
 
-const currencies = ['USD', 'EUR', 'CNY', 'GBP', 'AED', 'RUB']
 function currencySymbol(c: string) {
   return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[c] ?? c
 }
 const uploadingPop = ref(false)
+
+const walletOptions = computed(() => (props.wallets || []).map(wallet => ({
+  title: `${wallet.name || `Wallet ${wallet.id}`} (${wallet.currency})${wallet.companyName ? ` · ${wallet.companyName}` : ''}`,
+  value: wallet.id,
+})))
+const popDepositWallet = computed(() =>
+  depositWallet.value ?? (props.wallets || []).find(wallet => wallet.id === selectedPopWalletId.value) ?? null
+)
+const walletCurrency = computed(() => popDepositWallet.value?.currency?.toUpperCase() || 'USD')
+const popCurrencyOptions = computed(() => [...new Set(['USD', walletCurrency.value])])
+const needsPopExchangeRate = computed(() =>
+  popCurrency.value !== 'USD' || walletCurrency.value !== 'USD'
+)
+const popExchangeRateLabel = computed(() => popCurrency.value === 'USD'
+  ? `Exchange Rate (1 USD = ? ${walletCurrency.value})`
+  : `Exchange Rate (1 ${popCurrency.value} = ? USD)`
+)
+const popExchangeRateHint = computed(() => popCurrency.value === 'USD'
+  ? `Used to convert the USD customer payment into the ${walletCurrency.value} wallet amount`
+  : 'Used to record the customer deposit in USD'
+)
+const popConversionPreview = computed(() => {
+  const amount = popAmount.value
+  if (!amount || amount <= 0) return null
+  const rate = popExchangeRate.value
+  if (needsPopExchangeRate.value && (!rate || rate <= 0)) return null
+
+  return {
+    customerUsd: popCurrency.value === 'USD' ? amount : amount * (rate || 1),
+    walletAmount: popCurrency.value === walletCurrency.value ? amount : amount * (rate || 1),
+  }
+})
 
 const paymentProgress = computed(() => {
   if (!paymentInfo.value || paymentInfo.value.invoiceTotal <= 0) return 0
@@ -319,11 +398,18 @@ async function loadDocuments() {
 
 function openPopDialog() {
   popAmount.value = null
+  // Customer deposits are USD by default, even when the selected wallet is CNY.
   popCurrency.value = 'USD'
   popExchangeRate.value = null
   popNotes.value = ''
   popFile.value = null
+  selectedPopWalletId.value = props.depositWallet?.id ?? null
   showPopDialog.value = true
+}
+
+function onPopWalletChanged() {
+  popCurrency.value = 'USD'
+  popExchangeRate.value = null
 }
 
 function cancelPopDialog() {
@@ -337,7 +423,15 @@ function onPopFileChosen(e: Event) {
 }
 
 async function submitPopUpload() {
+  if (!popDepositWallet.value) {
+    showSnack('Select the bank / deposit wallet for this POP', 'error')
+    return
+  }
   if (!popFile.value || !popAmount.value || popAmount.value <= 0) return
+  if (needsPopExchangeRate.value && (!popExchangeRate.value || popExchangeRate.value <= 0)) {
+    showSnack('Enter a valid exchange rate first', 'error')
+    return
+  }
 
   uploadingPop.value = true
   try {
@@ -345,10 +439,9 @@ async function submitPopUpload() {
     formData.append('file', popFile.value)
     formData.append('amount', String(popAmount.value))
     if (popNotes.value.trim()) formData.append('notes', popNotes.value.trim())
-    if (popCurrency.value !== 'USD') {
-      formData.append('currency', popCurrency.value)
-      if (popExchangeRate.value) formData.append('exchangeRate', String(popExchangeRate.value))
-    }
+    formData.append('currency', popCurrency.value)
+    if (popExchangeRate.value) formData.append('exchangeRate', String(popExchangeRate.value))
+    if (!props.depositWallet && selectedPopWalletId.value) formData.append('walletId', String(selectedPopWalletId.value))
 
     const result = await $fetch<any>(
       `${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/customer-pop`,
@@ -360,6 +453,7 @@ async function submitPopUpload() {
     )
 
     showPopDialog.value = false
+    if (result.walletId) emit('walletSelected', Number(result.walletId))
     if (result.justPaid) {
       showSnack('Payment uploaded — Invoice is now marked as PAID!', 'success')
     } else {
@@ -450,14 +544,17 @@ async function downloadSupplier(supplierId: number, f: FileInfo) {
 }
 
 async function deletePI(f: FileInfo) {
-  if (!confirm(`Delete "${f.name}"?`)) return
+  const warning = f.category === 'customer_pop'
+    ? `Delete "${f.name}"? Its payment amount and wallet deposit will also be removed.`
+    : `Delete "${f.name}"?`
+  if (!confirm(warning)) return
   try {
     await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.invoiceId}/file`, {
       method: 'DELETE',
       query: { name: f.name, category: f.category },
       headers: { Authorization: `Bearer ${authStore.user?.token}` },
     })
-    showSnack('Deleted', 'success')
+    showSnack(f.category === 'customer_pop' ? 'POP and its payment amount were removed' : 'Deleted', 'success')
     await loadDocuments()
   } catch { showSnack('Delete failed', 'error') }
 }

@@ -107,6 +107,7 @@ const FEATURE_LABELS: Record<string, string> = {
   isPDFSelection:  'PDF Selection',
   actionCenter:    'Action Center',
   taskManager:     'Task Manager',
+  totalPnMenu:     'Total Project Menu',
 }
 
 const FEATURE_ICONS: Record<string, string> = {
@@ -125,6 +126,7 @@ const FEATURE_ICONS: Record<string, string> = {
   isPDFSelection:  'mdi-file-pdf-box',
   actionCenter:    'mdi-alert-circle-outline',
   taskManager:     'mdi-view-list',
+  totalPnMenu:     'mdi-table-large',
 }
 
 function featureLabel(f: string) { return FEATURE_LABELS[f] ?? f }

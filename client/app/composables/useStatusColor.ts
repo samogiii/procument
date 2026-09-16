@@ -13,12 +13,13 @@ const STATUS_COLORS: Record<string, string> = {
     // Proforma Invoice workflow statuses
     Pending: 'warning',
     Running: 'blue',
-    'Waiting For PrePayment': 'orange',
+    'Waiting For Prepayment': 'orange',
     Delivered: 'teal',
     Finish: 'success',
 
     // Purchase Order
     Received: 'success',
+    'Received in Warehouse': 'orange',
 
     // RFQ
     Open: 'light-blue',

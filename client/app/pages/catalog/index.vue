@@ -27,10 +27,12 @@ const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name ==
 
 const catalogItems = computed(() => {
   const items = [
-    { title: 'Customers', subtitle: 'Manage customer accounts', icon: 'mdi-domain', color: 'primary', to: '/catalog/customers' },
     { title: 'Suppliers', subtitle: 'Manage supplier contacts', icon: 'mdi-truck-outline', color: 'secondary', to: '/catalog/suppliers' },
     { title: 'Part Numbers', subtitle: 'Aviation parts catalog', icon: 'mdi-cog-outline', color: 'accent', to: '/catalog/parts' },
   ]
+  if (authStore.customerMenu) {
+    items.unshift({ title: 'Customers', subtitle: 'Manage customer accounts', icon: 'mdi-domain', color: 'primary', to: '/catalog/customers' })
+  }
   if (isSydOrAdmin.value) {
     items.push({ title: 'Warehouses', subtitle: 'Manage warehouse locations', icon: 'mdi-home-city-outline', color: 'teal', to: '/catalog/warehouses' })
   }

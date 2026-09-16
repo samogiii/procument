@@ -5,7 +5,7 @@
         v-if="backTo"
         icon="mdi-arrow-left"
         variant="text"
-        :to="backTo"
+        @click="$router.back()"
         class="mr-1 mr-sm-2 flex-shrink-0"
         size="small"
       />
@@ -30,7 +30,7 @@
 defineProps<{
   /** Page title displayed as h1 */
   title: string
-  /** Optional back navigation route */
+  /** Shows a browser-history back button when supplied. */
   backTo?: string
   /** Optional count badge next to the title */
   count?: number | string

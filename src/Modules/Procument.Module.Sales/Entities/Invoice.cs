@@ -15,7 +15,9 @@ public class Invoice : BaseEntity
     public string? B1InvoiceNumber { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = "Draft";
-    public string? PaymentStatus { get; set; }      // Net30 | CAD | Prepayment
+    public string? PaymentStatus { get; set; }      // Prepayment | CAD | Net | Credit
+    public int? PaymentTermDays { get; set; }
+    public DateTime? PaymentTermStartedAt { get; set; }
     public decimal? PrepaymentPercent { get; set; } // only set when PaymentStatus = "Prepayment"
     public DateTime? DueDate { get; set; }
     public DateTime? DeadlineDate { get; set; }

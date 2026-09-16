@@ -9,7 +9,7 @@ public class WalletTransferPending
     public decimal DepositAmount { get; set; }
     public decimal? ExchangeRate { get; set; }
     public string? Notes { get; set; }
-    public string Status { get; set; } = "Pending"; // Pending | Accepted | Rejected | Completed
+    public string Status { get; set; } = "Accepted"; // Accepted until POP execution, then Completed
     public string? PopFileName { get; set; }
     public string? RejectionNote { get; set; }
     public long CreatedByUserId { get; set; }

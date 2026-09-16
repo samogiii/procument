@@ -84,6 +84,7 @@ public class AppDbContext : DbContext
   public DbSet<Procurement> Procurements => Set<Procurement>();
   public DbSet<ProcurementItem> ProcurementItems => Set<ProcurementItem>();
   public DbSet<ProcurementSupplierQuote> ProcurementSupplierQuotes => Set<ProcurementSupplierQuote>();
+  public DbSet<SupplierQuoteCertificate> SupplierQuoteCertificates => Set<SupplierQuoteCertificate>();
   public DbSet<TaskItem> TaskItems => Set<TaskItem>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -197,6 +198,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Coef1).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Coef2).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Coef3).HasColumnType("decimal(18,4)");
+      entity.Property(e => e.MaxCredit).HasColumnType("decimal(18,2)");
 
       // Speeds up catalog search-by-name
       entity.HasIndex(e => e.Name);
@@ -392,6 +394,9 @@ public class AppDbContext : DbContext
       entity.HasKey(e => e.Id);
       entity.Property(e => e.FileName).HasMaxLength(500);
       entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.ReceivedAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Currency).HasMaxLength(10);
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,8)");
       entity.Property(e => e.Notes).HasMaxLength(1000);
       entity.HasOne(e => e.Invoice)
             .WithMany()
@@ -402,11 +407,12 @@ public class AppDbContext : DbContext
 
     modelBuilder.Entity<Invoice>(entity =>
     {
-      entity.ToTable("Invoices");
+      entity.ToTable("ProformaInvoices");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.InvoiceNumber).HasMaxLength(100);
       entity.Property(e => e.B1InvoiceNumber).HasMaxLength(50);
       entity.Property(e => e.Status).HasMaxLength(50);
+      entity.Property(e => e.PaymentStatus).HasMaxLength(20);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
 
       entity.HasIndex(e => e.InvoiceNumber).IsUnique();
@@ -429,10 +435,12 @@ public class AppDbContext : DbContext
 
     modelBuilder.Entity<InvoiceItem>(entity =>
     {
-      entity.ToTable("InvoiceItems");
+      entity.ToTable("ProformaInvoiceItems");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
       entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Status).HasMaxLength(80).HasDefaultValue("Not Started");
 
       entity.HasOne(e => e.Invoice)
                 .WithMany(i => i.InvoiceItems)
@@ -449,7 +457,7 @@ public class AppDbContext : DbContext
 
     modelBuilder.Entity<FinalInvoice>(entity =>
     {
-      entity.ToTable("FinalInvoices");
+      entity.ToTable("Invoices");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.InvoiceNumber).HasMaxLength(100);
       entity.Property(e => e.B1FinalInvoiceNumber).HasMaxLength(50);
@@ -479,7 +487,7 @@ public class AppDbContext : DbContext
 
     modelBuilder.Entity<FinalInvoiceItem>(entity =>
     {
-      entity.ToTable("FinalInvoiceItems");
+      entity.ToTable("InvoiceItems");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
       entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
@@ -506,7 +514,7 @@ public class AppDbContext : DbContext
     // ───────────────────────────────────────────
     modelBuilder.Entity<ProcumentRecord>(entity =>
     {
-      entity.ToTable("Procument");
+      entity.ToTable("SupplierPartQuote");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.Alt).HasMaxLength(200);
       entity.Property(e => e.Condition).HasMaxLength(100);
@@ -541,16 +549,36 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.Type);
     });
 
+    modelBuilder.Entity<SupplierQuoteCertificate>(entity =>
+    {
+      entity.ToTable("SupplierQuoteCertificates");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(500);
+      entity.Property(e => e.OriginalFileName).HasMaxLength(500);
+      entity.Property(e => e.MimeType).HasMaxLength(100);
+
+      entity.HasOne(e => e.SupplierQuote)
+                .WithMany(q => q.Certificates)
+                .HasForeignKey(e => e.SupplierQuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+      entity.HasOne(e => e.UploadedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+      entity.HasIndex(e => e.SupplierQuoteId);
+    });
+
     modelBuilder.Entity<PurchaseOrder>(entity =>
     {
       entity.ToTable("PurchaseOrders");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.PONumber).HasMaxLength(100);
       entity.Property(e => e.Status).HasMaxLength(50);
+      entity.Property(e => e.FulfillmentMode).HasMaxLength(20);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.AdminApproval).HasMaxLength(20).HasDefaultValue("Pending");
       entity.Property(e => e.AdminApprovalNote).HasMaxLength(1000);
-      entity.Property(e => e.PaymentStatus).HasMaxLength(20).HasDefaultValue("NotStarted");
+      entity.Property(e => e.PaymentStatus).HasMaxLength(40).HasDefaultValue("NotStarted");
       entity.Property(e => e.ReturnReason).HasMaxLength(1000);
 
       entity.HasIndex(e => e.PONumber).IsUnique();
@@ -706,6 +734,8 @@ public class AppDbContext : DbContext
     {
       entity.ToTable("POImportDetails");
       entity.HasKey(e => e.Id);
+      entity.Property(e => e.Beneficiary).HasMaxLength(300);
+      entity.Property(e => e.Reference).HasMaxLength(300);
       entity.Property(e => e.BankName).HasMaxLength(200);
       entity.Property(e => e.BankAccountNumber).HasMaxLength(100);
       entity.Property(e => e.BankAddress).HasMaxLength(500);
@@ -1026,6 +1056,9 @@ public class AppDbContext : DbContext
     {
       entity.ToTable("PaymentRequests");
       entity.HasKey(e => e.Id);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.PendingPaymentAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.PendingExchangeRate).HasColumnType("decimal(18,6)");
       entity.Property(e => e.Status).HasMaxLength(50);
 
       entity.HasOne(e => e.PO)
@@ -1065,6 +1098,9 @@ public class AppDbContext : DbContext
     {
       entity.ToTable("PaymentTransactions");
       entity.HasKey(e => e.Id);
+      entity.Property(e => e.PopFileName).HasMaxLength(500);
+      entity.Property(e => e.PopInvoiceNumber).HasMaxLength(200);
+      entity.HasIndex(e => e.PopUploadId).IsUnique().HasFilter("[PopUploadId] IS NOT NULL");
       entity.Property(e => e.Type).HasMaxLength(20);
       entity.Property(e => e.FromType).HasMaxLength(20);
       entity.Property(e => e.ToType).HasMaxLength(20);

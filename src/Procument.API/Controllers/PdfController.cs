@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.API.Pdf;
 using Procument.Module.Purchasing.Entities;
+using Procument.Module.Purchasing.Services;
 using Procument.Module.Sales.Entities;
 using Procument.Shared.Services;
 using QuestPDF.Fluent;
@@ -114,16 +115,19 @@ public class PdfController : ControllerBase
                         _storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, "PO", fileName, ms);
                     }
 
-                    // Update items and header to "PO Sent"
-                    po.Status = "PO Sent";
+                    // Downloading the PO starts the supplier-document stage.
+                    po.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
                     if (!string.IsNullOrWhiteSpace(req.PoDate) && DateTime.TryParse(req.PoDate, out var parsedDate))
                     {
                         po.PODate = parsedDate;
                     }
                     foreach (var item in po.POItems.Where(i => i.ReturnedAt == null))
                     {
-                        item.Status = "PO Sent";
+                        item.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
                     }
+                    await PurchaseOrderStatusFlow.SyncPiItemsAsync(
+                        _db, po.POItems.Where(i => i.ReturnedAt == null),
+                        PurchaseOrderStatusFlow.WaitingForSupplierDocuments);
                     await _db.SaveChangesAsync();
                 }
             }

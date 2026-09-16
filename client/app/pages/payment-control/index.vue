@@ -100,6 +100,7 @@
     <v-tabs v-model="tab" class="mb-4" color="primary">
       <v-tab value="wallets" prepend-icon="mdi-wallet-outline">Wallets</v-tab>
       <v-tab value="ledger" prepend-icon="mdi-format-list-bulleted">All Transactions</v-tab>
+      <v-tab value="transfers" prepend-icon="mdi-swap-horizontal">Ready To Transfer</v-tab>
     </v-tabs>
 
     <!-- ── Wallets Tab ── -->
@@ -546,6 +547,11 @@
           </v-data-table>
         </v-card>
       </v-tabs-window-item>
+
+      <!-- ── Ready To Transfer Tab ── -->
+      <v-tabs-window-item value="transfers">
+        <WalletTransfersPanel />
+      </v-tabs-window-item>
     </v-tabs-window>
 
     <!-- Add Wallet Dialog -->
@@ -863,7 +869,7 @@ interface CompanyPreset {
 const authStore = useAuthStore()
 const api = useApi()
 
-const tab = ref<'wallets' | 'ledger'>('wallets')
+const tab = ref<'wallets' | 'ledger' | 'transfers'>('wallets')
 const boxes = ref<PaymentBox[]>([])
 const allTransactions = ref<AllTransactionRow[]>([])
 const presets = ref<CompanyPreset[]>([])
