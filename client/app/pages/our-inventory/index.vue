@@ -22,6 +22,7 @@
           <v-list-item prepend-icon="mdi-microsoft-excel" title="Export to Excel" @click="exportExcel" />
         </v-list>
       </v-menu>
+      <v-btn v-if="authStore.isAdmin" variant="tonal" size="small" prepend-icon="mdi-database-import-outline" @click="showImport = true">Import opening stock</v-btn>
       <v-btn v-if="authStore.isAdmin" variant="tonal" size="small" prepend-icon="mdi-truck-check-outline" to="/our-inventory/receive">Receive</v-btn>
       <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-cart-arrow-down" to="/our-inventory/purchase-orders/new">New Stock PO</v-btn>
     </template>
@@ -70,6 +71,8 @@
       :mime-type="stockPdf.preview.mimeType.value"
       @close="stockPdf.preview.close()"
     />
+    <OpeningStockImportDialog v-model="showImport" @imported="onImported" />
+    <v-snackbar v-model="importSnack" color="success" :timeout="4000" location="bottom end">{{ importMessage }}</v-snackbar>
     <v-snackbar :model-value="!!reportError" color="error" :timeout="4000" location="bottom end" @update:model-value="reportError = ''">{{ reportError }}</v-snackbar>
   </DataListPage>
 </template>
@@ -110,6 +113,7 @@ const conditionFilter = pf.condition
 const onlyAvailable = pf.onlyAvailable
 const lowStock = pf.lowStock
 
+const refreshKey = ref(0)
 const extraParams = computed<Record<string, string | string[]>>(() => {
   const p: Record<string, string | string[]> = {}
   if (warehouseFilter.value?.length) p.warehouseIds = warehouseFilter.value.map(String)
@@ -117,6 +121,8 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (conditionFilter.value?.length) p.conditions = conditionFilter.value
   if (onlyAvailable.value) p.onlyAvailable = 'true'
   if (lowStock.value) p.lowStock = 'true'
+  // Bumped after an import so DataListPage re-fetches; the API ignores it.
+  if (refreshKey.value) p._r = String(refreshKey.value)
   return p
 })
 
@@ -136,6 +142,17 @@ onMounted(loadOptions)
 
 const fmtQty = (q: number) => Number(q || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
+// ── Opening stock import ──
+const showImport = ref(false)
+const importSnack = ref(false)
+const importMessage = ref('')
+function onImported(res: any) {
+  importMessage.value = `Imported ${fmtQty(res.units)} unit(s) into ${res.lotsTouched} lot(s)${res.newPartNumbers ? `, ${res.newPartNumbers} new part number(s)` : ''}`
+  importSnack.value = true
+  refreshKey.value++
+  loadOptions()
+}
+
 // ── Report (PDF) and Excel export — both use the filters currently applied to the list ──
 const stockPdf = useStockPdf()
 const exporting = ref(false)
@@ -145,7 +162,7 @@ watch(stockPdf.error, (v) => { if (v) reportError.value = v })
 function currentParams() {
   const params = new URLSearchParams()
   if (pf.search.value) params.set('search', pf.search.value)
-  for (const [k, v] of Object.entries(extraParams.value)) (Array.isArray(v) ? v : [v]).forEach(x => params.append(k, x))
+  for (const [k, v] of Object.entries(extraParams.value)) if (k !== '_r') (Array.isArray(v) ? v : [v]).forEach(x => params.append(k, x))
   return params
 }
 

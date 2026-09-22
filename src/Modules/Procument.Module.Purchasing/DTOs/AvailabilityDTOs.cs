@@ -25,6 +25,8 @@ public sealed class PartAvailabilitySourceRecord : AvailabilityRecord
     public long PartNumberId { get; set; }
     public long? StockItemId { get; set; }
     public bool IsIncoming { get; set; }
+    /// <summary>Catalog supplier to put on a quote row created from this record.</summary>
+    public string? SupplierName { get; set; }
 }
 
 public class PartAvailabilityResponse
@@ -35,4 +37,8 @@ public class PartAvailabilityResponse
     public List<AvailabilityRecord> ILSRecords { get; set; } = new();
     public List<AvailabilityRecord> FastImportRecords { get; set; } = new();
     public List<AvailabilityRecord> KnownSupplierRecords { get; set; } = new();
+    /// <summary>Our own stock (available quantity per lot), from the Our Inventory module.</summary>
+    public List<PartAvailabilitySourceRecord> OurStockRecords { get; set; } = new();
+    /// <summary>Approved Stock PO lines not yet received.</summary>
+    public List<PartAvailabilitySourceRecord> IncomingStockRecords { get; set; } = new();
 }

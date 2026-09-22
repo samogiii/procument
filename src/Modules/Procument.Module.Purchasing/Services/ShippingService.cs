@@ -587,6 +587,8 @@ public class ShippingService : IShippingService
             where item.Status == "Accepted" && item.ActualQty.HasValue
                   && item.ActualQty.Value > item.TransferredOutQty
                   && !assignedTrackIds.Contains(item.TrackNumberId)
+                  // Stock PO goods belong to Our Stock: they leave through a sale or a warehouse transfer, not a Shipment Note.
+                  && (poItem.PurchaseOrder == null || poItem.PurchaseOrder.Origin != "Stock")
             select new ReadyForSnItemResponse
             {
                 TrackNumberItemId = item.Id,

@@ -73,6 +73,11 @@ public class ProcurementItem : BaseEntity
     public DateTime? LastReturnedAt { get; set; }
     /// <summary>Stamped when the PO that consumed this item is marked Completed — terminal, closes the loop.</summary>
     public long? FulfilledByPOItemId { get; set; }
+    /// <summary>
+    /// Fulfilled from Our Stock: the quantity is reserved against the Sales Order line, so no POItem is ever
+    /// materialised for this row. Any quantity the stock could not cover is split into a normal remainder row.
+    /// </summary>
+    public bool FromStock { get; set; }
 
     // ──── Foreign keys ────
     public long ProcurementId { get; set; }

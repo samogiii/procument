@@ -42,6 +42,10 @@
           Experts
           <v-chip size="x-small" variant="tonal" class="ml-2">{{ data?.experts?.length || 0 }}</v-chip>
         </v-tab>
+        <v-tab v-if="authStore.ourInventoryMenu" value="stock">
+          <v-icon icon="mdi-warehouse" size="16" class="mr-1" />
+          Our Stock
+        </v-tab>
       </v-tabs>
       <v-divider />
 
@@ -303,6 +307,11 @@
               </tbody>
             </v-table>
           </div>
+
+          <!-- ── Our Stock movements for this part (lazy: only rendered once opened) ── -->
+          <div v-if="tab === 'stock'" class="pa-3">
+            <StockMovementsTable :part-number-id="partNumberId ?? undefined" show-part />
+          </div>
         </template>
       </v-card-text>
     </v-card>
@@ -310,6 +319,7 @@
 </template>
 
 <script setup lang="ts">
+const authStore = useAuthStore()
 const props = defineProps<{
   modelValue: boolean
   partNumberId: number | null

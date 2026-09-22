@@ -535,6 +535,11 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
       entity.Property(e => e.Type).HasMaxLength(50).HasDefaultValue("Procument");
       entity.Property(e => e.FixPrice).HasColumnType("decimal(18,2)");
+      entity.HasIndex(e => e.SourceStockItemId);
+      entity.HasOne<OurStockItem>()
+            .WithMany()
+            .HasForeignKey(e => e.SourceStockItemId)
+            .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasOne(e => e.RFQItem)
                 .WithMany()
@@ -814,6 +819,7 @@ public class AppDbContext : DbContext
       entity.ToTable("ProcurementItems");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.RfqName).HasMaxLength(300);
+      entity.Property(e => e.FromStock).HasDefaultValue(false);
       entity.Property(e => e.PartNumberName).HasMaxLength(200);
       entity.Property(e => e.PartNumberDescription).HasMaxLength(1000);
       entity.Property(e => e.RfqCondition).HasMaxLength(100);

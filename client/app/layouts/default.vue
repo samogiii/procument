@@ -431,6 +431,7 @@ const allNavItems = [
     children: [
       { title: 'Our Stock', icon: 'mdi-package-variant', to: '/our-inventory', ourInventoryMenu: true },
       { title: 'Stock POs', icon: 'mdi-cart-arrow-down', to: '/our-inventory/purchase-orders', ourInventoryMenu: true },
+      { title: 'Stock Movements', icon: 'mdi-history', to: '/our-inventory/movements', ourInventoryMenu: true },
       { title: 'Receive Stock', icon: 'mdi-truck-check-outline', to: '/our-inventory/receive', ourInventoryMenu: true, adminOnly: true },
     ]
   },

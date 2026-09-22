@@ -31,6 +31,7 @@ public static class OurInventoryModule
         services.AddScoped<IStockReservationService, StockReservationService>();
         services.AddScoped<IStockPurchaseOrderService, StockPurchaseOrderService>();
         services.AddScoped<IStockQueryService, StockQueryService>();
+        services.AddScoped<IStockManagementService, StockManagementService>();
 
         return services;
     }

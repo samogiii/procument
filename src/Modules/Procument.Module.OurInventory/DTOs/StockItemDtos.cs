@@ -5,6 +5,7 @@ namespace Procument.Module.OurInventory.DTOs;
 
 public sealed class StockItemQuery : PageQuery
 {
+    public long? PartNumberId { get; set; }
     public List<long>? WarehouseIds { get; set; }
     public List<long>? CompanyPresetIds { get; set; }
     public List<string>? Conditions { get; set; }
@@ -56,6 +57,10 @@ public sealed class StockReservationResponse
     public decimal Qty { get; set; }
     public string Status { get; set; } = string.Empty;
     public long? InvoiceItemId { get; set; }
+    /// <summary>Sales Order number and customer of the line holding the stock.</summary>
+    public long? InvoiceId { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public string? CustomerName { get; set; }
     public long? QuoteItemId { get; set; }
     public long? RFQItemId { get; set; }
     public DateTime? ExpiresAt { get; set; }

@@ -71,10 +71,12 @@ public sealed class StockLedgerService(DbContext db, IOptions<OurInventoryOption
     {
         if (db.Database.CurrentTransaction is not null) return await work();
 
+        var attempt = 0;
         return await db.Database.CreateExecutionStrategy().ExecuteAsync(async ct =>
         {
-            // A retry must start from a clean context, otherwise stale lots are written back.
-            db.ChangeTracker.Clear();
+            // A retry must start from a clean context, otherwise stale lots are written back. The first
+            // attempt keeps it: callers such as Procurement share this DbContext and still hold tracked rows.
+            if (attempt++ > 0) db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             var result = await work();
             await transaction.CommitAsync(ct);

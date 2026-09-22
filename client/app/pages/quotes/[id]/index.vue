@@ -498,6 +498,8 @@
                             </td>
                             <td style="padding-left: 8px; font-size: 13px; position: sticky; left: 0; background: var(--toolbar-bg); opacity: 1; z-index: 2; border-right: 1px solid var(--card-border);">
                               <span v-if="rec.isShop" style="color:#ff9800; margin-right:4px; font-size:11px;">↳ 🔧</span>{{ rec.supplierName }}
+                              <v-chip v-if="rec.sourceStockItemId || rec.supplierName === 'OUR STOCK'" size="x-small" color="purple" variant="tonal"
+                                prepend-icon="mdi-warehouse" class="ml-1" title="Served from Our Stock: reserved when the Sales Order is accepted, no PO">Our Stock</v-chip>
                             </td>
                             <td style="padding-left: 8px; font-size: 12px; color: #fbbf24;">{{ rec.alt || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.condition || 'N/A' }}</td>

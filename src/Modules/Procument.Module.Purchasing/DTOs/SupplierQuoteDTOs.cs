@@ -26,6 +26,8 @@ public class SaveSupplierQuoteRequest
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
     public bool IsCertificated { get; set; }
+    /// <summary>The Our Stock lot this row offers (from the RFQ availability chip).</summary>
+    public long? SourceStockItemId { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -66,6 +68,7 @@ public class SupplierQuoteResponse
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
+    public long? SourceStockItemId { get; set; }
     public int SortOrder { get; set; }
     public int CertificateCount { get; set; }
     public List<string> CertReferences { get; set; } = new();

@@ -262,7 +262,121 @@ public class DashboardController : ControllerBase
                 .ToListAsync();
         }
 
+        if (isAdmin && (isSuperAdmin || HasFeature("ourInventoryMenu")))
+            response.OurStock = await BuildOurStockStatsAsync();
+
         return Ok(response);
+    }
+
+    private bool HasFeature(string feature)
+    {
+        var name = User.FindFirst(ClaimTypes.Name)?.Value ?? "";
+        return _db.MenuPermissions.Any(m => m.Feature == feature && m.UserName == name);
+    }
+
+    /// <summary>Stock value, lots below their minimum and value still on order (approved, not yet received).</summary>
+    private async Task<OurStockStats> BuildOurStockStatsAsync()
+    {
+        var closed = new[] { "Draft", "Cancelled", "Returned", "Completed" };
+        var incoming = await _db.POItems.AsNoTracking()
+            .Where(i => i.ReturnedAt == null && i.PurchaseOrder!.Origin == "Stock" && i.PurchaseOrder.AdminApproval == "Approved"
+                && !closed.Contains(i.PurchaseOrder.Status))
+            .Select(i => new
+            {
+                i.Qty, i.UnitPrice,
+                Received = _db.OurStockMovements.Where(m => m.POItemId == i.Id && (m.Type == "Receipt" || m.Type == "Adjust"))
+                    .Sum(m => (decimal?)m.Qty) ?? 0,
+            })
+            .ToListAsync();
+        return new OurStockStats
+        {
+            StockValue = await _db.OurStockItems.SumAsync(l => (decimal?)(l.QtyOnHand * l.AvgUnitCost)) ?? 0,
+            Lots = await _db.OurStockItems.CountAsync(l => l.QtyOnHand > 0),
+            LowStockLots = await _db.OurStockItems.CountAsync(l => l.MinQty != null && l.QtyAvailable < l.MinQty),
+            ReservedUnits = await _db.OurStockItems.SumAsync(l => (decimal?)l.QtyReserved) ?? 0,
+            IncomingValue = incoming.Sum(i => Math.Max(0, i.Qty - i.Received) * i.UnitPrice),
+        };
+    }
+
+    /// <summary>
+    /// Our Inventory blocks: Stock POs waiting for a PR, Stock POs waiting to be received (Inventory users see
+    /// their own warehouses) and lots below their minimum quantity.
+    /// </summary>
+    private async Task AddOurInventoryAttentionAsync(List<AttentionGroup> groups, bool isAdmin, bool isInventory, long[] inventoryWarehouseIds)
+    {
+        if (isAdmin)
+        {
+            var waitingForPr = await _db.PurchaseOrders.AsNoTracking()
+                .Where(po => po.Origin == "Stock" && po.AdminApproval == "Approved"
+                    && (po.Status == "Waiting For Supplier Documents" || po.Status == "Waiting For PR")
+                    && !_db.Set<Procument.Module.Purchasing.Entities.PaymentRequest>().Any(pr => pr.POId == po.Id))
+                .OrderBy(po => po.AdminApprovalAt ?? po.CreatedAt).Take(50)
+                .Select(po => new { po.Id, po.PONumber, SupplierName = po.Supplier.Name, Since = po.AdminApprovalAt ?? po.CreatedAt, po.Status })
+                .ToListAsync();
+            AddGroup(groups, "Stock PO Waiting For PR", "warning", "mdi-file-export-outline",
+                waitingForPr.Select(po => new AttentionItem
+                {
+                    Title = po.PONumber, Detail = po.Status, SupplierName = po.SupplierName, Since = po.Since,
+                    Route = $"/purchase-orders/{po.Id}", EntityType = "PurchaseOrder", EntityId = po.Id,
+                }).ToList());
+        }
+
+        if (isAdmin || isInventory)
+        {
+            var receivable = new[] { "Payment Done", "Waiting For Shipment", "Ship to Warehouse", "Received in Warehouse", "Waiting for Expert Approval Shipment" };
+            var q = _db.PurchaseOrders.AsNoTracking()
+                .Where(po => po.Origin == "Stock" && po.AdminApproval == "Approved" && receivable.Contains(po.Status));
+            if (isInventory && !isAdmin)
+                q = q.Where(po => po.DestinationWarehouseId.HasValue && inventoryWarehouseIds.Contains(po.DestinationWarehouseId.Value));
+            var awaiting = await q
+                .Select(po => new
+                {
+                    po.Id, po.PONumber, SupplierName = po.Supplier.Name, po.CreatedAt, po.ExpectedDeliveryDate,
+                    Warehouse = po.DestinationWarehouse != null ? po.DestinationWarehouse.DisplayName ?? po.DestinationWarehouse.Name : "",
+                    Ordered = po.POItems.Where(i => i.ReturnedAt == null).Sum(i => (int?)i.Qty) ?? 0,
+                    Received = _db.OurStockMovements.Where(m => m.POId == po.Id && m.POItemId != null && (m.Type == "Receipt" || m.Type == "Adjust"))
+                        .Sum(m => (decimal?)m.Qty) ?? 0,
+                })
+                .Where(x => x.Received < x.Ordered)
+                .OrderBy(x => x.ExpectedDeliveryDate ?? x.CreatedAt).Take(50)
+                .ToListAsync();
+            AddGroup(groups, "Stock PO Waiting For Receipt", "info", "mdi-truck-check-outline",
+                awaiting.Select(po => new AttentionItem
+                {
+                    Title = po.PONumber, SupplierName = po.SupplierName,
+                    Detail = $"{po.Received:0.##} of {po.Ordered} received → {po.Warehouse}"
+                        + (po.ExpectedDeliveryDate.HasValue ? $" · expected {po.ExpectedDeliveryDate:dd MMM}" : ""),
+                    Since = po.ExpectedDeliveryDate ?? po.CreatedAt,
+                    Route = $"/purchase-orders/{po.Id}", EntityType = "PurchaseOrder", EntityId = po.Id,
+                }).ToList());
+        }
+
+        if (isAdmin)
+        {
+            var low = await _db.OurStockItems.AsNoTracking()
+                .Where(l => l.MinQty != null && l.QtyAvailable < l.MinQty)
+                .OrderBy(l => l.QtyAvailable - l.MinQty).Take(50)
+                .Select(l => new
+                {
+                    l.Id, l.PartNumber.Name, l.Condition, l.QtyAvailable, l.MinQty, l.UpdatedAt,
+                    Warehouse = l.Warehouse.DisplayName ?? l.Warehouse.Name,
+                })
+                .ToListAsync();
+            AddGroup(groups, "Low Stock", "info", "mdi-alert-outline",
+                low.Select(l => new AttentionItem
+                {
+                    Title = $"{l.Name} · {l.Condition}", PartNumbers = [l.Name],
+                    Detail = $"{l.QtyAvailable:0.##} available, minimum {l.MinQty:0.##} · {l.Warehouse}",
+                    Since = l.UpdatedAt, Route = $"/our-inventory/{l.Id}", EntityType = "OurStockItem", EntityId = l.Id,
+                }).ToList());
+        }
+    }
+
+    private static void AddGroup(List<AttentionGroup> groups, string category, string severity, string icon, List<AttentionItem> items)
+    {
+        if (items.Count == 0) return;
+        foreach (var item in items) { item.Category = category; item.Severity = severity; }
+        groups.Add(new AttentionGroup { Category = category, Severity = severity, Icon = icon, Count = items.Count, Items = items });
     }
 
     /// <summary>
@@ -423,7 +537,8 @@ public class DashboardController : ControllerBase
             var q = _db.PurchaseOrders
                 .Where(po => po.AdminApproval == "Pending"
                     && po.Status != "Cancelled"
-                    && po.Status != "Returned");
+                    && po.Status != "Returned"
+                    && !(po.Origin == "Stock" && po.Status == "Draft"));
             if (!isSuperAdmin && userBases.Length > 0)
                 q = q.Where(po => po.POItems.Any(pi =>
                     pi.ProcumentRecord == null ||
@@ -859,6 +974,8 @@ public class DashboardController : ControllerBase
                 });
         }
 
+        await AddOurInventoryAttentionAsync(groups, isAdmin, isInventory, inventoryWarehouseIds);
+
         return Ok(groups
             .Where(g => g.Count > 0)
             .OrderByDescending(g => g.Severity == "urgent" ? 2 : g.Severity == "warning" ? 1 : 0)
@@ -868,8 +985,19 @@ public class DashboardController : ControllerBase
 
 // ─── Response DTOs ──────────────────────────────────────────
 
+public class OurStockStats
+{
+    public decimal StockValue { get; set; }
+    public int Lots { get; set; }
+    public int LowStockLots { get; set; }
+    public decimal ReservedUnits { get; set; }
+    public decimal IncomingValue { get; set; }
+}
+
 public class DashboardResponse
 {
+    /// <summary>Our Inventory summary; only for admins who can see Our Inventory.</summary>
+    public OurStockStats? OurStock { get; set; }
     public int TotalRfqs { get; set; }
     public int TotalQuotes { get; set; }
     public int PendingRfqs { get; set; }

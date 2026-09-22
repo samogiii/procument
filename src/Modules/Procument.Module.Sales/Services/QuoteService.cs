@@ -30,6 +30,13 @@ public interface IQuoteService
 
 public class QuoteService : IQuoteService
 {
+    /// <summary>The Our Stock lot behind a supplier-quote row, carried onto the quote line.</summary>
+    private Task<long?> StockLotForAsync(long? procumentRecordId)
+        => procumentRecordId.HasValue
+            ? _db.Set<Procument.Module.Purchasing.Entities.ProcumentRecord>()
+                .Where(r => r.Id == procumentRecordId.Value).Select(r => r.SourceStockItemId).FirstOrDefaultAsync()
+            : Task.FromResult<long?>(null);
+
     /// <summary>Cap on high-cardinality filter option lists (quote numbers, RFQ names) so the payload stays small.</summary>
     private const int MaxFilterOptions = 1000;
 
@@ -207,6 +214,7 @@ public class QuoteService : IQuoteService
                 RFQItemId = itemReq.RFQItemId,
                 PartNumberId = rfqItem.PartNumberId,
                 ProcumentRecordId = itemReq.ProcumentRecordId,
+                SourceStockItemId = await StockLotForAsync(itemReq.ProcumentRecordId),
                 Qty = itemReq.Qty,
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,
@@ -679,6 +687,7 @@ public class QuoteService : IQuoteService
                 RFQItemId = itemReq.RFQItemId,
                 PartNumberId = rfqItem.PartNumberId,
                 ProcumentRecordId = itemReq.ProcumentRecordId,
+                SourceStockItemId = await StockLotForAsync(itemReq.ProcumentRecordId),
                 Qty = itemReq.Qty,
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,

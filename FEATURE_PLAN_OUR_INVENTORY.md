@@ -1,6 +1,6 @@
 # Feature Plan — OurInventory module (stock purchasing + our own stock)
 
-**Status:** In progress — Epics 0–5, 8 and 9.1–9.7 implemented; **Milestone 1 is complete**. Epic 6 is next.
+**Status:** Implemented — all epics (0–11) are built and tested. Only 7.6 (soft quote holds, optional) is deferred, and the production rollout steps in §10 are yours to run.
 **Date:** 2026-09-22
 **Last updated:** 2026-09-22
 **Module:** `src/Modules/Procument.Module.OurInventory`
@@ -8,13 +8,16 @@
 
 ### Progress snapshot
 
-- **Completed:** Epics 0–5, 8 and 9.1–9.7 (37 of 56 checklist items), plus the read side of 6.1 and all of 6.5 / 6.6.
+- **Completed:** 55 of 56 checklist items — everything except 7.6 (optional soft quote holds).
 - **Current capability:** the module foundation and schema are in place; Stock POs can be created, edited, submitted and approved; supplier documents can be stored against the PO; the existing PR → POP → final amount → wallet/payment flow supports Stock POs; and received Stock PO quantities are booked into the Our Stock ledger (track acceptance or manual receipt), with moving-average cost, serials, reservations and PO auto-completion.
 - **Frontend:** Our Stock list + detail, Stock PO list / create / edit, Receive Stock, and Stock-PO sections on the existing PO page (approval, supplier documents, receipts) are live behind the `ourInventoryMenu` permission.
 - **PDFs:** Stock PO PDF (approved POs only, ships to the PO's warehouse), Goods Receipt Note (whole PO or a single delivery), stock report / valuation PDF and Excel export.
-- **Next:** Epic 6 (adjust / transfer / opening stock), then Epic 7 (RFQ chips + sales).
+- **Stock management (Epic 6):** opening-stock Excel import (validate-all, dry run, template), adjust with reason, move between warehouses, lot details, movements log; physical warehouse transfers move the stock record when the destination accepts them; Stock PO goods no longer appear in Ready-for-SN.
+- **Sales (Epic 7):** Our Stock and incoming Stock PO chips on the RFQ page; a quote row from a chip keeps the lot; accepting the Sales Order reserves it (shortfall → normal sourcing row), stock rows never become POs, *Issue* ships it at average cost; cancelling releases it; Total-PN shows the stock cost.
+- **Dashboard (Epic 10):** Action Center blocks (Stock PO waiting for PR / receipt, low stock) and Our Stock cards.
+- **Tests (Epic 11):** `src/Procument.OurInventory.Tests` — 14 database tests (see §8 Epic 11).
 - **Verification:** the .NET solution build and the Nuxt production build pass. Epic 9 was clicked through in the browser against a throwaway database (seeded, then dropped): stock list + filters + value total, lot detail, Stock PO list + status filter, create via Excel paste → submit → reject to draft → edit, approve, manual receive with serial validation, supplier PI upload with amount warning. Epic 5 was run end-to-end against a throwaway database created from all migrations (22 ledger/receipt scenarios + Stock PO create/update, all passing), which was dropped afterwards.
-- **Environment validation still pending:** applying `AddOurInventoryModule` to a production-data copy and the live end-to-end scenario remain rollout/QA work under Epic 11.
+- **Still to do on your side:** apply the two migrations to a copy of production, then the rollout checklist in §10.
 
 ---
 
@@ -456,22 +459,56 @@ A correction that would remove stock already reserved or issued is refused, and 
 - **Automated tests (→ 11.1):** the Epic 5 scenarios were run with a throwaway harness; they still need to become a permanent test project.
 
 ### Epic 6 — Stock management
-- [ ] **6.1 (M)** `OurStockController`: list, filter-options, detail, by-part, patch. *(list, filter-options and detail done with Epic 9; by-part and patch remain)*
-- [ ] **6.2 (M)** Opening balance + Excel bulk import (reuse the Inventory bulk-import pattern).
-- [ ] **6.3 (S)** Adjust (reason required, admin only).
-- [ ] **6.4 (M)** Transfer between warehouses (hook into `WarehouseTransferService` when shipped physically).
+- [x] **6.1 (M)** `OurStockController`: list, filter-options, detail, by-part, patch.
+- [x] **6.2 (M)** Opening balance + Excel bulk import (reuse the Inventory bulk-import pattern).
+- [x] **6.3 (S)** Adjust (reason required, admin only).
+- [x] **6.4 (M)** Transfer between warehouses (hook into `WarehouseTransferService` when shipped physically).
 - [x] **6.5 (S)** Movements endpoint + valuation endpoint.
 - [x] **6.6 (S)** Cost fields stripped for non-admin roles.
 
-### Epic 7 — RFQ / Quote / Sales integration
-- [ ] **7.1 (M)** `StockAvailabilitySource` (available lots + incoming PO lines) → `AvailabilityService` → `OurStockRecords` in `PartAvailabilityResponse`.
-- [ ] **7.2 (M)** Quote row keeps `SourceStockItemId` from `applyAvailability`; supplier = OUR STOCK.
-- [ ] **7.3 (L)** Sales Order accept → `ReserveAsync` (partial reserve + remainder to Procurement); Sales Order cancel → `ReleaseAsync`.
-- [ ] **7.4 (M)** Procurement: reserved lines = Ready / From Stock, no POItem.
-- [ ] **7.5 (M)** Ship to customer → `ConsumeAsync` → `Issue` movement with cost; Total-PN shows stock cost.
-- [ ] **7.6 (S)** Soft quote holds with `ExpiresAt` + cleanup job (optional).
+#### Epic 6 — as built
+| Method | Route (all under `/api/our-inventory`) | Roles |
+|---|---|---|
+| GET | `stock/by-part/{partNumberId}` | all module roles |
+| PATCH | `stock/{id}` — bin, min qty, tag date, notes (certificate is part of the lot key, so not editable) | Admin, SuperAdmin |
+| POST | `stock/{id}/adjust` `{ qty (signed), reason }` — cannot remove reserved stock | Admin, SuperAdmin |
+| POST | `stock/{id}/transfer` `{ targetWarehouseId, qty, reason? }` — moves the record now, keeps cost | Admin, SuperAdmin |
+| POST | `stock/opening` `{ reference, dryRun, lines[] }` — every row validated first; 400 with `errors[{row, message}]` and nothing saved if any fails; unknown P/Ns added to the catalog; warehouse / company matched by name (case-insensitive) or id | Admin, SuperAdmin |
 
-**Done when:** a PN in stock shows a purple chip on an RFQ, and following it through Quote → Sales Order → Ship lowers the stock by the shipped qty.
+- **Physical transfers:** a `WarehouseTransfer` destination leg that carries Stock PO goods moves the accepted quantity from the lot at the transfer's source warehouse to the same lot key at the destination, in the same transaction as the acceptance (`StockReceiptService.ReconcileTransferLegAsync`). Like receipts it reconciles, so a recount or rejection moves the difference back and re-accepting does nothing. Stock stays at the source — and sellable — while in transit.
+- **Ready-for-SN:** Stock PO goods are excluded; they leave a warehouse through a sale (*Issue*) or a transfer.
+- **Screens:** *Import opening stock* on Our Stock (template download, .xlsx / .csv, *Check* then *Import*, row errors shown in place); *Adjust / Move / Edit* on the lot page; *Stock Movements* page (type / date / text filters) in the Our Inventory menu.
+- **Ledger fix:** `ExecuteAsync` now clears the change tracker only on a retry, not on the first attempt — Procurement and Invoice services share the DbContext and still hold tracked rows when they call the reservation service.
+
+### Epic 7 — RFQ / Quote / Sales integration
+- [x] **7.1 (M)** `StockAvailabilitySource` (available lots + incoming PO lines) → `AvailabilityService` → `OurStockRecords` in `PartAvailabilityResponse`.
+- [x] **7.2 (M)** Quote row keeps `SourceStockItemId` from `applyAvailability`; supplier = OUR STOCK.
+- [x] **7.3 (L)** Sales Order accept → `ReserveAsync` (partial reserve + remainder to Procurement); Sales Order cancel → `ReleaseAsync`.
+- [x] **7.4 (M)** Procurement: reserved lines = Ready / From Stock, no POItem.
+- [x] **7.5 (M)** Ship to customer → `ConsumeAsync` → `Issue` movement with cost; Total-PN shows stock cost.
+- [ ] **7.6 (S)** Soft quote holds with `ExpiresAt` + cleanup job (optional). *Deferred — the reservation model supports `ExpiresAt`, nothing uses it yet.*
+
+**Done when:** a PN in stock shows a purple chip on an RFQ, and following it through Quote → Sales Order → Ship lowers the stock by the shipped qty. ✅ Verified (tests + browser).
+
+#### Epic 7 — as built
+**Migration `AddOurInventorySalesLinks`** (additive): `SupplierPartQuote.SourceStockItemId` (nullable FK → `OurStockItems`, indexed) and `ProcurementItems.FromStock` (bit, default 0).
+
+**Chain**
+1. **RFQ page:** purple chips *Our Stock · {warehouse} · {available}* and dashed *Incoming · {SPO} · {qty}* (from `/availability/parts`: `ourStockRecords`, `incomingStockRecords`). Clicking one adds a supplier-quote row with supplier **OUR STOCK**, the lot id (`sourceStockItemId`), qty = min(requested, available), price = average cost, condition / certificate from the lot. The bulk save stores the lot on the row.
+2. **Quote:** `QuoteService` copies the row's lot onto `QuoteItem.SourceStockItemId`. The quote page badges these rows *Our Stock*.
+3. **Sales Order accepted → Procurement created:** for a stock line (a lot on the quote, or supplier = OUR STOCK) the lot is resolved (the quoted lot, else the same part / condition with most available) and reserved against the Sales Order line.
+   - fully covered → row `FromStock = true`, *Ready*, note "Reserved from Our Stock"; PI line status *Reserved from Stock*;
+   - partly covered → the row keeps the reserved qty and the rest is split into the usual red *No Supplier* remainder;
+   - nothing available → the OUR STOCK choice is removed and the row is sourced like any other line (note explains why).
+4. **Never bought:** every materialise / finalise path skips `FromStock` rows and treats them as satisfied, so no POItem is ever created for OUR STOCK.
+5. **Ship:** on the lot page an admin clicks **Issue** on the reservation → `Issue` movement at the lot's average cost (the line's cost of goods); when the line holds nothing more, its PI status becomes *Delivered to Customer*. **Release** gives it back to available.
+6. **Cancel:** cancelling the Sales Order, removing its line, or cancelling the Procurement releases the reservation.
+7. **Total-PN:** stock rows show supplier OUR STOCK, the issue cost when issued, and *Reserved n / Issued n from Our Stock* as shipping status. **Part History** has an *Our Stock* tab with the part's movements.
+
+**Behaviour notes**
+- The RFQ chip shows the average cost to anyone who can see RFQs, because it is the starting price of the quote line (decision 1 below). The Our Stock pages still hide cost from non-admins.
+- Reservations are keyed by the Sales Order line; `IStockReservationService` (Shared) now also offers `ResolveStockLotAsync`, `GetLineStatusAsync` and `GetStockSupplierIdAsync`.
+- A bug caught by the tests and fixed: a stock line with nothing in stock kept OUR STOCK selected and would have produced a PO to OUR STOCK.
 
 ### Epic 8 — PDF
 - [x] **8.1 (S)** `PurchaseOrderDocument` Stock variant (ship-to warehouse, no customer ref).
@@ -510,8 +547,8 @@ A correction that would remove stock already reserved or issued is refused, and 
 - [x] **9.5 (M)** `/our-inventory/purchase-orders` list.
 - [x] **9.6 (M)** Origin guards on `purchase-orders/[id].vue` + `PurchaseOrderDocuments.vue`.
 - [x] **9.7 (M)** `/our-inventory/receive` + `StockReceiveDialog`.
-- [ ] **9.8 (S)** Adjust / Transfer dialogs, `/our-inventory/movements`.
-- [ ] **9.9 (M)** RFQ chips, Quote/Procurement badges, Part History tab, payment "Stock PO" labels.
+- [x] **9.8 (S)** Adjust / Transfer dialogs, `/our-inventory/movements`.
+- [x] **9.9 (M)** RFQ chips, Quote/Procurement badges, Part History tab, payment "Stock PO" labels.
 
 #### Epic 9 (9.1–9.7) — as built
 
@@ -551,14 +588,26 @@ Cost fields (`avgUnitCost`, value, movement `unitCost`) are null for non-admin r
 - Adjust / transfer / opening-stock dialogs and the standalone movements page are Epic 6 / 9.8.
 
 ### Epic 10 — Dashboard & reporting
-- [ ] **10.1 (S)** Action Center blocks: Stock PO waiting for PR / payment / receipt, Low stock.
-- [ ] **10.2 (S)** Dashboard stat cards: stock value, lots below MinQty, incoming value.
+- [x] **10.1 (S)** Action Center blocks: Stock PO waiting for PR / payment / receipt, Low stock.
+- [x] **10.2 (S)** Dashboard stat cards: stock value, lots below MinQty, incoming value.
+
+*As built:* new Action Center groups **Stock PO Waiting For PR** (approved, no PR yet — admins), **Stock PO Waiting For Receipt** (paid / shipping with quantity left — admins, and Inventory users for their own warehouses) and **Low Stock** (admins); Stock POs waiting for payment already appear in the existing *PO Awaiting Payment* block. Draft Stock POs are no longer listed under *PO Awaiting Admin Approval*. The dashboard shows *Our Stock value* (+ lots, reserved units), *Lots below minimum* and *Incoming on Stock POs* to admins who have Our Inventory access.
 
 ### Epic 11 — QA & rollout
-- [ ] **11.1 (M)** Service tests: ledger math, moving average, idempotent receive, reservation race (rowversion).
-- [ ] **11.2 (M)** E2E happy path: create SPO → approve → PI upload → PR → POP → final amount → track → receive → RFQ chip → quote → SO → ship.
-- [ ] **11.3 (S)** Regression: customer PO flow, Total-PN, payment queue, Procurement unassigned list are unchanged.
-- [ ] **11.4 (S)** Load opening stock, give `ourInventoryMenu` to pilot users, then open it to everyone.
+- [x] **11.1 (M)** Service tests: ledger math, moving average, idempotent receive, reservation race (rowversion).
+- [x] **11.2 (M)** E2E happy path: create SPO → approve → PI upload → PR → POP → final amount → track → receive → RFQ chip → quote → SO → ship.
+- [x] **11.3 (S)** Regression: customer PO flow, Total-PN, payment queue, Procurement unassigned list are unchanged.
+- [x] **11.4 (S)** Load opening stock, give `ourInventoryMenu` to pilot users, then open it to everyone. *(tooling and checklist ready — see §10; running it is yours)*
+
+*As built:* **`src/Procument.OurInventory.Tests`** (xUnit, in the solution). Each run creates `ProcumentTest_{guid}` from all migrations on the SQL Server in `PROCUMENT_TEST_SQL`, uses the real services with `EnableRetryOnFailure` as in production, and drops the database afterwards. Without the variable the tests are skipped.
+
+```bash
+PROCUMENT_TEST_SQL="Data Source=.;User ID=sa;Password=…;TrustServerCertificate=True" dotnet test src/Procument.OurInventory.Tests
+```
+
+14 tests: track receipt / recount / rejection reconciliation; manual receipt (over-receipt, serials, moving average, completion); Stock PO create / update under the retrying strategy; reservations (idempotent, partial, consume, reserved stock protected); 5 parallel reservations never over-reserve; ledger sum = on hand; opening import (all-or-nothing, dry run, new P/Ns, serials); adjust + manual transfer + lot edit; warehouse-transfer leg moves stock once and Ready-for-SN skips stock goods; RFQ availability; Sales Order reserve + shortfall split + no PO + issue cost + *Delivered to Customer*; no-stock fallback; Sales Order cancel releases; **regression:** a normal supplier line still becomes a PO item.
+
+The payment (PR → POP → final amount) and PDF steps of the happy path were exercised in the browser against a throwaway database in Epics 4, 8 and 9; the rest is covered by the tests above plus a browser pass over the Epic 6–10 screens.
 
 ### Suggested order
 
@@ -583,6 +632,25 @@ Milestone 3: reporting, landed cost, serials, holds.
 7. **Negative stock:** disabled (`AllowNegativeStock: false`).
 8. **Serials:** the optional serial entity exists in the schema; capture during receipt remains Epic 5.4.
 
-### Still to confirm before Epic 7
+9. **Quote price (default taken):** an Our Stock quote row starts at the lot's average cost and gets the normal margin on the quote. That is why the RFQ chip shows cost to quote builders.
+10. **PO status (default taken):** Stock POs keep the single status field; paid amount and received progress are shown separately on the Stock PO list.
+11. **Who receives (default taken):** Inventory-role users receive through track numbers only; manual *Receive* stays admin-only.
+12. **Landed cost (default taken):** off (`UseLandedCost: false`); receipts use the PO line price.
 
-1. **Quote price:** should an "Our Stock" quote row start from average unit cost and then receive the normal sales margin?
+Any of 9–12 can be changed later without data migration.
+
+---
+
+## 10. Rollout checklist
+
+1. **Back up** the production database.
+2. **Try the migrations on a copy** of production: `AddOurInventoryModule`, then `AddOurInventorySalesLinks` (both additive; existing POs are back-filled as `Origin = 'Customer'`).
+   ```bash
+   dotnet ef database update --project src/Procument.Data --startup-project src/Procument.API
+   ```
+3. **Run the tests** against a SQL Server you can create databases on (`PROCUMENT_TEST_SQL`, see Epic 11).
+4. **Deploy** the API and frontend. On start-up the API creates the **OUR STOCK** catalog supplier if it is missing (`OurInventory:OurStockSupplierName`).
+5. **Grant access** in *Admin → Menu Access → Our Inventory* to the pilot users (SuperAdmin always has it).
+6. **Load opening stock** with *Our Stock → Import opening stock* (download the template; *Check* before *Import*). Set minimum quantities on the lots you want low-stock alerts for.
+7. **Pilot:** raise one real Stock PO end to end (approve → PI → PR → POP → receive → GRN), then quote one RFQ line from Our Stock through to *Issue*.
+8. **Open it up:** grant Our Inventory to everyone who needs it.

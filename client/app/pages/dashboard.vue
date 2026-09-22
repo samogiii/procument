@@ -58,6 +58,44 @@
         </v-col>
       </v-row>
 
+      <!-- Our Inventory (admins with access): stock value, low-stock lots, value still on order -->
+      <v-row v-if="d.ourStock" class="mb-2">
+        <v-col cols="12" sm="4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/our-inventory')">
+            <div class="d-flex align-center">
+              <v-avatar color="purple" size="36" variant="tonal"><v-icon icon="mdi-warehouse" size="20" /></v-avatar>
+              <div class="ml-3">
+                <div class="text-caption text-medium-emphasis">Our Stock value</div>
+                <div class="text-h6 font-weight-bold">${{ fmtNum(d.ourStock.stockValue) }}</div>
+                <div class="text-caption text-medium-emphasis">{{ d.ourStock.lots }} lot(s) · {{ fmtNum(d.ourStock.reservedUnits) }} unit(s) reserved</div>
+              </div>
+            </div>
+          </v-card>
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/our-inventory')">
+            <div class="d-flex align-center">
+              <v-avatar :color="d.ourStock.lowStockLots ? 'warning' : 'success'" size="36" variant="tonal"><v-icon icon="mdi-alert-outline" size="20" /></v-avatar>
+              <div class="ml-3">
+                <div class="text-caption text-medium-emphasis">Lots below minimum</div>
+                <div class="text-h6 font-weight-bold">{{ d.ourStock.lowStockLots }}</div>
+              </div>
+            </div>
+          </v-card>
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-card class="glass-card pa-4 cursor-pointer" @click="navigateTo('/our-inventory/purchase-orders')">
+            <div class="d-flex align-center">
+              <v-avatar color="info" size="36" variant="tonal"><v-icon icon="mdi-truck-delivery-outline" size="20" /></v-avatar>
+              <div class="ml-3">
+                <div class="text-caption text-medium-emphasis">Incoming on Stock POs</div>
+                <div class="text-h6 font-weight-bold">${{ fmtNum(d.ourStock.incomingValue) }}</div>
+              </div>
+            </div>
+          </v-card>
+        </v-col>
+      </v-row>
+
       <!-- Financial Highlights -->
       <v-row class="mb-2">
         <v-col cols="12" sm="6" md="3">

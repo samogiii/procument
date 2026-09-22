@@ -21,9 +21,11 @@ public class InvoiceService : IInvoiceService
     private readonly IDocumentStorageService _documentStorage;
     private readonly IProcurementService _procurementService;
     private readonly IB1NumberService _b1Service;
+    private readonly IStockReservationService _stock;
 
-    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage, IProcurementService procurementService, IB1NumberService b1Service)
+    public InvoiceService(DbContext db, IPermissionService permissionService, IDocumentStorageService documentStorage, IProcurementService procurementService, IB1NumberService b1Service, IStockReservationService stock)
     {
+        _stock = stock;
         _db = db;
         _permissionService = permissionService;
         _documentStorage = documentStorage;
@@ -649,6 +651,8 @@ public class InvoiceService : IInvoiceService
             .ToListAsync();
         foreach (var procurementItem in procurementItems)
             procurementItem.ItemStatus = "Cancelled";
+        // A removed Sales Order line gives back any Our Stock it was holding.
+        if (procurementItems.Any(p => p.FromStock)) await _stock.ReleaseAsync(itemId, userId);
 
         var finalItems = await _db.Set<FinalInvoiceItem>()
             .Where(finalItem => finalItem.InvoiceItemId == itemId)
@@ -858,6 +862,9 @@ public class InvoiceService : IInvoiceService
             foreach (var item in proc.Items.Where(i => i.ItemStatus != "Cancelled"))
                 item.ItemStatus = "Cancelled";
         }
+        // A cancelled Sales Order gives back any Our Stock it was holding.
+        foreach (var invoiceItem in invoice.InvoiceItems)
+            await _stock.ReleaseAsync(invoiceItem.Id, 0);
 
         // ── 3. Cancel unassigned POItems that trace back to this invoice ──
         // (POItems created from finalized Procurement but not yet grouped into a PO)

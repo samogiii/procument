@@ -7,16 +7,19 @@ using Procument.Module.Purchasing.Services;
 using Procument.Module.Sales.Entities;
 using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Services;
 
 public class ProcurementService : IProcurementService
 {
     private readonly DbContext _db;
+    private readonly IStockReservationService _stock;
 
-    public ProcurementService(DbContext db)
+    public ProcurementService(DbContext db, IStockReservationService stock)
     {
         _db = db;
+        _stock = stock;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -96,6 +99,7 @@ public class ProcurementService : IProcurementService
             : new List<ProcumentRecord>();
 
         int sortOrder = 0;
+        var createdLines = new List<(ProcurementItem Item, InvoiceItem InvoiceItem, QuoteItem? QuoteItem, ProcumentRecord? Record)>();
         foreach (var ii in invoice.InvoiceItems.OrderBy(x => x.Id))
         {
             sortOrder++;
@@ -163,6 +167,7 @@ public class ProcurementService : IProcurementService
             };
             _db.Set<ProcurementItem>().Add(item);
             await _db.SaveChangesAsync();
+            createdLines.Add((item, ii, qi, selectedProcRecord));
 
             // Assignment priority: PI item → whole PI → source Quote/RFQ defaults.
             var usersToAssign = await _db.Set<EntityPermission>()
@@ -257,6 +262,10 @@ public class ProcurementService : IProcurementService
 
         await _db.SaveChangesAsync();
 
+        // Lines quoted from Our Stock are reserved now instead of being bought.
+        foreach (var line in createdLines)
+            await ReserveFromStockAsync(proc.Id, line.Item, line.InvoiceItem, line.QuoteItem, line.Record, userId);
+
         if (autoFinalize)
         {
             // Re-load with includes for the helper
@@ -269,12 +278,62 @@ public class ProcurementService : IProcurementService
         return (await GetByIdInternalAsync(proc.Id, userId, true))!;
     }
 
+    /// <summary>
+    /// Reserves Our Stock for a Sales Order line quoted from stock. Fully covered → the row is Ready and
+    /// flagged <see cref="ProcurementItem.FromStock"/> (never bought). Partly covered → the shortfall is split
+    /// into a normal "No Supplier" remainder. Nothing available → the row is sourced like any other line.
+    /// </summary>
+    private async Task ReserveFromStockAsync(long procurementId, ProcurementItem item, InvoiceItem invoiceItem,
+        QuoteItem? quoteItem, ProcumentRecord? record, long userId)
+    {
+        var stockSupplierId = await _stock.GetStockSupplierIdAsync();
+        var sourceLotId = quoteItem?.SourceStockItemId ?? record?.SourceStockItemId;
+        var isStockLine = sourceLotId.HasValue || (stockSupplierId.HasValue && record?.SupplierId == stockSupplierId);
+        if (!isStockLine) return;
+
+        var lotId = await _stock.ResolveStockLotAsync(sourceLotId, record?.SupplierId, item.PartNumberId, quoteItem?.Condition ?? record?.Condition);
+        var reserved = lotId.HasValue
+            ? (await _stock.ReserveAsync(lotId.Value, invoiceItem.Qty, invoiceItem.Id, userId)).ReservedQuantity
+            : 0m;
+        var covered = (int)Math.Floor(reserved);
+        if (covered <= 0)
+        {
+            // No stock left: the Our Stock quote cannot be bought from, so the row goes to normal sourcing.
+            if (reserved > 0) await _stock.ReleaseAsync(invoiceItem.Id, userId);
+            var quotes = await _db.Set<ProcurementSupplierQuote>().Where(q => q.ProcurementItemId == item.Id).ToListAsync();
+            foreach (var q in quotes.Where(q => q.SupplierId == stockSupplierId)) q.IsSelected = false;
+            if (item.CurrentSupplierId == stockSupplierId)
+            {
+                item.CurrentSupplierId = null;
+                item.SupplierName = "No Supplier";
+            }
+            item.Note = "Our Stock had nothing available when the Sales Order was accepted.";
+            await _db.SaveChangesAsync();
+            return;
+        }
+
+        item.FromStock = true;
+        item.ItemStatus = "Ready";
+        item.Note = covered < invoiceItem.Qty
+            ? $"{covered} of {invoiceItem.Qty} reserved from Our Stock; the rest needs a supplier."
+            : "Reserved from Our Stock.";
+        invoiceItem.Status = "Reserved from Stock";
+        await _db.SaveChangesAsync();
+        if (covered < invoiceItem.Qty) await CreateUnassignedRemainderAsync(procurementId, item.Id, covered);
+    }
+
+    private async Task ReleaseStockForItemsAsync(IEnumerable<ProcurementItem> items, long userId)
+    {
+        foreach (var invoiceItemId in items.Where(i => i.FromStock).Select(i => i.SourceInvoiceItemId).Distinct())
+            await _stock.ReleaseAsync(invoiceItemId, userId);
+    }
+
     private async Task AutoFinalizeInternalAsync(Procurement proc, long userId)
     {
         bool anyPoItemCreated = false;
         foreach (var item in proc.Items)
         {
-            if (item.ItemStatus == "Cancelled") continue;
+            if (item.ItemStatus == "Cancelled" || item.FromStock) continue;
 
             var selectedQuotesAuto = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
             var effectiveAltAuto = item.Alt ?? item.QuoteAlt;
@@ -1285,7 +1344,8 @@ public class ProcurementService : IProcurementService
     {
         var created = new List<long>();
 
-        if (pi.ItemStatus == "Cancelled") return created;
+        // Stock rows are served from a reservation, never bought.
+        if (pi.ItemStatus == "Cancelled" || pi.FromStock) return created;
 
         var selectedQuotes = pi.SupplierQuotes.Where(q => q.IsSelected).ToList();
 
@@ -1441,7 +1501,7 @@ public class ProcurementService : IProcurementService
         bool allDone = true;
         foreach (var item in proc.Items)
         {
-            if (item.ItemStatus == "Cancelled") continue;
+            if (item.ItemStatus == "Cancelled" || item.FromStock) continue;
 
             var selectedQuotes = item.SupplierQuotes.Where(q => q.IsSelected).ToList();
 
@@ -1506,7 +1566,7 @@ public class ProcurementService : IProcurementService
         if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
 
         var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
-        if (pi == null) return null;
+        if (pi == null || pi.FromStock) return null; // stock rows are served from a reservation, never bought
 
         var sq = pi.SupplierQuotes.FirstOrDefault(q => q.Id == supplierQuoteId);
         if (sq == null || !sq.IsSelected) return null; // must be selected first
@@ -1603,10 +1663,11 @@ public class ProcurementService : IProcurementService
 
     public async Task<bool> CancelAsync(long procurementId, long userId)
     {
-        var proc = await _db.Set<Procurement>().FindAsync(procurementId);
+        var proc = await _db.Set<Procurement>().Include(p => p.Items).FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return false;
         if (proc.Status == "Finalized") return false;
 
+        await ReleaseStockForItemsAsync(proc.Items, userId);
         proc.Status = "Cancelled";
         proc.FinalizedAt = DateTime.UtcNow;
         proc.FinalizedByUserId = userId > 0 ? userId : null;
@@ -1646,6 +1707,7 @@ public class ProcurementService : IProcurementService
     /// </summary>
     private async Task<bool> IsItemQtySatisfiedAsync(ProcurementItem item)
     {
+        if (item.FromStock) return true; // covered by its reservation; any shortfall lives on the remainder row
         var approvedQty = await _db.Set<POItem>()
             .Where(p => p.SourceProcurementItemId == item.Id && p.ReturnedAt == null)
             .SumAsync(p => (int?)p.Qty) ?? 0;
@@ -1677,6 +1739,7 @@ public class ProcurementService : IProcurementService
     private static ProcurementItemResponse MapItem(ProcurementItem i) => new()
     {
         Id = i.Id,
+        FromStock = i.FromStock,
         ProcurementId = i.ProcurementId,
         SortOrder = i.SortOrder,
 

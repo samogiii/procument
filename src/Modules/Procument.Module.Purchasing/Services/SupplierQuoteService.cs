@@ -159,6 +159,8 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument");
             record.FixPrice = request.FixPrice;
             record.ParentProcumentId = request.ParentProcumentId;
+            // Only overwrite when sent, so older clients that do not know the field keep the link.
+            if (request.SourceStockItemId.HasValue) record.SourceStockItemId = request.SourceStockItemId;
             record.UserId = userId;
             record.UpdatedAt = DateTime.UtcNow; // editing the cost refreshes its price age
         }
@@ -190,6 +192,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 Type = request.Type ?? (request.Condition == "IN" ? "Shop" : "Procument"),
                 FixPrice = request.FixPrice,
                 ParentProcumentId = request.ParentProcumentId,
+                SourceStockItemId = request.SourceStockItemId,
                 UserId = userId
             };
             _db.Set<ProcumentRecord>().Add(record);
@@ -663,6 +666,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         IsCertificated = r.IsCertificated,
         Type = r.Type ?? "Procument",
         FixPrice = r.FixPrice,
+        SourceStockItemId = r.SourceStockItemId,
         ParentProcumentId = r.ParentProcumentId,
         SortOrder = r.SortOrder,
         CertificateCount = r.Certificates?.Count ?? 0,

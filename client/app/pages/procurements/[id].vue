@@ -210,6 +210,10 @@
             <v-chip v-else size="x-small" :color="itemStatusColor(item.itemStatus)" variant="flat" class="font-weight-bold">
               {{ item.itemStatus }}
             </v-chip>
+            <v-chip v-if="item.fromStock" size="x-small" color="purple" variant="tonal" prepend-icon="mdi-warehouse" class="ml-1 font-weight-bold"
+              :title="item.note || 'Reserved from Our Stock — no PO is created for this row'">
+              From Our Stock · {{ item.qty }}
+            </v-chip>
           </div>
 
           <v-btn 

@@ -99,6 +99,8 @@ public class ProcurementResponse
 
 public class ProcurementItemResponse
 {
+    /// <summary>Served from a reservation on Our Stock; no PO is created for this row.</summary>
+    public bool FromStock { get; set; }
     public long Id { get; set; }
     public long ProcurementId { get; set; }
     public int SortOrder { get; set; }

@@ -13,8 +13,13 @@ public interface IAvailabilityService
 public class AvailabilityService : IAvailabilityService
 {
     private readonly DbContext _db;
+    private readonly IEnumerable<IPartAvailabilitySource> _sources;
 
-    public AvailabilityService(DbContext db) => _db = db;
+    public AvailabilityService(DbContext db, IEnumerable<IPartAvailabilitySource> sources)
+    {
+        _db = db;
+        _sources = sources;
+    }
 
     public async Task<List<PartAvailabilityResponse>> GetPartAvailabilityAsync(List<long> partNumberIds)
     {
@@ -51,9 +56,16 @@ public class AvailabilityService : IAvailabilityService
             .Include(ps => ps.Supplier)
             .ToListAsync();
 
+        // Sources outside Purchasing (Our Inventory). Cost is included: it is the starting price of a stock quote line.
+        var external = new List<PartAvailabilitySourceRecord>();
+        foreach (var source in _sources)
+            external.AddRange(await source.GetAvailabilityAsync(partNumberIds, includeCost: true));
+
         return partNumberIds.Select(pid => new PartAvailabilityResponse
         {
             PartNumberId = pid,
+            OurStockRecords = external.Where(r => r.PartNumberId == pid && !r.IsIncoming).ToList(),
+            IncomingStockRecords = external.Where(r => r.PartNumberId == pid && r.IsIncoming).ToList(),
 
             InventoryRecords = inventoryItems
                 .Where(i => i.PartNumberId == pid)

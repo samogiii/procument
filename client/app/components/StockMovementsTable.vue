@@ -24,6 +24,10 @@
     <template #item.unitCost="{ item }">
       {{ item.unitCost != null ? `$${formatPrice(item.unitCost)}` : '—' }}
     </template>
+    <template #item.partNumber="{ item }">
+      <NuxtLink :to="`/our-inventory/${item.stockItemId}`" class="text-primary text-decoration-none font-weight-medium">{{ item.partNumber }}</NuxtLink>
+      <span class="text-caption text-medium-emphasis"> · {{ item.condition }}</span>
+    </template>
     <template #item.reference="{ item }">
       <NuxtLink v-if="item.poId" :to="`/purchase-orders/${item.poId}`" class="text-primary text-decoration-none">{{ item.reference }}</NuxtLink>
       <span v-else>{{ item.reference }}</span>
@@ -34,7 +38,16 @@
 
 <script setup lang="ts">
 /** The Our Stock ledger for one lot or one part (`/our-inventory/movements`). Read-only. */
-const props = defineProps<{ stockItemId?: number | string; partNumberId?: number | string; showPart?: boolean }>()
+const props = defineProps<{
+  stockItemId?: number | string
+  partNumberId?: number | string
+  showPart?: boolean
+  /** Log-page filters: movement types, date range and free-text search. */
+  types?: string[]
+  from?: string
+  to?: string
+  search?: string
+}>()
 
 const api = useApi()
 const authStore = useAuthStore()
@@ -74,6 +87,10 @@ async function load(options: { page: number; itemsPerPage: number } = lastOption
     const params = new URLSearchParams({ page: String(options.page), pageSize: String(options.itemsPerPage) })
     if (props.stockItemId) params.set('stockItemId', String(props.stockItemId))
     if (props.partNumberId) params.set('partNumberId', String(props.partNumberId))
+    ;(props.types || []).forEach(t => params.append('type', t))
+    if (props.from) params.set('from', props.from)
+    if (props.to) params.set('to', props.to)
+    if (props.search) params.set('search', props.search)
     const res = await api.get<any>(`/our-inventory/movements?${params}`)
     rows.value = res.items || []
     total.value = res.totalCount || 0
@@ -85,6 +102,6 @@ async function load(options: { page: number; itemsPerPage: number } = lastOption
   }
 }
 
-watch(() => [props.stockItemId, props.partNumberId], () => load({ ...lastOptions, page: 1 }))
+watch(() => [props.stockItemId, props.partNumberId, props.types, props.from, props.to, props.search], () => load({ ...lastOptions, page: 1 }), { deep: true })
 defineExpose({ reload: () => load() })
 </script>

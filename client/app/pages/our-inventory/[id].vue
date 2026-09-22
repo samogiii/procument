@@ -3,6 +3,11 @@
     <PageHeader :title="item ? `${item.partNumber} · ${item.condition}` : 'Stock item'" back-to="/our-inventory">
       <template #actions>
         <v-chip v-if="item?.isLowStock" color="warning" variant="tonal" size="small" prepend-icon="mdi-alert-outline">Below minimum</v-chip>
+        <template v-if="item && authStore.isAdmin">
+          <v-btn variant="tonal" size="small" prepend-icon="mdi-plus-minus-variant" color="purple" @click="action = 'adjust'">Adjust</v-btn>
+          <v-btn variant="tonal" size="small" prepend-icon="mdi-swap-horizontal" color="info" @click="action = 'transfer'">Move</v-btn>
+          <v-btn variant="tonal" size="small" prepend-icon="mdi-pencil" @click="action = 'edit'">Edit</v-btn>
+        </template>
         <v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-cart-arrow-down" to="/our-inventory/purchase-orders/new">Order more</v-btn>
       </template>
     </PageHeader>
@@ -51,13 +56,23 @@
             </v-card-title>
             <v-card-text>
               <v-table v-if="detail.reservations.length" density="compact">
-                <thead><tr><th>Qty</th><th>For</th><th>By</th><th>Since</th></tr></thead>
+                <thead><tr><th>Qty</th><th>For</th><th>By</th><th>Since</th><th v-if="authStore.isAdmin" /></tr></thead>
                 <tbody>
                   <tr v-for="r in detail.reservations" :key="r.id">
                     <td class="font-weight-medium">{{ fmtQty(r.qty) }}</td>
-                    <td>{{ r.invoiceItemId ? `Sales order line ${r.invoiceItemId}` : r.quoteItemId ? `Quote line ${r.quoteItemId}` : '—' }}</td>
+                    <td>
+                      <NuxtLink v-if="r.invoiceId" :to="`/invoices/${r.invoiceId}`" class="text-primary text-decoration-none">{{ r.invoiceNumber || `Sales order ${r.invoiceId}` }}</NuxtLink>
+                      <span v-else>{{ r.invoiceItemId ? `Sales order line ${r.invoiceItemId}` : '—' }}</span>
+                      <div v-if="r.customerName" class="text-caption text-medium-emphasis">{{ r.customerName }}</div>
+                    </td>
                     <td>{{ r.createdByName }}</td>
                     <td>{{ new Date(r.createdAt).toLocaleDateString() }}</td>
+                    <td v-if="authStore.isAdmin" class="text-no-wrap">
+                      <v-btn size="x-small" variant="tonal" color="success" prepend-icon="mdi-truck-delivery" :loading="busyReservation === r.id"
+                        title="Ship to the customer: takes the stock out at its average cost" @click="issueReservation(r)">Issue</v-btn>
+                      <v-btn size="x-small" variant="text" color="warning" class="ml-1" :disabled="busyReservation === r.id"
+                        title="Give the stock back to available without shipping it" @click="releaseReservation(r)">Release</v-btn>
+                    </td>
                   </tr>
                 </tbody>
               </v-table>
@@ -109,16 +124,49 @@
           Movements
         </v-card-title>
         <v-card-text>
-          <StockMovementsTable :stock-item-id="route.params.id as string" />
+          <StockMovementsTable ref="movementsTable" :stock-item-id="route.params.id as string" />
         </v-card-text>
       </v-card>
     </template>
+
+    <StockLotActionDialog v-model:mode="action" :lot="item" @done="onActionDone" />
+    <v-snackbar v-model="snackbar" color="success" :timeout="3000" location="bottom end">{{ snackbarText }}</v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 const api = useApi()
 const route = useRoute()
+const authStore = useAuthStore()
+
+const action = ref<'adjust' | 'transfer' | 'edit' | null>(null)
+const movementsTable = ref<{ reload: () => void } | null>(null)
+const snackbar = ref(false)
+const snackbarText = ref('')
+const busyReservation = ref<number | null>(null)
+async function reservationAction(r: any, kind: 'issue' | 'release') {
+  const verb = kind === 'issue' ? `Issue ${fmtQty(r.qty)} to ${r.invoiceNumber || 'the customer'}?` : `Release ${fmtQty(r.qty)} back to available?`
+  if (!confirm(verb)) return
+  busyReservation.value = r.id
+  try {
+    await api.post(`/our-inventory/reservations/${r.id}/${kind}`, kind === 'issue' ? {} : undefined)
+    await onActionDone(kind === 'issue' ? `Issued ${fmtQty(r.qty)}` : `Released ${fmtQty(r.qty)}`)
+  } catch (e: any) {
+    snackbarText.value = e?.data?.message || 'The change was not saved.'
+    snackbar.value = true
+  } finally {
+    busyReservation.value = null
+  }
+}
+const issueReservation = (r: any) => reservationAction(r, 'issue')
+const releaseReservation = (r: any) => reservationAction(r, 'release')
+
+async function onActionDone(message: string) {
+  snackbarText.value = message
+  snackbar.value = true
+  await load()
+  movementsTable.value?.reload()
+}
 
 const detail = ref<{ item: any; reservations: any[]; incoming: any[]; serials: any[] }>({ item: null, reservations: [], incoming: [], serials: [] })
 const loading = ref(false)

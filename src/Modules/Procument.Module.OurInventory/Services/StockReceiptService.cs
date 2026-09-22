@@ -34,8 +34,13 @@ public sealed class StockReceiptService(DbContext db, IStockLedgerService ledger
             .Where(t => t.Id == trackNumberId)
             .Select(t => new { t.Id, t.TrackNumber, t.WarehouseId, t.Origin })
             .FirstOrDefaultAsync(cancellationToken);
-        // Transfer legs move stock that is already in the ledger; they are booked by the transfer itself.
-        if (track is null || track.Origin == "Transfer") return;
+        if (track is null) return;
+        // A transfer leg moves stock that is already in the ledger from one warehouse to another.
+        if (track.Origin == "Transfer")
+        {
+            await ReconcileTransferLegAsync(trackNumberId, userId, cancellationToken);
+            return;
+        }
 
         var items = await db.Set<TrackNumberItem>().AsNoTracking()
             .Where(i => i.TrackNumberId == trackNumberId && i.POItem.PurchaseOrder!.Origin == StockOrigin)
@@ -87,6 +92,71 @@ public sealed class StockReceiptService(DbContext db, IStockLedgerService ledger
 
             await db.SaveChangesAsync(cancellationToken);
             foreach (var poId in touchedPoIds) await UpdatePoReceiptStatusAsync(poId, cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Destination leg of a <see cref="WarehouseTransfer"/>: once its items are accepted, the accepted quantity moves
+    /// from the lot at the transfer's source warehouse to the same lot key at the destination. Like receipts, it
+    /// reconciles — a recount or rejection moves the difference back — so repeated calls never double-move.
+    /// Stock stays at the source (and sellable) while in transit.
+    /// </summary>
+    private async Task ReconcileTransferLegAsync(long trackNumberId, long userId, CancellationToken cancellationToken)
+    {
+        var leg = await db.Set<POItemTrackNumber>().AsNoTracking()
+            .Where(t => t.Id == trackNumberId && t.SourceTransferId != null && t.WarehouseId != null)
+            .Select(t => new
+            {
+                t.TrackNumber, DestinationWarehouseId = t.WarehouseId!.Value, TransferId = t.SourceTransferId!.Value,
+                SourceWarehouseId = t.SourceTransfer!.FromWarehouseId, t.SourceTransfer.TransferNumber,
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (leg is null || leg.SourceWarehouseId == leg.DestinationWarehouseId) return;
+
+        var items = await db.Set<TrackNumberItem>().AsNoTracking()
+            .Where(i => i.TrackNumberId == trackNumberId && i.POItem.PurchaseOrder!.Origin == StockOrigin && i.POItem.StockItemId != null)
+            .Select(i => new { i.POItemId, i.Status, i.ActualQty, i.ExpectedQty, ReceiptLotId = i.POItem.StockItemId!.Value, i.POItem.POId })
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0) return;
+
+        await ledger.ExecuteAsync(async () =>
+        {
+            foreach (var item in items)
+            {
+                var target = item.Status == "Accepted" ? Math.Max(0, item.ActualQty ?? item.ExpectedQty) : 0;
+                // Net quantity this leg has already put into the destination warehouse.
+                var moved = await db.Set<OurStockMovement>().AsNoTracking()
+                    .Where(m => m.TrackNumberId == trackNumberId && m.POItemId == item.POItemId
+                        && m.StockItem.WarehouseId == leg.DestinationWarehouseId
+                        && (m.Type == OurStockMovementTypes.TransferIn || m.Type == OurStockMovementTypes.TransferOut))
+                    .SumAsync(m => (decimal?)m.Qty, cancellationToken) ?? 0;
+                var delta = target - moved;
+                if (delta == 0) continue;
+
+                var receiptLot = await db.Set<OurStockItem>().AsNoTracking().FirstAsync(l => l.Id == item.ReceiptLotId, cancellationToken);
+                var (fromWarehouse, toWarehouse) = delta > 0
+                    ? (leg.SourceWarehouseId, leg.DestinationWarehouseId)
+                    : (leg.DestinationWarehouseId, leg.SourceWarehouseId);
+                var fromLot = await db.Set<OurStockItem>().AsNoTracking()
+                    .Where(l => l.PartNumberId == receiptLot.PartNumberId && l.Condition == receiptLot.Condition
+                        && l.CompanyPresetId == receiptLot.CompanyPresetId && l.WarehouseId == fromWarehouse
+                        && (l.CertName == receiptLot.CertName || (l.CertName == null && receiptLot.CertName == null)))
+                    .Select(l => (long?)l.Id).FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new InvalidOperationException(
+                        $"Transfer {leg.TransferNumber}: the stock for this part is not recorded at the sending warehouse, so it cannot be moved.");
+
+                await ledger.TransferAsync(fromLot, toWarehouse, Math.Abs(delta), new StockMovementContext
+                {
+                    UserId = userId,
+                    Reference = $"{leg.TransferNumber} / {leg.TrackNumber}",
+                    Reason = delta > 0 ? "Warehouse transfer received" : "Warehouse transfer correction",
+                    POId = item.POId,
+                    POItemId = item.POItemId,
+                    TrackNumberId = trackNumberId,
+                    WarehouseTransferId = leg.TransferId,
+                }, cancellationToken);
+            }
             return true;
         }, cancellationToken);
     }

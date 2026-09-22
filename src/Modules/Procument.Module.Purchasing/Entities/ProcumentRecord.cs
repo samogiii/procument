@@ -37,6 +37,8 @@ public class ProcumentRecord : BaseEntity
     public string Type { get; set; } = "Procument";
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
+    /// <summary>Set when this supplier-quote row offers a lot from Our Stock (supplier = the Our Stock catalog supplier).</summary>
+    public long? SourceStockItemId { get; set; }
 
     // Foreign keys
     public long RFQItemId { get; set; }

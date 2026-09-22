@@ -35,7 +35,9 @@ public class TotalPNService : ITotalPNService
 {
     private readonly DbContext _db;
 
-    public TotalPNService(DbContext db) { _db = db; }
+    private readonly IStockReservationService _stock;
+
+    public TotalPNService(DbContext db, IStockReservationService stock) { _db = db; _stock = stock; }
 
     /// <summary>
     /// Selling price of one invoice line in USD, as (unit, total). InvoiceItem is the
@@ -439,6 +441,21 @@ public class TotalPNService : ITotalPNService
 
         // Final safety filter: strip any rows whose effective part number is still null/empty/"-"
         rows = rows.Where(r => !string.IsNullOrWhiteSpace(r.PartNumber) && r.PartNumber != "-").ToList();
+
+        // Lines served from Our Stock have no POItem: cost comes from the stock issue, status from the reservation.
+        var stockLineIds = pageItems.Where(x => x.pi != null && x.pi.FromStock && x.poi == null).Select(x => x.pi!.Id).ToHashSet();
+        foreach (var row in rows.Where(r => r.ProcurementItemId.HasValue && stockLineIds.Contains(r.ProcurementItemId.Value)))
+        {
+            var stock = await _stock.GetLineStatusAsync(row.InvoiceItemId);
+            if (stock.IssueCost is decimal cost)
+            {
+                row.PurchasingUnitPriceUsd = cost;
+                row.PurchasingTotalPriceUsd = cost * row.Qty;
+            }
+            row.ShippingStatus = stock.Issued > 0
+                ? $"Issued {stock.Issued:0.##} from Our Stock"
+                : $"Reserved {stock.Reserved:0.##} in Our Stock";
+        }
 
         return new PagedResult<TotalPNRowResponse>
         {

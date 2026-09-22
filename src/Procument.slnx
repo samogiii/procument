@@ -11,4 +11,5 @@
   <Project Path="Procument.API/Procument.API.csproj" />
   <Project Path="Procument.Data/Procument.Data.csproj" />
   <Project Path="Procument.Shared/Procument.Shared.csproj" />
+  <Project Path="Procument.OurInventory.Tests/Procument.OurInventory.Tests.csproj" />
 </Solution>

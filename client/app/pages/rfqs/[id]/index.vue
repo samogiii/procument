@@ -714,6 +714,26 @@
                             <v-icon icon="mdi-database-search-outline" size="14" color="primary" class="mr-1" />
                             In stock:
                           </span>
+                          <!-- Our own stock (purple) and incoming Stock PO lines (purple outline) -->
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].ourStockRecords || []"
+                            :key="'our-' + rec.stockItemId"
+                            size="small"
+                            class="avail-chip avail-chip--ourstock cursor-pointer"
+                            prepend-icon="mdi-warehouse"
+                            :title="`${rec.label} · ${rec.qty} available${rec.condition ? ' · ' + rec.condition : ''}${rec.certName ? ' · ' + rec.certName : ''}${rec.price != null ? ' · cost $' + rec.price : ''}`"
+                            @click="applyAvailability(item, rec)"
+                          >{{ rec.label }} · {{ rec.qty }}</v-chip>
+                          <v-chip
+                            v-for="rec in partAvailability[item.partNumberId].incomingStockRecords || []"
+                            :key="'inc-' + rec.label"
+                            size="small"
+                            variant="outlined"
+                            class="avail-chip avail-chip--incoming cursor-pointer"
+                            prepend-icon="mdi-truck-delivery-outline"
+                            :title="`${rec.label} · ${rec.qty} on order${rec.leadTime ? ' · expected ' + rec.leadTime : ''}`"
+                            @click="applyAvailability(item, rec, true)"
+                          >{{ rec.label }} · {{ rec.qty }}</v-chip>
                           <v-chip
                             v-for="rec in partAvailability[item.partNumberId].inventoryRecords"
                             :key="'inv-' + rec.label"
@@ -2269,11 +2289,14 @@ function applyAvailability(item: any, rec: any, skipPrice = false) {
   // Expand the row so the user sees the new entry
   if (!expandedRows.value.has(item.id)) expandedRows.value.add(item.id)
 
+  // Our Stock records carry the catalog supplier name and the lot to reserve when the Sales Order is accepted.
+  const fromStock = rec.stockItemId != null || rec.isIncoming
   supplierQuotes.value.push({
     id: null,
     rfqItemId: item.id,
-    supplierName: rec.label || '',
-    qty: rec.qty || item.qty || 1,
+    supplierName: fromStock ? (rec.supplierName || 'OUR STOCK') : (rec.label || ''),
+    sourceStockItemId: rec.stockItemId ?? null,
+    qty: fromStock && item.qty ? Math.min(item.qty, rec.qty || item.qty) : (rec.qty || item.qty || 1),
     price: skipPrice ? 0 : (rec.price || 0),
     condition: rec.condition || item.condition || 'NE',
     alt: rec.altPartNumber || '',
@@ -2664,6 +2687,7 @@ async function saveAll() {
         myNotes: q.myNotes || null,
         isCertificated: q.isCertificated || false,
         type: q.type || 'Procument',
+        sourceStockItemId: q.sourceStockItemId ?? null,
       })
     }
 
@@ -3352,6 +3376,16 @@ function showSnack(text: string, color: string) {
   background: rgba(34, 197, 94, 0.12) !important;
   color: #22c55e !important;
   border: 1px solid rgba(34, 197, 94, 0.35) !important;
+}
+.avail-chip--ourstock {
+  background: rgba(147, 51, 234, 0.16) !important;
+  color: #c084fc !important;
+  border: 1px solid rgba(147, 51, 234, 0.45) !important;
+  font-weight: 600;
+}
+.avail-chip--incoming {
+  color: #c084fc !important;
+  border: 1px dashed rgba(147, 51, 234, 0.55) !important;
 }
 .avail-chip--caplist {
   background: rgba(59, 130, 246, 0.12) !important;

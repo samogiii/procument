@@ -60,17 +60,20 @@ public sealed class StockQueryService(DbContext db) : IStockQueryService
         var item = await Project(db.Set<OurStockItem>().AsNoTracking().Where(i => i.Id == id), includeCost).FirstOrDefaultAsync();
         if (item is null) return null;
 
+        var reservations = await db.Set<OurStockReservation>().AsNoTracking()
+            .Where(r => r.StockItemId == id && r.Status == OurStockReservationStatuses.Active)
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => new StockReservationResponse
+            {
+                Id = r.Id, Qty = r.Qty, Status = r.Status, InvoiceItemId = r.InvoiceItemId, QuoteItemId = r.QuoteItemId,
+                RFQItemId = r.RFQItemId, ExpiresAt = r.ExpiresAt, CreatedByName = r.CreatedByUser.Name, CreatedAt = r.CreatedAt,
+            }).ToListAsync();
+        await AttachSalesOrdersAsync(reservations);
+
         return new StockItemDetailResponse
         {
             Item = item,
-            Reservations = await db.Set<OurStockReservation>().AsNoTracking()
-                .Where(r => r.StockItemId == id && r.Status == OurStockReservationStatuses.Active)
-                .OrderBy(r => r.CreatedAt)
-                .Select(r => new StockReservationResponse
-                {
-                    Id = r.Id, Qty = r.Qty, Status = r.Status, InvoiceItemId = r.InvoiceItemId, QuoteItemId = r.QuoteItemId,
-                    RFQItemId = r.RFQItemId, ExpiresAt = r.ExpiresAt, CreatedByName = r.CreatedByUser.Name, CreatedAt = r.CreatedAt,
-                }).ToListAsync(),
+            Reservations = reservations,
             Incoming = await GetIncomingAsync(partNumberId: item.PartNumberId),
             Serials = await db.Set<OurStockSerial>().AsNoTracking()
                 .Where(s => s.StockItemId == id && s.Status != OurStockSerialStatuses.Issued)
@@ -270,6 +273,33 @@ public sealed class StockQueryService(DbContext db) : IStockQueryService
         };
     }
 
+    /// <summary>Sales Orders live in the Sales module (not referenced here), so their numbers are read with SQL.</summary>
+    private async Task AttachSalesOrdersAsync(List<StockReservationResponse> reservations)
+    {
+        var ids = reservations.Where(r => r.InvoiceItemId.HasValue).Select(r => r.InvoiceItemId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return;
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        var names = new List<string>();
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var p = command.CreateParameter(); p.ParameterName = $"@i{i}"; p.Value = ids[i]; command.Parameters.Add(p);
+            names.Add(p.ParameterName);
+        }
+        command.CommandText = $@"SELECT ii.Id, inv.Id, inv.InvoiceNumber, c.Name FROM ProformaInvoiceItems ii
+            INNER JOIN ProformaInvoices inv ON inv.Id = ii.InvoiceId
+            LEFT JOIN Customers c ON c.Id = inv.CustomerId
+            WHERE ii.Id IN ({string.Join(",", names)})";
+        var map = new Dictionary<long, (long, string?, string?)>();
+        await using (var reader = await command.ExecuteReaderAsync())
+            while (await reader.ReadAsync())
+                map[reader.GetInt64(0)] = (reader.GetInt64(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3));
+        foreach (var r in reservations)
+            if (r.InvoiceItemId.HasValue && map.TryGetValue(r.InvoiceItemId.Value, out var so))
+                (r.InvoiceId, r.InvoiceNumber, r.CustomerName) = so;
+    }
+
     private static IQueryable<OurStockItem> ApplyFilters(IQueryable<OurStockItem> query, StockItemQuery filter, string? exclude = null)
     {
         if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -280,6 +310,7 @@ public sealed class StockQueryService(DbContext db) : IStockQueryService
                 || (i.BinLocation != null && i.BinLocation.Contains(term))
                 || (i.CertName != null && i.CertName.Contains(term)));
         }
+        if (filter.PartNumberId.HasValue) query = query.Where(i => i.PartNumberId == filter.PartNumberId.Value);
         if (exclude != "warehouse" && filter.WarehouseIds?.Count > 0) query = query.Where(i => filter.WarehouseIds.Contains(i.WarehouseId));
         if (exclude != "preset" && filter.CompanyPresetIds?.Count > 0) query = query.Where(i => filter.CompanyPresetIds.Contains(i.CompanyPresetId));
         if (exclude != "condition" && filter.Conditions?.Count > 0) query = query.Where(i => filter.Conditions.Contains(i.Condition));
