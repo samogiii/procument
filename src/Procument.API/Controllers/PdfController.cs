@@ -19,11 +19,13 @@ public class PdfController : ControllerBase
 {
     private readonly DbContext _db;
     private readonly IDocumentStorageService _storage;
+    private readonly ILogger<PdfController> _logger;
 
-    public PdfController(DbContext db, IDocumentStorageService storage)
+    public PdfController(DbContext db, IDocumentStorageService storage, ILogger<PdfController> logger)
     {
         _db = db;
         _storage = storage;
+        _logger = logger;
     }
 
     // ─── Proforma Invoice ───────────────────────────────
@@ -132,7 +134,11 @@ public class PdfController : ControllerBase
                 }
             }
         }
-        catch { /* storage is best-effort — never block the download */ }
+        catch (Exception ex)
+        {
+            // Storage/status sync is best-effort — never block the download, but record why it failed.
+            _logger.LogWarning(ex, "PO PDF auto-save/status update failed for {PoNumber}", req.PoNumber);
+        }
 
         return File(pdf, "application/pdf", fileName);
     }
@@ -361,9 +367,9 @@ public class PdfController : ControllerBase
             // Header row
             outer.Item().Row(hr =>
             {
-                string[] headers = ["#", "Ref", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total"];
-                float[] widths = [22, 30, 0, 0, 30, 30, 55, 60, 65];
-                float[] rels = [0, 0, 3, 2.5f, 0, 0, 0, 0, 0];
+                string[] headers = ["#", "Ref", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total", "Cert Reference"];
+                float[] widths = [22, 30, 0, 0, 30, 30, 55, 60, 65, 68];
+                float[] rels = [0, 0, 3, 2.5f, 0, 0, 0, 0, 0, 0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -423,6 +429,7 @@ public class PdfController : ControllerBase
                         Cell(r.ConstantItem(55), it.LeadTime ?? "—", Colors.Grey.Darken1);
                         Cell(r.ConstantItem(60), $"{sym}{FormatPrice(it.UnitPrice * (req.ExchangeRate ?? 1))}", primary);
                         Cell(r.ConstantItem(65), $"{sym}{FormatPrice(it.TotalPrice * (req.ExchangeRate ?? 1))}", primary, bold: true);
+                        Cell(r.ConstantItem(68), FormatCertReferences(it.CertReferences), Colors.Grey.Darken1);
                     });
 
                     // Detail sub-row: Cert, Tag Date, Note
@@ -508,6 +515,13 @@ public class PdfController : ControllerBase
     }
 
     private static string FormatPrice(decimal value) => value.ToString("#,##0.00");
+    private static string FormatCertReferences(IEnumerable<string>? references)
+    {
+        var value = references == null
+            ? string.Empty
+            : string.Join(", ", references.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => $"REF#{r}"));
+        return string.IsNullOrEmpty(value) ? "—" : value;
+    }
 }
 
 // ───────────────────── REQUEST DTOs ─────────────────────
@@ -572,6 +586,7 @@ public class QuotePdfItem
     public decimal UnitPrice { get; set; }
     public decimal TotalPrice { get; set; }
     public string? CertName { get; set; }
+    public List<string> CertReferences { get; set; } = new();
     public string? TagDate { get; set; }
     public string? Note { get; set; }
 }

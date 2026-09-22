@@ -367,12 +367,19 @@
                       </td>
                       <td><input type="text" v-model="sq.alt" class="quote-input" :readonly="isPurchaseItemsReadOnly || sq.hasActivePOItem" @blur="saveSupplierQuote(item, sq)" /></td>
                       <td>
-                        <select v-model="sq.condition" class="quote-input" :disabled="isPurchaseItemsReadOnly || sq.hasActivePOItem" @change="saveSupplierQuote(item, sq)">
-                          <option value="NE">NE</option>
-                          <option value="OH">OH</option>
-                          <option value="SV">SV</option>
-                          <option value="AR">AR</option>
-                          <option value="RP">RP</option>
+                        <select
+                          v-model="sq.condition"
+                          class="quote-input condition-select"
+                          :style="conditionSelectStyle(sq.condition)"
+                          :disabled="isPurchaseItemsReadOnly || sq.hasActivePOItem"
+                          @change="saveSupplierQuote(item, sq)"
+                        >
+                          <option
+                            v-for="condition in conditionOptions"
+                            :key="condition"
+                            :value="condition"
+                            :style="{ color: conditionTextColor(condition), fontWeight: '700' }"
+                          >{{ condition }}</option>
                         </select>
                       </td>
                       <!-- Qty is always the Invoice accepted qty — read-only so all suppliers are compared on equal footing -->
@@ -598,6 +605,29 @@ const isInvoicePurchaseEditable = computed(() =>
 const isPurchaseItemsReadOnly = computed(() =>
   isFinalizedOrCancelled.value || !isInvoicePurchaseEditable.value
 )
+
+const conditionOptions = ['NE', 'OH', 'SV', 'AR', 'RP', 'FN', 'NS', 'IN']
+const conditionColors: Record<string, { text: string; background: string; border: string }> = {
+  NE: { text: '#22c55e', background: 'rgba(34, 197, 94, 0.14)', border: 'rgba(34, 197, 94, 0.45)' },
+  OH: { text: '#38bdf8', background: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.45)' },
+  SV: { text: '#f59e0b', background: 'rgba(245, 158, 11, 0.14)', border: 'rgba(245, 158, 11, 0.45)' },
+  AR: { text: '#f87171', background: 'rgba(248, 113, 113, 0.14)', border: 'rgba(248, 113, 113, 0.45)' },
+  RP: { text: '#c084fc', background: 'rgba(192, 132, 252, 0.14)', border: 'rgba(192, 132, 252, 0.45)' },
+  FN: { text: '#818cf8', background: 'rgba(129, 140, 248, 0.14)', border: 'rgba(129, 140, 248, 0.45)' },
+  NS: { text: '#94a3b8', background: 'rgba(148, 163, 184, 0.14)', border: 'rgba(148, 163, 184, 0.45)' },
+  IN: { text: '#22d3ee', background: 'rgba(34, 211, 238, 0.14)', border: 'rgba(34, 211, 238, 0.45)' },
+}
+
+function conditionTextColor(condition: string) {
+  return conditionColors[condition]?.text || 'inherit'
+}
+
+function conditionSelectStyle(condition: string) {
+  const colors = conditionColors[condition]
+  return colors
+    ? { color: colors.text, backgroundColor: colors.background, borderColor: colors.border, fontWeight: '700' }
+    : {}
+}
 
 function showSnack(text: string, color = 'success') {
   snackbarText.value = text
@@ -1010,6 +1040,7 @@ onMounted(loadDetail)
   outline: none;
 }
 .quote-input:focus { background: rgba(var(--v-theme-primary), 0.05); }
+.condition-select { border: 1px solid; border-radius: 4px; cursor: pointer; }
 .bg-success-light { background-color: rgba(74, 222, 128, 0.1) !important; }
 .opacity-60 { opacity: 0.6; }
 </style>

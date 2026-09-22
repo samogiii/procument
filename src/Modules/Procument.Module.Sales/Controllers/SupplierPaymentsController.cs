@@ -12,7 +12,7 @@ using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
 
-public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long WalletId, decimal Amount, decimal? ExchangeRate);
+public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long WalletId, decimal Amount, decimal? ExchangeRate, decimal? WireFee);
 public record FinalizeSupplierPaymentRequest(decimal FinalWalletAmount);
 
 [ApiController]
@@ -64,6 +64,7 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 WalletCurrency = wallet.Currency,
                 Amount = pr.PendingPaymentAmount!.Value,
                 ExchangeRate = pr.PendingExchangeRate,
+                WireFee = pr.PO!.ImportDetail != null ? pr.PO.ImportDetail.Wirefee ?? 0 : 0,
                 UploadId = pr.PendingUploadId!.Value,
                 pr.Status,
             }).FirstOrDefaultAsync();
@@ -74,7 +75,8 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             .Select(t => new { t.Id, t.PopFileName, t.CreatedAt, InitialWalletAmount = t.Amount * (t.ExchangeRate ?? 1m) })
             .FirstOrDefaultAsync();
         return Ok(new { draft.PaymentRequestId, draft.PrNumber, draft.WalletId, draft.WalletName,
-            draft.WalletCurrency, draft.Amount, draft.ExchangeRate, draft.UploadId, draft.Status, Pop = pop });
+            draft.WalletCurrency, draft.Amount, draft.ExchangeRate, draft.WireFee,
+            draft.UploadId, draft.Status, Pop = pop });
     }
 
     [HttpPost("po/{poId:long}/draft")]
@@ -82,6 +84,8 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
     {
         if (request.Amount <= 0 || decimal.Round(request.Amount, 2) != request.Amount)
             return BadRequest(new { message = "Enter a positive USD amount with at most two decimal places." });
+        if (request.WireFee is < 0 || (request.WireFee.HasValue && decimal.Round(request.WireFee.Value, 2) != request.WireFee.Value))
+            return BadRequest(new { message = "Enter a non-negative wire fee with at most two decimal places." });
 
         return await db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
         {
@@ -103,11 +107,33 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             if (rate is null or <= 0 || decimal.Round(rate.Value, 6) != rate.Value)
                 return BadRequest(new { message = "Enter the wallet currency amount per 1 USD (up to six decimal places)." });
 
+            var oldWireFee = po.ImportDetail?.Wirefee ?? 0;
+            var newWireFee = request.WireFee ?? oldWireFee;
+            var wireFeeDelta = newWireFee - oldWireFee;
+            if (wireFeeDelta != 0)
+            {
+                if (po.ImportDetail == null)
+                {
+                    po.ImportDetail = new POImportDetail { PurchaseOrderId = po.Id, Wirefee = newWireFee };
+                    db.Set<POImportDetail>().Add(po.ImportDetail);
+                }
+                else
+                {
+                    po.ImportDetail.Wirefee = newWireFee;
+                }
+                pr.Amount = (pr.Amount ?? SupplierPaymentAmounts.Total(po) - wireFeeDelta) + wireFeeDelta;
+            }
+
             var poTotal = SupplierPaymentAmounts.Total(po);
             var payments = db.Set<PaymentTransaction>().Where(t => t.PaymentRequest!.POId == poId
                 && t.Type == "Withdraw" && t.ToType == "Supplier");
             var poPaid = await payments.SumAsync(t => t.Amount);
             var prPaid = await payments.Where(t => t.PaymentRequestId == request.PaymentRequestId).SumAsync(t => t.Amount);
+            var otherAllocated = await db.Set<PaymentRequest>()
+                .Where(p => p.POId == poId && p.Id != pr.Id)
+                .SumAsync(p => p.Amount ?? 0);
+            if ((pr.Amount ?? poTotal) < prPaid || (pr.Amount ?? poTotal) > poTotal - otherAllocated)
+                return BadRequest(new { message = "The wire fee would make the payment request exceed the PO balance or fall below its paid amount." });
             if (request.Amount > (pr.Amount ?? poTotal) - prPaid || request.Amount > poTotal - poPaid)
                 return BadRequest(new { message = "The payment exceeds the remaining PR or PO balance. Refresh and check the amount." });
 
@@ -121,7 +147,8 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
 
             return Ok(new { paymentRequestId = pr.Id, prNumber = pr.PRId, walletId = wallet.Id,
                 walletName = wallet.Name, walletCurrency = wallet.Currency, amount = request.Amount,
-                exchangeRate = rate, uploadId = pr.PendingUploadId, status = pr.Status });
+                exchangeRate = rate, wireFee = newWireFee, poTotalAmount = poTotal,
+                paymentRequestAmount = pr.Amount, uploadId = pr.PendingUploadId, status = pr.Status });
         });
     }
 
@@ -145,7 +172,7 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
     }
 
     [HttpPost("po/{poId:long}/pop")]
-    [RequestSizeLimit(100_000_000)]
+    [RequestSizeLimit(104_857_600)]
     public async Task<IActionResult> Upload(long poId, [FromForm] IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -154,7 +181,10 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
         return await db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
         {
             db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+            // Do not hold broad Serializable locks while an IIS upload is processed.
+            // The POP upload id provides idempotency, while ReadCommitted avoids production
+            // requests waiting behind unrelated payment reads/writes.
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
             var po = await db.Set<PurchaseOrder>().Include(p => p.Supplier).Include(p => p.ImportDetail).FirstOrDefaultAsync(p => p.Id == poId);
             if (po == null) return NotFound();
             var pr = await db.Set<PaymentRequest>()

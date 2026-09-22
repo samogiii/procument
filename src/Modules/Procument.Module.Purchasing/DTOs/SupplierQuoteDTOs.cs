@@ -68,6 +68,7 @@ public class SupplierQuoteResponse
     public long? ParentProcumentId { get; set; }
     public int SortOrder { get; set; }
     public int CertificateCount { get; set; }
+    public List<string> CertReferences { get; set; } = new();
     public List<SupplierQuoteResponse> ShopRecords { get; set; } = new();
 }
 
@@ -82,6 +83,8 @@ public class SupplierQuoteCertificateResponse
     public long SupplierQuoteId { get; set; }
     public string? PartNumberName { get; set; }
     public string? SupplierName { get; set; }
+    public string? Alt { get; set; }
+    public string Reference { get; set; } = string.Empty;
     public string OriginalFileName { get; set; } = string.Empty;
     public string? MimeType { get; set; }
     public long FileSizeBytes { get; set; }

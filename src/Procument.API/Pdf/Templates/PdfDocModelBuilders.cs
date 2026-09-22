@@ -516,7 +516,8 @@ public static class PdfDocModelBuilders
             PdfTableColumn.Fixed("CD", 30),
             PdfTableColumn.Fixed("Lead Time", 55),
             PdfTableColumn.Fixed("Unit Price", 60, PdfCellAlign.Right),
-            PdfTableColumn.Fixed("Total", 65, PdfCellAlign.Right)
+            PdfTableColumn.Fixed("Total", 65, PdfCellAlign.Right),
+            PdfTableColumn.Fixed("Cert Reference", 68, PdfCellAlign.Center)
         ];
 
         for (int i = 0; i < items.Count; i++)
@@ -543,7 +544,8 @@ public static class PdfDocModelBuilders
                     new PdfCell(it.Condition),
                     new PdfCell(it.LeadTime),
                     new PdfCell(Money(sym, it.UnitPrice * rate)),
-                    new PdfCell(Money(sym, it.TotalPrice * rate), bold: true)
+                    new PdfCell(Money(sym, it.TotalPrice * rate), bold: true),
+                    new PdfCell(it.CertReferences == null ? null : string.Join(", ", it.CertReferences.Select(r => $"REF#{r}")))
                 ]
             });
         }

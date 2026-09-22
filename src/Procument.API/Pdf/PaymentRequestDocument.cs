@@ -97,9 +97,22 @@ public static class PaymentRequestDocument
                         });
                     });
 
-                    // ── TOTAL AMOUNT (big, centered) ──────────────────────────────────
-                    col.Item().PaddingTop(40).PaddingBottom(40).AlignCenter().Column(inner =>
+                    // ── PAYMENT BREAKDOWN + TOTAL ─────────────────────────────────────
+                    col.Item().PaddingTop(32).PaddingBottom(32).AlignCenter().Column(inner =>
                     {
+                        var paymentAmount = Math.Max(0, req.GrandTotal - req.WireFee);
+                        inner.Item().Width(280).Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn();
+                                columns.ConstantColumn(110);
+                            });
+                            table.Cell().PaddingVertical(3).Text("PAYMENT AMOUNT").FontSize(10);
+                            table.Cell().PaddingVertical(3).AlignRight().Text($"{sym}{paymentAmount:N2}").FontSize(10);
+                            table.Cell().PaddingVertical(3).Text("WIRE FEE").FontSize(10).Bold();
+                            table.Cell().PaddingVertical(3).AlignRight().Text($"{sym}{req.WireFee:N2}").FontSize(10).Bold();
+                        });
                         inner.Item().AlignCenter().Text("TOTAL AMOUNT").FontSize(13).Bold();
                         inner.Item().PaddingTop(10).AlignCenter()
                             .Text($"{sym}{req.GrandTotal:N2}").FontSize(36).Bold();

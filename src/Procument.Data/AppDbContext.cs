@@ -553,6 +553,7 @@ public class AppDbContext : DbContext
     {
       entity.ToTable("SupplierQuoteCertificates");
       entity.HasKey(e => e.Id);
+      entity.Property(e => e.Reference).HasMaxLength(8).IsRequired();
       entity.Property(e => e.FileName).HasMaxLength(500);
       entity.Property(e => e.OriginalFileName).HasMaxLength(500);
       entity.Property(e => e.MimeType).HasMaxLength(100);
@@ -566,6 +567,7 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.UploadedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
       entity.HasIndex(e => e.SupplierQuoteId);
+      entity.HasIndex(e => e.Reference).IsUnique();
     });
 
     modelBuilder.Entity<PurchaseOrder>(entity =>

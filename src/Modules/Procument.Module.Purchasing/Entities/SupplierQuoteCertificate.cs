@@ -7,6 +7,7 @@ namespace Procument.Module.Purchasing.Entities;
 public class SupplierQuoteCertificate : BaseEntity
 {
     public long SupplierQuoteId { get; set; }
+    public string Reference { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public string OriginalFileName { get; set; } = string.Empty;
     public string? MimeType { get; set; }

@@ -7,8 +7,8 @@ public interface IPaymentRequestService
 {
     Task<PaymentRequestResponse> GetByIdAsync(long id);
     Task<List<PaymentRequestResponse>> GetAllAsync();
-    Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null, decimal? amount = null);
-    Task<PaymentRequestResponse> UpdateAmountAsync(long id, decimal amount);
+    Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null, decimal? amount = null, decimal? wireFee = null);
+    Task<PaymentRequestResponse> UpdateAmountAsync(long id, decimal amount, decimal? wireFee = null);
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> DeleteAsync(long id);
     Task<PaymentRequestResponse?> GetByPoIdAsync(long poId);

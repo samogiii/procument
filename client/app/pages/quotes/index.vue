@@ -160,6 +160,25 @@
       />
     </template>
 
+    <template #header.customerBase="{ column, toggleSort, isSorted, sortBy }">
+      <ColFilterMenu
+        col-key="customerBase"
+        :label="column.title"
+        :options="baseColOptions"
+        :all-options="baseAllOptions"
+        :selected="baseSet"
+        :search="colSearch.base"
+        :loading="cfLoading"
+        :is-sorted="isSorted(column)"
+        :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+        @toggle="(v) => toggleColFilter(baseFilter, v)"
+        @select-all="(vals) => setColFilter(baseFilter, vals)"
+        @clear-all="() => setColFilter(baseFilter, [])"
+        @update:search="(v) => colSearch.base = v"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
     <template #header.status="{ column, toggleSort, isSorted, sortBy }">
       <ColFilterMenu
         col-key="status"
@@ -229,6 +248,10 @@
         {{ item.rfqName || `RFQ #${item.rfqId}` }}
       </nuxt-link>
       <span v-else class="text-medium-emphasis">—</span>
+    </template>
+
+    <template #item.customerBase="{ item }">
+      <span>{{ item.customerBase != null ? `Base ${item.customerBase}` : '—' }}</span>
     </template>
 
     <template #item.customerName="{ item }">
@@ -472,6 +495,7 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes',
   status: [] as string[],
   user: [] as string[],
   customer: [] as string[],
+  base: [] as string[],
   rfq: [] as string[],
   pnSearch: '',
   quoteNumber: [] as string[],
@@ -480,6 +504,7 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes',
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
+const baseFilter = pf.base
 const statusFilter = pf.status
 const rfqFilter = pf.rfq
 const quoteNumberFilter = pf.quoteNumber
@@ -503,11 +528,12 @@ const showRejected = ref(false)
 type QuoteOptions = {
   statuses: string[]
   customers: { title: string; value: string }[]
+  bases: number[]
   users: string[]
   rfqNames: string[]
   quoteNumbers: string[]
 }
-const EMPTY_QUOTE_OPTIONS: QuoteOptions = { statuses: [], customers: [], users: [], rfqNames: [], quoteNumbers: [] }
+const EMPTY_QUOTE_OPTIONS: QuoteOptions = { statuses: [], customers: [], bases: [], users: [], rfqNames: [], quoteNumbers: [] }
 
 const cfOptions = useCascadingOptions<QuoteOptions>(
   async (cascading) => {
@@ -520,6 +546,7 @@ const cfOptions = useCascadingOptions<QuoteOptions>(
       if (createdTo.value) params.set('createdTo', createdTo.value)
       ;(statusFilter.value || []).forEach(s => params.append('status', s))
       ;(customerFilter.value || []).forEach(c => params.append('customerNames', c))
+      ;(baseFilter.value || []).forEach(b => params.append('bases', b))
       ;(userFilter.value || []).forEach(u => params.append('assignedUserNames', u))
       ;(rfqFilter.value || []).forEach(r => params.append('rfqNames', r))
       ;(quoteNumberFilter.value || []).forEach(n => params.append('quoteNumbers', n))
@@ -529,6 +556,7 @@ const cfOptions = useCascadingOptions<QuoteOptions>(
     return {
       statuses: quoteStatusOptions.filter(s => (res.statuses || []).includes(s)),
       customers: (res.customers || []).map((c: any) => ({ title: c.code || '-', value: c.name })),
+      bases: res.bases || [],
       users: res.users || [],
       rfqNames: res.rfqNames || [],
       quoteNumbers: res.quoteNumbers || [],
@@ -540,6 +568,7 @@ const cfLoading = cfOptions.loading
 
 // Available (cascaded) — what each column can still offer.
 const customerColOptions = computed(() => cfOptions.available.value.customers)
+const baseColOptions = computed(() => cfOptions.available.value.bases.map(b => ({ title: `Base ${b}`, value: String(b) })))
 const userColOptions = computed(() => cfOptions.available.value.users)
 const statusColOptions = computed(() => cfOptions.available.value.statuses)
 const rfqColOptions = computed(() => cfOptions.available.value.rfqNames)
@@ -547,6 +576,7 @@ const quoteNumberColOptions = computed(() => cfOptions.available.value.quoteNumb
 
 // Full lists — reachable through ColFilterMenu's "Show all".
 const customerAllOptions = computed(() => cfOptions.all.value.customers)
+const baseAllOptions = computed(() => cfOptions.all.value.bases.map(b => ({ title: `Base ${b}`, value: String(b) })))
 const userAllOptions = computed(() => cfOptions.all.value.users)
 const statusAllOptions = computed(() => quoteStatusOptions)
 const rfqAllOptions = computed(() => cfOptions.all.value.rfqNames)
@@ -559,7 +589,7 @@ const customerOptions = computed(() => customerAllOptions.value)
 onMounted(() => cfOptions.init())
 
 watch(
-  [statusFilter, customerFilter, userFilter, rfqFilter, quoteNumberFilter, pnSearch, showRejected,
+  [statusFilter, customerFilter, baseFilter, userFilter, rfqFilter, quoteNumberFilter, pnSearch, showRejected,
    createdFrom, createdTo, () => pf.search.value],
   () => cfOptions.refreshDebounced(),
   { deep: true },
@@ -570,6 +600,7 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (pnSearch.value) p.pnSearch = pnSearch.value
   if (userFilter.value?.length) p.assignedUserNames = userFilter.value
   if (customerFilter.value?.length) p.customerNames = customerFilter.value
+  if (baseFilter.value?.length) p.bases = baseFilter.value
   if (rfqFilter.value?.length) p.rfqNames = rfqFilter.value
   if (quoteNumberFilter.value?.length) p.quoteNumbers = quoteNumberFilter.value
   if (showRejected.value) p.includeRejected = 'true'
@@ -581,7 +612,7 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
 // ── Excel-style column filters — server-side ──
 // These refs feed directly into extraParams / DataListPage's status param,
 // so toggling a checkbox triggers a real backend fetch with the filter applied.
-const colSearch = reactive<Record<string, string>>({ customer: '', status: '', user: '', rfq: '', quoteNumber: '' })
+const colSearch = reactive<Record<string, string>>({ customer: '', base: '', status: '', user: '', rfq: '', quoteNumber: '' })
 
 /** Toggle a value in a reactive string array (add if absent, remove if present).
  *  Receives the unwrapped array — as Vue auto-unwraps refs in templates. */
@@ -599,6 +630,7 @@ function setColFilter(arr: string[], vals: string[]) {
 // ColFilterMenu takes a Set; the page keeps arrays because they go straight into the query.
 const quoteNumberSet = computed(() => new Set(quoteNumberFilter.value))
 const customerSet = computed(() => new Set(customerFilter.value))
+const baseSet = computed(() => new Set(baseFilter.value))
 const statusSet = computed(() => new Set(statusFilter.value))
 const rfqSet = computed(() => new Set(rfqFilter.value))
 const userSet = computed(() => new Set(userFilter.value))
@@ -607,6 +639,7 @@ const headers = [
   { title: 'Quote #', key: 'quoteNumber' },
   { title: 'RFQ Name', key: 'rfqName' },
   { title: 'Customer', key: 'customerCode' },
+  { title: 'Base', key: 'customerBase', width: '110px' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false },

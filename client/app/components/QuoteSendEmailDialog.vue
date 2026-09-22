@@ -140,7 +140,7 @@
               <div class="flex-grow-1" style="min-width:0;">
                 <div class="text-body-2 text-truncate">{{ certificate.originalFileName }}</div>
                 <div class="text-caption text-medium-emphasis text-truncate">
-                  {{ certificate.partNumberName || 'Part' }} · {{ certificate.supplierName || 'Supplier' }}
+                  REF#{{ certificate.reference }} · {{ certificate.partNumberName || 'Part' }} · {{ certificate.supplierName || 'Supplier' }}
                 </div>
               </div>
               <v-chip size="x-small" variant="tonal">{{ formatSize(certificate.fileSizeBytes) }}</v-chip>
@@ -249,6 +249,7 @@ import { buildQuoteExcelBlob, buildQuoteExcelPreviewHtml, buildQuoteExcelFileNam
 interface SupplierCertificate {
   id: number
   supplierQuoteId: number
+  reference: string
   partNumberName?: string
   supplierName?: string
   originalFileName: string

@@ -44,6 +44,7 @@ export function buildQuotePdfPayload(quote: any, preset: any) {
       unitPrice: Number(it.unitPrice) || 0,
       totalPrice: Number(it.totalPrice) || 0,
       certName: it.certName || null,
+      certReferences: it.certReferences || [],
       tagDate: it.tagDate || null,
       note: it.note || null,
     })),

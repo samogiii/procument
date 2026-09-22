@@ -192,6 +192,7 @@
               <th>File</th>
               <th>Part Number</th>
               <th>Supplier</th>
+              <th>Cert Reference</th>
               <th>Uploaded</th>
               <th class="text-center">Download</th>
             </tr>
@@ -209,6 +210,7 @@
               </td>
               <td class="cell-pn">{{ certificate.partNumberName || '—' }}</td>
               <td>{{ certificate.supplierName || '—' }}</td>
+              <td class="text-caption font-weight-medium">REF#{{ certificate.reference }}</td>
               <td class="text-caption text-medium-emphasis">
                 {{ new Date(certificate.uploadedAt).toLocaleDateString() }}
               </td>
@@ -437,6 +439,7 @@
                             <th style="width: 80px;">Condition</th>
                             <th style="width: 60px;">Qty</th>
                             <th style="width: 80px;">Cert</th>
+                            <th style="width: 150px;">Cert Reference</th>
                             <th style="width: 90px;">Tag Date</th>
                             <th style="width: 110px;">Shipping Point</th>
                             <th style="width: 100px;">Shipping Cost</th>
@@ -500,6 +503,7 @@
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.condition || 'N/A' }}</td>
                             <td class="text-center" style="font-size: 13px;">{{ rec.qty }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.certName || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ formatCertReferences(rec.certReferences) }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.tagDate ? new Date(rec.tagDate).toLocaleDateString() : '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.shippingPoint || '—' }}</td>
                             <td class="mono-cell text-right pr-2">{{ rec.shippingCost ? '$' + formatPrice(rec.shippingCost) : '—' }}</td>
@@ -664,12 +668,17 @@ const showAllItems = ref(false)
 type SupplierCertificate = {
   id: number
   supplierQuoteId: number
+  reference: string
   partNumberName?: string
   supplierName?: string
   originalFileName: string
   fileSizeBytes: number
   uploadedAt: string
   uploadedByName?: string
+}
+
+function formatCertReferences(references?: string[]) {
+  return references?.length ? references.map(reference => `REF#${reference}`).join(', ') : '—'
 }
 
 const supplierCertificates = ref<SupplierCertificate[]>([])

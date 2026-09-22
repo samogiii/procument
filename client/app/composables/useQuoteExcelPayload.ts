@@ -21,7 +21,7 @@ function buildQuoteWorksheetData(quote: any, companyName: string): any[][] {
     ['Quote Number:', quote?.quoteNumber || '—', '', 'Date:', quote?.createdAt ? new Date(quote.createdAt).toLocaleDateString() : '—'],
     ['Customer:', quote?.customerName || '—', '', 'RFQ:', quote?.rfqName || '—'],
     [],
-    ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)'],
+    ['#', 'Ref', 'Part Number', 'Alt Part Number', 'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)', 'Cert Reference'],
   ]
 
   sortedItems.forEach((it: any, idx: number) => {
@@ -35,12 +35,13 @@ function buildQuoteWorksheetData(quote: any, companyName: string): any[][] {
       it.leadTime || '—',
       Number(it.unitPrice || 0),
       Number(it.totalPrice || 0),
+      (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', '),
     ])
   })
 
   data.push([])
-  data.push(['', '', '', '', '', '', '', '', 'Subtotal:', Number(quote?.totalAmount || 0)])
-  data.push(['', '', '', '', '', '', '', '', 'Grand Total:', Number(quote?.totalAmount || 0)])
+  data.push(['', '', '', '', '', '', '', 'Subtotal:', Number(quote?.totalAmount || 0), ''])
+  data.push(['', '', '', '', '', '', '', 'Grand Total:', Number(quote?.totalAmount || 0), ''])
 
   const terms = quote?.customerTermsAndConditions?.trim() || null
   if (terms) {
@@ -64,6 +65,7 @@ function buildQuoteWorkbook(quote: any, preset: any) {
     { wch: 8 },
     { wch: 15 },
     { wch: 14 },
+    { wch: 24 },
     { wch: 14 },
   ]
   const wb = XLSX.utils.book_new()

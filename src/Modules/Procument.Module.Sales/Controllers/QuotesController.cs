@@ -58,10 +58,11 @@ public class QuotesController : ControllerBase
         [FromQuery] List<string>? quoteNumbers = null,
         [FromQuery] bool includeRejected = false,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] List<int>? bases = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected, createdFrom, createdTo);
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected, createdFrom, createdTo, bases);
         return Ok(result);
     }
 
@@ -81,10 +82,11 @@ public class QuotesController : ControllerBase
         [FromQuery] List<string>? quoteNumbers = null,
         [FromQuery] bool includeRejected = false,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] List<int>? bases = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected, createdFrom, createdTo);
+        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected, createdFrom, createdTo, bases);
         return Ok(result);
     }
 

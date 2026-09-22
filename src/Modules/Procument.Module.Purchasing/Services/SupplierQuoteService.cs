@@ -7,6 +7,7 @@ using Procument.Module.RFQ.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.Identity.Entities; // for permissions
 using Procument.Shared.Services;
+using System.Security.Cryptography;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -485,6 +486,8 @@ public class SupplierQuoteService : ISupplierQuoteService
                 SupplierQuoteId = c.SupplierQuoteId,
                 PartNumberName = c.SupplierQuote.RFQItem.PartNumber.Name,
                 SupplierName = c.SupplierQuote.Supplier.Name,
+                Alt = c.SupplierQuote.Alt,
+                Reference = c.Reference,
                 OriginalFileName = c.OriginalFileName,
                 MimeType = c.MimeType,
                 FileSizeBytes = c.FileSizeBytes,
@@ -514,6 +517,8 @@ public class SupplierQuoteService : ISupplierQuoteService
                 SupplierQuoteId = c.SupplierQuoteId,
                 PartNumberName = c.SupplierQuote.RFQItem.PartNumber.Name,
                 SupplierName = c.SupplierQuote.Supplier.Name,
+                Alt = c.SupplierQuote.Alt,
+                Reference = c.Reference,
                 OriginalFileName = c.OriginalFileName,
                 MimeType = c.MimeType,
                 FileSizeBytes = c.FileSizeBytes,
@@ -535,6 +540,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             {
                 q.RFQItemId,
                 PartNumber = q.RFQItem.PartNumber.Name,
+                q.Alt,
             })
             .FirstOrDefaultAsync();
         if (supplierQuote == null) throw new KeyNotFoundException("Supplier quote not found.");
@@ -549,18 +555,22 @@ public class SupplierQuoteService : ISupplierQuoteService
         var existingCertificateCount = await _db.Set<SupplierQuoteCertificate>()
             .CountAsync(c => c.SupplierQuote.RFQItemId == supplierQuote.RFQItemId);
         var safePartNumber = MakeSafeCertificateName(supplierQuote.PartNumber);
+        var altSuffix = string.IsNullOrWhiteSpace(supplierQuote.Alt) ? "" : "-ALT";
+        var pendingReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<SupplierQuoteCertificateResponse>();
         for (var index = 0; index < validFiles.Count; index++)
         {
             var file = validFiles[index];
             var storedName = $"{Guid.NewGuid():N}.pdf";
-            var displayName = $"{safePartNumber}-cert-{existingCertificateCount + index + 1}.pdf";
+            var reference = await GenerateUniqueReferenceAsync(pendingReferences);
+            var displayName = $"REF#{reference}-{safePartNumber}{altSuffix}-cert-{existingCertificateCount + index + 1}.pdf";
             await using (var stream = File.Create(Path.Combine(folder, storedName)))
                 await file.CopyToAsync(stream);
 
             var certificate = new SupplierQuoteCertificate
             {
                 SupplierQuoteId = quoteId,
+                Reference = reference,
                 FileName = storedName,
                 OriginalFileName = displayName,
                 MimeType = "application/pdf",
@@ -573,6 +583,19 @@ public class SupplierQuoteService : ISupplierQuoteService
         }
         await _db.SaveChangesAsync();
         return result;
+    }
+
+    private async Task<string> GenerateUniqueReferenceAsync(HashSet<string> pendingReferences)
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        while (true)
+        {
+            var reference = RandomNumberGenerator.GetString(alphabet, 8);
+            if (!pendingReferences.Add(reference)) continue;
+            if (!await _db.Set<SupplierQuoteCertificate>().AnyAsync(c => c.Reference == reference))
+                return reference;
+            pendingReferences.Remove(reference);
+        }
     }
 
     private static string MakeSafeCertificateName(string? partNumber)
@@ -643,6 +666,8 @@ public class SupplierQuoteService : ISupplierQuoteService
         ParentProcumentId = r.ParentProcumentId,
         SortOrder = r.SortOrder,
         CertificateCount = r.Certificates?.Count ?? 0,
+        CertReferences = (r.Certificates ?? new List<SupplierQuoteCertificate>())
+            .OrderBy(c => c.UploadedAt).Select(c => c.Reference).ToList(),
         ShopRecords = (r.ShopRecords ?? new List<ProcumentRecord>())
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
             .Select(s => MapToResponse(s)).ToList(),
@@ -652,6 +677,7 @@ public class SupplierQuoteService : ISupplierQuoteService
     {
         Id = c.Id,
         SupplierQuoteId = c.SupplierQuoteId,
+        Reference = c.Reference,
         OriginalFileName = c.OriginalFileName,
         MimeType = c.MimeType,
         FileSizeBytes = c.FileSizeBytes,

@@ -181,7 +181,11 @@
             </v-col>
             <v-col cols="6" md="3">
               <div class="text-caption text-medium-emphasis">Total Amount</div>
-              <div class="font-weight-bold text-success">${{ formatPrice(selectedPo.totalAmount) }}</div>
+              <div class="font-weight-bold text-success">${{ formatPrice(dialogMode === 'withdraw' ? selectedTotal : selectedPo.totalAmount) }}</div>
+            </v-col>
+            <v-col v-if="dialogMode === 'withdraw'" cols="6" md="3">
+              <div class="text-caption text-medium-emphasis">Wire Fee</div>
+              <div class="font-weight-medium">${{ formatPrice(pickerWireFee) }}</div>
             </v-col>
             <v-col cols="6" md="3">
               <div class="text-caption text-medium-emphasis">Sales Order</div>
@@ -357,7 +361,9 @@
                     label="Payment Request *" variant="outlined" class="mb-3" />
                   <v-alert v-if="!openRequests.length" type="info" variant="tonal" class="mb-3">Create a payment request on the PO page before saving payment details.</v-alert>
                   <v-text-field v-model.number="pickerAmount" type="number" min="0.01" step="0.01" prefix="$"
-                    label="Amount paid (USD) *" variant="outlined" :hint="`PR remaining: $${formatPrice(pickerRequest?.remainingAmount)}`" persistent-hint class="mb-3" />
+                    label="Amount paid (USD) *" variant="outlined" :hint="`PR remaining: $${formatPrice(pickerRequestRemaining)}`" persistent-hint class="mb-3" />
+                  <v-text-field v-model.number="pickerWireFee" type="number" min="0" step="0.01" prefix="$"
+                    label="Wire Fee (USD)" variant="outlined" hint="Included in the PR and PO payment total" persistent-hint class="mb-3" />
                   <v-select v-model="pickerWalletId" :items="walletBoxes" item-title="label" item-value="id"
                     label="Withdrawn From Wallet *" variant="outlined" prepend-inner-icon="mdi-bank-outline" class="mb-3" />
                   <v-text-field v-if="pickerWallet && pickerWallet.currency !== 'USD'" v-model.number="pickerExchangeRate"
@@ -507,6 +513,7 @@ const pickerWalletId = ref<number | null>(null)
 const pickerRequestId = ref<number | null>(null)
 const pickerAmount = ref(0)
 const pickerExchangeRate = ref<number | null>(null)
+const pickerWireFee = ref(0)
 const paymentDraft = ref<any>(null)
 const savingPaymentDetails = ref(false)
 const savingFinalAmount = ref(false)
@@ -516,14 +523,17 @@ const selectedRequests = computed(() => paymentRequests.value.filter(pr => pr.po
 const openRequests = computed(() => selectedRequests.value.filter(pr => pr.remainingAmount > 0).map(pr => ({ ...pr, label: `PR-${pr.prNumber} · remaining $${formatPrice(pr.remainingAmount)}` })))
 const pickerRequest = computed(() => openRequests.value.find(pr => pr.id === pickerRequestId.value))
 const pickerWallet = computed(() => walletBoxes.value.find(w => w.id === pickerWalletId.value))
-const selectedTotal = computed(() => Number(selectedRequests.value[0]?.poTotalAmount ?? selectedPo.value?.totalAmount ?? 0))
+const storedWireFee = computed(() => Number(selectedRequests.value[0]?.wireFee ?? 0))
+const wireFeeDelta = computed(() => Number(pickerWireFee.value || 0) - storedWireFee.value)
+const selectedTotal = computed(() => Number(selectedRequests.value[0]?.poTotalAmount ?? selectedPo.value?.totalAmount ?? 0) + wireFeeDelta.value)
+const pickerRequestRemaining = computed(() => Math.max(0, Number(pickerRequest.value?.remainingAmount ?? 0) + wireFeeDelta.value))
 const selectedPaid = computed(() => {
   const recorded = selectedRequests.value.reduce((sum, pr) => sum + Number(pr.paidAmount || 0), 0)
   return recorded > 0 || selectedPo.value?.paymentStatus !== 'Submitted' ? recorded : selectedTotal.value
 })
 const selectedRemaining = computed(() => Math.max(0, selectedTotal.value - selectedPaid.value))
 const paymentDetailsValid = computed(() => !!pickerRequest.value && !!pickerWallet.value
-  && pickerAmount.value > 0 && pickerAmount.value <= pickerRequest.value.remainingAmount && pickerAmount.value <= selectedRemaining.value
+  && pickerWireFee.value >= 0 && pickerAmount.value > 0 && pickerAmount.value <= pickerRequestRemaining.value && pickerAmount.value <= selectedRemaining.value
   && (pickerWallet.value.currency === 'USD' || Number(pickerExchangeRate.value) > 0))
 const waitingForFinalAmount = computed(() => selectedPo.value?.paymentStatus === 'WaitingForFinalAmount' || !!paymentDraft.value?.pop)
 const calculatedBankFee = computed(() => finalWalletAmount.value - Number(paymentDraft.value?.pop?.initialWalletAmount || 0))
@@ -534,6 +544,13 @@ watch(pickerRequestId, () => {
 watch(pickerWalletId, () => {
   if (paymentDraft.value?.walletId === pickerWalletId.value) return
   pickerExchangeRate.value = null
+})
+watch(pickerWireFee, (next, previous) => {
+  const delta = Number(next || 0) - Number(previous || 0)
+  if (!delta) return
+  const previousRemaining = pickerRequestRemaining.value - delta
+  if (Math.abs(Number(pickerAmount.value) - previousRemaining) < 0.01)
+    pickerAmount.value = Math.max(0, Number(pickerAmount.value) + delta)
 })
 
 
@@ -630,11 +647,13 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
     pickerWalletId.value = paymentDraft.value.walletId
     pickerExchangeRate.value = paymentDraft.value.exchangeRate
     pickerAmount.value = Number(paymentDraft.value.amount)
+    pickerWireFee.value = Number(paymentDraft.value.wireFee ?? selectedRequests.value[0]?.wireFee ?? 0)
     finalWalletAmount.value = Number(paymentDraft.value.pop?.initialWalletAmount || 0)
   } else {
     pickerRequestId.value = openRequests.value[0]?.id ?? null
     pickerWalletId.value = null
     pickerExchangeRate.value = null
+    pickerWireFee.value = Number(selectedRequests.value[0]?.wireFee ?? 0)
     pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
     finalWalletAmount.value = 0
   }
@@ -705,6 +724,7 @@ async function savePaymentDetails() {
       walletId: pickerWalletId.value,
       amount: pickerAmount.value,
       exchangeRate: pickerWallet.value?.currency === 'USD' ? 1 : pickerExchangeRate.value,
+      wireFee: pickerWireFee.value,
     })
     showSnack('Payment details saved. You can upload the POP now or later.', 'success')
     await loadPaymentRequests()

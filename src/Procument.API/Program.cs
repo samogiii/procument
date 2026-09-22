@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Http.Features;
 using Procument.Data;
 using Procument.Module.Identity;
 using Procument.API.Services;
@@ -15,6 +16,12 @@ using Procument.Shared.Services;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Keep upload limits consistent when hosted by Kestrel directly or in-process behind IIS.
+// IIS also has a native request-filtering limit configured in web.config.
+const long maxUploadBytes = 104_857_600; // 100 MiB
+builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxUploadBytes);
+builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = maxUploadBytes);
 
 // ─── Database ───
 // ─── Database ───
@@ -76,8 +83,11 @@ builder.Services.AddAuthentication(options =>
     {
         ValidateIssuer = true,
         ValidateAudience = true,
+        // Always enforced: an expired token must never be accepted.
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
+        // Tolerate small clock drift between the IIS server and the token issuer.
+        ClockSkew = TimeSpan.FromMinutes(5),
         ValidIssuer = jwtSettings["Issuer"],
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(secretKey)

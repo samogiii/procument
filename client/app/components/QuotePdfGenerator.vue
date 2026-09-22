@@ -249,6 +249,7 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
       <td style="padding:6px 10px;text-align:center;">${it.leadTime || '—'}</td>
       <td style="padding:6px 10px;text-align:right;">${sym}${formatPrice(Number(it.unitPrice) * rate)}</td>
       <td style="padding:6px 10px;text-align:right;font-weight:700;">${sym}${formatPrice(Number(it.totalPrice) * rate)}</td>
+      <td style="padding:6px 10px;text-align:center;">${(it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'}</td>
     </tr>`
   }).join('')
   return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -261,6 +262,7 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
       <th style="padding:7px 10px;text-align:center;color:#fff">Lead Time</th>
       <th style="padding:7px 10px;text-align:right;color:#fff">Unit Price</th>
       <th style="padding:7px 10px;text-align:right;color:#fff">Total</th>
+      <th style="padding:7px 10px;text-align:center;color:#fff">Cert Reference</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`
@@ -329,6 +331,7 @@ function buildPreviewModel(): PdfPreviewModel {
       { header: 'Lead Time', width: 55 },
       { header: 'Unit Price', width: 60, align: 'right' },
       { header: 'Total', width: 65, align: 'right' },
+      { header: 'Cert Reference', width: 68 },
     ],
     rows: items.map((it: any, i: number) => {
       const details: string[] = []
@@ -352,6 +355,7 @@ function buildPreviewModel(): PdfPreviewModel {
           { text: it.leadTime },
           { text: money((Number(it.unitPrice) || 0) * rate) },
           { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
+          { text: (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—' },
         ],
       }
     }),
@@ -478,7 +482,7 @@ const renderedHtml = computed(() => {
     if (it.note) details.push(`<span><strong>Note:</strong> ${it.note}</span>`)
     const detailRow = details.length > 0 ? `
     <tr style="background:${bg};">
-      <td colspan="9" style="padding:2px 12px 8px 44px; font-size:10px; color:#6b7280; border-bottom:1px solid #e5e7eb;">${details.join('')}</td>
+      <td colspan="10" style="padding:2px 12px 8px 44px; font-size:10px; color:#6b7280; border-bottom:1px solid #e5e7eb;">${details.join('')}</td>
     </tr>` : ''
     return `
     <tr style="background:${bg};">
@@ -491,6 +495,7 @@ const renderedHtml = computed(() => {
       <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.leadTime || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
+      <td style="padding:9px 8px; font-size:9px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${(it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'}</td>
     </tr>${detailRow}`
   }).join('')
 
@@ -556,6 +561,7 @@ const renderedHtml = computed(() => {
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center;">Lead Time</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
+              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.6px; text-align:center;">Cert Reference</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -672,6 +678,7 @@ async function downloadPdf() {
           unitPrice: (Number(it.unitPrice) || 0),
           totalPrice: (Number(it.totalPrice) || 0),
           certName: it.certName || null,
+          certReferences: it.certReferences || [],
           tagDate: it.tagDate || null,
           note: it.note || null,
         })),

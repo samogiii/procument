@@ -786,6 +786,7 @@
                             <th style="min-width: 160px;">My Notes</th>
                             <th style="width: 40px" class="text-center">Cert</th>
                             <th style="min-width: 92px" class="text-center">Cert PDFs</th>
+                            <th style="min-width: 150px">Cert Reference</th>
                             <th style="min-width: 60px;"></th>
                           </tr>
                         </thead>
@@ -976,6 +977,7 @@
                               />
                               <span v-if="quote.certificateCount" class="text-caption">{{ quote.certificateCount }}</span>
                             </td>
+                            <td class="text-caption">{{ formatCertReferences(quote.certReferences) }}</td>
                             <td class="text-center" style="white-space: nowrap;">
                               <v-btn
                                 v-if="quote.condition === 'AR'"
@@ -996,7 +998,7 @@
                           </tr>
                           <!-- Shop Records sub-table (collapsible, for AR condition) -->
                           <tr v-if="quote.condition === 'AR' && isShopExpanded(quote.id || `new-${qIdx}`, item.id)">
-                            <td :colspan="16" class="pa-0">
+                            <td :colspan="17" class="pa-0">
                               <div class="shop-panel">
                                 <div class="d-flex align-center justify-space-between mb-2">
                                   <div class="d-flex align-center gap-2">
@@ -1048,6 +1050,7 @@
                                       <th>My Notes</th>
                                       <th style="width: 40px" class="text-center">Cert</th>
                                       <th style="min-width: 92px" class="text-center">Cert PDFs</th>
+                                      <th style="min-width: 150px">Cert Reference</th>
                                       <th style="width: 70px;"></th>
                                     </tr>
                                   </thead>
@@ -1123,6 +1126,7 @@
                                         />
                                         <span v-if="shop.certificateCount" class="text-caption">{{ shop.certificateCount }}</span>
                                       </td>
+                                      <td class="text-caption">{{ formatCertReferences(shop.certReferences) }}</td>
                                       <td class="text-center" style="white-space: nowrap;">
                                         <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="confirmRemoveShop(item, quote, sIdx)" />                                      </td>
                                     </tr>
@@ -1554,6 +1558,7 @@
               <template #prepend><v-icon icon="mdi-file-pdf-box" color="error" /></template>
               <v-list-item-title>{{ certificate.originalFileName }}</v-list-item-title>
               <v-list-item-subtitle>
+                <strong>REF#{{ certificate.reference }}</strong> ·
                 {{ formatFileSize(certificate.fileSizeBytes) }} · {{ new Date(certificate.uploadedAt).toLocaleDateString() }}
                 <span v-if="certificate.uploadedByName"> · {{ certificate.uploadedByName }}</span>
               </v-list-item-subtitle>
@@ -1680,10 +1685,15 @@ const snackbarColor = ref('success')
 type Certificate = {
   id: number
   supplierQuoteId: number
+  reference: string
   originalFileName: string
   fileSizeBytes: number
   uploadedAt: string
   uploadedByName?: string
+}
+
+function formatCertReferences(references?: string[]) {
+  return references?.length ? references.map(reference => `REF#${reference}`).join(', ') : '—'
 }
 
 const showCertificateDialog = ref(false)
@@ -1810,7 +1820,7 @@ function exportToExcel() {
     const suppData: any[][] = [
       [`RFQ: ${r.name || `#${route.params.id}`} — Supplier Quotes`],
       [],
-      ['Part Number', 'Supplier', 'Condition', 'Alt P/N', 'Qty', 'Cost Price ($)', 'Cert', 'Tag Date', 'Shipping Cost', 'Shipping Point', 'Lead Time', 'Note', 'My Notes']
+      ['Part Number', 'Supplier', 'Condition', 'Alt P/N', 'Qty', 'Cost Price ($)', 'Cert', 'Tag Date', 'Shipping Cost', 'Shipping Point', 'Lead Time', 'Note', 'My Notes', 'Cert Reference']
     ]
     editableItems.value.forEach((item: any) => {
       const quotes = supplierQuotes.value.filter((q: any) => q.rfqItemId === item.id)
@@ -1828,7 +1838,8 @@ function exportToExcel() {
           q.shippingPoint || '',
           q.leadTime || '',
           q.note || '',
-          q.myNotes || ''
+          q.myNotes || '',
+          formatCertReferences(q.certReferences) === '—' ? '' : formatCertReferences(q.certReferences)
         ])
       })
     })
@@ -1845,7 +1856,7 @@ function exportToExcel() {
     wsSupp['!cols'] = [
       { wch: 22 }, { wch: 22 }, { wch: 10 }, { wch: 15 }, { wch: 6 },
       { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 14 },
-      { wch: 12 }, { wch: 22 }, { wch: 22 }
+      { wch: 12 }, { wch: 22 }, { wch: 22 }, { wch: 24 }
     ]
 
     XLSX.utils.book_append_sheet(wb, wsItems, 'RFQ Items')

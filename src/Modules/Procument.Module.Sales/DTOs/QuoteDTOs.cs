@@ -102,6 +102,7 @@ public class QuoteItemResponse
     public string? RFQReference { get; set; }
     public string? TagDate { get; set; }
     public string? CertName { get; set; }
+    public List<string> CertReferences { get; set; } = new();
     public decimal? BuyPrice { get; set; }
     public string? SupplierName { get; set; }
     public double? ShippingCost { get; set; }
@@ -142,6 +143,7 @@ public class QuoteFilterOptions
 {
     public List<string> Statuses { get; set; } = new();
     public List<QuoteCustomerOption> Customers { get; set; } = new();
+    public List<int> Bases { get; set; } = new();
     public List<string> Users { get; set; } = new();
     public List<string> RfqNames { get; set; } = new();
     public List<string> QuoteNumbers { get; set; } = new();

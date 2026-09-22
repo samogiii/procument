@@ -470,12 +470,18 @@
                           <td>
                             <select
                               v-model="sq.condition"
-                              class="quote-input"
+                              class="quote-input condition-select"
+                              :style="conditionSelectStyle(sq.condition)"
                               :disabled="isFinalizedOrCancelled(item) || sq.hasActivePOItem"
                               @change="saveSupplierQuote(item, sq)"
                               @click.stop
                             >
-                              <option v-for="c in ['NE','OH','SV','AR','RP']" :key="c" :value="c">{{ c }}</option>
+                              <option
+                                v-for="c in conditionOptions"
+                                :key="c"
+                                :value="c"
+                                :style="{ color: conditionTextColor(c), fontWeight: '700' }"
+                              >{{ c }}</option>
                             </select>
                           </td>
                           <td>
@@ -1051,8 +1057,31 @@ function clearFilters() {
 
 const statusOptions = ['Open', 'Sourcing', 'Ready', 'Cancelled', 'Returned']
 const procStatusOptions = ['Open', 'Sourcing', 'InProgress', 'Reopened', 'Finalized', 'Cancelled']
+const conditionOptions = ['NE', 'OH', 'SV', 'AR', 'RP', 'FN', 'NS', 'IN']
 const customerOptions = ref<string[]>([])
 const userOptions = ref<{ id: number; name: string }[]>([])
+
+const conditionColors: Record<string, { text: string; background: string; border: string }> = {
+  NE: { text: '#22c55e', background: 'rgba(34, 197, 94, 0.14)', border: 'rgba(34, 197, 94, 0.45)' },
+  OH: { text: '#38bdf8', background: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.45)' },
+  SV: { text: '#f59e0b', background: 'rgba(245, 158, 11, 0.14)', border: 'rgba(245, 158, 11, 0.45)' },
+  AR: { text: '#f87171', background: 'rgba(248, 113, 113, 0.14)', border: 'rgba(248, 113, 113, 0.45)' },
+  RP: { text: '#c084fc', background: 'rgba(192, 132, 252, 0.14)', border: 'rgba(192, 132, 252, 0.45)' },
+  FN: { text: '#818cf8', background: 'rgba(129, 140, 248, 0.14)', border: 'rgba(129, 140, 248, 0.45)' },
+  NS: { text: '#94a3b8', background: 'rgba(148, 163, 184, 0.14)', border: 'rgba(148, 163, 184, 0.45)' },
+  IN: { text: '#22d3ee', background: 'rgba(34, 211, 238, 0.14)', border: 'rgba(34, 211, 238, 0.45)' },
+}
+
+function conditionTextColor(condition: string) {
+  return conditionColors[condition]?.text || 'inherit'
+}
+
+function conditionSelectStyle(condition: string) {
+  const colors = conditionColors[condition]
+  return colors
+    ? { color: colors.text, backgroundColor: colors.background, borderColor: colors.border, fontWeight: '700' }
+    : {}
+}
 
 const headers = computed(() => {
   const h: any[] = [
@@ -1332,6 +1361,12 @@ onMounted(async () => {
 
 .quote-input:read-only {
   cursor: default;
+}
+
+.condition-select {
+  border-width: 1px;
+  border-style: solid;
+  cursor: pointer;
 }
 
 .bg-success-light {

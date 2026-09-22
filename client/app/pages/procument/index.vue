@@ -712,6 +712,7 @@
                           <th>Note</th>
                           <th>My Notes</th>
                           <th style="width: 40px" class="text-center">Cert</th>
+                          <th style="min-width: 150px">Cert Reference</th>
                           <th style="width: 90px;"></th>
                         </tr>
                       </thead>
@@ -865,7 +866,19 @@
                               @change="saveQuote(item, quote)"
                             />
                           </td>
+                          <td class="text-caption">{{ formatCertReferences(quote.certReferences) }}</td>
                           <td class="text-center" style="white-space: nowrap;">
+                            <v-btn
+                              icon="mdi-file-pdf-box"
+                              size="x-small"
+                              variant="text"
+                              :color="quote.certificateCount || quote.certReferences?.length ? 'error' : 'grey'"
+                              :title="quote.id ? 'Manage certificate PDFs' : 'Save this supplier quote before adding certificates'"
+                              @click.stop="openCertificateDialog(item, quote)"
+                            />
+                            <span v-if="quote.certificateCount || quote.certReferences?.length" class="text-caption">
+                              {{ quote.certificateCount || quote.certReferences?.length }}
+                            </span>
                             <v-btn
                               v-if="quote.condition === 'AR'"
                               icon="mdi-wrench"
@@ -896,7 +909,7 @@
                         </tr>
                         <!-- Shop Records sub-table (collapsible, for AR condition) -->
                         <tr v-if="quote.condition === 'AR' && isShopExpanded(quote.id, item.rfqItemId)">
-                          <td :colspan="14" class="pa-0">
+                          <td :colspan="16" class="pa-0">
                             <div class="shop-panel">
                               <div class="d-flex align-center justify-space-between mb-2">
                                 <div class="d-flex align-center gap-2">
@@ -947,6 +960,7 @@
                                     <th>Note</th>
                                     <th>My Notes</th>
                                     <th style="width: 40px" class="text-center">Cert</th>
+                                    <th style="min-width: 150px">Cert Reference</th>
                                     <th style="width: 70px;"></th>
                                   </tr>
                                 </thead>
@@ -1092,7 +1106,22 @@
                                     <td>
                                       <VTextarea rows="2" placeholder="My Notes..." v-model="shop.myNotes" hide-details density="compact" variant="plain" />
                                     </td>
+                                    <td class="text-center">
+                                      <v-checkbox v-model="shop.isCertificated" density="compact" hide-details class="ma-0 pa-0 d-inline-block" />
+                                    </td>
+                                    <td class="text-caption">{{ formatCertReferences(shop.certReferences) }}</td>
                                     <td class="text-center" style="white-space: nowrap;">
+                                      <v-btn
+                                        icon="mdi-file-pdf-box"
+                                        size="x-small"
+                                        variant="text"
+                                        :color="shop.certificateCount || shop.certReferences?.length ? 'error' : 'grey'"
+                                        :title="shop.id ? 'Manage certificate PDFs' : 'Save this shop record before adding certificates'"
+                                        @click.stop="openCertificateDialog(item, shop)"
+                                      />
+                                      <span v-if="shop.certificateCount || shop.certReferences?.length" class="text-caption">
+                                        {{ shop.certificateCount || shop.certReferences?.length }}
+                                      </span>
                                       <v-btn
                                         icon="mdi-content-save"
                                         size="x-small"
@@ -1172,6 +1201,55 @@
       </v-card>
     </v-dialog>
 
+    <!-- Certificate PDFs for one saved supplier-part quote -->
+    <v-dialog v-model="showCertificateDialog" max-width="700">
+      <v-card>
+        <v-card-title class="d-flex align-center pa-4">
+          <v-icon icon="mdi-certificate-outline" color="primary" class="mr-2" />
+          Certificate PDFs
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showCertificateDialog = false" />
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <p class="text-body-2 mb-1">
+            {{ certificateTarget?.quote.supplierName || 'Supplier quote' }}
+          </p>
+          <p v-if="certificateTarget?.item.partNumberName" class="text-caption text-medium-emphasis mb-4">
+            Part number: {{ certificateTarget.item.partNumberName }}
+          </p>
+          <FileDropZone
+            accept="application/pdf,.pdf"
+            label="Drop certificate PDFs here or click to add"
+            :on-upload="uploadCertificates"
+          />
+
+          <v-divider class="my-5" />
+          <div class="d-flex align-center mb-2">
+            <span class="text-subtitle-2">Saved certificates</span>
+            <v-spacer />
+            <v-progress-circular v-if="certificatesLoading" indeterminate size="18" width="2" />
+          </div>
+          <v-list v-if="certificates.length" density="compact" class="border rounded">
+            <v-list-item v-for="certificate in certificates" :key="certificate.id">
+              <template #prepend><v-icon icon="mdi-file-pdf-box" color="error" /></template>
+              <v-list-item-title>{{ certificate.originalFileName }}</v-list-item-title>
+              <v-list-item-subtitle>
+                <strong>REF#{{ certificate.reference }}</strong> ·
+                {{ formatFileSize(certificate.fileSizeBytes) }} · {{ new Date(certificate.uploadedAt).toLocaleDateString() }}
+                <span v-if="certificate.uploadedByName"> · {{ certificate.uploadedByName }}</span>
+              </v-list-item-subtitle>
+              <template #append>
+                <v-btn icon="mdi-download-outline" size="small" variant="text" @click="downloadCertificate(certificate)" />
+              </template>
+            </v-list-item>
+          </v-list>
+          <p v-else-if="!certificatesLoading" class="text-caption text-medium-emphasis text-center py-4 mb-0">
+            No certificate PDFs have been uploaded for this quote.
+          </p>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarTimeout" location="bottom right">
       {{ snackbarText }}
     </v-snackbar>
@@ -1195,6 +1273,9 @@
 </template>
 
 <script setup lang="ts">
+function formatCertReferences(references?: string[]) {
+  return references?.length ? references.map(reference => `REF#${reference}`).join(', ') : '—'
+}
 import { downloadExcel } from '~/utils/exportExcel'
 
 const api = useApi()
@@ -1406,6 +1487,98 @@ const focusedField = ref('')
 const supplierSuggestions = ref<{ id: number; name: string; status: string }[]>([])
 const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 const partAvailability = ref<Record<number, any>>({})
+
+type Certificate = {
+  id: number
+  supplierQuoteId: number
+  reference: string
+  originalFileName: string
+  fileSizeBytes: number
+  uploadedAt: string
+  uploadedByName?: string
+}
+
+const showCertificateDialog = ref(false)
+const certificateTarget = ref<{ item: any; quote: any } | null>(null)
+const certificates = ref<Certificate[]>([])
+const certificatesLoading = ref(false)
+
+async function openCertificateDialog(item: any, quote: any) {
+  if (!quote.id) {
+    showSnack('Save this supplier quote before attaching certificate PDFs', 'warning')
+    return
+  }
+  certificateTarget.value = { item, quote }
+  certificates.value = []
+  showCertificateDialog.value = true
+  await loadCertificates()
+}
+
+async function loadCertificates() {
+  const target = certificateTarget.value
+  if (!target?.quote.id) return
+  certificatesLoading.value = true
+  try {
+    certificates.value = await api.get<Certificate[]>(
+      `/rfqs/${target.item.rfqId}/supplier-quotes/${target.quote.id}/certificates`
+    )
+    syncCertificateSummary(target.quote)
+  } catch {
+    showSnack('Could not load certificate PDFs', 'error')
+  } finally {
+    certificatesLoading.value = false
+  }
+}
+
+async function uploadCertificates(files: File[], onProgress: (done: number) => void) {
+  const target = certificateTarget.value
+  if (!target?.quote.id) throw new Error('A saved supplier quote is required')
+  const data = new FormData()
+  files.forEach(file => data.append('files', file))
+  try {
+    const uploaded = await api.post<Certificate[]>(
+      `/rfqs/${target.item.rfqId}/supplier-quotes/${target.quote.id}/certificates`,
+      data
+    )
+    onProgress(files.length)
+    certificates.value = [...uploaded, ...certificates.value]
+    syncCertificateSummary(target.quote)
+    showSnack(`${uploaded.length} certificate PDF${uploaded.length === 1 ? '' : 's'} uploaded`, 'success')
+  } catch (error: any) {
+    showSnack(error?.data?.message || error?.data || 'Certificate upload failed', 'error')
+    throw error
+  }
+}
+
+function syncCertificateSummary(quote: any) {
+  quote.certificateCount = certificates.value.length
+  quote.certReferences = certificates.value.map(certificate => certificate.reference)
+}
+
+async function downloadCertificate(certificate: Certificate) {
+  const target = certificateTarget.value
+  if (!target?.quote.id) return
+  try {
+    const blob = await api.get<Blob>(
+      `/rfqs/${target.item.rfqId}/supplier-quotes/${target.quote.id}/certificates/${certificate.id}/download`,
+      { responseType: 'blob' }
+    )
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = certificate.originalFileName
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    showSnack('Certificate download failed', 'error')
+  }
+}
+
+function formatFileSize(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 // Part history modal — read-only view of every expert, supplier and price ever recorded for a part
 const showPartHistory = ref(false)

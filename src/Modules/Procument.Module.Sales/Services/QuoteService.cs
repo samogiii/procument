@@ -16,8 +16,8 @@ public interface IQuoteService
     Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null);
-    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null);
+    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin, int[]? userBases = null);
@@ -116,6 +116,9 @@ public class QuoteService : IQuoteService
                 .ThenInclude(qi => qi.ProcumentRecord!)
                     .ThenInclude(pr => pr.Supplier)
             .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Certificates)
+            .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ)
             .Where(q => q.RFQId == rfqId)
@@ -140,6 +143,9 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.ProcumentRecord!)
                     .ThenInclude(pr => pr.Supplier)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Certificates)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ)
@@ -270,7 +276,7 @@ public class QuoteService : IQuoteService
         }
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null)
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .AsNoTracking()
@@ -283,6 +289,9 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.ProcumentRecord!)
                     .ThenInclude(pr => pr.Supplier)
+            .Include(q => q.QuoteItems)
+                .ThenInclude(qi => qi.ProcumentRecord!)
+                    .ThenInclude(pr => pr.Certificates)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.RFQItem)
                     .ThenInclude(ri => ri!.RFQ);
@@ -331,6 +340,9 @@ public class QuoteService : IQuoteService
                 (hasNullPlaceholder && (q.Customer.CustomerCode == null || q.Customer.CustomerCode == ""))
             ));
         }
+
+        if (bases?.Count > 0)
+            query = query.Where(q => q.Customer != null && q.Customer.Base.HasValue && bases.Contains(q.Customer.Base.Value));
 
         if (quoteNumbers?.Count > 0)
             query = query.Where(q => quoteNumbers.Contains(q.QuoteNumber));
@@ -394,6 +406,7 @@ public class QuoteService : IQuoteService
             "quoteNumber" => sortDesc ? query.OrderByDescending(q => q.QuoteNumber) : query.OrderBy(q => q.QuoteNumber),
             "rfqName"     => sortDesc ? query.OrderByDescending(q => q.RFQ != null ? q.RFQ.Name : "") : query.OrderBy(q => q.RFQ != null ? q.RFQ.Name : ""),
             "customerCode" => sortDesc ? query.OrderByDescending(q => q.Customer != null ? q.Customer.CustomerCode : "") : query.OrderBy(q => q.Customer != null ? q.Customer.CustomerCode : ""),
+            "customerBase" => sortDesc ? query.OrderByDescending(q => q.Customer != null ? q.Customer.Base : null) : query.OrderBy(q => q.Customer != null ? q.Customer.Base : null),
             "totalAmount" => sortDesc ? query.OrderByDescending(q => q.TotalAmount) : query.OrderBy(q => q.TotalAmount),
             "status"      => sortDesc ? query.OrderByDescending(q => q.Status) : query.OrderBy(q => q.Status),
             "sentAt"      => sortDesc ? query.OrderByDescending(q => q.SentAt) : query.OrderBy(q => q.SentAt),
@@ -425,7 +438,7 @@ public class QuoteService : IQuoteService
     /// Called with no filters it returns the unconstrained lists, which the client
     /// caches behind the "Show all" toggle.
     /// </summary>
-    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null)
+    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null)
     {
         IQueryable<Quote> permitted = _db.Set<Quote>().AsNoTracking();
 
@@ -504,6 +517,9 @@ public class QuoteService : IQuoteService
                     (hasNullPlaceholder && (x.Customer.CustomerCode == null || x.Customer.CustomerCode == ""))));
             }
 
+            if (exclude != "customerBase" && bases?.Count > 0)
+                q = q.Where(x => x.Customer != null && x.Customer.Base.HasValue && bases.Contains(x.Customer.Base.Value));
+
             if (exclude != "quoteNumber" && quoteNumbers?.Count > 0)
                 q = q.Where(x => quoteNumbers.Contains(x.QuoteNumber));
 
@@ -528,6 +544,11 @@ public class QuoteService : IQuoteService
             .Where(q => q.Customer != null)
             .Select(q => new { name = q.Customer!.Name, code = q.Customer!.CustomerCode })
             .Distinct().ToListAsync();
+
+        var availableBases = await Build("customerBase")
+            .Where(q => q.Customer != null && q.Customer.Base.HasValue)
+            .Select(q => q.Customer!.Base!.Value)
+            .Distinct().OrderBy(b => b).ToListAsync();
 
         var availableQuoteNumbers = await Build("quoteNumber")
             .Select(q => q.QuoteNumber).Distinct().OrderBy(n => n)
@@ -559,6 +580,7 @@ public class QuoteService : IQuoteService
                 .Select(g => new QuoteCustomerOption { Name = g.Key, Code = g.First().code })
                 .OrderBy(c => c.Code ?? c.Name)
                 .ToList(),
+            Bases = availableBases,
             Users = availableUsers,
             RfqNames = availableRfqNames,
             QuoteNumbers = availableQuoteNumbers,
@@ -791,6 +813,8 @@ public class QuoteService : IQuoteService
                     : null,
                 TagDate = qi.ProcumentRecord?.TagDate?.ToString("yyyy-MM-dd"),
                 CertName = qi.ProcumentRecord?.CertName,
+                CertReferences = qi.ProcumentRecord?.Certificates
+                    .OrderBy(c => c.UploadedAt).Select(c => c.Reference).ToList() ?? new(),
                 BuyPrice = qi.ProcumentRecord?.Price,
                 SupplierName = qi.ProcumentRecord?.Supplier?.Name,
                 ShippingCost = qi.ProcumentRecord?.ShippingCost,

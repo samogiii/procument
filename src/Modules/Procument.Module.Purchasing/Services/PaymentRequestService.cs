@@ -44,21 +44,30 @@ public class PaymentRequestService : IPaymentRequestService
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync();
 
-        var responses = new List<PaymentRequestResponse>();
+        // Batch the per-row lookups (paid amount + preset name) into one query each
+        // instead of two round trips per payment request.
+        var paidById = await _ledger.GetSupplierPaidAmountsAsync(prs.Select(p => p.Id));
+        var presetIds = prs.Where(p => p.CompanyPresetId.HasValue).Select(p => p.CompanyPresetId!.Value).Distinct().ToArray();
+        var presetNames = await _db.Set<CompanyPreset>().AsNoTracking()
+            .Where(p => presetIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Name);
+
+        var responses = new List<PaymentRequestResponse>(prs.Count);
         foreach (var pr in prs)
         {
-            responses.Add(await MapToResponse(pr));
+            responses.Add(await MapToResponse(pr, paidById, presetNames));
         }
         return responses;
     }
 
-    public async Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null, decimal? amount = null)
+    public async Task<PaymentRequestResponse> CreateAsync(long poId, long? companyPresetId = null, decimal? amount = null, decimal? wireFee = null)
     {
         return await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var po = await _db.Set<PurchaseOrder>().Include(p => p.ImportDetail).FirstOrDefaultAsync(p => p.Id == poId)
             ?? throw new ArgumentException("Purchase order not found.");
+        SetWireFee(po, wireFee);
         var total = SupplierPaymentAmounts.Total(po);
         var allocated = await _db.Set<PaymentRequest>().Where(p => p.POId == poId)
             .SumAsync(p => p.Amount ?? total);
@@ -85,13 +94,14 @@ public class PaymentRequestService : IPaymentRequestService
         });
     }
 
-    public async Task<PaymentRequestResponse> UpdateAmountAsync(long id, decimal amount)
+    public async Task<PaymentRequestResponse> UpdateAmountAsync(long id, decimal amount, decimal? wireFee = null)
     {
         return await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var pr = await _db.Set<PaymentRequest>().Include(p => p.PO).ThenInclude(p => p.ImportDetail)
             .FirstOrDefaultAsync(p => p.Id == id) ?? throw new ArgumentException("Payment request not found.");
+        SetWireFee(pr.PO!, wireFee);
         var total = SupplierPaymentAmounts.Total(pr.PO!);
         var allocated = await _db.Set<PaymentRequest>().Where(p => p.POId == pr.POId && p.Id != id)
             .SumAsync(p => p.Amount ?? total);
@@ -102,6 +112,27 @@ public class PaymentRequestService : IPaymentRequestService
         await transaction.CommitAsync();
         return await GetByIdAsync(id);
         });
+    }
+
+    private void SetWireFee(PurchaseOrder po, decimal? wireFee)
+    {
+        if (!wireFee.HasValue) return;
+        if (wireFee.Value < 0 || decimal.Round(wireFee.Value, 2) != wireFee.Value)
+            throw new ArgumentException("Enter a non-negative wire fee with at most two decimal places.");
+
+        if (po.ImportDetail == null)
+        {
+            po.ImportDetail = new POImportDetail
+            {
+                PurchaseOrderId = po.Id,
+                Wirefee = wireFee.Value,
+            };
+            _db.Set<POImportDetail>().Add(po.ImportDetail);
+        }
+        else
+        {
+            po.ImportDetail.Wirefee = wireFee.Value;
+        }
     }
 
     public async Task<bool> UpdateStatusAsync(long id, string status)
@@ -139,7 +170,10 @@ public class PaymentRequestService : IPaymentRequestService
         return await MapToResponse(pr);
     }
 
-    private async Task<PaymentRequestResponse> MapToResponse(PaymentRequest pr)
+    private async Task<PaymentRequestResponse> MapToResponse(
+        PaymentRequest pr,
+        IReadOnlyDictionary<long, decimal>? paidById = null,
+        IReadOnlyDictionary<long, string>? presetNames = null)
     {
         var po = pr.PO;
         if (po == null)
@@ -151,9 +185,13 @@ public class PaymentRequestService : IPaymentRequestService
                 .FirstOrDefaultAsync(x => x.Id == pr.POId);
         }
 
-        CompanyPreset? preset = null;
+        string? presetName = null;
         if (pr.CompanyPresetId.HasValue)
-            preset = await _db.Set<CompanyPreset>().FindAsync(pr.CompanyPresetId.Value);
+        {
+            presetName = presetNames != null
+                ? presetNames.GetValueOrDefault(pr.CompanyPresetId.Value)
+                : (await _db.Set<CompanyPreset>().FindAsync(pr.CompanyPresetId.Value))?.Name;
+        }
 
         var response = new PaymentRequestResponse
         {
@@ -167,7 +205,7 @@ public class PaymentRequestService : IPaymentRequestService
             SupplierName = po?.Supplier?.Name,
             WireFee = po?.ImportDetail?.Wirefee ?? 0,
             CompanyPresetId = pr.CompanyPresetId,
-            CompanyPayingFrom = preset?.Name,
+            CompanyPayingFrom = presetName,
             PendingWalletId = pr.PendingWalletId,
             PendingPaymentAmount = pr.PendingPaymentAmount,
             PendingExchangeRate = pr.PendingExchangeRate,
@@ -178,7 +216,9 @@ public class PaymentRequestService : IPaymentRequestService
         {
             response.POTotalAmount = SupplierPaymentAmounts.Total(po);
             response.Amount = pr.Amount ?? response.POTotalAmount;
-            response.PaidAmount = (await _ledger.GetSupplierPaidAmountsAsync(new[] { pr.Id })).GetValueOrDefault(pr.Id);
+            response.PaidAmount = paidById != null
+                ? paidById.GetValueOrDefault(pr.Id)
+                : (await _ledger.GetSupplierPaidAmountsAsync(new[] { pr.Id })).GetValueOrDefault(pr.Id);
             response.CompanyPayingTo = po.Supplier?.Name;
             response.AccountNumber = po.ImportDetail?.BankAccountNumber;
             response.BankName = po.ImportDetail?.BankName;

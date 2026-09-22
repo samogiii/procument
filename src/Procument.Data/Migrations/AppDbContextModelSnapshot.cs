@@ -2210,6 +2210,11 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
                     b.Property<long>("SupplierQuoteId")
                         .HasColumnType("bigint");
 
@@ -2222,6 +2227,9 @@ namespace Procument.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("SupplierQuoteId");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
 
                     b.HasIndex("UploadedByUserId");
 

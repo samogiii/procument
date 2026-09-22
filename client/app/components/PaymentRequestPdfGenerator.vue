@@ -36,10 +36,11 @@
         />
 
         <v-text-field
-          v-if="isAdmin"
-          v-model="wireFee"
-          label="Wire Fee"
+          v-model.number="wireFee"
+          label="Wire Fee (USD)"
           type="number"
+          min="0"
+          step="0.01"
           prefix="$"
           variant="outlined"
           density="comfortable"
@@ -147,8 +148,15 @@ const loadingRequests = ref(false)
 const requests = ref<any[]>([])
 const selectedRequestId = ref(0)
 const requestAmount = ref(0)
+const wireFee = ref(0)
 const selectedRequest = computed(() => requests.value.find(r => r.id === selectedRequestId.value))
-const poTotal = computed(() => requests.value[0]?.poTotalAmount ?? (Number(props.po?.totalAmount || 0) + Number(props.po?.processingFee || 0) + Number(props.po?.shipping || 0) + Number(props.po?.tax || 0) + Number(props.importDetail?.wirefee || 0)))
+const savedWireFee = computed(() => Number(requests.value[0]?.wireFee ?? props.importDetail?.wirefee ?? 0))
+const poTotal = computed(() => {
+  const savedTotal = requests.value[0]?.poTotalAmount
+  if (savedTotal != null) return Number(savedTotal) - savedWireFee.value + Number(wireFee.value || 0)
+  return Number(props.po?.totalAmount || 0) + Number(props.po?.processingFee || 0)
+    + Number(props.po?.shipping || 0) + Number(props.po?.tax || 0) + Number(wireFee.value || 0)
+})
 const totalPaid = computed(() => requests.value.reduce((sum, r) => sum + Number(r.paidAmount || 0), 0))
 const availableAmount = computed(() => Math.max(0, poTotal.value - requests.value.filter(r => r.id !== selectedRequestId.value).reduce((sum, r) => sum + Number(r.amount || 0), 0)))
 const requestOptions = computed(() => [{ id: 0, label: 'Create new payment request' }, ...requests.value.map(r => ({ id: r.id, label: `PR-${r.prNumber} · $${formatPrice(r.amount)} · paid $${formatPrice(r.paidAmount)}` }))])
@@ -160,14 +168,13 @@ watch(model, async (open) => {
   try {
     const all = await api.get<any[]>('/paymentrequests')
     requests.value = all.filter(r => Number(r.poId) === Number(props.poId))
+    wireFee.value = Number(requests.value[0]?.wireFee ?? props.importDetail?.wirefee ?? 0)
     selectedRequestId.value = 0
     requestAmount.value = availableAmount.value
   } catch { requestError.value = 'Could not load payment requests. Reopen this dialog to retry.' }
   finally { loadingRequests.value = false }
 })
 
-const isAdmin = computed(() => authStore.isAdmin)
-const wireFee = ref(0)
 const selectedPresetId = ref<number | null>(null)
 const apiPresets = ref<any[]>([])
 const bankFeeOption = ref<string>('OurCompanyAll')
@@ -244,8 +251,16 @@ onMounted(() => {
 })
 
 watch(() => props.importDetail, (val) => {
-  if (val?.wirefee) wireFee.value = val.wirefee
+  if (val?.wirefee != null && !requests.value.length) wireFee.value = Number(val.wirefee)
 }, { immediate: true })
+
+watch(wireFee, (next, previous) => {
+  const delta = Number(next || 0) - Number(previous || 0)
+  if (!delta) return
+  const previousAvailable = availableAmount.value - delta
+  if (Math.abs(Number(requestAmount.value) - previousAvailable) < 0.01)
+    requestAmount.value = Math.max(0, Number(requestAmount.value) + delta)
+})
 
 const selectedPreset = computed(() => apiPresets.value.find(p => p.id === selectedPresetId.value))
 
@@ -278,13 +293,18 @@ async function generate() {
   try {
     requestError.value = ''
     const pr = selectedRequestId.value
-      ? await api.patch<any>(`/paymentrequests/${selectedRequestId.value}/amount`, { amount: Number(requestAmount.value) })
+      ? await api.patch<any>(`/paymentrequests/${selectedRequestId.value}/amount`, {
+          amount: Number(requestAmount.value),
+          wireFee: Number(wireFee.value || 0),
+        })
       : await api.post<any>(`/paymentrequests/po/${props.poId}`, {
           companyPresetId: selectedPresetId.value ?? null,
           amount: Number(requestAmount.value),
+          wireFee: Number(wireFee.value || 0),
         })
     requests.value = [...requests.value.filter(r => r.id !== pr.id), pr]
     selectedRequestId.value = pr.id
+    wireFee.value = Number(pr.wireFee ?? wireFee.value ?? 0)
 
     // 2. Build PDF payload
     const preset = selectedPreset.value
@@ -333,7 +353,7 @@ async function generate() {
 
       items,
       itemsTotal,
-      wireFee: Number(wireFee.value || 0),
+      wireFee: Number(pr.wireFee ?? wireFee.value ?? 0),
       grandTotal: Number(pr.amount),
 
       bankFeeOption: bankFeeOption.value,
