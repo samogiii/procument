@@ -12,6 +12,16 @@ using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Services;
 
+/// <summary>Which rows the Total P/N report returns.</summary>
+public static class TotalPNOrigins
+{
+    public const string All = "all";
+    public const string Customer = "customer";
+    public const string Stock = "stock";
+    /// <summary>Customer label shown on Stock PO rows (and used by the customer column filter).</summary>
+    public const string StockCustomerLabel = "OUR STOCK";
+}
+
 /// <summary>
 /// Builds the Total P/N (TPP) report — one row per POItem joined across
 /// PO → Procurement → Invoice → Quote → FinalInvoice → Customer → Payments → TrackNumbers.
@@ -22,11 +32,13 @@ public interface ITotalPNService
     Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
-        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null);
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
+        string origin = TotalPNOrigins.Customer);
     Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
-        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null);
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
+        string origin = TotalPNOrigins.Customer);
     Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<bool> UpdateAsync(long poItemId, UpdatePOItemTotalPNRequest request);
 }
@@ -140,8 +152,12 @@ public class TotalPNService : ITotalPNService
     public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
-        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null)
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
+        string origin = TotalPNOrigins.Customer)
     {
+        var includeCustomer = origin != TotalPNOrigins.Stock;
+        var includeStock = origin != TotalPNOrigins.Customer;
+
         // ── Base query: start from InvoiceItems (so they show up immediately on PI creation) ──
         // Left-join with ProcurementItem (the worksheet) and POItem (the purchase).
         // Applying Includes to the source sets because they can't be applied to the anonymous type after join.
@@ -262,7 +278,10 @@ public class TotalPNService : ITotalPNService
                 x.poi != null && x.poi.TrackNumbers.Any(t => shippingStatuses.Contains(t.Status)));
         // ─────────────────────────────────────────────────────────────────────
 
-        var totalCount = await baseQuery.CountAsync();
+        var customerCount = includeCustomer ? await baseQuery.CountAsync() : 0;
+        var skip = page.PageSize == -1 ? 0 : (page.Page - 1) * page.PageSize;
+        var take = page.PageSize == -1 ? int.MaxValue : page.PageSize;
+        var customerTake = Math.Max(0, Math.Min(take, customerCount - skip));
 
         var orderedQuery = sortBy switch
         {
@@ -274,9 +293,10 @@ public class TotalPNService : ITotalPNService
             _            => baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id),
         };
 
-        var pageItems = await orderedQuery
-            .ApplyPaging(page)
-            .ToListAsync();
+        // Customer rows come first; Stock PO rows (Our Inventory) follow them in the same paging.
+        var pageItems = customerTake > 0
+            ? await orderedQuery.Skip(skip).Take(customerTake).ToListAsync()
+            : (await orderedQuery.Take(0).ToListAsync());
 
         // Proforma Invoice assignments are authoritative. RFQ assignments are the fallback
         // for an invoice that has not yet had any experts assigned directly to it.
@@ -457,10 +477,22 @@ public class TotalPNService : ITotalPNService
                 : $"Reserved {stock.Reserved:0.##} in Our Stock";
         }
 
+        var stockCount = 0;
+        if (includeStock)
+        {
+            var stockQuery = StockPoLineQuery(page.Search, customers, invoiceNumbers, partNumbers, conditions, poNumbers,
+                suppliers, paymentTerms, poStatuses, shippingStatuses);
+            stockCount = await stockQuery.CountAsync();
+            var stockSkip = Math.Max(0, skip - customerCount);
+            var stockTake = take == int.MaxValue ? int.MaxValue : take - customerTake;
+            if (stockTake > 0 && stockSkip < stockCount)
+                rows.AddRange(await BuildStockPoRowsAsync(stockQuery, sortBy, sortDesc, stockSkip, stockTake));
+        }
+
         return new PagedResult<TotalPNRowResponse>
         {
             Items = rows,
-            TotalCount = totalCount,
+            TotalCount = customerCount + stockCount,
             Page = page.Page,
             PageSize = page.PageSize,
         };
@@ -658,7 +690,8 @@ public class TotalPNService : ITotalPNService
     public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
         List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
-        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null)
+        List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
+        string origin = TotalPNOrigins.Customer)
     {
         var iiSet = _db.Set<InvoiceItem>()
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
@@ -711,7 +744,7 @@ public class TotalPNService : ITotalPNService
             (x.ii.QuoteItem != null && x.ii.QuoteItem.PartNumber != null &&
              x.ii.QuoteItem.PartNumber.Name != "-" && x.ii.QuoteItem.PartNumber.Name != ""));
 
-        var rows = await baseQuery.ToListAsync();
+        var rows = origin == TotalPNOrigins.Stock ? (await baseQuery.Take(0).ToListAsync()) : await baseQuery.ToListAsync();
 
         List<string> Sorted(IEnumerable<string?> src) =>
             src.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct().OrderBy(s => s).ToList();
@@ -733,6 +766,24 @@ public class TotalPNService : ITotalPNService
                     .Where(s => !string.IsNullOrWhiteSpace(s))
                     .ToList()
         }).ToList();
+
+        if (origin != TotalPNOrigins.Customer)
+        {
+            var stockLines = await StockPoLineQuery(null, null, null, null, null, null, null, null, null, null)
+                .Select(i => new
+                {
+                    PartNumber = i.PartNumber != null ? i.PartNumber.Name : null,
+                    i.Condition, i.PurchaseOrder!.PONumber, Supplier = i.PurchaseOrder.Supplier.Name, i.Status,
+                    Tracks = i.TrackNumbers.Select(t => t.Status).ToList(),
+                })
+                .ToListAsync();
+            filterRows.AddRange(stockLines.Select(x => new TotalPNFilterRow
+            {
+                Customer = TotalPNOrigins.StockCustomerLabel, PartNumber = x.PartNumber, Condition = x.Condition,
+                PoNumber = x.PONumber, Supplier = x.Supplier, Status = x.Status,
+                ShippingStatuses = x.Tracks.Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
+            }));
+        }
 
         IEnumerable<TotalPNFilterRow> Build(string excludedColumn)
         {
@@ -770,6 +821,101 @@ public class TotalPNService : ITotalPNService
             Statuses = Sorted(Build("status").Select(x => x.Status)),
             ShippingStatuses = Sorted(Build("shippingStatus").SelectMany(x => x.ShippingStatuses)),
         };
+    }
+
+    /// <summary>
+    /// Stock PO lines (Our Inventory) for the report. They have no Sales Order, so PI-only filters
+    /// (PI number, payment term, or a customer other than "OUR STOCK") exclude them.
+    /// </summary>
+    private IQueryable<POItem> StockPoLineQuery(string? search, List<string>? customers, List<string>? invoiceNumbers,
+        List<string>? partNumbers, List<string>? conditions, List<string>? poNumbers, List<string>? suppliers,
+        List<string>? paymentTerms, List<string>? poStatuses, List<string>? shippingStatuses)
+    {
+        var q = _db.Set<POItem>().AsNoTracking()
+            .Where(i => i.ReturnedAt == null && i.PurchaseOrder != null && i.PurchaseOrder.Origin == "Stock"
+                && i.PurchaseOrder.Status != "Cancelled" && i.PurchaseOrder.Status != "Returned");
+
+        if ((customers?.Count > 0 && !customers.Contains(TotalPNOrigins.StockCustomerLabel))
+            || invoiceNumbers?.Count > 0 || paymentTerms?.Count > 0)
+            return q.Where(_ => false);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            q = q.Where(i => i.PurchaseOrder!.PONumber.ToLower().Contains(s)
+                || (i.PartNumber != null && i.PartNumber.Name.ToLower().Contains(s)));
+        }
+        if (partNumbers?.Count > 0) q = q.Where(i => i.PartNumber != null && partNumbers.Contains(i.PartNumber.Name));
+        if (conditions?.Count > 0) q = q.Where(i => i.Condition != null && conditions.Contains(i.Condition));
+        if (poNumbers?.Count > 0) q = q.Where(i => poNumbers.Contains(i.PurchaseOrder!.PONumber));
+        if (suppliers?.Count > 0) q = q.Where(i => suppliers.Contains(i.PurchaseOrder!.Supplier.Name));
+        if (poStatuses?.Count > 0) q = q.Where(i => i.Status != null && poStatuses.Contains(i.Status));
+        if (shippingStatuses?.Count > 0) q = q.Where(i => i.TrackNumbers.Any(t => shippingStatuses.Contains(t.Status)));
+        return q;
+    }
+
+    private async Task<List<TotalPNRowResponse>> BuildStockPoRowsAsync(IQueryable<POItem> query, string? sortBy, bool sortDesc, int skip, int take)
+    {
+        var ordered = sortBy switch
+        {
+            "partNumber" => sortDesc ? query.OrderByDescending(i => i.PartNumber!.Name) : query.OrderBy(i => i.PartNumber!.Name),
+            "qty" => sortDesc ? query.OrderByDescending(i => i.Qty) : query.OrderBy(i => i.Qty),
+            "status" => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
+            _ => query.OrderByDescending(i => i.PurchaseOrder!.CreatedAt).ThenBy(i => i.PORef),
+        };
+        var lines = await ordered.Skip(skip).Take(take)
+            .Include(i => i.PartNumber)
+            .Include(i => i.PurchaseOrder!).ThenInclude(po => po.Supplier)
+            .Include(i => i.PurchaseOrder!).ThenInclude(po => po.DestinationWarehouse)
+            .Include(i => i.TrackNumbers)
+            .ToListAsync();
+        if (lines.Count == 0) return [];
+
+        var received = await _stock.GetReceivedByPoItemAsync(lines.Select(l => l.Id).ToList());
+        var poIds = lines.Select(l => l.POId!.Value).Distinct().Select(id => id.ToString()).ToList();
+        var assigned = await (
+                from permission in _db.Set<EntityPermission>().AsNoTracking()
+                join user in _db.Set<User>().AsNoTracking() on permission.UserId equals user.Id
+                where permission.EntityName == "PO" && poIds.Contains(permission.EntityId)
+                select new { permission.EntityId, user.Name })
+            .ToListAsync();
+
+        return lines.Select(line =>
+        {
+            var po = line.PurchaseOrder!;
+            var got = received.GetValueOrDefault(line.Id);
+            var tracks = line.TrackNumbers.Select(t => t.Status).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+            if (got > 0 || po.AdminApproval == "Approved") tracks.Add($"Received {got:0.##}/{line.Qty} into Our Stock");
+            return new TotalPNRowResponse
+            {
+                Id = line.Id,
+                PurchaseOrderId = po.Id,
+                PurchaseOrderStatus = po.Status,
+                PONumber = po.PONumber,
+                PORef = line.PORef,
+                Experts = assigned.Where(a => a.EntityId == po.Id.ToString()).Select(a => a.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n).ToList(),
+                Customer = TotalPNOrigins.StockCustomerLabel,
+                Supplier = po.Supplier?.Name,
+                PartNumber = line.PartNumber?.Name,
+                Description = line.PartNumber?.Description,
+                Qty = line.Qty,
+                Condition = line.Condition,
+                Warehouse = po.DestinationWarehouse?.DisplayName ?? po.DestinationWarehouse?.Name,
+                ShippingStatus = string.Join(", ", tracks),
+                InvoiceId = null,
+                PurchasingUnitPriceUsd = line.UnitPrice,
+                PurchasingTotalPriceUsd = line.TotalPrice,
+                POAmount = po.TotalAmount,
+                SupplierDeliveryTime = po.ExpectedDeliveryDate?.ToString("yyyy-MM-dd"),
+                Status = PurchaseOrderStatusFlow.DisplayStatus(line),
+                PODate = po.CreatedAt,
+                Rate = 1m,
+                TrackNumbers = line.TrackNumbers.Count > 0 ? string.Join(", ", line.TrackNumbers.Select(t => t.TrackNumber)) : null,
+                ShippingCost = po.Shipping,
+                Note = line.Note,
+            };
+        }).ToList();
     }
 
     private sealed class TotalPNFilterRow

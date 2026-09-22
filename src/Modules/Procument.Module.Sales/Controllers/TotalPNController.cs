@@ -79,13 +79,15 @@ public class TotalPNController : ControllerBase
         [FromQuery] List<string>? suppliers = null,
         [FromQuery] List<string>? paymentTerms = null,
         [FromQuery] List<string>? poStatuses = null,
-        [FromQuery] List<string>? shippingStatuses = null)
+        [FromQuery] List<string>? shippingStatuses = null,
+        [FromQuery] string? origin = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         if (!await CanAccessTotalPnAsync(isSuperAdmin)) return NotFound();
         var pq = new PageQuery { Page = page, PageSize = pageSize };
         var result = await _service.GetAsync(pq, userId, isAdmin, sortBy, sortDesc, isSuperAdmin, userBases,
-            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses);
+            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
+            await ResolveOriginAsync(origin, isSuperAdmin));
         return Ok(result);
     }
 
@@ -100,13 +102,34 @@ public class TotalPNController : ControllerBase
         [FromQuery] List<string>? suppliers = null,
         [FromQuery] List<string>? paymentTerms = null,
         [FromQuery] List<string>? poStatuses = null,
-        [FromQuery] List<string>? shippingStatuses = null)
+        [FromQuery] List<string>? shippingStatuses = null,
+        [FromQuery] string? origin = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         if (!await CanAccessTotalPnAsync(isSuperAdmin)) return NotFound();
         var result = await _service.GetFilterOptionsAsync(userId, isAdmin, isSuperAdmin, userBases,
-            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses);
+            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
+            await ResolveOriginAsync(origin, isSuperAdmin));
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Stock PO rows are shown only to users who can see Our Inventory (SuperAdmin, or the ourInventoryMenu grant).
+    /// Everyone else always gets customer rows only, whatever they ask for.
+    /// </summary>
+    private async Task<string> ResolveOriginAsync(string? requested, bool isSuperAdmin)
+    {
+        var origin = requested?.ToLowerInvariant() switch
+        {
+            TotalPNOrigins.Stock => TotalPNOrigins.Stock,
+            TotalPNOrigins.Customer => TotalPNOrigins.Customer,
+            _ => TotalPNOrigins.All,
+        };
+        if (origin == TotalPNOrigins.Customer || isSuperAdmin) return origin;
+        var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
+        var canSeeStock = await _db.Set<MenuPermission>()
+            .AnyAsync(permission => permission.Feature == "ourInventoryMenu" && permission.UserName == userName);
+        return canSeeStock ? origin : TotalPNOrigins.Customer;
     }
 
     /// <summary>Total Order view — one row per POItem that has at least one Track Number, with SN/TID/AWB data.</summary>

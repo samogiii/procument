@@ -641,6 +641,30 @@ Any of 9–12 can be changed later without data migration.
 
 ---
 
+## 10a. Stock PO lines in Total Project (added after Epic 11)
+
+Every Stock PO line is now a row in **Total Project**, after the customer rows:
+
+| Column | Stock PO row |
+|---|---|
+| Customer | **OUR STOCK** (purple chip) |
+| PO# / PO Ref# / PO Date / PO amount | from the Stock PO |
+| Supplier, P/N, description, qty, condition | from the PO line |
+| Purchasing unit / total price | PO line price |
+| Warehouse | the Stock PO's destination warehouse |
+| Supplier delivery time | the Stock PO's expected delivery date |
+| Status | PO line status (editable inline, like other rows) |
+| Shipping status | track statuses + **Received x/y into Our Stock** |
+| Track#, Note, Expert (users assigned to the PO) | as for customer rows |
+| PI#, selling prices, payment columns | empty — there is no Sales Order |
+
+- A **Show: All / Customer orders / Our Stock POs** switch in the header (remembered per browser) controls which rows load. It is only shown to users with Our Inventory access; for everyone else the API returns customer rows only, whatever is requested.
+- Paging runs through customer rows first, then Stock PO rows. Sorting applies within each group.
+- Column filters apply to both: the Customer filter offers **OUR STOCK**; a PI# or payment-term filter hides Stock PO rows (they have neither).
+- Cancelled / returned Stock POs are left out; drafts are shown with status Draft.
+- API: `GET /api/po-items/total-pn` and `/filter-options` take `origin=all|customer|stock` (default `all`).
+- Tests: 2 new (row content, filters, filter options, gap-free paging across both groups) — 16 in total.
+
 ## 10. Rollout checklist
 
 1. **Back up** the production database.

@@ -41,6 +41,10 @@ public interface IStockReservationService
 
     /// <summary>Id of the Our Stock catalog supplier, when it exists.</summary>
     Task<long?> GetStockSupplierIdAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Quantity received into Our Stock per Stock PO line (receipts net of corrections).</summary>
+    Task<IReadOnlyDictionary<long, decimal>> GetReceivedByPoItemAsync(IReadOnlyCollection<long> poItemIds,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record StockReservationResult(

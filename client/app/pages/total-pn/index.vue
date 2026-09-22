@@ -6,9 +6,16 @@
         <h1 class="text-h5 font-weight-bold">Total Project</h1>
         <div class="text-caption text-medium-emphasis">
           One row per PO line — joined across PO, Procurement, Invoice, Quote, Final Invoice and Customer Payments.
+          <template v-if="authStore.ourInventoryMenu && effectiveOrigin !== 'customer'">Our Stock PO lines follow the customer rows.</template>
         </div>
       </div>
       <v-spacer />
+      <!-- Our Inventory: Stock PO lines are listed after customer rows (only for users with Our Inventory access) -->
+      <v-btn-toggle v-if="authStore.ourInventoryMenu" v-model="origin" mandatory density="compact" variant="outlined" divided color="primary">
+        <v-btn value="all" size="small">All</v-btn>
+        <v-btn value="customer" size="small">Customer orders</v-btn>
+        <v-btn value="stock" size="small" prepend-icon="mdi-warehouse">Our Stock POs</v-btn>
+      </v-btn-toggle>
       <div class="d-flex flex-wrap align-center gap-2 total-price-summary">
         <v-chip color="primary" variant="tonal" class="font-weight-bold">
           Total Purchase: ${{ formatPrice(visibleTotals.purchase) }}
@@ -280,7 +287,10 @@
                 </div>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('customer')" class="cell-wrap">{{ r.customer || '-' }}</td>
+              <td v-if="visibleColumns.includes('customer')" class="cell-wrap">
+                <v-chip v-if="isStockRow(r)" size="x-small" color="purple" variant="tonal" prepend-icon="mdi-warehouse">{{ r.customer }}</v-chip>
+                <template v-else>{{ r.customer || '-' }}</template>
+              </td>
               <td v-if="visibleColumns.includes('supplier')" class="cell-wrap">
                 <button
                   v-if="canOpenSupplierEditor(r)"
@@ -679,11 +689,30 @@ function activeServerFilterQuery(): Record<string, string[]> {
   return query
 }
 
+// ── Our Inventory rows ──
+// "all" lists customer rows first, then Stock PO lines. The API returns customer rows only for
+// users without Our Inventory access, whatever is sent here.
+const ORIGIN_STORAGE_KEY = 'total-pn-origin'
+const origin = ref<'all' | 'customer' | 'stock'>('all')
+if (import.meta.client) {
+  try {
+    const saved = localStorage.getItem(ORIGIN_STORAGE_KEY)
+    if (saved === 'all' || saved === 'customer' || saved === 'stock') origin.value = saved
+  } catch {}
+}
+const effectiveOrigin = computed(() => (authStore.ourInventoryMenu ? origin.value : 'customer'))
+const isStockRow = (r: any) => !r.invoiceId && r.customer === 'OUR STOCK'
+watch(origin, (value) => {
+  if (import.meta.client) { try { localStorage.setItem(ORIGIN_STORAGE_KEY, value) } catch {} }
+  page.value = 1
+  Promise.all([load(), loadFilterOptions(), loadFilterOptions(false)])
+})
+
 async function loadFilterOptions(includeActiveFilters = true) {
   filterOptionsLoading.value = true
   try {
     const opts = await api.get<any>('/po-items/total-pn/filter-options', {
-      query: includeActiveFilters ? activeServerFilterQuery() : undefined,
+      query: { ...(includeActiveFilters ? activeServerFilterQuery() : {}), origin: effectiveOrigin.value },
     })
     const mapped = mapFilterOptions(opts)
     if (includeActiveFilters) filterOptions.value = mapped
@@ -1214,6 +1243,7 @@ async function load() {
     const query: Record<string, any> = {
       page: loadAll ? 1 : page.value,
       pageSize: loadAll ? -1 : pageSize.value,
+      origin: effectiveOrigin.value,
     }
     if (sortBy.value) { query.sortBy = sortBy.value; query.sortDesc = sortDesc.value }
 

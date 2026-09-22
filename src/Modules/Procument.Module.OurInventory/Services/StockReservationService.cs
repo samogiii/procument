@@ -44,6 +44,19 @@ public sealed class StockReservationService(DbContext db, IStockLedgerService le
             .Select(l => (long?)l.Id).FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<long, decimal>> GetReceivedByPoItemAsync(IReadOnlyCollection<long> poItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (poItemIds.Count == 0) return new Dictionary<long, decimal>();
+        var ids = poItemIds.ToList();
+        return await db.Set<OurStockMovement>().AsNoTracking()
+            .Where(m => m.POItemId.HasValue && ids.Contains(m.POItemId.Value)
+                && (m.Type == OurStockMovementTypes.Receipt || m.Type == OurStockMovementTypes.Adjust))
+            .GroupBy(m => m.POItemId!.Value)
+            .Select(g => new { g.Key, Qty = g.Sum(m => m.Qty) })
+            .ToDictionaryAsync(x => x.Key, x => x.Qty, cancellationToken);
+    }
+
     public async Task<StockLineStatus> GetLineStatusAsync(long invoiceItemId, CancellationToken cancellationToken = default)
     {
         var reserved = await ActiveFor(invoiceItemId).SumAsync(r => (decimal?)r.Qty, cancellationToken) ?? 0;
