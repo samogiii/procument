@@ -498,6 +498,20 @@
               <span v-else class="text-medium-emphasis">—</span>
             </template>
 
+            <template #item.poNumber="{ item }">
+              <v-chip
+                v-if="item.poNumber && item.poLink"
+                size="x-small"
+                :color="item.poType === 'Stock PO' ? 'teal' : 'grey'"
+                variant="tonal"
+                class="cursor-pointer"
+                @click="navigateTo(item.poLink)"
+              >
+                {{ item.poType || 'Customer PO' }} · {{ item.poNumber }}
+              </v-chip>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+
             <!-- Balance -->
             <template #item.balance="{ item }">
               <span
@@ -852,6 +866,9 @@ interface AllTransactionRow {
   prNumber: string | null
   prId: number | null
   poId: number | null
+  poNumber: string | null
+  poType: string | null
+  poLink: string | null
   notes: string | null
   isAuto: boolean
   createdAt: string
@@ -1024,6 +1041,7 @@ const ledgerHeaders = [
   { title: 'To', key: 'toName', sortable: true },
   { title: 'PI#', key: 'piNumber', sortable: true, width: '100px' },
   { title: 'PR#', key: 'prNumber', sortable: true, width: '100px' },
+  { title: 'PO', key: 'poNumber', sortable: true, width: '180px' },
   { title: 'Base', key: 'base', sortable: true, width: '90px' },
   { title: 'Balance', key: 'balance', sortable: true, width: '120px' },
   { title: '', key: 'actions', sortable: false, width: '50px' },

@@ -14,7 +14,7 @@ public interface IShippingService
 
     // Submit / update per-part items
     Task<List<TrackNumberItemResponse>> SubmitItemsAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request);
-    Task<TrackNumberItemResponse?> UpdateItemAsync(long trackId, long itemId, UpdateTrackNumberItemRequest request);
+    Task<TrackNumberItemResponse?> UpdateItemAsync(long trackId, long itemId, long userId, UpdateTrackNumberItemRequest request);
 
     // Reject a track number → PO status Issue
     Task<bool> RejectTrackAsync(long trackId, long userId);
@@ -52,14 +52,16 @@ public class ShippingService : IShippingService
     private readonly IPurchaseOrderService _poService;
     private readonly INotificationService _notifications;
     private readonly IWarehouseTransferService _transferService;
+    private readonly IStockReceiptHandler _stockReceipts;
     private const string DocsRoot = "Documents/TrackNumbers";
 
-    public ShippingService(DbContext db, IWarehouseService warehouseService, IPurchaseOrderService poService, INotificationService notifications, IWarehouseTransferService transferService)
+    public ShippingService(DbContext db, IWarehouseService warehouseService, IPurchaseOrderService poService, INotificationService notifications, IWarehouseTransferService transferService, IStockReceiptHandler stockReceipts)
     {
         _db = db;
         _warehouseService = warehouseService;
         _poService = poService;
         _notifications = notifications;
+        _stockReceipts = stockReceipts;
         _transferService = transferService;
     }
 
@@ -144,7 +146,10 @@ public class ShippingService : IShippingService
 
     // ── Submit items ───────────────────────────────────────────────────────
 
-    public async Task<List<TrackNumberItemResponse>> SubmitItemsAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request)
+    public Task<List<TrackNumberItemResponse>> SubmitItemsAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request)
+        => WithStockReceiptAsync(trackId, submittedByUserId, () => SubmitItemsCoreAsync(trackId, submittedByUserId, request));
+
+    private async Task<List<TrackNumberItemResponse>> SubmitItemsCoreAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request)
     {
         var track = await _db.Set<POItemTrackNumber>()
             .Include(t => t.Items)
@@ -215,7 +220,10 @@ public class ShippingService : IShippingService
         return updated.Select(MapItemResponse).ToList();
     }
 
-    public async Task<TrackNumberItemResponse?> UpdateItemAsync(long trackId, long itemId, UpdateTrackNumberItemRequest request)
+    public Task<TrackNumberItemResponse?> UpdateItemAsync(long trackId, long itemId, long userId, UpdateTrackNumberItemRequest request)
+        => WithStockReceiptAsync(trackId, userId, () => UpdateItemCoreAsync(trackId, itemId, request));
+
+    private async Task<TrackNumberItemResponse?> UpdateItemCoreAsync(long trackId, long itemId, UpdateTrackNumberItemRequest request)
     {
         var item = await _db.Set<TrackNumberItem>()
             .Include(i => i.POItem).ThenInclude(p => p.PartNumber)
@@ -343,7 +351,10 @@ public class ShippingService : IShippingService
 
     // ── Review ────────────────────────────────────────────────────────────
 
-    public async Task<TrackNumberItemResponse?> ReviewItemAsync(long trackId, long itemId, long reviewerId, ReviewTrackNumberItemRequest request)
+    public Task<TrackNumberItemResponse?> ReviewItemAsync(long trackId, long itemId, long reviewerId, ReviewTrackNumberItemRequest request)
+        => WithStockReceiptAsync(trackId, reviewerId, () => ReviewItemCoreAsync(trackId, itemId, reviewerId, request));
+
+    private async Task<TrackNumberItemResponse?> ReviewItemCoreAsync(long trackId, long itemId, long reviewerId, ReviewTrackNumberItemRequest request)
     {
         var item = await _db.Set<TrackNumberItem>()
             .Include(i => i.POItem).ThenInclude(p => p.PartNumber)
@@ -396,7 +407,10 @@ public class ShippingService : IShippingService
     /// Records receipt of every part on a track and accepts it immediately. This is
     /// the bulk shipping-admin path, so no second expert review is required.
     /// </summary>
-    public async Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null)
+    public Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null)
+        => WithStockReceiptAsync(trackId, reviewerId, () => ReceiveAndAcceptAllCoreAsync(trackId, reviewerId, note));
+
+    private async Task<ShippingTrackResponse?> ReceiveAndAcceptAllCoreAsync(long trackId, long reviewerId, string? note)
     {
         var track = await _db.Set<POItemTrackNumber>()
             .Include(t => t.Items)
@@ -497,6 +511,31 @@ public class ShippingService : IShippingService
         return await GetTrackForReviewAsync(trackId);
     }
 
+    /// <summary>
+    /// Runs a change to a track's counted/accepted quantities and books the matching Our Stock receipt
+    /// in one transaction, so a track can never be accepted without its stock (or the other way round).
+    /// The handler ignores tracks that carry no Stock PO lines.
+    /// </summary>
+    private async Task<T> WithStockReceiptAsync<T>(long trackId, long userId, Func<Task<T>> change)
+    {
+        if (_db.Database.CurrentTransaction is not null)
+        {
+            var inline = await change();
+            await _stockReceipts.OnReceivedAsync(trackId, userId);
+            return inline;
+        }
+
+        return await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            _db.ChangeTracker.Clear();
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            var result = await change();
+            await _stockReceipts.OnReceivedAsync(trackId, userId);
+            await transaction.CommitAsync();
+            return result;
+        });
+    }
+
     private async Task CompletePoWhenEveryPartApprovedAsync(long poId)
     {
         var po = await _db.Set<PurchaseOrder>()
@@ -505,6 +544,8 @@ public class ShippingService : IShippingService
                     .ThenInclude(t => t.Items)
             .FirstOrDefaultAsync(p => p.Id == poId);
         if (po == null || po.POItems.Count == 0) return;
+        // Stock POs complete on received quantity, which the Our Inventory receipt handler tracks.
+        if (po.Origin == "Stock") return;
 
         var allApproved = po.POItems.All(poItem =>
             poItem.TrackNumbers.Count > 0 &&

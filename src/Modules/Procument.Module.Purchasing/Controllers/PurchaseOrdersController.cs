@@ -10,14 +10,13 @@ using Procument.Shared.Services;
 using Procument.Shared.Audit;
 using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
-using Procument.Shared.Services;
 using Procument.Module.RFQ.Entities;
 
 namespace Procument.Module.Purchasing.Controllers;
 
 [ApiController]
 [Route("api/purchase-orders")]
-[Authorize(Roles = "Admin,SuperAdmin,Expert,Payment,AHM")]
+[Authorize(Roles = "Admin,SuperAdmin,Expert,Payment,AHM,Inventory")]
 public class PurchaseOrdersController : ControllerBase
 {
     private readonly IPurchaseOrderService _poService;
@@ -38,11 +37,11 @@ public class PurchaseOrdersController : ControllerBase
     /// <summary>Get all purchase orders (paginated). Non-admins see only POs assigned to them via EntityPermission("PO").</summary>
     [HttpGet]
     public async Task<ActionResult<PagedResult<POResponse>>> GetAll(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 1000)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 1000, [FromQuery] string? origin = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize };
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
-        var result = await _poService.GetAllAsync(pq, userId, isAdmin, isSuperAdmin, userBases);
+        var result = await _poService.GetAllAsync(pq, userId, isAdmin, isSuperAdmin, userBases, origin);
         return Ok(result);
     }
 
@@ -58,6 +57,10 @@ public class PurchaseOrdersController : ControllerBase
             .Where(b => b > 0).ToArray();
         return (userId, isAdmin, isSuperAdmin, userBases);
     }
+
+    private async Task<bool> CanAccessAsync(long id, long userId, bool isAdmin, bool isSuperAdmin, int[] userBases)
+        => await _poService.UserCanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)
+           || await _db.Set<PurchaseOrder>().AnyAsync(p => p.Id == id && p.Origin == "Stock");
 
     /// <summary>Get all unassigned POItems (not yet assigned to a PO).
     /// Admins see everything; non-admins see only POItems whose SourceProcurementItem
@@ -99,7 +102,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<ActionResult<POResponse>> GetById(long id)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)) return Forbid();
+        if (!await CanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)) return Forbid();
         var result = await _poService.GetByIdAsync(id);
         if (result == null) return NotFound();
         await FillCompanyPresetAsync(result);
@@ -262,6 +265,22 @@ public class PurchaseOrdersController : ControllerBase
         var po = await _poService.GetByIdAsync(id);
         if (po == null) return NotFound();
 
+        string? warning = null;
+        if (po.Origin == "Stock"
+            && string.Equals(request.Status, PurchaseOrderStatusFlow.WaitingForPr, StringComparison.OrdinalIgnoreCase))
+        {
+            var supplierPi = await _db.Set<PurchaseOrderDocument>()
+                .Where(d => d.POId == id && d.Category == PurchaseOrderDocumentCategories.SupplierPI)
+                .OrderByDescending(d => d.CreatedAt)
+                .Select(d => new { d.Amount })
+                .FirstOrDefaultAsync();
+            if (supplierPi == null)
+                return BadRequest(new { message = "Upload at least one Supplier PI document before moving this Stock PO to Waiting For PR." });
+            if (supplierPi.Amount.HasValue && po.TotalAmount.HasValue
+                && decimal.Round(supplierPi.Amount.Value, 2) != decimal.Round(po.TotalAmount.Value, 2))
+                warning = $"Supplier PI amount ({supplierPi.Amount.Value:0.00}) does not match PO total ({po.TotalAmount.Value:0.00}).";
+        }
+
         var success = await _poService.UpdateStatusAsync(id, request.Status, isAdmin, isSuperAdmin, request.RejectionNote);
         if (!success) return BadRequest(new { message = "Status change not allowed at this stage or role restricted." });
 
@@ -284,7 +303,7 @@ public class PurchaseOrdersController : ControllerBase
             await _db.SaveChangesAsync();
         }
 
-        return Ok();
+        return Ok(new { warning });
     }
 
     /// <summary>
@@ -400,9 +419,10 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> GetPdfData(long id)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
         var po = await _db.Set<PurchaseOrder>()
             .Include(p => p.Supplier)
+            .Include(p => p.DestinationWarehouse)
             .Include(p => p.ImportDetail)
             .Include(p => p.POItems).ThenInclude(i => i.PartNumber)
             .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.RFQItem).ThenInclude(ri => ri.RFQ).ThenInclude(r => r.Customer)
@@ -412,7 +432,7 @@ public class PurchaseOrdersController : ControllerBase
 
         if (po == null) return NotFound();
 
-        // Determine delivery address from first item's RFQ ExType
+        // Determine delivery address from the Stock PO destination, otherwise the first item's RFQ ExType.
         // ExType: null/0 = Warehouse (Hong Kong), other = Customer Exwork
         var firstProc = po.POItems.FirstOrDefault(i => i.ProcumentRecord?.RFQItem?.RFQ != null)?.ProcumentRecord;
         var rfq = firstProc?.RFQItem?.RFQ;
@@ -428,7 +448,15 @@ public class PurchaseOrdersController : ControllerBase
         string deliverToPhone = "";
         string deliverToEmail = "";
         string fedexAccount = "";
-        if (exType.HasValue && exType.Value != 0 && customer != null)
+        if (po.Origin == "Stock" && po.DestinationWarehouse != null)
+        {
+            deliverToName = po.DestinationWarehouse.DisplayName ?? po.DestinationWarehouse.Name;
+            deliverToAddress = po.DestinationWarehouse.ShipToAddress ?? po.DestinationWarehouse.Address ?? "";
+            deliverToPhone = po.DestinationWarehouse.Phone ?? "";
+            deliverToEmail = po.DestinationWarehouse.Email ?? "";
+            fedexAccount = po.DestinationWarehouse.FedexAccount ?? "";
+        }
+        else if (exType.HasValue && exType.Value != 0 && customer != null)
         {
             // Customer Exwork — deliver to customer address
             deliverToName = customer.Name;
@@ -471,6 +499,12 @@ public class PurchaseOrdersController : ControllerBase
         return Ok(new
         {
             poNumber = po.PONumber,
+            origin = po.Origin,
+            adminApproval = po.AdminApproval,
+            destinationWarehouseId = po.DestinationWarehouseId,
+            destinationWarehouseName = po.DestinationWarehouse == null ? null : po.DestinationWarehouse.DisplayName ?? po.DestinationWarehouse.Name,
+            supplierPIRef = po.SupplierPIRef,
+            expectedDeliveryDate = po.ExpectedDeliveryDate,
             status = po.Status,
             createdAt = po.CreatedAt,
             totalAmount = po.TotalAmount,
@@ -528,7 +562,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> UpdateTotals(long id, [FromBody] UpdatePOTotalsRequest request)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
         if (await _lockGuard.IsPurchaseOrderLocked(id))
             return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
 
@@ -555,7 +589,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> UpdateSubject(long id, [FromBody] UpdatePOSubjectRequest request)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
 
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return NotFound();
@@ -575,7 +609,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> GetImportDetail(long poId)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(poId, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(poId, uid, isA, isSA, bases)) return Forbid();
         var detail = await _db.Set<POImportDetail>()
             .FirstOrDefaultAsync(d => d.PurchaseOrderId == poId);
 
@@ -609,7 +643,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> SaveImportDetail(long poId, [FromBody] SavePOImportDetailRequest request)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(poId, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(poId, uid, isA, isSA, bases)) return Forbid();
         var po = await _db.Set<PurchaseOrder>().FindAsync(poId);
         if (po == null) return NotFound();
 
@@ -944,7 +978,13 @@ public class PurchaseOrdersController : ControllerBase
 
         if (request.Decision == "Approved")
         {
-            po.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
+            await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.WaitingForSupplierDocuments);
+        }
+        else if (request.Decision == "Rejected" && po.Origin == "Stock"
+                 && po.Status == PurchaseOrderStatusFlow.WaitingForAdminApproval)
+        {
+            // Stock POs can only be edited as drafts, so a rejection hands the draft back for correction.
+            await PurchaseOrderStatusFlow.ApplyAsync(_db, po, "Draft");
         }
 
         await _db.SaveChangesAsync();
@@ -1014,6 +1054,7 @@ public class PurchaseOrdersController : ControllerBase
                          || p.PaymentStatus == "Submitted"))
             .OrderByDescending(p => p.CreatedAt)
             .Include(p => p.Supplier)
+            .Include(p => p.DestinationWarehouse)
             .ToListAsync();
 
         var invoiceIds = pos.Where(p => p.InvoiceId.HasValue).Select(p => p.InvoiceId!.Value).Distinct().ToList();
@@ -1106,6 +1147,7 @@ public class PurchaseOrdersController : ControllerBase
         var list = pos.Select(p => new POResponse
         {
             Id = p.Id,
+            Origin = p.Origin,
             PONumber = p.PONumber,
             TotalAmount = p.TotalAmount,
             Status = p.Status,
@@ -1132,6 +1174,11 @@ public class PurchaseOrdersController : ControllerBase
             PreferredWalletId = p.PreferredWalletId,
             PreferredWalletName = p.PreferredWalletId.HasValue && walletMap.ContainsKey(p.PreferredWalletId.Value) ? walletMap[p.PreferredWalletId.Value].Name : null,
             PreferredWalletCompany = p.PreferredWalletId.HasValue && walletMap.ContainsKey(p.PreferredWalletId.Value) ? walletMap[p.PreferredWalletId.Value].Company : null,
+            CompanyPresetId = p.CompanyPresetId,
+            DestinationWarehouseId = p.DestinationWarehouseId,
+            DestinationWarehouseName = p.DestinationWarehouse == null ? null : p.DestinationWarehouse.DisplayName ?? p.DestinationWarehouse.Name,
+            SupplierPIRef = p.SupplierPIRef,
+            ExpectedDeliveryDate = p.ExpectedDeliveryDate,
         }).ToList();
 
         return Ok(list);
@@ -1143,9 +1190,10 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> GetEnriched(long id)
     {
         var (uid, isA, isSA, bases) = GetCurrentUser();
-        if (!await _poService.UserCanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
+        if (!await CanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
         var po = await _db.Set<PurchaseOrder>()
             .Include(p => p.Supplier)
+            .Include(p => p.DestinationWarehouse)
             .Include(p => p.POItems).ThenInclude(i => i.PartNumber)
             .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.Supplier)
             .Include(p => p.POItems).ThenInclude(i => i.ProcumentRecord!).ThenInclude(pr => pr.RFQItem).ThenInclude(ri => ri.RFQ).ThenInclude(r => r.Customer)
@@ -1238,6 +1286,11 @@ public class PurchaseOrdersController : ControllerBase
         {
             id = po.Id,
             poNumber = po.PONumber,
+            origin = po.Origin,
+            destinationWarehouseId = po.DestinationWarehouseId,
+            destinationWarehouseName = po.DestinationWarehouse == null ? null : po.DestinationWarehouse.DisplayName ?? po.DestinationWarehouse.Name,
+            supplierPIRef = po.SupplierPIRef,
+            expectedDeliveryDate = po.ExpectedDeliveryDate,
             supplierName = po.Supplier?.Name,
             totalAmount = po.TotalAmount,
             createdAt = po.CreatedAt,

@@ -17,6 +17,16 @@ public class AvailabilityRecord
     public string? TagDate { get; set; }
 }
 
+/// <summary>
+/// Module-neutral availability row returned by an external Purchasing availability source.
+/// </summary>
+public sealed class PartAvailabilitySourceRecord : AvailabilityRecord
+{
+    public long PartNumberId { get; set; }
+    public long? StockItemId { get; set; }
+    public bool IsIncoming { get; set; }
+}
+
 public class PartAvailabilityResponse
 {
     public long PartNumberId { get; set; }

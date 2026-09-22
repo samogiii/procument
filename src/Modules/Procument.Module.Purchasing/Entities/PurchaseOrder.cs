@@ -5,6 +5,8 @@ namespace Procument.Module.Purchasing.Entities;
 
 public class PurchaseOrder : BaseEntity
 {
+    /// <summary>Customer for the existing sales-driven flow; Stock for purchases made for our inventory.</summary>
+    public string Origin { get; set; } = "Customer";
     public string PONumber { get; set; } = string.Empty;
     public DateTime? PODate { get; set; }
     public decimal? TotalAmount { get; set; }
@@ -61,12 +63,17 @@ public class PurchaseOrder : BaseEntity
     public long? PreferredWalletId { get; set; }
     /// <summary>The buying company, independent of the wallet used for each payment.</summary>
     public long? CompanyPresetId { get; set; }
+    public long? DestinationWarehouseId { get; set; }
+    public string? SupplierPIRef { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
     // Foreign keys
     public long SupplierId { get; set; }
     public long? InvoiceId { get; set; }
 
     // Navigation
     public Supplier Supplier { get; set; } = null!;
+    public Warehouse? DestinationWarehouse { get; set; }
     public ICollection<POItem> POItems { get; set; } = new List<POItem>();
+    public ICollection<PurchaseOrderDocument> Documents { get; set; } = new List<PurchaseOrderDocument>();
     public POImportDetail? ImportDetail { get; set; }
 }

@@ -819,7 +819,7 @@ async function loadItems() {
 async function loadPurchaseOrders() {
   // try {
 
-    const res = await api.get<any>('/purchase-orders?page=1&pageSize=1000')
+    const res = await api.get<any>('/purchase-orders?page=1&pageSize=1000&origin=Customer') // Stock POs live under Our Inventory
     const pos: any[] = Array.isArray(res) ? res : (res.items ?? res.Items ?? [])
     purchaseOrders.value = pos
 

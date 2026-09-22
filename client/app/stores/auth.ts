@@ -36,6 +36,7 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     actionCenter:    [],
     taskManager:     [],
     totalPnMenu:     [],
+    ourInventoryMenu:[],
 }
 
 /**
@@ -122,6 +123,8 @@ export const useAuthStore = defineStore('auth', {
         actionCenter():     boolean { return (this as any).isSuperAdmin || this.can('actionCenter') },
         taskManager():      boolean { return (this as any).isSuperAdmin || this.can('taskManager') },
         totalPnMenu():       boolean { return (this as any).isSuperAdmin || this.can('totalPnMenu') },
+        /** Our Inventory module — our own stock, Stock POs and receiving. */
+        ourInventoryMenu(): boolean { return (this as any).isSuperAdmin || this.can('ourInventoryMenu') },
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'

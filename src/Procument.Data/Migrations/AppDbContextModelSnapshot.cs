@@ -642,6 +642,261 @@ namespace Procument.Data.Migrations
                     b.ToTable("UserCustomers", (string)null);
                 });
 
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("AvgUnitCost")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("BinLocation")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("CertName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<long>("CompanyPresetId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Condition")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("MinQty")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long>("PartNumberId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("QtyAvailable")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("decimal(18,2)")
+                        .HasComputedColumnSql("[QtyOnHand] - [QtyReserved]", true);
+
+                    b.Property<decimal>("QtyOnHand")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("QtyReserved")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime?>("TagDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("WarehouseId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyPresetId");
+
+                    b.HasIndex("PartNumberId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("PartNumberId", "Condition", "WarehouseId", "CompanyPresetId", "CertName")
+                        .IsUnique();
+
+                    b.ToTable("OurStockItems", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockMovement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("CreatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("InvoiceItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("POId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("POItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("Qty")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long?>("QuoteItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("RFQItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<long>("StockItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("TrackNumberId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<long?>("WarehouseTransferId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("InvoiceItemId");
+
+                    b.HasIndex("POId");
+
+                    b.HasIndex("POItemId");
+
+                    b.HasIndex("WarehouseTransferId");
+
+                    b.HasIndex("StockItemId", "CreatedAt");
+
+                    b.HasIndex("TrackNumberId", "POItemId")
+                        .IsUnique()
+                        .HasFilter("[TrackNumberId] IS NOT NULL AND [POItemId] IS NOT NULL AND [Type] = 'Receipt'");
+
+                    b.ToTable("OurStockMovements", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockReservation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("CreatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("InvoiceItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("Qty")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long?>("QuoteItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("RFQItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<long>("StockItemId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("InvoiceItemId");
+
+                    b.HasIndex("StockItemId", "Status");
+
+                    b.ToTable("OurStockReservations", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockSerial", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("IssueMovementId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PartNumberId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ReceiptMovementId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SerialNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<long>("StockItemId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IssueMovementId");
+
+                    b.HasIndex("ReceiptMovementId");
+
+                    b.HasIndex("StockItemId");
+
+                    b.HasIndex("PartNumberId", "SerialNumber")
+                        .IsUnique();
+
+                    b.ToTable("OurStockSerials", (string)null);
+                });
+
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.CapListItem", b =>
                 {
                     b.Property<long>("Id")
@@ -1327,6 +1582,9 @@ namespace Procument.Data.Migrations
                     b.Property<string>("Status")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<long?>("StockItemId")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("SupplierId")
                         .HasColumnType("bigint");
 
@@ -1347,6 +1605,8 @@ namespace Procument.Data.Migrations
                     b.HasIndex("ReturnedAt");
 
                     b.HasIndex("SourceProcurementItemId");
+
+                    b.HasIndex("StockItemId");
 
                     b.ToTable("POItems", (string)null);
                 });
@@ -1442,6 +1702,9 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("POId")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("PRId")
+                        .HasColumnType("bigint");
+
                     b.Property<decimal?>("PendingExchangeRate")
                         .HasColumnType("decimal(18,6)");
 
@@ -1452,9 +1715,6 @@ namespace Procument.Data.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<long?>("PendingWalletId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("PRId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Status")
@@ -1938,12 +2198,25 @@ namespace Procument.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<long?>("DestinationWarehouseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ExpectedDeliveryDate")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("FulfillmentMode")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
                     b.Property<long?>("InvoiceId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Customer");
 
                     b.Property<DateTime?>("PODate")
                         .HasColumnType("datetime2");
@@ -2012,6 +2285,10 @@ namespace Procument.Data.Migrations
                     b.Property<long>("SupplierId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("SupplierPIRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<decimal?>("Tax")
                         .HasColumnType("decimal(18,2)");
 
@@ -2024,6 +2301,8 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("CreatedAt");
 
+                    b.HasIndex("DestinationWarehouseId");
+
                     b.HasIndex("InvoiceId");
 
                     b.HasIndex("PONumber")
@@ -2035,7 +2314,59 @@ namespace Procument.Data.Migrations
 
                     b.HasIndex("SupplierId");
 
+                    b.HasIndex("Origin", "Status");
+
                     b.ToTable("PurchaseOrders", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrderDocument", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<long>("POId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StoredName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<long>("UploadedBy")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("POId");
+
+                    b.HasIndex("UploadedBy");
+
+                    b.HasIndex("POId", "Category");
+
+                    b.ToTable("PurchaseOrderDocuments", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNote", b =>
@@ -2226,10 +2557,10 @@ namespace Procument.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SupplierQuoteId");
-
                     b.HasIndex("Reference")
                         .IsUnique();
+
+                    b.HasIndex("SupplierQuoteId");
 
                     b.HasIndex("UploadedByUserId");
 
@@ -2962,12 +3293,12 @@ namespace Procument.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal?>("Discount")
-                        .HasColumnType("decimal(18,2)");
-
                     b.Property<string>("Condition")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal?>("Discount")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("ExpectedDeliveryDate")
                         .HasColumnType("datetime2");
@@ -3266,6 +3597,9 @@ namespace Procument.Data.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
 
+                    b.Property<long?>("SourceStockItemId")
+                        .HasColumnType("bigint");
+
                     b.Property<decimal>("TotalPrice")
                         .HasColumnType("decimal(18,2)");
 
@@ -3283,6 +3617,8 @@ namespace Procument.Data.Migrations
                     b.HasIndex("QuoteId");
 
                     b.HasIndex("RFQItemId");
+
+                    b.HasIndex("SourceStockItemId");
 
                     b.ToTable("QuoteItems", (string)null);
                 });
@@ -3773,6 +4109,132 @@ namespace Procument.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockItem", b =>
+                {
+                    b.HasOne("Procument.Module.Catalog.Entities.CompanyPreset", "CompanyPreset")
+                        .WithMany()
+                        .HasForeignKey("CompanyPresetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Catalog.Entities.PartNumber", "PartNumber")
+                        .WithMany()
+                        .HasForeignKey("PartNumberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CompanyPreset");
+
+                    b.Navigation("PartNumber");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockMovement", b =>
+                {
+                    b.HasOne("Procument.Module.Identity.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("POId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.POItem", "POItem")
+                        .WithMany()
+                        .HasForeignKey("POItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockItem", "StockItem")
+                        .WithMany("Movements")
+                        .HasForeignKey("StockItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.POItemTrackNumber", "TrackNumber")
+                        .WithMany()
+                        .HasForeignKey("TrackNumberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.WarehouseTransfer", "WarehouseTransfer")
+                        .WithMany()
+                        .HasForeignKey("WarehouseTransferId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("POItem");
+
+                    b.Navigation("PurchaseOrder");
+
+                    b.Navigation("StockItem");
+
+                    b.Navigation("TrackNumber");
+
+                    b.Navigation("WarehouseTransfer");
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockReservation", b =>
+                {
+                    b.HasOne("Procument.Module.Identity.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockItem", "StockItem")
+                        .WithMany("Reservations")
+                        .HasForeignKey("StockItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("StockItem");
+                });
+
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockSerial", b =>
+                {
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockMovement", "IssueMovement")
+                        .WithMany()
+                        .HasForeignKey("IssueMovementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Procument.Module.Catalog.Entities.PartNumber", "PartNumber")
+                        .WithMany()
+                        .HasForeignKey("PartNumberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockMovement", "ReceiptMovement")
+                        .WithMany()
+                        .HasForeignKey("ReceiptMovementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockItem", "StockItem")
+                        .WithMany("Serials")
+                        .HasForeignKey("StockItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("IssueMovement");
+
+                    b.Navigation("PartNumber");
+
+                    b.Navigation("ReceiptMovement");
+
+                    b.Navigation("StockItem");
+                });
+
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.CapListItem", b =>
                 {
                     b.HasOne("Procument.Module.Catalog.Entities.Supplier", "Company")
@@ -3966,6 +4428,11 @@ namespace Procument.Data.Migrations
                         .HasForeignKey("SourceProcurementItemId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockItem", null)
+                        .WithMany()
+                        .HasForeignKey("StockItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("PartNumber");
 
                     b.Navigation("ProcumentRecord");
@@ -4111,13 +4578,39 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrder", b =>
                 {
+                    b.HasOne("Procument.Module.Purchasing.Entities.Warehouse", "DestinationWarehouse")
+                        .WithMany()
+                        .HasForeignKey("DestinationWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Procument.Module.Catalog.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.Navigation("DestinationWarehouse");
+
                     b.Navigation("Supplier");
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrderDocument", b =>
+                {
+                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("Documents")
+                        .HasForeignKey("POId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "UploadedByUser")
+                        .WithMany()
+                        .HasForeignKey("UploadedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseOrder");
+
+                    b.Navigation("UploadedByUser");
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNote", b =>
@@ -4565,6 +5058,11 @@ namespace Procument.Data.Migrations
                         .HasForeignKey("RFQItemId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Procument.Module.OurInventory.Entities.OurStockItem", null)
+                        .WithMany()
+                        .HasForeignKey("SourceStockItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("PartNumber");
 
                     b.Navigation("ProcumentRecord");
@@ -4640,6 +5138,15 @@ namespace Procument.Data.Migrations
                     b.Navigation("UserCustomers");
                 });
 
+            modelBuilder.Entity("Procument.Module.OurInventory.Entities.OurStockItem", b =>
+                {
+                    b.Navigation("Movements");
+
+                    b.Navigation("Reservations");
+
+                    b.Navigation("Serials");
+                });
+
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ILSItem", b =>
                 {
                     b.Navigation("Serials");
@@ -4692,6 +5199,8 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.PurchaseOrder", b =>
                 {
+                    b.Navigation("Documents");
+
                     b.Navigation("ImportDetail");
 
                     b.Navigation("POItems");

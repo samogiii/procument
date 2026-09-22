@@ -45,8 +45,8 @@ public class ShippingController : ControllerBase
         long trackId,
         [FromBody] SubmitTrackNumberItemsRequest request)
     {
-        var result = await _service.SubmitItemsAsync(trackId, GetUserId(), request);
-        return Ok(result);
+        try { return Ok(await _service.SubmitItemsAsync(trackId, GetUserId(), request)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     /// <summary>Update a single part item (qty, actual qty, availability).</summary>
@@ -57,8 +57,12 @@ public class ShippingController : ControllerBase
         long itemId,
         [FromBody] UpdateTrackNumberItemRequest request)
     {
-        var result = await _service.UpdateItemAsync(trackId, itemId, request);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _service.UpdateItemAsync(trackId, itemId, GetUserId(), request);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     // ── Reject track ──────────────────────────────────────────────────────
@@ -135,8 +139,12 @@ public class ShippingController : ControllerBase
         long itemId,
         [FromBody] ReviewTrackNumberItemRequest request)
     {
-        var result = await _service.ReviewItemAsync(trackId, itemId, GetUserId(), request);
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _service.ReviewItemAsync(trackId, itemId, GetUserId(), request);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     /// <summary>
@@ -149,8 +157,12 @@ public class ShippingController : ControllerBase
         long trackId,
         [FromBody] ReceiveTransferRequest? request = null)
     {
-        var result = await _service.ReceiveAndAcceptAllAsync(trackId, GetUserId(), request?.Note?.Trim());
-        return result == null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _service.ReceiveAndAcceptAllAsync(trackId, GetUserId(), request?.Note?.Trim());
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     // ── Single track review (Admin/Expert) ───────────────────────────────

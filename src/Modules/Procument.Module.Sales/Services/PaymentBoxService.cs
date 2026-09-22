@@ -45,6 +45,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 .ThenInclude(t => t.Invoice)
             .Include(b => b.Transactions)
                 .ThenInclude(t => t.PaymentRequest)
+                    .ThenInclude(pr => pr!.PO)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (box == null) return null;
@@ -93,7 +94,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 running,
                 t.TxCurrency,
                 t.ExchangeRate,
-                t.Base);
+                t.Base,
+                t.PaymentRequest?.PO?.PONumber,
+                POType(t.PaymentRequest?.PO),
+                POLink(t.PaymentRequest?.POId));
         }).ToList();
 
         var totalDeposit = ordered.Where(t => t.Type == "Deposit").Sum(t => t.Amount * (t.ExchangeRate ?? 1m));
@@ -122,6 +126,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 .ThenInclude(t => t.Invoice)
             .Include(b => b.Transactions)
                 .ThenInclude(t => t.PaymentRequest)
+                    .ThenInclude(pr => pr!.PO)
             .ToListAsync();
 
         // Wallets are identified by their own name; the company preset is only a fallback.
@@ -169,7 +174,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                     running,
                     t.TxCurrency,
                     t.ExchangeRate,
-                    t.Base));
+                    t.Base,
+                    t.PaymentRequest?.PO?.PONumber,
+                    POType(t.PaymentRequest?.PO),
+                    POLink(t.PaymentRequest?.POId)));
             }
         }
 
@@ -344,7 +352,11 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         if (tx.InvoiceId.HasValue)
             await _db.Entry(tx).Reference(t => t.Invoice).LoadAsync();
         if (tx.PaymentRequestId.HasValue)
+        {
             await _db.Entry(tx).Reference(t => t.PaymentRequest).LoadAsync();
+            if (tx.PaymentRequest is not null)
+                await _db.Entry(tx.PaymentRequest).Reference(pr => pr.PO).LoadAsync();
+        }
 
         var allTx = await _db.Set<PaymentTransaction>()
             .Where(t => t.PaymentBoxId == boxId)
@@ -382,7 +394,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             running,
             tx.TxCurrency,
             tx.ExchangeRate,
-            tx.Base);
+            tx.Base,
+            tx.PaymentRequest?.PO?.PONumber,
+            POType(tx.PaymentRequest?.PO),
+            POLink(tx.PaymentRequest?.POId));
     }
 
     public async Task<PaymentTransactionRow?> UpdateTransactionAsync(long txId, UpdateTransactionRequest req)
@@ -418,7 +433,11 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         if (tx.InvoiceId.HasValue)
             await _db.Entry(tx).Reference(t => t.Invoice).LoadAsync();
         if (tx.PaymentRequestId.HasValue)
+        {
             await _db.Entry(tx).Reference(t => t.PaymentRequest).LoadAsync();
+            if (tx.PaymentRequest is not null)
+                await _db.Entry(tx.PaymentRequest).Reference(pr => pr.PO).LoadAsync();
+        }
 
         var allTx = await _db.Set<PaymentTransaction>()
             .Where(t => t.PaymentBoxId == tx.PaymentBoxId)
@@ -456,8 +475,17 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             running,
             tx.TxCurrency,
             tx.ExchangeRate,
-            tx.Base);
+            tx.Base,
+            tx.PaymentRequest?.PO?.PONumber,
+            POType(tx.PaymentRequest?.PO),
+            POLink(tx.PaymentRequest?.POId));
     }
+
+    private static string? POType(PurchaseOrder? po)
+        => po is null ? null : po.Origin == "Stock" ? "Stock PO" : "Customer PO";
+
+    private static string? POLink(long? poId)
+        => poId.HasValue ? $"/purchase-orders/{poId.Value}" : null;
 
     public async Task<bool> DeleteTransactionAsync(long txId)
     {

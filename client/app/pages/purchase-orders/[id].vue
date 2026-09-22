@@ -14,7 +14,15 @@
       >
         {{ po.companyPresetName }}
       </v-chip>
+      <v-chip v-if="isStock" size="small" color="purple" variant="tonal" prepend-icon="mdi-warehouse"
+        title="Bought for Our Stock — no customer or Sales Order behind it">
+        Stock PO
+      </v-chip>
       <v-spacer />
+      <v-btn v-if="isStock && po.status === 'Draft'" prepend-icon="mdi-pencil" size="small" variant="tonal" color="primary"
+        :to="`/our-inventory/purchase-orders/new?id=${route.params.id}`">
+        Edit draft
+      </v-btn>
       <v-menu :disabled="isLocked">
         <template #activator="{ props: menuProps }">
           <v-chip
@@ -47,7 +55,7 @@
       <v-btn prepend-icon="mdi-file-pdf-box" size="small" color="error" class="mr-1" @click="showPdf = true">PDF</v-btn>
       <v-btn prepend-icon="mdi-file-export-outline" size="small" color="warning" class="mr-1" @click="showPrDialog = true">PR</v-btn>
       <v-btn
-        v-if="isAdmin || assignedUsers.some(u => u.userId === authStore.user?.id)"
+        v-if="!isStock && (isAdmin || assignedUsers.some(u => u.userId === authStore.user?.id))"
         prepend-icon="mdi-keyboard-return"
         size="small"
         variant="tonal"
@@ -106,7 +114,8 @@
         </StatCard>
       </v-col>
       <v-col cols="12" :md="isAdmin ? 3 : 4">
-        <StatCard icon="mdi-file-document-outline" color="info" label="Sales Order" :value="po.invoiceNumber || '—'" class="h-100" />
+        <StatCard v-if="isStock" icon="mdi-warehouse" color="purple" label="Ship to (Our Stock)" :value="po.destinationWarehouseName || '—'" class="h-100" />
+        <StatCard v-else icon="mdi-file-document-outline" color="info" label="Sales Order" :value="po.invoiceNumber || '—'" class="h-100" />
       </v-col>
     </v-row>
 
@@ -162,8 +171,93 @@
       </v-card-text>
     </v-card>
 
+    <!-- ── Stock PO: admin approval (submitted drafts wait here) ── -->
+    <v-card v-if="isStock && isAdmin && po.status === 'Waiting For Admin Approval'" class="glass-card mb-6">
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-shield-check-outline" class="mr-2" size="20" color="orange" />
+        Admin Approval
+      </v-card-title>
+      <v-card-text>
+        <p class="text-body-2 mb-3">
+          This Stock PO was submitted for approval. Approving moves it to <strong>Waiting For Supplier Documents</strong>;
+          rejecting sends it back to <strong>Draft</strong> so it can be corrected.
+        </p>
+        <v-text-field v-model="approvalNote" label="Note (required to reject)" variant="outlined" density="compact" hide-details />
+        <div class="d-flex gap-2 mt-3">
+          <v-btn color="success" variant="flat" prepend-icon="mdi-check" :loading="approving === 'Approved'" :disabled="!!approving" @click="decideApproval('Approved')">Approve</v-btn>
+          <v-btn color="error" variant="tonal" prepend-icon="mdi-close" :loading="approving === 'Rejected'" :disabled="!!approving || !approvalNote.trim()" @click="decideApproval('Rejected')">Reject</v-btn>
+        </div>
+      </v-card-text>
+    </v-card>
+    <v-alert v-if="isStock && po.status === 'Draft' && po.adminApproval === 'Rejected'" type="error" variant="tonal" class="mb-6" icon="mdi-close-circle">
+      <strong>Rejected by admin:</strong> {{ po.adminApprovalNote || 'no note' }} — edit the draft and submit it again.
+    </v-alert>
+
+    <!-- ── Stock PO: supplier documents keyed by PO (there is no Sales Order to file them under) ── -->
+    <PurchaseOrderDocuments v-if="isStock" :po-id="route.params.id as string" :po-total="po.totalAmount" @changed="loadPo" @notify="showSnack" />
+
+    <!-- ── Stock PO: what has been received into Our Stock ── -->
+    <v-card v-if="isStock" class="glass-card mb-6">
+      <v-card-title class="d-flex align-center flex-wrap gap-2">
+        <v-icon icon="mdi-package-variant-closed-check" class="mr-1" size="20" color="success" />
+        Received into Our Stock
+        <v-chip v-if="stockReceipts" size="x-small" variant="tonal" :color="stockReceipts.fullyReceived ? 'success' : 'primary'">
+          {{ fmtQty(receivedTotal) }} / {{ orderedTotal }}
+        </v-chip>
+        <v-spacer />
+        <v-btn v-if="receivedTotal > 0" size="small" variant="tonal" color="primary" prepend-icon="mdi-file-pdf-box"
+          :loading="stockPdf.loading.value === 'grn'" @click="stockPdf.openGrn(route.params.id as string, [], po.poNumber)">
+          GRN
+        </v-btn>
+        <v-btn v-if="isAdmin && stockReceipts && !stockReceipts.fullyReceived && po.adminApproval === 'Approved' && !isTerminalState"
+          size="small" variant="tonal" color="success" prepend-icon="mdi-truck-check-outline" @click="showStockReceive = true">
+          Receive without track
+        </v-btn>
+      </v-card-title>
+      <v-card-text>
+        <v-table v-if="stockReceipts?.lines?.length" density="compact">
+          <thead>
+            <tr><th>#</th><th>P/N</th><th>Cond.</th><th class="text-end">Ordered</th><th class="text-end">Received</th><th class="text-end">Remaining</th><th>Receipts</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in stockReceipts.lines" :key="l.poItemId">
+              <td class="text-medium-emphasis">{{ l.poRef }}</td>
+              <td>
+                <NuxtLink v-if="l.stockItemId" :to="`/our-inventory/${l.stockItemId}`" class="text-primary text-decoration-none font-weight-medium">{{ l.partNumber }}</NuxtLink>
+                <span v-else class="font-weight-medium">{{ l.partNumber }}</span>
+              </td>
+              <td>{{ l.condition }}</td>
+              <td class="text-end">{{ l.qtyOrdered }}</td>
+              <td class="text-end">{{ fmtQty(l.qtyReceived) }}</td>
+              <td class="text-end" :class="l.qtyRemaining > 0 ? 'font-weight-bold' : 'text-success'">{{ fmtQty(l.qtyRemaining) }}</td>
+              <td>
+                <div v-for="m in l.movements" :key="m.id" class="text-caption">
+                  <span :class="m.qty < 0 ? 'text-error' : ''">{{ m.qty > 0 ? '+' : '' }}{{ fmtQty(m.qty) }}</span>
+                  · {{ m.trackNumber ? `track ${m.trackNumber}` : 'manual' }} · {{ m.warehouseName }} · {{ new Date(m.createdAt).toLocaleDateString() }}
+                  <span v-if="m.serials?.length" class="text-medium-emphasis">· S/N {{ m.serials.join(', ') }}</span>
+                </div>
+                <span v-if="!l.movements.length" class="text-caption text-medium-emphasis">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+        <div class="text-caption text-medium-emphasis mt-2">
+          Stock is added automatically when a track number for this PO is accepted in the warehouse.
+        </div>
+        <v-alert v-if="stockPdf.error.value" type="error" variant="tonal" density="compact" class="mt-2">{{ stockPdf.error.value }}</v-alert>
+        <DocPreviewModal
+          :open="stockPdf.preview.open.value"
+          :blob-url="stockPdf.preview.blobUrl.value"
+          :file-name="stockPdf.preview.fileName.value"
+          :mime-type="stockPdf.preview.mimeType.value"
+          @close="stockPdf.preview.close()"
+        />
+      </v-card-text>
+    </v-card>
+    <StockReceiveDialog v-if="isStock" v-model="showStockReceive" :po-id="route.params.id as string" @received="onStockReceived" />
+
     <!-- Documents are grouped by business owner so users can find the right upload quickly. -->
-    <v-card class="glass-card mb-6">
+    <v-card v-if="!isStock" class="glass-card mb-6">
       <v-card-title class="d-flex align-center">
         <v-icon icon="mdi-folder-multiple-outline" class="mr-2" size="20" color="primary" />
         PO Document Center
@@ -956,7 +1050,11 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 const savingLeadTimeId = ref<number | null>(null)
 
-const poStatuses = [
+/** Stock POs buy for Our Stock: no customer, Sales Order, return-to-procurement or EndUser / In Shop routes. */
+const isStock = computed(() => po.value?.origin === 'Stock')
+const STOCK_HIDDEN_STATUSES = new Set(['Not Started', 'Sourcing', 'EndUser', 'In Shop'])
+
+const allPoStatuses = [
   { value: 'Not Started', label: 'Not Started', icon: 'mdi-circle-outline', color: 'grey' },
   { value: 'Sourcing', label: 'Sourcing', icon: 'mdi-source-branch', color: 'purple' },
   { value: 'EndUser', label: 'EndUser', icon: 'mdi-account-check-outline', color: 'cyan' },
@@ -973,9 +1071,10 @@ const poStatuses = [
   { value: 'Completed', label: 'Completed', icon: 'mdi-check-all', color: 'teal' },
   { value: 'Cancelled', label: 'Cancelled', icon: 'mdi-cancel', color: 'grey' },
 ]
+const poStatuses = computed(() => isStock.value ? allPoStatuses.filter(s => !STOCK_HIDDEN_STATUSES.has(s.value)) : allPoStatuses)
 
 function statusColorForPart(status: string) {
-  return poStatuses.find(s => s.value.toLowerCase() === (status || '').toLowerCase())?.color || 'grey'
+  return allPoStatuses.find(s => s.value.toLowerCase() === (status || '').toLowerCase())?.color || 'grey'
 }
 
 function isItemInShop(item: any) {
@@ -1116,6 +1215,42 @@ async function returnPo() {
   }
 }
 
+// ── Stock PO: approval + receipts ──
+const approvalNote = ref('')
+const approving = ref<'' | 'Approved' | 'Rejected'>('')
+async function decideApproval(decision: 'Approved' | 'Rejected') {
+  approving.value = decision
+  try {
+    await api.patch(`/purchase-orders/${route.params.id}/admin-approval`, { decision, note: approvalNote.value.trim() || null })
+    approvalNote.value = ''
+    showSnack(decision === 'Approved' ? 'Stock PO approved' : 'Stock PO sent back to draft', decision === 'Approved' ? 'success' : 'warning')
+    await loadPo()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not save the decision', 'error')
+  } finally {
+    approving.value = ''
+  }
+}
+
+const stockReceipts = ref<any>(null)
+const stockPdf = useStockPdf()
+const showStockReceive = ref(false)
+const fmtQty = (q: number) => Number(q || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+const orderedTotal = computed(() => (stockReceipts.value?.lines || []).reduce((s: number, l: any) => s + l.qtyOrdered, 0))
+const receivedTotal = computed(() => (stockReceipts.value?.lines || []).reduce((s: number, l: any) => s + Number(l.qtyReceived), 0))
+async function loadStockReceipts() {
+  try { stockReceipts.value = await api.get<any>(`/our-inventory/purchase-orders/${route.params.id}/receipts`) }
+  catch { stockReceipts.value = null }
+}
+// The PO is (re)loaded from several places; refresh receipts whenever a Stock PO arrives.
+watch(po, (v) => { if (v?.origin === 'Stock') loadStockReceipts() })
+
+async function onStockReceived(summary: any) {
+  stockReceipts.value = summary
+  showSnack(summary?.fullyReceived ? 'All lines received into stock' : 'Stock received', 'success')
+  await loadPo()
+}
+
 async function loadPo() {
   try {
     po.value = await api.get(`/purchase-orders/${route.params.id}`)
@@ -1160,7 +1295,7 @@ const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('po', entityId)
 
 const poStatusColor = computed(() => {
-  const found = poStatuses.find(s => s.value === po.value.status)
+  const found = allPoStatuses.find(s => s.value === po.value.status)
   return found?.color || 'grey'
 })
 

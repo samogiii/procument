@@ -326,6 +326,8 @@ async function generate() {
       prNumber: `PR${String(pr.prNumber).padStart(5, '0')}`,
       documentDate: new Date().toISOString().slice(0, 10),
       poNumber: props.po?.poNumber,
+      invoiceNumber: props.po?.invoiceNumber,
+      supplierPIRef: props.po?.supplierPIRef,
       supplierName: props.po?.supplierName,
       currency: props.po?.currency || 'USD',
       currencySymbol: '$',
@@ -390,16 +392,19 @@ async function generate() {
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
 
-    // 5. Auto-upload to supplier folder
-    const form = new FormData()
-    const file = new File([blob], fileName, { type: 'application/pdf' })
-    form.append('file', file)
-    form.append('category', 'dp')
-    await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.po.invoiceId}/supplier/${props.po.supplierId}/upload`, {
-      method: 'POST',
-      body: form,
-      headers: { Authorization: `Bearer ${authStore.user?.token}` },
-    })
+    // 5. Customer POs retain the legacy invoice-folder archive. Stock POs have no
+    // customer invoice, so their downloaded PR remains associated through the PR/PO records.
+    if (props.po?.invoiceId) {
+      const form = new FormData()
+      const file = new File([blob], fileName, { type: 'application/pdf' })
+      form.append('file', file)
+      form.append('category', 'dp')
+      await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.po.invoiceId}/supplier/${props.po.supplierId}/upload`, {
+        method: 'POST',
+        body: form,
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+    }
 
     // A successfully generated and downloaded PR enters the payment queue.
     await api.patch(`/purchase-orders/${props.poId}/status`, { status: 'Waiting For Payment' })

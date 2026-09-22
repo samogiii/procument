@@ -1,9 +1,20 @@
 # Feature Plan — OurInventory module (stock purchasing + our own stock)
 
-**Status:** Design, not started
+**Status:** In progress — Epics 0–5, 8 and 9.1–9.7 implemented; **Milestone 1 is complete**. Epic 6 is next.
 **Date:** 2026-09-22
+**Last updated:** 2026-09-22
 **Module:** `src/Modules/Procument.Module.OurInventory`
 **Frontend:** `client/app/pages/our-inventory/**`
+
+### Progress snapshot
+
+- **Completed:** Epics 0–5, 8 and 9.1–9.7 (37 of 56 checklist items), plus the read side of 6.1 and all of 6.5 / 6.6.
+- **Current capability:** the module foundation and schema are in place; Stock POs can be created, edited, submitted and approved; supplier documents can be stored against the PO; the existing PR → POP → final amount → wallet/payment flow supports Stock POs; and received Stock PO quantities are booked into the Our Stock ledger (track acceptance or manual receipt), with moving-average cost, serials, reservations and PO auto-completion.
+- **Frontend:** Our Stock list + detail, Stock PO list / create / edit, Receive Stock, and Stock-PO sections on the existing PO page (approval, supplier documents, receipts) are live behind the `ourInventoryMenu` permission.
+- **PDFs:** Stock PO PDF (approved POs only, ships to the PO's warehouse), Goods Receipt Note (whole PO or a single delivery), stock report / valuation PDF and Excel export.
+- **Next:** Epic 6 (adjust / transfer / opening stock), then Epic 7 (RFQ chips + sales).
+- **Verification:** the .NET solution build and the Nuxt production build pass. Epic 9 was clicked through in the browser against a throwaway database (seeded, then dropped): stock list + filters + value total, lot detail, Stock PO list + status filter, create via Excel paste → submit → reject to draft → edit, approve, manual receive with serial validation, supplier PI upload with amount warning. Epic 5 was run end-to-end against a throwaway database created from all migrations (22 ledger/receipt scenarios + Stock PO create/update, all passing), which was dropped afterwards.
+- **Environment validation still pending:** applying `AddOurInventoryModule` to a production-data copy and the live end-to-end scenario remain rollout/QA work under Epic 11.
 
 ---
 
@@ -366,59 +377,91 @@ Register the new builders in `Pdf/Templates/PdfDocModelBuilders.cs` and the DTOs
 Rough sizes: **S** ≤ 0.5 d, **M** ≈ 1 d, **L** ≈ 2–3 d.
 
 ### Epic 0 — Foundations
-- [ ] **0.1 (S)** Create the `Procument.Module.OurInventory` project, csproj refs, `OurInventoryModule.AddOurInventoryModule()`, register it in `Program.cs` and the solution.
-- [ ] **0.2 (S)** Add the `OurInventory` config section + `OurInventoryOptions` class.
-- [ ] **0.3 (S)** Seed the catalog supplier **OUR STOCK** and the `ourInventoryMenu` permission (idempotent).
-- [ ] **0.4 (S)** Define `IPartAvailabilitySource`, `IStockReceiptHandler` (in Purchasing) and `IStockReservationService` (in Shared).
+- [x] **0.1 (S)** Create the `Procument.Module.OurInventory` project, csproj refs, `OurInventoryModule.AddOurInventoryModule()`, register it in `Program.cs` and the solution.
+- [x] **0.2 (S)** Add the `OurInventory` config section + `OurInventoryOptions` class.
+- [x] **0.3 (S)** Seed the catalog supplier **OUR STOCK** and register the `ourInventoryMenu` feature key (idempotent supplier bootstrap; permissions remain per-user grants).
+- [x] **0.4 (S)** Define `IPartAvailabilitySource`, `IStockReceiptHandler` (in Purchasing) and `IStockReservationService` (in Shared).
 
 **Done when:** the API starts with the empty module, and the new interfaces resolve through DI.
 
 ### Epic 1 — Database
-- [ ] **1.1 (M)** Entities `OurStockItem`, `OurStockMovement`, `OurStockReservation`, `OurStockSerial`.
-- [ ] **1.2 (S)** `PurchaseOrderDocument` entity (Purchasing).
-- [ ] **1.3 (S)** New columns: `PurchaseOrder.Origin/DestinationWarehouseId/SupplierPIRef/ExpectedDeliveryDate`, `POItem.StockItemId`, `QuoteItem.SourceStockItemId` (+ `SupplierQuote` if the quote row lives there).
-- [ ] **1.4 (M)** `AppDbContext` config: precision, the unique lot index, rowversion, FKs (`Restrict`), the computed `QtyAvailable`.
-- [ ] **1.5 (S)** Migration `AddOurInventoryModule`, with a backfill of `Origin='Customer'`. Review the generated SQL.
+- [x] **1.1 (M)** Entities `OurStockItem`, `OurStockMovement`, `OurStockReservation`, `OurStockSerial`.
+- [x] **1.2 (S)** `PurchaseOrderDocument` entity (Purchasing).
+- [x] **1.3 (S)** New columns: `PurchaseOrder.Origin/DestinationWarehouseId/SupplierPIRef/ExpectedDeliveryDate`, `POItem.StockItemId`, `QuoteItem.SourceStockItemId` (+ `SupplierQuote` if the quote row lives there).
+- [x] **1.4 (M)** `AppDbContext` config: precision, the unique lot index, rowversion, FKs (`Restrict`), the computed `QtyAvailable`.
+- [x] **1.5 (S)** Migration `AddOurInventoryModule`, with a backfill of `Origin='Customer'`. Review the generated SQL.
 
 **Done when:** the migration applies on a copy of prod data with no data changes to existing rows.
 
 ### Epic 2 — Stock Purchase Orders (backend)
-- [ ] **2.1 (L)** `StockPurchaseOrderService.CreateAsync/UpdateAsync/SubmitAsync` (preset → wallet resolution copied from `PurchaseOrderService.CreateAsync`, `SPO-{Id}` numbering, `PORef`).
-- [ ] **2.2 (M)** `StockPurchaseOrdersController` list + filter-options (exclude-self), paged, with `TotalAmountSum`.
-- [ ] **2.3 (S)** `/suggest` (low-stock → draft lines).
-- [ ] **2.4 (M)** Make the existing PO endpoints origin-aware: `/{id}` and `/enriched` return `origin` and the destination warehouse; the list endpoint accepts an `origin` filter; `/pdf-data` handles `InvoiceId == null`.
-- [ ] **2.5 (M)** Check every `InvoiceId`/`InvoiceItemId` assumption (payment queue, Action Center, Total-PN, procurement unassigned, TrackNumber summary) and add null-safe handling or explicit `Origin` filters.
+- [x] **2.1 (L)** `StockPurchaseOrderService.CreateAsync/UpdateAsync/SubmitAsync` (preset → wallet resolution copied from `PurchaseOrderService.CreateAsync`, `SPO-{Id}` numbering, `PORef`).
+- [x] **2.2 (M)** `StockPurchaseOrdersController` list + filter-options (exclude-self), paged, with `TotalAmountSum`.
+- [x] **2.3 (S)** `/suggest` (low-stock → draft lines).
+- [x] **2.4 (M)** Make the existing PO endpoints origin-aware: `/{id}` and `/enriched` return `origin` and the destination warehouse; the list endpoint accepts an `origin` filter; `/pdf-data` handles `InvoiceId == null`.
+- [x] **2.5 (M)** Check every `InvoiceId`/`InvoiceItemId` assumption (payment queue, Action Center, Total-PN, procurement unassigned, TrackNumber summary) and add null-safe handling or explicit `Origin` filters.
 
 **Done when:** a Stock PO can be created, edited, submitted and approved, and it shows on the existing PO detail page without errors.
 
 ### Epic 3 — Supplier documents (PI etc.)
-- [ ] **3.1 (M)** `PurchaseOrderDocumentsController` (upload/list/download/delete) using `DocumentStorageService.SaveFileInSupplierCategory(po.PONumber, …)`.
-- [ ] **3.2 (S)** Moving to "Waiting For PR" requires at least one `SupplierPI` document for Stock POs. Warn when PI amount ≠ PO total.
+- [x] **3.1 (M)** `PurchaseOrderDocumentsController` (upload/list/download/delete) using `DocumentStorageService.SaveFileInSupplierCategory(po.PONumber, …)`.
+- [x] **3.2 (S)** Moving to "Waiting For PR" requires at least one `SupplierPI` document for Stock POs. Warn when PI amount ≠ PO total.
 
 ### Epic 4 — PR, payment & wallets
-- [ ] **4.1 (S)** Test the PR create → amount → POP → final amount path on a Stock PO. Expected: no code change, bank fee transaction created, `Payment Done` applied.
-- [ ] **4.2 (S)** `PaymentRequestDocument`: show `SupplierPIRef` when there is no customer invoice.
-- [ ] **4.3 (S)** Wallet transaction list and payment queue: label "Stock PO" + a link to the PO.
-- [ ] **4.4 (S)** Partial payments (`PARTIALLY PAID`) work for Stock POs.
+- [x] **4.1 (S)** Verify the PR create → amount → POP → final amount path for a Stock PO. The shared code path creates a separate bank-fee transaction and applies `Payment Done`; live database E2E remains covered by 11.2.
+- [x] **4.2 (S)** `PaymentRequestDocument`: show `SupplierPIRef` when there is no customer invoice.
+- [x] **4.3 (S)** Wallet transaction list and payment queue: label "Stock PO" + a link to the PO.
+- [x] **4.4 (S)** Partial payments (`PARTIALLY PAID`) work for Stock POs.
 
 **Done when:** paying a Stock PO debits the chosen wallet and records the POP and bank fee, exactly as a customer PO does.
 
 ### Epic 5 — Receiving into stock
-- [ ] **5.1 (L)** `StockLedgerService` (receipt / issue / adjust / transfer / reserve / release; single transaction; rowversion retry; moving-average cost).
-- [ ] **5.2 (M)** `StockReceiptHandler` + hook in `ShippingService` at both "Received in Warehouse" points (Stock origin only, idempotent per track + line, partial qty).
-- [ ] **5.3 (M)** Manual receive endpoint for items that arrive without a track number.
-- [ ] **5.4 (S)** Serial capture on receive (optional table).
-- [ ] **5.5 (S)** PO auto → `Completed` when all lines are fully received.
+- [x] **5.1 (L)** `StockLedgerService` (receipt / issue / adjust / transfer / reserve / release / consume; single transaction; moving-average cost). Lots are locked with `UPDLOCK` instead of a rowversion retry loop; the rowversion column stays as a backstop.
+- [x] **5.2 (M)** `StockReceiptService` implements `IStockReceiptHandler`; `ShippingService` calls it inside the same transaction as submit / update / review / receive-all (Stock origin only, idempotent per track + line, partial qty, recount and rejection corrections).
+- [x] **5.3 (M)** Manual receive endpoint for items that arrive without a track number.
+- [x] **5.4 (S)** Serial capture on receive (manual receipt, plus an endpoint to attach serials to a track receipt).
+- [x] **5.5 (S)** PO auto → `Completed` when all lines are fully received.
 
-**Done when:** receiving a track for a Stock PO creates or updates exactly one stock lot and one Receipt movement, and doing it twice does nothing.
+**Done when:** receiving a track for a Stock PO creates or updates exactly one stock lot and one Receipt movement, and doing it twice does nothing. ✅ Verified.
+
+#### Epic 5 — as built
+
+**Trigger.** Stock is booked when a track item is **Accepted** (review or Receive All), not when Inventory first submits a count. A submitted count is still pending expert review, so booking it early would put unverified quantities into stock. The received quantity is the accepted `ActualQty` (falling back to `ExpectedQty`, as Receive All does).
+
+**Reconciliation, not append.** For each (track, Stock PO line) the handler compares the accepted quantity with what the ledger already holds for that pair:
+- the first time → one `Receipt` movement at the line's `UnitPrice`, into the lot (PN, condition, track warehouse or PO destination, PO company preset);
+- a later recount or a rejection → the difference is posted as an `Adjust` on the same lot, with a "Receipt correction on track …" reason;
+- no difference → nothing. Calling it twice never double-counts (also enforced by the filtered unique index on `(TrackNumberId, POItemId)` for Receipts).
+
+A correction that would remove stock already reserved or issued is refused, and the review/receive request returns **400** with the reason instead of accepting the track.
+
+**Transactions.** `ShippingService.SubmitItems / UpdateItem / ReviewItem / ReceiveAndAcceptAll` now run their change and the stock booking in one execution-strategy transaction. `IStockReceiptHandler.OnReceivedAsync` gained a `userId` parameter (movements need a user), and `IShippingService.UpdateItemAsync` now takes the user id too.
+
+**Completion.** For Stock POs, `ShippingService.CompletePoWhenEveryPartApprovedAsync` no longer decides; the receipt service does, on quantity: a line is `Completed` when received ≥ ordered, otherwise `Received in Warehouse`; the PO is `Completed` when every line is. A PO an admin already set to `Completed` (short delivery) is not reopened.
+
+**Endpoints added**
+| Method | Route | Roles |
+|---|---|---|
+| GET | `/api/our-inventory/purchase-orders/{id}/receipts` | all module roles — ordered / received / remaining per line + receipt movements + serials |
+| POST | `/api/our-inventory/purchase-orders/{id}/receive` | Admin, SuperAdmin — `{ warehouseId?, note?, lines: [{ poItemId, qty, certName?, tagDate?, binLocation?, serials? }] }`; PO must be admin-approved; over-receipt is refused; serial count must equal qty |
+| POST | `/api/our-inventory/receipts/{movementId}/serials` | Admin, SuperAdmin — `{ serials: [] }` |
+
+`IStockReservationService` (Shared) is now implemented on top of the ledger: `ReserveAsync` is idempotent per Sales Order line and reserves partially when short; `ConsumeAsync` issues oldest reservations first; `ReleaseAsync` frees all of a line's active holds. Epic 7 only has to call it.
+
+**Also fixed.** `StockPurchaseOrderService.Create/Update` opened a transaction outside the execution strategy, which `EnableRetryOnFailure` rejects at runtime. Both now run inside `CreateExecutionStrategy()` like the rest of the codebase.
+
+**Known gaps (tracked for later epics)**
+- **Warehouse transfers / Shipment Notes (→ 6.4):** accepted Stock PO track items still appear in the Ready-for-SN queue and can be moved by a `WarehouseTransfer`, but the ledger doesn't follow them yet. Transfer legs (`Origin = "Transfer"`) are deliberately skipped by the handler so they are not counted twice.
+- **Landed cost (→ phase 2):** `UseLandedCost` is not applied yet; receipts use the PO line `UnitPrice`.
+- **Inventory-role receiving (→ 9.7):** the manual receive and serial endpoints are Admin-only until warehouse scoping (`UserWarehouse`) is added with the receive page.
+- **Automated tests (→ 11.1):** the Epic 5 scenarios were run with a throwaway harness; they still need to become a permanent test project.
 
 ### Epic 6 — Stock management
-- [ ] **6.1 (M)** `OurStockController`: list, filter-options, detail, by-part, patch.
+- [ ] **6.1 (M)** `OurStockController`: list, filter-options, detail, by-part, patch. *(list, filter-options and detail done with Epic 9; by-part and patch remain)*
 - [ ] **6.2 (M)** Opening balance + Excel bulk import (reuse the Inventory bulk-import pattern).
 - [ ] **6.3 (S)** Adjust (reason required, admin only).
 - [ ] **6.4 (M)** Transfer between warehouses (hook into `WarehouseTransferService` when shipped physically).
-- [ ] **6.5 (S)** Movements endpoint + valuation endpoint.
-- [ ] **6.6 (S)** Cost fields stripped for non-admin roles.
+- [x] **6.5 (S)** Movements endpoint + valuation endpoint.
+- [x] **6.6 (S)** Cost fields stripped for non-admin roles.
 
 ### Epic 7 — RFQ / Quote / Sales integration
 - [ ] **7.1 (M)** `StockAvailabilitySource` (available lots + incoming PO lines) → `AvailabilityService` → `OurStockRecords` in `PartAvailabilityResponse`.
@@ -431,21 +474,81 @@ Rough sizes: **S** ≤ 0.5 d, **M** ≈ 1 d, **L** ≈ 2–3 d.
 **Done when:** a PN in stock shows a purple chip on an RFQ, and following it through Quote → Sales Order → Ship lowers the stock by the shipped qty.
 
 ### Epic 8 — PDF
-- [ ] **8.1 (S)** `PurchaseOrderDocument` Stock variant (ship-to warehouse, no customer ref).
-- [ ] **8.2 (M)** `StockReceiptDocument` (GRN) + `/pdf/stock-receipt`.
-- [ ] **8.3 (M)** `StockReportDocument` + `/pdf/stock-report` + Excel export.
-- [ ] **8.4 (M)** Vue generators `StockPoPdfGenerator.vue`, `StockReceiptPdfGenerator.vue`.
+- [x] **8.1 (S)** `PurchaseOrderDocument` Stock variant (ship-to warehouse, no customer ref).
+- [x] **8.2 (M)** `StockReceiptDocument` (GRN) + `/pdf/stock-receipt`.
+- [x] **8.3 (M)** `StockReportDocument` + `/pdf/stock-report` + Excel export.
+- [x] **8.4 (M)** Frontend: PDF dialog changes for Stock POs, GRN / report preview through `useStockPdf` + `DocPreviewModal` (no separate generator components needed).
+
+#### Epic 8 — as built
+
+**8.1 Stock PO PDF.** The existing PO PDF dialog (`PoPdfGenerator.vue`) and `/pdf/po` now handle Stock POs:
+- *Ship To* stays the PO's destination warehouse; picking a company only changes the letterhead (before, it overwrote Ship To with the company's own address).
+- `/pdf/po` returns **409** for a Stock PO that is not admin-approved; the dialog shows "Preview only" and disables *Download*. Any download error is now shown in the dialog instead of only in the console.
+- Downloading a Stock PO PDF **no longer changes its status**. For customer POs a download still moves the PO to *Waiting For Supplier Documents*; for a Stock PO that would have skipped approval or pulled a paid / received PO backwards. It still records the PO date.
+- The generated PDF is saved under the PO number (`…/SPO-n/<supplier>/PO/`), next to the Stock PO supplier documents.
+- Comments default to "Ref. your PI …" when the Stock PO has a supplier PI number.
+
+**8.2 Goods Receipt Note** — `GET /api/pdf/stock-receipt/{poId}[?movementIds=…]`
+- Covers every receipt on the PO, or only the given receipt movements (a single delivery). Number `GRN-{PO}-{last movement id}`.
+- Shows PO / PO date / supplier PI / received date(s), received from / at / booked by, and per line: ordered, **this note**, total received, remaining, certificate, bin, track numbers and serials. Includes recount corrections and receipt notes, plus three signature boxes.
+- Buttons: **GRN** on the PO page's *Received into Our Stock* card; **Print GRN for this delivery** in the receive dialog right after receiving.
+- Returns 404 "Nothing has been received on this Stock PO yet." when there is nothing to print.
+
+**8.3 Stock report / valuation** — `GET /api/pdf/stock-report?{Our Stock filters}&filterLabel=…[&brandPresetId=]`
+- Landscape A4, lots grouped by company → warehouse with subtotals, summary tiles, low-stock rows highlighted, active filters printed, page x of y.
+- Admin / SuperAdmin get **Stock valuation** (avg cost + value columns and totals); other roles get **Stock report** without cost.
+- Letterhead: the chosen preset, else the only company in the filter / result, else Base 105, else the first active preset.
+- Data endpoint `GET /api/our-inventory/stock/valuation` (same filters, no paging) — closes 6.5. The Our Stock page's **Report** menu offers the PDF and **Export to Excel** (same columns; cost columns only for admins).
+
+**Verified** against a throwaway database (seeded, then dropped): GRN for the whole PO and for a single delivery, valuation PDF, 404 for an unreceived PO, 409 for an unapproved Stock PO PDF, valuation totals.
 
 ### Epic 9 — Frontend
-- [ ] **9.1 (S)** Nav group, `auth.ts` flag/getter, `menu-access.vue` labels, `auth.global.ts` prefixes.
-- [ ] **9.2 (L)** `/our-inventory` stock list (DataListPage, cascading filters, value chip).
-- [ ] **9.3 (M)** `/our-inventory/[id]` detail + `StockMovementsTable`.
-- [ ] **9.4 (L)** `/our-inventory/purchase-orders/new` + `StockPoLinesEditor` (Excel paste, preset picker, warehouse).
-- [ ] **9.5 (M)** `/our-inventory/purchase-orders` list.
-- [ ] **9.6 (M)** Origin guards on `purchase-orders/[id].vue` + `PurchaseOrderDocuments.vue`.
-- [ ] **9.7 (M)** `/our-inventory/receive` + `StockReceiveDialog`.
+- [x] **9.1 (S)** Nav group, `auth.ts` flag/getter, `menu-access.vue` labels, `auth.global.ts` prefixes.
+- [x] **9.2 (L)** `/our-inventory` stock list (DataListPage, cascading filters, value chip).
+- [x] **9.3 (M)** `/our-inventory/[id]` detail + `StockMovementsTable`.
+- [x] **9.4 (L)** `/our-inventory/purchase-orders/new` + `StockPoLinesEditor` (Excel paste, preset picker, warehouse).
+- [x] **9.5 (M)** `/our-inventory/purchase-orders` list.
+- [x] **9.6 (M)** Origin guards on `purchase-orders/[id].vue` + `PurchaseOrderDocuments.vue`.
+- [x] **9.7 (M)** `/our-inventory/receive` + `StockReceiveDialog`.
 - [ ] **9.8 (S)** Adjust / Transfer dialogs, `/our-inventory/movements`.
 - [ ] **9.9 (M)** RFQ chips, Quote/Procurement badges, Part History tab, payment "Stock PO" labels.
+
+#### Epic 9 (9.1–9.7) — as built
+
+**Pages**
+| Route | What it does |
+|---|---|
+| `/our-inventory` | Stock lots (server-side `DataListPage`): search, Warehouse / Company / Condition filters (exclude-self options), *Available only*, *Low stock*. Admins also see avg cost, value and the all-pages stock value in the header. |
+| `/our-inventory/[id]` | Lot detail: on hand / reserved / available / cost, lot fields, active reservations, incoming Stock PO lines for the part, serials, movement ledger. |
+| `/our-inventory/purchase-orders` | Stock PO list: status, supplier, company, warehouse, total, **paid** (+ latest PR status), **received** progress bar, expected date. Drafts get an edit button. |
+| `/our-inventory/purchase-orders/new` (`?id=` edits a draft) | Supplier (approved catalog suppliers), buying company, destination warehouse (only warehouses linked to the company, or all when none are linked), subject, supplier PI #, expected date, line grid with catalog P/N search, **Paste from Excel** (P/N · Qty · Price · Condition, header row skipped, bad rows listed), **Fill from low stock**. *Save draft* or *Save & submit for approval*. |
+| `/our-inventory/receive` (admin) | Approved Stock PO lines still to arrive, grouped by PO and filterable by warehouse, with a **Receive** dialog (qty, certificate, tag date, bin, serials — serial count must equal qty). |
+| `/purchase-orders/[id]` (existing) | For `origin = Stock`: *Stock PO* badge, *Ship to (Our Stock)* card instead of Sales Order, **Admin Approval** card (approve / reject with note), **Supplier Documents** panel (PI / invoice / certs / packing list / other, amount-mismatch warning) instead of the invoice-keyed Document Center, **Received into Our Stock** card (per-line receipts, links to lots, *Receive without track*), *Edit draft* button, no *Return*, no EndUser / In Shop / Sourcing statuses. |
+
+**Components:** `StockPoLinesEditor`, `PurchaseOrderDocuments`, `StockMovementsTable`, `StockReceiveDialog`; helpers in `utils/stockPo.ts`.
+
+**Permissions:** nav group *Our Inventory* (Our Stock, Stock POs, Receive Stock) is shown to anyone granted `ourInventoryMenu` in Menu Access, whatever their role (SuperAdmin always). *Receive Stock* is admin-only. `/our-inventory/**` is feature-gated in `auth.global.ts`.
+
+**Backend added for these pages** (read side of Epic 6)
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/our-inventory/stock` | paged lots; `TotalAmountSum` = stock value (admins only) |
+| GET | `/api/our-inventory/stock/filter-options` | exclude-self |
+| GET | `/api/our-inventory/stock/{id}` | lot + reservations + incoming + serials |
+| GET | `/api/our-inventory/movements` | paged ledger (`stockItemId`, `partNumberId`, `type`, dates, search) |
+| GET | `/api/our-inventory/incoming` | approved, not-closed Stock PO lines with quantity left |
+
+Cost fields (`avgUnitCost`, value, movement `unitCost`) are null for non-admin roles (6.6). The Stock PO list/detail now also return `paidAmount` (supplier payments via the PO's PRs), `prStatus`, `qtyOrdered`, `qtyReceived`, and bind the status filter from `status`.
+
+**Behaviour changes to existing code**
+- `/purchase-orders` (customer PO list) now requests `origin=Customer`, so Stock POs only appear under Our Inventory.
+- Rejecting a Stock PO that is *Waiting For Admin Approval* (`PATCH /purchase-orders/{id}/admin-approval`) now puts it back to **Draft**, because Stock POs can only be edited as drafts. Customer POs are unchanged.
+- There was no admin-approval UI anywhere before; the approval card is Stock-PO-only for now.
+
+**Known gaps / decisions for you**
+- **PO status is one field for two tracks.** A partial receipt sets the PO to *Received in Warehouse* even if it is still *Waiting For Supplier Documents / PR / Payment*, and a later *Payment Done* sets it back. Paid amount and received progress are shown separately on the list, so nothing is lost, but the status chip only shows the latest step. Worth deciding whether Stock POs should show receipt progress in its own field.
+- The Nav *Receive Stock* page is admin-only because manual receiving is; Inventory-role users keep receiving through track numbers in *Warehouse Shippings*, which books stock automatically.
+- Adjust / transfer / opening-stock dialogs and the standalone movements page are Epic 6 / 9.8.
 
 ### Epic 10 — Dashboard & reporting
 - [ ] **10.1 (S)** Action Center blocks: Stock PO waiting for PR / payment / receipt, Low stock.
@@ -467,13 +570,19 @@ Milestone 3: reporting, landed cost, serials, holds.
 
 ---
 
-## 9. Open questions (answer before Epic 2)
+## 9. Decisions and remaining questions
 
-1. **Ownership:** is stock owned per **company preset** (a separate lot per company), or shared across companies?
-2. **Costing:** moving average (proposed) or FIFO? Include shipping/tax/bank fee in the cost (landed cost) from day 1?
-3. **Approval:** do Stock POs need the same Admin approval as customer POs, or can a user with `ourInventoryMenu` go straight to PR?
-4. **Numbering:** `SPO-{Id}` or share the `PO-{Id}` sequence with a badge?
-5. **Quote price:** the price on an "Our Stock" quote row is our **cost**, and the sales margin is added on the quote as usual. Is that correct?
-6. **Reservation timing:** reserve at **Quote** (soft hold) or only at **Sales Order accept** (proposed)?
-7. **Existing `InventoryItem` table (supplier stock lists):** keep it as it is (proposed), or merge/rename it to "Supplier Stock" in the UI to avoid confusion?
-8. **Serialized parts:** do we need per-serial tracking in Milestone 1?
+### Decisions now encoded in the implementation
+
+1. **Ownership:** stock lots are owned per **company preset**, warehouse, part number and condition.
+2. **Costing:** Epic 5 will use moving-average cost. Landed-cost allocation is disabled initially (`UseLandedCost: false`).
+3. **Approval:** Stock POs use the same Admin approval path as customer POs.
+4. **Numbering:** Stock POs use the configurable `SPO-{Id}` prefix.
+5. **Reservation timing:** hard reservation occurs at Sales Order acceptance; optional quote holds remain a later Epic 7 task.
+6. **Supplier stock lists:** the existing `InventoryItem` model remains unchanged and separate from Our Stock.
+7. **Negative stock:** disabled (`AllowNegativeStock: false`).
+8. **Serials:** the optional serial entity exists in the schema; capture during receipt remains Epic 5.4.
+
+### Still to confirm before Epic 7
+
+1. **Quote price:** should an "Our Stock" quote row start from average unit cost and then receive the normal sales margin?

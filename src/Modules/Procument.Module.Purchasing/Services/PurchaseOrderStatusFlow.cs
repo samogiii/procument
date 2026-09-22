@@ -12,6 +12,7 @@ namespace Procument.Module.Purchasing.Services;
 public static class PurchaseOrderStatusFlow
 {
     public const string NotStarted = "Not Started";
+    public const string WaitingForAdminApproval = "Waiting For Admin Approval";
     public const string Sourcing = "Sourcing";
     public const string WaitingForSupplierDocuments = "Waiting For Supplier Documents";
     public const string WaitingForPr = "Waiting For PR";
@@ -30,7 +31,7 @@ public static class PurchaseOrderStatusFlow
 
     public static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        NotStarted, Sourcing, WaitingForSupplierDocuments, WaitingForPr,
+        NotStarted, WaitingForAdminApproval, Sourcing, WaitingForSupplierDocuments, WaitingForPr,
         WaitingForPayment, PrRejected, PaymentDone, WaitingForShipment,
         ShipToWarehouse, WaitingForExpertShipmentApproval, Completed,
         Cancelled, Returned, EndUser, InShop, ReceivedInWarehouse, "Issue"

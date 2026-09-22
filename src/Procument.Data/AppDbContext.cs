@@ -5,6 +5,7 @@ using Procument.Module.RFQ.Entities;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Tasks.Entities;
+using Procument.Module.OurInventory.Entities;
 using Procument.Shared.Entities;
 
 namespace Procument.Data;
@@ -59,6 +60,13 @@ public class AppDbContext : DbContext
   public DbSet<POItem> POItems => Set<POItem>();
   public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
   public DbSet<POItemTrackNumber> POItemTrackNumbers => Set<POItemTrackNumber>();
+  public DbSet<PurchaseOrderDocument> PurchaseOrderDocuments => Set<PurchaseOrderDocument>();
+
+  // Our Inventory
+  public DbSet<OurStockItem> OurStockItems => Set<OurStockItem>();
+  public DbSet<OurStockMovement> OurStockMovements => Set<OurStockMovement>();
+  public DbSet<OurStockReservation> OurStockReservations => Set<OurStockReservation>();
+  public DbSet<OurStockSerial> OurStockSerials => Set<OurStockSerial>();
 
   // Warehouse & Shipping
   public DbSet<Warehouse> Warehouses => Set<Warehouse>();
@@ -384,6 +392,12 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.QuoteId);
+      entity.HasIndex(e => e.SourceStockItemId);
+      entity.HasOne<OurStockItem>()
+                .WithMany()
+                .HasForeignKey(e => e.SourceStockItemId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
       // Speeds up alternate-part-number searches across quote items
       entity.HasIndex(e => e.Alt);
     });
@@ -575,8 +589,10 @@ public class AppDbContext : DbContext
       entity.ToTable("PurchaseOrders");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.PONumber).HasMaxLength(100);
+      entity.Property(e => e.Origin).HasMaxLength(20).HasDefaultValue("Customer");
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.FulfillmentMode).HasMaxLength(20);
+      entity.Property(e => e.SupplierPIRef).HasMaxLength(100);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.AdminApproval).HasMaxLength(20).HasDefaultValue("Pending");
       entity.Property(e => e.AdminApprovalNote).HasMaxLength(1000);
@@ -587,10 +603,17 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.AdminApproval);
       entity.HasIndex(e => e.PaymentStatus);
       entity.HasIndex(e => e.ReturnedAt);
+      entity.HasIndex(e => new { e.Origin, e.Status });
 
       entity.HasOne(e => e.Supplier)
                 .WithMany()
                 .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.DestinationWarehouse)
+                .WithMany()
+                .HasForeignKey(e => e.DestinationWarehouseId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasIndex(e => e.InvoiceId);
@@ -625,12 +648,144 @@ public class AppDbContext : DbContext
 
       entity.HasIndex(e => e.POId);
       entity.HasIndex(e => e.SourceProcurementItemId);
+      entity.HasIndex(e => e.StockItemId);
       entity.HasIndex(e => e.ReturnedAt);
 
       entity.HasOne(e => e.SourceProcurementItem)
                 .WithMany()
                 .HasForeignKey(e => e.SourceProcurementItemId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne<OurStockItem>()
+                .WithMany()
+                .HasForeignKey(e => e.StockItemId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+    });
+
+    modelBuilder.Entity<PurchaseOrderDocument>(entity =>
+    {
+      entity.ToTable("PurchaseOrderDocuments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Category).HasMaxLength(30).IsRequired();
+      entity.Property(e => e.FileName).HasMaxLength(260).IsRequired();
+      entity.Property(e => e.StoredName).HasMaxLength(260).IsRequired();
+      entity.Property(e => e.DocumentNumber).HasMaxLength(100);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.PurchaseOrder)
+                .WithMany(po => po.Documents)
+                .HasForeignKey(e => e.POId)
+                .OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.POId);
+      entity.HasIndex(e => new { e.POId, e.Category });
+    });
+
+    // ───────────────────────────────────────────
+    // Our Inventory
+    // ───────────────────────────────────────────
+    modelBuilder.Entity<OurStockItem>(entity =>
+    {
+      entity.ToTable("OurStockItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Condition).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.QtyOnHand).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.QtyReserved).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.QtyAvailable)
+            .HasColumnType("decimal(18,2)")
+            .HasComputedColumnSql("[QtyOnHand] - [QtyReserved]", stored: true);
+      entity.Property(e => e.AvgUnitCost).HasColumnType("decimal(18,4)");
+      entity.Property(e => e.MinQty).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.CertName).HasMaxLength(100);
+      entity.Property(e => e.TagDate).HasColumnType("date");
+      entity.Property(e => e.BinLocation).HasMaxLength(50);
+      entity.Property(e => e.RowVersion).IsRowVersion();
+
+      entity.HasOne(e => e.PartNumber).WithMany()
+            .HasForeignKey(e => e.PartNumberId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.Warehouse).WithMany()
+            .HasForeignKey(e => e.WarehouseId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.CompanyPreset).WithMany()
+            .HasForeignKey(e => e.CompanyPresetId).OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.PartNumberId, e.Condition, e.WarehouseId, e.CompanyPresetId, e.CertName })
+            .IsUnique()
+            .HasFilter(null);
+      entity.HasIndex(e => e.PartNumberId);
+      entity.HasIndex(e => e.WarehouseId);
+    });
+
+    modelBuilder.Entity<OurStockMovement>(entity =>
+    {
+      entity.ToTable("OurStockMovements");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Type).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.Qty).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.UnitCost).HasColumnType("decimal(18,4)");
+      entity.Property(e => e.Reference).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.Reason).HasMaxLength(200);
+
+      entity.HasOne(e => e.StockItem).WithMany(i => i.Movements)
+            .HasForeignKey(e => e.StockItemId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.PurchaseOrder).WithMany()
+            .HasForeignKey(e => e.POId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.POItem).WithMany()
+            .HasForeignKey(e => e.POItemId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.TrackNumber).WithMany()
+            .HasForeignKey(e => e.TrackNumberId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.WarehouseTransfer).WithMany()
+            .HasForeignKey(e => e.WarehouseTransferId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.CreatedByUser).WithMany()
+            .HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.StockItemId, e.CreatedAt });
+      entity.HasIndex(e => e.POItemId);
+      entity.HasIndex(e => e.InvoiceItemId);
+      entity.HasIndex(e => new { e.TrackNumberId, e.POItemId })
+            .IsUnique()
+            .HasFilter("[TrackNumberId] IS NOT NULL AND [POItemId] IS NOT NULL AND [Type] = 'Receipt'");
+    });
+
+    modelBuilder.Entity<OurStockReservation>(entity =>
+    {
+      entity.ToTable("OurStockReservations");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Qty).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+
+      entity.HasOne(e => e.StockItem).WithMany(i => i.Reservations)
+            .HasForeignKey(e => e.StockItemId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.CreatedByUser).WithMany()
+            .HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.StockItemId, e.Status });
+      entity.HasIndex(e => e.InvoiceItemId);
+      entity.HasIndex(e => e.ExpiresAt);
+    });
+
+    modelBuilder.Entity<OurStockSerial>(entity =>
+    {
+      entity.ToTable("OurStockSerials");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.SerialNumber).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+
+      entity.HasOne(e => e.StockItem).WithMany(i => i.Serials)
+            .HasForeignKey(e => e.StockItemId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.PartNumber).WithMany()
+            .HasForeignKey(e => e.PartNumberId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.ReceiptMovement).WithMany()
+            .HasForeignKey(e => e.ReceiptMovementId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.IssueMovement).WithMany()
+            .HasForeignKey(e => e.IssueMovementId).OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.PartNumberId, e.SerialNumber }).IsUnique();
+      entity.HasIndex(e => e.StockItemId);
     });
 
     // ───────────────────────────────────────────

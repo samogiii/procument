@@ -2,6 +2,7 @@
   <Folder Name="/Modules/">
     <Project Path="Modules/Procument.Module.Catalog/Procument.Module.Catalog.csproj" />
     <Project Path="Modules/Procument.Module.Identity/Procument.Module.Identity.csproj" />
+    <Project Path="Modules/Procument.Module.OurInventory/Procument.Module.OurInventory.csproj" />
     <Project Path="Modules/Procument.Module.Purchasing/Procument.Module.Purchasing.csproj" />
     <Project Path="Modules/Procument.Module.RFQ/Procument.Module.RFQ.csproj" />
     <Project Path="Modules/Procument.Module.Sales/Procument.Module.Sales.csproj" />

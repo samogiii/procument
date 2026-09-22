@@ -108,6 +108,7 @@ const FEATURE_LABELS: Record<string, string> = {
   actionCenter:    'Action Center',
   taskManager:     'Task Manager',
   totalPnMenu:     'Total Project Menu',
+  ourInventoryMenu:'Our Inventory',
 }
 
 const FEATURE_ICONS: Record<string, string> = {
@@ -127,6 +128,7 @@ const FEATURE_ICONS: Record<string, string> = {
   actionCenter:    'mdi-alert-circle-outline',
   taskManager:     'mdi-view-list',
   totalPnMenu:     'mdi-table-large',
+  ourInventoryMenu:'mdi-warehouse',
 }
 
 function featureLabel(f: string) { return FEATURE_LABELS[f] ?? f }

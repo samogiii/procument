@@ -12,7 +12,7 @@ namespace Procument.Module.Purchasing.Services;
 
 public interface IPurchaseOrderService
 {
-    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
+    Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null, string? origin = null);
     Task<POResponse?> GetByIdAsync(long id);
     Task<bool> UserCanAccessAsync(long poId, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     /// <summary>
@@ -159,9 +159,12 @@ public class PurchaseOrderService : IPurchaseOrderService
         }).ToList();
     }
 
-    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
+    public async Task<PagedResult<POResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null, string? origin = null)
     {
         IQueryable<PurchaseOrder> baseQ = _db.Set<PurchaseOrder>().AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(origin))
+            baseQ = baseQ.Where(po => po.Origin == origin);
 
         if (!isSuperAdmin)
         {
@@ -203,6 +206,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         var pos = await query
             .ApplyPaging(page)
             .Include(po => po.Supplier)
+            .Include(po => po.DestinationWarehouse)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.PartNumber)
             .Include(po => po.POItems)
@@ -274,6 +278,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = await _db.Set<PurchaseOrder>()
             .Include(po => po.Supplier)
+            .Include(po => po.DestinationWarehouse)
             .Include(po => po.POItems)
                 .ThenInclude(i => i.PartNumber)
             .Include(po => po.POItems)
@@ -471,6 +476,14 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return false;
 
         if (!PurchaseOrderStatusFlow.AllowedStatuses.Contains(newStatus)) return false;
+
+        // Stock purchases cannot advance to PR until the supplier's PI is attached.
+        // Customer-origin POs keep their existing document workflow.
+        if (po.Origin == "Stock"
+            && string.Equals(newStatus, PurchaseOrderStatusFlow.WaitingForPr, StringComparison.OrdinalIgnoreCase)
+            && !await _db.Set<PurchaseOrderDocument>().AnyAsync(d => d.POId == po.Id
+                && d.Category == PurchaseOrderDocumentCategories.SupplierPI))
+            return false;
 
         // ── Cancellation: always allowed regardless of current state or role ──
         if (newStatus == "Cancelled")
@@ -898,6 +911,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     private static POResponse MapToResponse(PurchaseOrder po, string? invoiceNumber = null, Dictionary<long, string>? overriddenSuppliers = null) => new()
     {
         Id = po.Id,
+        Origin = po.Origin,
         PONumber = po.PONumber,
         PODate = po.PODate,
         TotalAmount = po.TotalAmount,
@@ -924,6 +938,10 @@ public class PurchaseOrderService : IPurchaseOrderService
         // Legacy wallet preference is retained for historical responses.
         PreferredWalletId = po.PreferredWalletId,
         CompanyPresetId = po.CompanyPresetId,
+        DestinationWarehouseId = po.DestinationWarehouseId,
+        DestinationWarehouseName = po.DestinationWarehouse == null ? null : po.DestinationWarehouse.DisplayName ?? po.DestinationWarehouse.Name,
+        SupplierPIRef = po.SupplierPIRef,
+        ExpectedDeliveryDate = po.ExpectedDeliveryDate,
         Items = po.POItems.Select(i => {
             string? sName = null;
             if (i.SupplierId.HasValue && overriddenSuppliers != null && overriddenSuppliers.TryGetValue(i.SupplierId.Value, out var name))

@@ -12,6 +12,7 @@ using Procument.Module.RFQ;
 using Procument.Module.Purchasing;
 using Procument.Module.Sales;
 using Procument.Module.Tasks;
+using Procument.Module.OurInventory;
 using Procument.Shared.Services;
 using Scalar.AspNetCore;
 
@@ -52,6 +53,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 builder.Services.AddIdentityModule();
 builder.Services.AddRFQModule();
 builder.Services.AddPurchasingModule();
+builder.Services.AddOurInventoryModule(builder.Configuration);
 builder.Services.AddSalesModule();
 builder.Services.AddTasksModule();
 

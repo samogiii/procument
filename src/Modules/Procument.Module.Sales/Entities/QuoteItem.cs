@@ -20,6 +20,8 @@ public class QuoteItem : BaseEntity
     public long? RFQItemId { get; set; }
     public long? PartNumberId { get; set; }
     public long? ProcumentRecordId { get; set; }
+    /// <summary>OurInventory lot selected as the source for this quote line.</summary>
+    public long? SourceStockItemId { get; set; }
 
     // Navigation
     public Quote Quote { get; set; } = null!;

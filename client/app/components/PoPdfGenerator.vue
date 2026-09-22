@@ -16,8 +16,15 @@
           style="max-width:210px;"
           prepend-inner-icon="mdi-file-document-outline"
         />
-        <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" @click="downloadPdf">Download PDF</v-btn>
+        <v-btn variant="tonal" color="primary" prepend-icon="mdi-download" :loading="generating" :disabled="stockNotApproved" @click="downloadPdf">Download PDF</v-btn>
       </v-toolbar>
+
+      <v-alert v-if="stockNotApproved" type="warning" variant="tonal" density="compact" rounded="0" icon="mdi-shield-alert-outline">
+        Preview only — this Stock PO is not approved yet, so the PDF cannot be issued to the supplier.
+      </v-alert>
+      <v-alert v-if="downloadError" type="error" variant="tonal" density="compact" rounded="0" closable @click:close="downloadError = ''">
+        {{ downloadError }}
+      </v-alert>
 
       <!-- Section toggle chips -->
       <div class="d-flex flex-wrap gap-2 px-4 py-2" style="border-bottom:1px solid rgba(var(--v-border-color),var(--v-border-opacity));">
@@ -255,6 +262,10 @@ const theme = computed(() => {
 })
 
 const pdfData = ref<any>({})
+/** Stock POs ship to our own warehouse (set on the PO) and must be approved before they are issued. */
+const isStock = computed(() => pdfData.value?.origin === 'Stock')
+const stockNotApproved = computed(() => isStock.value && pdfData.value?.adminApproval !== 'Approved')
+const downloadError = ref('')
 // Company preset the PO was created from (resolved server-side from its payment wallet).
 const poPresetName = computed<string>(() => pdfData.value?.companyPresetName || '')
 // Set once the user picks a preset by hand, so the default never overrides their choice.
@@ -292,8 +303,9 @@ watch(selectedPreset, (val) => {
       ? `data:${preset.logoMimeType};base64,${preset.logoBase64}`
       : ''
     companyTerms.value = preset.termsAndConditions || ''
-    // If delivering to ourselves, default to the preset's ship-to address if available
-    if (preset.shipToAddress && (!deliverToAddress.value || selectedPreset.value !== 'Custom')) {
+    // If delivering to ourselves, default to the preset's ship-to address if available.
+    // Stock POs keep their destination warehouse from the PO instead.
+    if (!isStock.value && preset.shipToAddress && (!deliverToAddress.value || selectedPreset.value !== 'Custom')) {
       deliverToAddress.value = preset.shipToAddress
       if (!deliverToName.value || selectedPreset.value !== 'Custom') {
         deliverToName.value = preset.name
@@ -474,6 +486,7 @@ watch(model, async (open) => {
         const data = await api.get<any>(`/purchase-orders/${props.poId}/pdf-data`)
         pdfData.value = data
         if (data.importDetail?.comments) comments.value = data.importDetail.comments
+        else if (data.origin === 'Stock' && data.supplierPIRef) comments.value = `Ref. your PI ${data.supplierPIRef}`
 
         // Initialize Purchase From (Supplier) - use supplier data
         const supplier = data.supplier || {}
@@ -857,6 +870,7 @@ async function saveShippingToPo() {
 
 async function downloadPdf() {
   generating.value = true
+  downloadError.value = ''
   try {
     const config = useRuntimeConfig()
     const authStore = useAuthStore()
@@ -942,7 +956,13 @@ async function downloadPdf() {
     link.click()
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
-  } catch (err) { console.error('PDF generation failed:', err) }
+  } catch (err: any) {
+    console.error('PDF generation failed:', err)
+    // Error bodies arrive as a Blob because the request asks for one.
+    let message = ''
+    try { message = JSON.parse(await (err?.data as Blob)?.text?.())?.message || '' } catch {}
+    downloadError.value = message || 'PDF generation failed.'
+  }
   finally { generating.value = false }
 }
 </script>

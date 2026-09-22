@@ -35,6 +35,9 @@ public class UpdatePOStatusRequest
 public class POResponse
 {
     public long Id { get; set; }
+    public string Origin { get; set; } = "Customer";
+    public string POType => Origin == "Stock" ? "Stock PO" : "Customer PO";
+    public string POLink => $"/purchase-orders/{Id}";
     public string PONumber { get; set; } = string.Empty;
     public DateTime? PODate { get; set; }
     public decimal? TotalAmount { get; set; }
@@ -70,6 +73,10 @@ public class POResponse
     /// <summary>The company placing this PO, independent of payment wallets.</summary>
     public long? CompanyPresetId { get; set; }
     public string? CompanyPresetName { get; set; }
+    public long? DestinationWarehouseId { get; set; }
+    public string? DestinationWarehouseName { get; set; }
+    public string? SupplierPIRef { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
     public List<POItemResponse> Items { get; set; } = new();
     public int AcceptedTrackItems { get; set; }
     public int TotalTrackItems { get; set; }

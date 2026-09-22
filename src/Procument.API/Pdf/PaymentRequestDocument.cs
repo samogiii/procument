@@ -33,6 +33,10 @@ public static class PaymentRequestDocument
                     col.Item().AlignCenter().Text("PAYMENT REQUEST").FontSize(20).Bold();
                     col.Item().PaddingTop(6).AlignCenter().Text(req.PrNumber ?? "").FontSize(11);
                     col.Item().PaddingTop(2).AlignCenter().Text(req.DocumentDate ?? DateTime.Now.ToString("yyyy-MM-dd")).FontSize(10);
+                    if (!string.IsNullOrWhiteSpace(req.InvoiceNumber))
+                        col.Item().PaddingTop(2).AlignCenter().Text($"Customer PI: {req.InvoiceNumber}").FontSize(9);
+                    else if (!string.IsNullOrWhiteSpace(req.SupplierPIRef))
+                        col.Item().PaddingTop(2).AlignCenter().Text($"Supplier PI: {req.SupplierPIRef}").FontSize(9);
                     col.Item().PaddingTop(10).LineHorizontal(1f).LineColor(Colors.Black);
                 });
 

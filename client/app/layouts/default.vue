@@ -423,6 +423,17 @@ const allNavItems = [
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', ilsMenu: true, ilsOnly: true },
   { title: 'Cap List', icon: 'mdi-format-list-checks', to: '/caplist', capList: true, ilsOnly: false },
   { title: 'Inventory', icon: 'mdi-archive-outline', to: '/inventory', adminOnly: true, ilsOnly: false },
+  // ── Our Inventory: our own stock (not supplier stock lists) ──
+  {
+    title: 'Our Inventory',
+    icon: 'mdi-warehouse',
+    ourInventoryMenu: true,
+    children: [
+      { title: 'Our Stock', icon: 'mdi-package-variant', to: '/our-inventory', ourInventoryMenu: true },
+      { title: 'Stock POs', icon: 'mdi-cart-arrow-down', to: '/our-inventory/purchase-orders', ourInventoryMenu: true },
+      { title: 'Receive Stock', icon: 'mdi-truck-check-outline', to: '/our-inventory/receive', ourInventoryMenu: true, adminOnly: true },
+    ]
+  },
   { title: 'Catalog', icon: 'mdi-database-outline', to: '/catalog', adminOnly: true, ilsOnly: false },
 
   { title: 'Customers', icon: 'mdi-domain', to: '/catalog/customers', customerMenu: true },
@@ -498,6 +509,8 @@ const navItems = computed(() => {
     if (['/invoices', '/final-invoices'].includes(item.to) && ['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase())) return false
     if (item.totalPnMenu) return authStore.totalPnMenu
     if (item.customerMenu) return authStore.customerMenu
+    // Granted per user in Menu Access, whatever the role; receiving stays admin-only.
+    if (item.ourInventoryMenu) return authStore.ourInventoryMenu && (!item.adminOnly || authStore.isAdmin)
 
     // ── Hardcoded per-username whitelist — overrides everything else ────────
     // Users in RESTRICTED_USER_NAV see ONLY their allowed routes. Skip the

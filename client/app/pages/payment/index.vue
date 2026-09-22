@@ -53,6 +53,14 @@
               class="cursor-pointer mb-6"
               @click:row="(_, row) => openPo(row.item, 'accept')"
             >
+              <template #item.poNumber="{ item }">
+                <div class="d-flex align-center ga-2">
+                  <NuxtLink :to="item.poLink || `/purchase-orders/${item.id}`" class="font-weight-bold text-primary text-decoration-none" @click.stop>
+                    {{ item.poNumber }}
+                  </NuxtLink>
+                  <v-chip size="x-small" :color="item.poType === 'Stock PO' ? 'teal' : 'grey'" variant="tonal">{{ item.poType || 'Customer PO' }}</v-chip>
+                </div>
+              </template>
               <template #item.totalAmount="{ item }">
                 ${{ formatPrice(item.totalAmount) }}
               </template>
@@ -102,7 +110,12 @@
               class="cursor-pointer"
               @click:row="(_, row) => openPo(row.item, 'withdraw')"
             >
-              <template #item.poNumber="{ item }"><span class="font-weight-bold">{{ item.poNumber }}</span></template>
+              <template #item.poNumber="{ item }">
+                <div class="d-flex align-center ga-2">
+                  <NuxtLink :to="item.poLink || `/purchase-orders/${item.id}`" class="font-weight-bold text-primary text-decoration-none" @click.stop>{{ item.poNumber }}</NuxtLink>
+                  <v-chip size="x-small" :color="item.poType === 'Stock PO' ? 'teal' : 'grey'" variant="tonal">{{ item.poType || 'Customer PO' }}</v-chip>
+                </div>
+              </template>
               <template #item.prNumber="{ item }"><span>{{ item.prNumber ? `PR-${item.prNumber}` : '—' }}</span></template>
               <template #item.customerName="{ item }">{{ item.customerName || '—' }}</template>
               <template #item.requestUsers="{ item }">{{ item.requestUsers?.length ? item.requestUsers.join(', ') : '—' }}</template>
@@ -140,7 +153,12 @@
               class="cursor-pointer"
               @click:row="(_, row) => openPo(row.item, 'withdraw')"
             >
-              <template #item.poNumber="{ item }"><span class="font-weight-bold">{{ item.poNumber }}</span></template>
+              <template #item.poNumber="{ item }">
+                <div class="d-flex align-center ga-2">
+                  <NuxtLink :to="item.poLink || `/purchase-orders/${item.id}`" class="font-weight-bold text-primary text-decoration-none" @click.stop>{{ item.poNumber }}</NuxtLink>
+                  <v-chip size="x-small" :color="item.poType === 'Stock PO' ? 'teal' : 'grey'" variant="tonal">{{ item.poType || 'Customer PO' }}</v-chip>
+                </div>
+              </template>
               <template #item.prNumber="{ item }"><span>{{ item.prNumber ? `PR-${item.prNumber}` : '—' }}</span></template>
               <template #item.customerName="{ item }">{{ item.customerName || '—' }}</template>
               <template #item.requestUsers="{ item }">{{ item.requestUsers?.length ? item.requestUsers.join(', ') : '—' }}</template>

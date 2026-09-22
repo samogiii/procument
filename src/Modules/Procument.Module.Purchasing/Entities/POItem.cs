@@ -16,6 +16,8 @@ public class POItem : BaseEntity
     public long? ProcumentId { get; set; }
     public long? PartNumberId { get; set; }
     public long? InvoiceItemId { get; set; }
+    /// <summary>OurInventory lot populated when this stock PO line is received.</summary>
+    public long? StockItemId { get; set; }
     /// <summary>Trace back to the Procurement snapshot this POItem was materialized from (nullable for legacy rows).</summary>
     public long? SourceProcurementItemId { get; set; }
     /// <summary>

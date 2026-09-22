@@ -393,6 +393,8 @@ public class PaymentRequestPdfRequest
     public string? PrNumber { get; set; } // e.g. PR01501
     public string? DocumentDate { get; set; }
     public string? PoNumber { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public string? SupplierPIRef { get; set; }
     public string? SupplierName { get; set; }
     public string? Currency { get; set; }
     public string? CurrencySymbol { get; set; }

@@ -21,6 +21,10 @@ public class PaymentRequestResponse
     public string? Status { get; set; }
     public long? POId { get; set; }
     public string? PONumber { get; set; }
+    public string? Origin { get; set; }
+    public string? POType { get; set; }
+    public string? POLink { get; set; }
+    public string? SupplierPIRef { get; set; }
     public long? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public DateTime CreatedAt { get; set; }

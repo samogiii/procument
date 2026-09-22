@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.API.Pdf;
+using Procument.Module.Catalog.Entities;
+using Procument.Module.OurInventory.DTOs;
+using Procument.Module.OurInventory.Services;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Purchasing.Services;
 using Procument.Module.Sales.Entities;
@@ -9,6 +12,7 @@ using Procument.Shared.Services;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using PurchaseOrderPdfDocument = Procument.API.Pdf.PurchaseOrderDocument;
 
 namespace Procument.API.Controllers;
 
@@ -61,8 +65,16 @@ public class PdfController : ControllerBase
             }
         }
 
+        // A Stock PO is only sent to the supplier once an admin has approved it.
+        var stockPo = string.IsNullOrWhiteSpace(req.PoNumber) ? null : await _db.Set<PurchaseOrder>().AsNoTracking()
+            .Where(p => p.PONumber == req.PoNumber && p.Origin == "Stock")
+            .Select(p => new { p.AdminApproval })
+            .FirstOrDefaultAsync();
+        if (stockPo is not null && stockPo.AdminApproval != "Approved")
+            return Conflict(new { message = "Approve the Stock PO before issuing its PDF to the supplier." });
+
         QuestPDF.Settings.License = LicenseType.Community;
-        var pdf = PurchaseOrderDocument.Generate(req);
+        var pdf = PurchaseOrderPdfDocument.Generate(req);
         var fileName = $"{req.PoNumber ?? "PO"}.pdf";
 
         // Auto-save the generated PO PDF into the proforma invoice's supplier folder under
@@ -111,18 +123,31 @@ public class PdfController : ControllerBase
                         }
                     }
 
+                    // Stock POs have no Sales Order, so their files live under the PO number
+                    // (the same folder the Stock PO supplier documents use).
+                    if (po.Origin == "Stock") invoiceNumber = po.PONumber;
+
                     if (!string.IsNullOrWhiteSpace(invoiceNumber))
                     {
                         using var ms = new MemoryStream(pdf);
                         _storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, "PO", fileName, ms);
                     }
 
-                    // Downloading the PO starts the supplier-document stage.
-                    po.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
                     if (!string.IsNullOrWhiteSpace(req.PoDate) && DateTime.TryParse(req.PoDate, out var parsedDate))
                     {
                         po.PODate = parsedDate;
                     }
+
+                    // Stock POs already reached the supplier-document stage on approval; re-issuing
+                    // the PDF later must not pull a paid or received PO back.
+                    if (po.Origin == "Stock")
+                    {
+                        await _db.SaveChangesAsync();
+                        return File(pdf, "application/pdf", fileName);
+                    }
+
+                    // Downloading the PO starts the supplier-document stage.
+                    po.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
                     foreach (var item in po.POItems.Where(i => i.ReturnedAt == null))
                     {
                         item.Status = PurchaseOrderStatusFlow.WaitingForSupplierDocuments;
@@ -195,11 +220,86 @@ public class PdfController : ControllerBase
 
     // ─── Payment Request (PR) ──────────────────────────
     [HttpPost("payment-request")]
-    public IActionResult GeneratePaymentRequest([FromBody] PaymentRequestPdfRequest req)
+    public async Task<IActionResult> GeneratePaymentRequest([FromBody] PaymentRequestPdfRequest req)
     {
+        if (!string.IsNullOrWhiteSpace(req.PoNumber)
+            && (string.IsNullOrWhiteSpace(req.InvoiceNumber) || string.IsNullOrWhiteSpace(req.SupplierPIRef)))
+        {
+            var po = await _db.Set<PurchaseOrder>().AsNoTracking()
+                .FirstOrDefaultAsync(p => p.PONumber == req.PoNumber);
+            if (po is not null)
+            {
+                req.SupplierPIRef ??= po.SupplierPIRef;
+                if (string.IsNullOrWhiteSpace(req.InvoiceNumber) && po.InvoiceId.HasValue)
+                    req.InvoiceNumber = await _db.Set<Invoice>().AsNoTracking()
+                        .Where(i => i.Id == po.InvoiceId.Value)
+                        .Select(i => i.InvoiceNumber)
+                        .FirstOrDefaultAsync();
+            }
+        }
+
         QuestPDF.Settings.License = LicenseType.Community;
         var pdf = PaymentRequestDocument.Generate(req);
         return File(pdf, "application/pdf", $"PR-{req.PrNumber ?? "Document"}.pdf");
+    }
+
+    // ─── Our Inventory: Goods Receipt Note ─────────────────
+    /// <summary>
+    /// GRN for a Stock PO. Without <paramref name="movementIds"/> it covers every receipt so far;
+    /// pass the ids of one receipt (e.g. the one just booked) to print only that delivery.
+    /// </summary>
+    [HttpGet("stock-receipt/{poId:long}")]
+    public async Task<IActionResult> GenerateStockReceipt(
+        long poId,
+        [FromQuery] List<long>? movementIds,
+        [FromServices] IStockQueryService stock)
+    {
+        var note = await stock.GetReceiptNoteAsync(poId, movementIds);
+        if (note is null) return NotFound(new { message = "Nothing has been received on this Stock PO yet." });
+
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = StockReceiptDocument.Generate(note, await ResolveBrandingAsync(note.CompanyPresetId));
+        return File(pdf, "application/pdf", $"{note.NoteNumber}.pdf");
+    }
+
+    // ─── Our Inventory: stock report / valuation ───────────
+    /// <summary>
+    /// Every lot matching the Our Stock page filters, grouped by company and warehouse.
+    /// Cost and value columns are only printed for Admin / SuperAdmin.
+    /// </summary>
+    [HttpGet("stock-report")]
+    public async Task<IActionResult> GenerateStockReport(
+        [FromQuery] StockItemQuery query,
+        [FromQuery] long? brandPresetId,
+        [FromQuery] string? filterLabel,
+        [FromServices] IStockQueryService stock)
+    {
+        var canSeeCost = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        var report = await stock.GetValuationAsync(query, canSeeCost);
+        var presetId = brandPresetId
+            ?? (query.CompanyPresetIds is { Count: 1 } ? query.CompanyPresetIds[0] : (long?)null)
+            ?? (report.Groups.Select(g => g.CompanyPresetId).Distinct().Count() == 1 ? report.Groups[0].CompanyPresetId : null);
+
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = StockReportDocument.Generate(report, await ResolveBrandingAsync(presetId), filterLabel);
+        var kind = canSeeCost ? "Stock-Valuation" : "Stock-Report";
+        return File(pdf, "application/pdf", $"{kind}-{DateTime.UtcNow:yyyyMMdd}.pdf");
+    }
+
+    /// <summary>Letterhead from the given preset, else the Base 105 office, else the first active preset.</summary>
+    private async Task<PdfBranding> ResolveBrandingAsync(long? presetId)
+    {
+        var presets = _db.Set<CompanyPreset>().AsNoTracking();
+        var preset = (presetId.HasValue ? await presets.FirstOrDefaultAsync(p => p.Id == presetId.Value) : null)
+            ?? await presets.FirstOrDefaultAsync(p => p.SortOrder == 105 && p.IsActive)
+            ?? await presets.Where(p => p.IsActive).OrderBy(p => p.SortOrder).ThenBy(p => p.Id).FirstOrDefaultAsync();
+        if (preset is null) return PdfBranding.Plain;
+
+        return new PdfBranding(
+            preset.Name, preset.Location, preset.Phone, preset.Website, preset.Email,
+            string.IsNullOrWhiteSpace(preset.LogoBase64) ? null : preset.LogoBase64,
+            string.IsNullOrWhiteSpace(preset.PrimaryColor) ? PdfBranding.Plain.Primary : preset.PrimaryColor,
+            string.IsNullOrWhiteSpace(preset.AccentColor) ? PdfBranding.Plain.Accent : preset.AccentColor);
     }
 
     // ─── Quote (existing) ────────────────────────────────

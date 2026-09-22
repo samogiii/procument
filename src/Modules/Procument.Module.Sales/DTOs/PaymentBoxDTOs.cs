@@ -44,7 +44,10 @@ public record PaymentTransactionRow(
     string? TxCurrency,
     decimal? ExchangeRate,
     /// <summary>Wallet-side tag, "B1".."B7".</summary>
-    string? Base = null);
+    string? Base = null,
+    string? PONumber = null,
+    string? POType = null,
+    string? POLink = null);
 
 public record PaymentBoxDetailResponse(
     long Id,
@@ -82,7 +85,10 @@ public record AllTransactionRow(
     string? TxCurrency,
     decimal? ExchangeRate,
     /// <summary>Wallet-side tag, "B1".."B7".</summary>
-    string? Base = null);
+    string? Base = null,
+    string? PONumber = null,
+    string? POType = null,
+    string? POLink = null);
 
 /// <summary>CompanyPresetId is optional — omit it for a wallet that belongs to no company.</summary>
 public record CreatePaymentBoxRequest(long? CompanyPresetId, string Currency, string Name = "",
