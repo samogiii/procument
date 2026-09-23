@@ -587,7 +587,7 @@ const pageTitle = computed(() => {
 })
 
 async function logout() {
-  authStore.logout()
+  await authStore.signOut()
   await navigateTo('/login')
 }
 
@@ -749,6 +749,12 @@ function timeAgo(dateStr: string) {
   return `${days}d ago`
 }
 
+async function refreshSessionWhenActive() {
+  if (document.visibilityState === 'visible' && authStore.shouldRefreshToken
+      && !(await authStore.refreshSession()))
+    navigateTo('/login')
+}
+
 onMounted(() => {
   if (authStore.isAuthenticated) {
     loadNotifications()
@@ -757,13 +763,13 @@ onMounted(() => {
     pollTimer = setInterval(loadNotifications, 30000)
   }
 
-  // Periodic token expiry check — every 30s
-  tokenCheckTimer = setInterval(() => {
-    if (authStore.user?.token && authStore.isTokenExpired) {
-      authStore.logout()
+  // Keep the 30-day browser session alive while the app is open.
+  tokenCheckTimer = setInterval(async () => {
+    if (authStore.shouldRefreshToken && !(await authStore.refreshSession()))
       navigateTo('/login')
-    }
   }, 30000)
+  document.addEventListener('visibilitychange', refreshSessionWhenActive)
+  window.addEventListener('focus', refreshSessionWhenActive)
 })
 
 // Watch for route changes to trigger auto sync
@@ -776,6 +782,8 @@ watch(() => route.path, () => {
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (tokenCheckTimer) clearInterval(tokenCheckTimer)
+  document.removeEventListener('visibilitychange', refreshSessionWhenActive)
+  window.removeEventListener('focus', refreshSessionWhenActive)
 })
 </script>
 

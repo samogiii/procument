@@ -11,35 +11,41 @@ export function useApi() {
     const baseURL = apiMap[hostWithPort] || apiMap['default']
 
     async function apiFetch<T>(path: string, options: any = {}): Promise<T> {
-        // Pre-check: if token is expired, logout immediately
-        if (authStore.user?.token && authStore.isTokenExpired) {
-            authStore.logout()
-            await navigateTo('/login')
-            throw new Error('Session expired')
+        const isSessionEndpoint = path.startsWith('/auth/login') || path.startsWith('/auth/register')
+            || path.startsWith('/auth/refresh') || path.startsWith('/auth/logout')
+
+        // Refresh before expiry so direct user actions never hit an expired access token.
+        if (!isSessionEndpoint && (!authStore.user?.token || authStore.shouldRefreshToken)) {
+            const refreshed = await authStore.refreshSession()
+            if (!refreshed) {
+                await navigateTo('/login')
+                throw new Error('Session expired')
+            }
         }
 
-        // Let the browser add the multipart boundary for FormData uploads.
-        // JSON remains the default for the application's normal API requests.
-        const headers: Record<string, string> = {
-            ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-            ...options.headers,
-        }
+        const execute = () => {
+            // Let the browser add the multipart boundary for FormData uploads.
+            const headers: Record<string, string> = {
+                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                ...options.headers,
+            }
+            if (authStore.user?.token)
+                headers.Authorization = `Bearer ${authStore.user.token}`
 
-        if (authStore.user?.token) {
-            headers.Authorization = `Bearer ${authStore.user.token}`
-        }
-
-        try {
-            // 3. Use the native 'baseURL' option in $fetch
-            return await $fetch<T>(path, {
-                baseURL: baseURL,
+            return $fetch<T>(path, {
+                baseURL,
+                credentials: 'include',
                 ...options,
                 headers,
             })
+        }
+
+        try {
+            return await execute()
         } catch (err: any) {
-            // Handle 401 Unauthorized — token rejected by server
-            if (err?.response?.status === 401 || err?.status === 401) {
-                authStore.logout()
+            // Rotate the session and retry the original save exactly once.
+            if (!isSessionEndpoint && (err?.response?.status === 401 || err?.status === 401)) {
+                if (await authStore.refreshSession()) return await execute()
                 await navigateTo('/login')
                 throw new Error('Session expired')
             }

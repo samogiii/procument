@@ -51,18 +51,20 @@ export default defineNuxtRouteMiddleware(async (to) => {
     const authStore = useAuthStore()
     authStore.loadFromStorage()
 
+    // Existing users from before refresh sessions were introduced still have a valid
+    // bearer token. Upgrade them silently so they do not have to log in again.
+    if (authStore.isAuthenticated && !authStore.hasRefreshSession()) {
+        await authStore.bootstrapRefreshSession()
+    }
+
+    // Restore or rotate the 30-day HttpOnly session before evaluating route access.
+    if (!authStore.isAuthenticated || authStore.shouldRefreshToken) {
+        await authStore.refreshSession()
+    }
+
     // Load menu permissions from the API once per session (after restoring from storage)
     if (authStore.isAuthenticated && Object.values(authStore.featurePermissions).every(v => v.length === 0)) {
         await authStore.loadMenuPermissions()
-    }
-
-    // If user has a token but it's expired, log them out
-    if (authStore.user?.token && authStore.isTokenExpired) {
-        authStore.logout()
-        if (to.path !== '/login') {
-            return navigateTo('/login')
-        }
-        return
     }
 
     if (!authStore.isAuthenticated && to.path !== '/login') {

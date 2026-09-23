@@ -58,6 +58,9 @@ function getTokenExpiry(token: string): number | null {
     }
 }
 
+let refreshPromise: Promise<boolean> | null = null
+const REFRESH_READY_KEY = 'procument_refresh_ready'
+
 export const useAuthStore = defineStore('auth', {
     state: () => ({
         user: null as User | null,
@@ -73,6 +76,10 @@ export const useAuthStore = defineStore('auth', {
         isTokenExpired(): boolean {
             if (!this.tokenExpiry) return true
             return Date.now() >= this.tokenExpiry
+        },
+        shouldRefreshToken(): boolean {
+            if (!this.tokenExpiry) return true
+            return Date.now() >= this.tokenExpiry - 10 * 60 * 1000
         },
         isAuthenticated(): boolean {
             return !!this.user?.token && !this.isTokenExpired
@@ -142,16 +149,93 @@ export const useAuthStore = defineStore('auth', {
             this.user = user
             if (import.meta.client) {
                 localStorage.setItem('procument_user', JSON.stringify(user))
+                localStorage.setItem(REFRESH_READY_KEY, '1')
             }
+        },
+
+        hasRefreshSession(): boolean {
+            return import.meta.client && localStorage.getItem(REFRESH_READY_KEY) === '1'
         },
 
         loadFromStorage() {
             if (import.meta.client) {
                 const stored = localStorage.getItem('procument_user')
                 if (stored) {
-                    this.user = JSON.parse(stored)
+                    try { this.user = JSON.parse(stored) }
+                    catch { localStorage.removeItem('procument_user') }
                 }
             }
+        },
+
+        async refreshSession(): Promise<boolean> {
+            if (!import.meta.client) return false
+            if (refreshPromise) return refreshPromise
+
+            const tokenBeforeRefresh = this.user?.token
+            const performRefresh = async () => {
+                try {
+                    const config = useRuntimeConfig()
+                    const apiMap = config.public.apiMap as Record<string, string>
+                    const baseURL = apiMap[window.location.host] || apiMap['default']
+                    const user = await $fetch<User>('/auth/refresh', {
+                        method: 'POST',
+                        baseURL,
+                        credentials: 'include',
+                    })
+                    this.setUser(user)
+                    return true
+                } catch {
+                    this.logout()
+                    return false
+                }
+            }
+
+            const locks = (navigator as any).locks
+            refreshPromise = locks
+                ? locks.request('procument-session-refresh', async () => {
+                    // Another tab may have refreshed while this tab waited for the lock.
+                    this.loadFromStorage()
+                    if (this.user?.token && this.user.token !== tokenBeforeRefresh && !this.shouldRefreshToken)
+                        return true
+                    return await performRefresh()
+                })
+                : performRefresh()
+
+            try { return await refreshPromise }
+            finally { refreshPromise = null }
+        },
+
+        async bootstrapRefreshSession(): Promise<boolean> {
+            if (!import.meta.client || !this.user?.token || this.isTokenExpired) return false
+            try {
+                const config = useRuntimeConfig()
+                const apiMap = config.public.apiMap as Record<string, string>
+                const baseURL = apiMap[window.location.host] || apiMap['default']
+                const user = await $fetch<User>('/auth/session', {
+                    method: 'POST',
+                    baseURL,
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${this.user.token}` },
+                })
+                this.setUser(user)
+                return true
+            } catch {
+                return false
+            }
+        },
+
+        async signOut() {
+            if (import.meta.client) {
+                try {
+                    const config = useRuntimeConfig()
+                    const apiMap = config.public.apiMap as Record<string, string>
+                    const baseURL = apiMap[window.location.host] || apiMap['default']
+                    await $fetch('/auth/logout', { method: 'POST', baseURL, credentials: 'include' })
+                } catch {
+                    // Local sign-out must still succeed if the API is temporarily unavailable.
+                }
+            }
+            this.logout()
         },
 
         logout() {
@@ -159,6 +243,7 @@ export const useAuthStore = defineStore('auth', {
             this.featurePermissions = { ...DEFAULT_FEATURE_PERMISSIONS }
             if (import.meta.client) {
                 localStorage.removeItem('procument_user')
+                localStorage.removeItem(REFRESH_READY_KEY)
             }
         },
 
@@ -179,6 +264,7 @@ export const useAuthStore = defineStore('auth', {
 
                 const groups = await $fetch<MenuPermissionGroup[]>('/menu-permissions', {
                     baseURL,
+                    credentials: 'include',
                     headers: { Authorization: `Bearer ${this.user.token}` },
                 })
 
