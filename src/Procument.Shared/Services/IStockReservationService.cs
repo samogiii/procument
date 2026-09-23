@@ -39,6 +39,11 @@ public interface IStockReservationService
     /// <summary>Reserved (not yet issued) and issued quantities for one Sales Order line.</summary>
     Task<StockLineStatus> GetLineStatusAsync(long invoiceItemId, CancellationToken cancellationToken = default);
 
+    /// <summary>Reserved (not yet issued) and issued quantities for a page of Sales Order lines.</summary>
+    Task<IReadOnlyDictionary<long, StockLineStatus>> GetLineStatusesAsync(
+        IReadOnlyCollection<long> invoiceItemIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Id of the Our Stock catalog supplier, when it exists.</summary>
     Task<long?> GetStockSupplierIdAsync(CancellationToken cancellationToken = default);
 

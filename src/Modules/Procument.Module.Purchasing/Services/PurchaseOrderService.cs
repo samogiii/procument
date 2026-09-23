@@ -315,7 +315,10 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = new PurchaseOrder
         {
-            PONumber = "", // Will be set after getting Id
+            // Unique placeholder, replaced with "PO-{Id}" right after the insert. PurchaseOrders.PONumber
+            // has a unique index, so a fixed placeholder left behind by a failed creation would block
+            // every later PO with a duplicate-key error.
+            PONumber = $"TMP-{Guid.NewGuid():N}",
             SupplierId = request.SupplierId,
             InvoiceId = request.InvoiceId,
             Status = PurchaseOrderStatusFlow.NotStarted,

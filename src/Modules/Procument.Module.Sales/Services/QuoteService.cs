@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
@@ -181,10 +181,19 @@ public class QuoteService : IQuoteService
         return MapToResponse(quote, assignedUsers);
     }
 
+    /// <summary>
+    /// Placeholder held only between the insert (which generates the Id) and the update that
+    /// writes "QT-{Id}". It must be unique: Quotes.QuoteNumber has a unique, unfiltered index,
+    /// so two quotes carrying the same placeholder — concurrently, or because an earlier
+    /// creation died before its second save — make every later insert fail with
+    /// "Cannot insert duplicate key row ... IX_Quotes_QuoteNumber".
+    /// </summary>
+    private static string NewQuoteNumberPlaceholder() => $"TMP-{Guid.NewGuid():N}";
+
     public async Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId)
     {
         // Get the RFQ to resolve customer
-        var rfq = await _db.Set<RFQHeader>()
+        _ = await _db.Set<RFQHeader>().AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == request.RFQId)
             ?? throw new KeyNotFoundException("RFQ not found.");
 
@@ -195,69 +204,85 @@ public class QuoteService : IQuoteService
         if (hasActiveQuote)
             throw new InvalidOperationException("A quote has already been created for this RFQ.");
 
-        // Build quote items
-        var quoteItems = new List<QuoteItem>();
-        decimal totalAmount = 0;
-
-        foreach (var (itemReq, index) in request.Items.Select((req, i) => (req, i)))
+        // The insert and the "QT-{Id}" update are one unit of work: a failure between them used to
+        // leave a numberless quote behind, and that row then blocked every later quote.
+        var quoteId = await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            var rfqItem = await _db.Set<RFQItem>()
-                .Include(i => i.PartNumber)
-                .FirstOrDefaultAsync(i => i.Id == itemReq.RFQItemId)
-                ?? throw new KeyNotFoundException($"RFQ Item {itemReq.RFQItemId} not found.");
+            // A retry re-runs this block, so build the graph here and start from a clean tracker —
+            // otherwise the previous attempt's entities would be inserted a second time.
+            _db.ChangeTracker.Clear();
+            await using var transaction = await _db.Database.BeginTransactionAsync();
 
-            var totalPrice = itemReq.Qty * itemReq.UnitPrice;
-            totalAmount += totalPrice;
+            var rfq = await _db.Set<RFQHeader>()
+                .FirstOrDefaultAsync(r => r.Id == request.RFQId)
+                ?? throw new KeyNotFoundException("RFQ not found.");
 
-            quoteItems.Add(new QuoteItem
+            // Build quote items
+            var quoteItems = new List<QuoteItem>();
+            decimal totalAmount = 0;
+
+            foreach (var (itemReq, index) in request.Items.Select((req, i) => (req, i)))
             {
-                RFQItemId = itemReq.RFQItemId,
-                PartNumberId = rfqItem.PartNumberId,
-                ProcumentRecordId = itemReq.ProcumentRecordId,
-                SourceStockItemId = await StockLotForAsync(itemReq.ProcumentRecordId),
-                Qty = itemReq.Qty,
-                UnitPrice = itemReq.UnitPrice,
-                TotalPrice = totalPrice,
-                Condition = itemReq.Condition,
-                Alt = itemReq.Alt,
-                LeadTimeDays = itemReq.LeadTimeDays,
-                SortOrder = index
-            });
-        }
+                var rfqItem = await _db.Set<RFQItem>()
+                    .Include(i => i.PartNumber)
+                    .FirstOrDefaultAsync(i => i.Id == itemReq.RFQItemId)
+                    ?? throw new KeyNotFoundException($"RFQ Item {itemReq.RFQItemId} not found.");
 
-        var quote = new Quote
-        {
-            QuoteNumber = string.Empty, // Will be set after SaveChanges using the auto-increment Id
-            RFQId = request.RFQId,
-            CustomerId = rfq.CustomerId,
-            UserId = userId,
-            TotalAmount = request.FinalPrice ?? totalAmount,
-            FinalPrice = request.FinalPrice,
-            ValidUntil = request.ValidUntil,
-            Status = "Draft",
-            CreatedAt = DateTime.UtcNow,
-            QuoteItems = quoteItems
-        };
+                var totalPrice = itemReq.Qty * itemReq.UnitPrice;
+                totalAmount += totalPrice;
 
-        _db.Set<Quote>().Add(quote);
-        await _db.SaveChangesAsync();
+                quoteItems.Add(new QuoteItem
+                {
+                    RFQItemId = itemReq.RFQItemId,
+                    PartNumberId = rfqItem.PartNumberId,
+                    ProcumentRecordId = itemReq.ProcumentRecordId,
+                    SourceStockItemId = await StockLotForAsync(itemReq.ProcumentRecordId),
+                    Qty = itemReq.Qty,
+                    UnitPrice = itemReq.UnitPrice,
+                    TotalPrice = totalPrice,
+                    Condition = itemReq.Condition,
+                    Alt = itemReq.Alt,
+                    LeadTimeDays = itemReq.LeadTimeDays,
+                    SortOrder = index
+                });
+            }
 
-        // Set quote number based on auto-increment Id
-        quote.QuoteNumber = $"QT-{quote.Id}";
+            var quote = new Quote
+            {
+                QuoteNumber = NewQuoteNumberPlaceholder(), // replaced with QT-{Id} once the insert assigns one
+                RFQId = request.RFQId,
+                CustomerId = rfq.CustomerId,
+                UserId = userId,
+                TotalAmount = request.FinalPrice ?? totalAmount,
+                FinalPrice = request.FinalPrice,
+                ValidUntil = request.ValidUntil,
+                Status = "Draft",
+                CreatedAt = DateTime.UtcNow,
+                QuoteItems = quoteItems
+            };
 
-        // Base 1 customers also get a B1 quote number (e.g. Q101-60701-10), which the
-        // Sales Order and Final Invoice later inherit. Null for every other base.
-        quote.B1QuoteNumber = await _b1Service.GenerateB1QuoteNumberAsync(quote.CustomerId, quote.CreatedAt);
+            _db.Set<Quote>().Add(quote);
+            await _db.SaveChangesAsync();
 
-        // Set RFQ status to Ready To Quote
-        rfq.Status = "Ready To Quote";
+            // Set quote number based on auto-increment Id
+            quote.QuoteNumber = $"QT-{quote.Id}";
 
-        await SaveWithB1NumberRetryAsync(quote);
+            // Base 1 customers also get a B1 quote number (e.g. Q101-60701-10), which the
+            // Sales Order and Final Invoice later inherit. Null for every other base.
+            quote.B1QuoteNumber = await _b1Service.GenerateB1QuoteNumberAsync(quote.CustomerId, quote.CreatedAt);
 
-        return await GetByIdAsync(quote.Id, userId, true)
+            // Set RFQ status to Ready To Quote
+            rfq.Status = "Ready To Quote";
+
+            await SaveWithB1NumberRetryAsync(quote);
+            await transaction.CommitAsync();
+            return quote.Id;
+        });
+
+        return await GetByIdAsync(quoteId, userId, true)
             // passing isAdmin=true here to ensure we fetch it back, though userId check handles it too.
             // actually if we pass userId, it should work.
-            // But 'isAdmin' param is "bypass permission check". 
+            // But 'isAdmin' param is "bypass permission check".
             // Since we just created it, we are the owner, so userId matching works.
             // But safe to pass true to avoid overhead.
             ?? throw new Exception("Failed to load created quote.");

@@ -222,6 +222,16 @@
       <!-- ── All Transactions Tab ── -->
       <v-tabs-window-item value="ledger">
         <div class="d-flex justify-end gap-2 mb-3">
+          <v-chip
+            v-if="unreviewedCount > 0"
+            color="warning"
+            variant="tonal"
+            prepend-icon="mdi-flag-outline"
+            class="cursor-pointer"
+            @click="showOnlyNew = !showOnlyNew"
+          >
+            {{ unreviewedCount }} new
+          </v-chip>
           <v-btn
             v-if="hasAnyFilter"
             variant="text"
@@ -247,6 +257,7 @@
             :loading="ledgerLoading"
             density="comfortable"
             :items-per-page="100"
+            :row-props="transactionRowProps"
           >
             <!-- ── Excel-style filter + sort headers ── -->
             <template #header.accountName="{ column, toggleSort, isSorted, sortBy }">
@@ -403,6 +414,40 @@
               />
             </template>
 
+            <template #header.exchangeRate="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="exchangeRate"
+                :label="column.title"
+                :options="cfOptions.exchangeRate"
+                :selected="colFilter.selected['exchangeRate'] || new Set()"
+                :search="colFilter.search['exchangeRate'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('exchangeRate', v)"
+                @select-all="() => colFilter.selectAll('exchangeRate', cfOptions.exchangeRate)"
+                @clear-all="() => colFilter.clearAll('exchangeRate')"
+                @update:search="(v) => colFilter.search['exchangeRate'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <template #header.isAuto="{ column, toggleSort, isSorted, sortBy }">
+              <ColFilterMenu
+                col-key="isAuto"
+                :label="column.title"
+                :options="cfOptions.isAuto"
+                :selected="colFilter.selected['isAuto'] || new Set()"
+                :search="colFilter.search['isAuto'] || ''"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @toggle="(v) => colFilter.toggle('isAuto', v)"
+                @select-all="() => colFilter.selectAll('isAuto', cfOptions.isAuto)"
+                @clear-all="() => colFilter.clearAll('isAuto')"
+                @update:search="(v) => colFilter.search['isAuto'] = v"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
             <!-- Base -->
             <template #item.base="{ item }">
               <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
@@ -512,6 +557,34 @@
               <span v-else class="text-medium-emphasis">—</span>
             </template>
 
+            <template #item.exchangeRate="{ item }">
+              <div class="d-flex align-center gap-1 text-caption">
+                <span>{{ item.exchangeRate != null ? `×${item.exchangeRate}` : '1:1' }}</span>
+                <v-tooltip v-if="item.originalExchangeRate != null" location="top">
+                  <template #activator="{ props }">
+                    <v-chip v-bind="props" size="x-small" color="info" variant="tonal" prepend-icon="mdi-pencil">Corrected</v-chip>
+                  </template>
+                  Was {{ item.originalExchangeRate }} — corrected by {{ item.rateEditedByName || 'Unknown' }}
+                  <template v-if="item.rateEditedAt"> on {{ new Date(item.rateEditedAt).toLocaleDateString() }}</template>
+                </v-tooltip>
+                <v-btn
+                  v-if="item.isAuto && authStore.isAdmin"
+                  icon="mdi-pencil-outline"
+                  size="x-small"
+                  variant="text"
+                  color="primary"
+                  title="Correct exchange rate"
+                  @click="openRateCorrection(item)"
+                />
+              </div>
+            </template>
+
+            <template #item.isAuto="{ item }">
+              <v-chip :color="item.isNew ? 'warning' : item.isAuto ? 'teal' : 'default'" size="x-small" variant="tonal">
+                {{ item.isNew ? 'New' : item.isAuto ? 'Auto' : 'Manual' }}
+              </v-chip>
+            </template>
+
             <!-- Balance -->
             <template #item.balance="{ item }">
               <span
@@ -524,6 +597,15 @@
 
             <!-- Actions -->
             <template #item.actions="{ item }">
+              <v-btn
+                v-if="item.isAuto && authStore.isAdmin"
+                :icon="item.isNew ? 'mdi-flag-outline' : 'mdi-flag-off-outline'"
+                size="x-small"
+                variant="text"
+                :color="item.isNew ? 'warning' : 'default'"
+                :title="item.isNew ? 'Mark as reviewed' : 'Mark as new'"
+                @click="toggleReviewed(item)"
+              />
               <v-btn
                 v-if="authStore.isSuperAdmin"
                 icon="mdi-pencil-outline"
@@ -567,6 +649,15 @@
         <WalletTransfersPanel />
       </v-tabs-window-item>
     </v-tabs-window>
+
+    <WalletRateCorrectionDialog
+      v-model="rateDialog"
+      :box-id="rateTarget?.boxId || 0"
+      :wallet-currency="rateTarget?.currency || ''"
+      :transaction="rateTarget"
+      :linked-bank-fee="linkedBankFee"
+      @saved="onRateCorrected"
+    />
 
     <!-- Add Wallet Dialog -->
     <v-dialog v-model="addDialog" max-width="500">
@@ -876,6 +967,12 @@ interface AllTransactionRow {
   txCurrency: string | null
   exchangeRate: number | null
   base: string | null
+  isNew: boolean
+  reviewedAt: string | null
+  reviewedByName: string | null
+  originalExchangeRate: number | null
+  rateEditedAt: string | null
+  rateEditedByName: string | null
 }
 
 interface CompanyPreset {
@@ -892,6 +989,10 @@ const allTransactions = ref<AllTransactionRow[]>([])
 const presets = ref<CompanyPreset[]>([])
 const loading = ref(true)
 const ledgerLoading = ref(false)
+const showOnlyNew = ref(false)
+const unreviewedCount = ref(0)
+const rateDialog = ref(false)
+const rateTarget = ref<AllTransactionRow | null>(null)
 const saving = ref(false)
 const deleting = ref(false)
 const addDialog = ref(false)
@@ -1043,6 +1144,8 @@ const ledgerHeaders = [
   { title: 'PR#', key: 'prNumber', sortable: true, width: '100px' },
   { title: 'PO', key: 'poNumber', sortable: true, width: '180px' },
   { title: 'Base', key: 'base', sortable: true, width: '90px' },
+  { title: 'Rate', key: 'exchangeRate', sortable: true, width: '150px' },
+  { title: 'Source', key: 'isAuto', sortable: true, width: '90px' },
   { title: 'Balance', key: 'balance', sortable: true, width: '120px' },
   { title: '', key: 'actions', sortable: false, width: '50px' },
 ]
@@ -1059,6 +1162,8 @@ const LIST_COLS = {
   piNumber: (t: AllTransactionRow) => t.piNumber ?? '—',
   prNumber: (t: AllTransactionRow) => t.prNumber ?? '—',
   base: (t: AllTransactionRow) => t.base ?? '—',
+  exchangeRate: (t: AllTransactionRow) => t.exchangeRate != null ? `×${t.exchangeRate}` : '1:1',
+  isAuto: (t: AllTransactionRow) => t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual',
 } satisfies Record<string, (t: AllTransactionRow) => string>
 
 /** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
@@ -1078,6 +1183,12 @@ const cfOptions = computed(() => {
   return out
 })
 
+const linkedBankFee = computed(() => {
+  const tx = rateTarget.value
+  if (!tx?.prId) return null
+  return allTransactions.value.find(t => t.boxId === tx.boxId && t.prId === tx.prId && t.toType === 'BankFee' && t.isAuto) ?? null
+})
+
 function bounds(values: number[]) {
   if (values.length === 0) return null
   return { lo: Math.min(...values), hi: Math.max(...values) }
@@ -1089,6 +1200,7 @@ const balanceBounds = computed(() => bounds(allTransactions.value.map(t => t.bal
 
 const displayedTransactions = computed(() =>
   allTransactions.value.filter(t => {
+    if (showOnlyNew.value && !t.isNew) return false
     for (const key of LIST_KEYS) {
       const sel = colFilter.selected[key]
       if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
@@ -1101,12 +1213,43 @@ const displayedTransactions = computed(() =>
 )
 
 const hasAnyFilter = computed(() =>
-  LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+  showOnlyNew.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
 )
 
 function clearFilters() {
+  showOnlyNew.value = false
   for (const k of LIST_KEYS) colFilter.clearAll(k)
   for (const k of RANGE_KEYS) rangeFilter.clear(k)
+}
+
+function transactionRowProps({ item }: { item: AllTransactionRow }) {
+  return item.isNew ? { class: 'tx-row-new' } : {}
+}
+
+function openRateCorrection(item: AllTransactionRow) {
+  rateTarget.value = item
+  rateDialog.value = true
+}
+
+async function onRateCorrected() {
+  await Promise.all([loadAllTransactions(), loadBoxes(), loadUnreviewedCount()])
+}
+
+async function toggleReviewed(item: AllTransactionRow) {
+  const before = { isNew: item.isNew, reviewedAt: item.reviewedAt, reviewedByName: item.reviewedByName }
+  const reviewed = item.isNew
+  item.isNew = !reviewed
+  item.reviewedAt = reviewed ? new Date().toISOString() : null
+  item.reviewedByName = reviewed ? authStore.user?.name ?? null : null
+  unreviewedCount.value += reviewed ? -1 : 1
+  try {
+    const updated = await api.patch<any>(`/payment-boxes/${item.boxId}/transactions/${item.id}/review`, { reviewed })
+    Object.assign(item, updated)
+  } catch (e) {
+    Object.assign(item, before)
+    unreviewedCount.value += reviewed ? 1 : -1
+    console.error(e)
+  }
 }
 
 /**
@@ -1151,6 +1294,15 @@ async function loadAllTransactions() {
     console.error(e)
   } finally {
     ledgerLoading.value = false
+  }
+}
+
+async function loadUnreviewedCount() {
+  try {
+    const result = await api.get<{ total: number }>('/payment-boxes/unreviewed-count')
+    unreviewedCount.value = result.total
+  } catch (e) {
+    console.error(e)
   }
 }
 
@@ -1238,6 +1390,9 @@ async function doExport() {
     Base: t.base ?? '',
     Notes: t.notes ?? '',
     Source: t.isAuto ? 'Auto' : 'Manual',
+    Reviewed: t.isNew ? 'No' : 'Yes',
+    'Reviewed by': t.reviewedByName ?? '',
+    'Original rate': t.originalExchangeRate ?? '',
     Date: new Date(t.createdAt).toLocaleDateString(),
     Balance: t.balance,
   }))
@@ -1248,6 +1403,7 @@ async function doExport() {
 
 onMounted(() => {
   loadBoxes()
+  loadUnreviewedCount()
   if (authStore.isSuperAdmin) loadPresets()
 })
 </script>
@@ -1273,5 +1429,11 @@ onMounted(() => {
 }
 .tx-total-row td {
   border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+:deep(.tx-row-new:not(.tx-total-row) td) {
+  background: rgba(255, 193, 7, 0.16) !important;
+}
+:deep(.v-theme--dark .tx-row-new:not(.tx-total-row) td) {
+  background: rgba(255, 193, 7, 0.10) !important;
 }
 </style>

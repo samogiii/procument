@@ -1,4 +1,5 @@
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.Entities;
 
 namespace Procument.Module.Sales.Entities;
@@ -29,9 +30,18 @@ public class PaymentTransaction
     public decimal? ExchangeRate { get; set; }         // Amount * ExchangeRate = amount in box base currency
     public long? ToPaymentBoxId { get; set; }          // wallet-to-wallet: target box
 
+    // Review and exchange-rate correction audit
+    public DateTime? ReviewedAt { get; set; }
+    public long? ReviewedByUserId { get; set; }
+    public decimal? OriginalExchangeRate { get; set; }
+    public DateTime? RateEditedAt { get; set; }
+    public long? RateEditedByUserId { get; set; }
+
     public PaymentBox PaymentBox { get; set; } = null!;
     public Customer? FromCustomer { get; set; }
     public Supplier? ToSupplier { get; set; }
     public Invoice? Invoice { get; set; }
     public PaymentRequest? PaymentRequest { get; set; }
+    public User? ReviewedBy { get; set; }
+    public User? RateEditedBy { get; set; }
 }

@@ -288,6 +288,12 @@ public class TotalPNService : ITotalPNService
             "customer"   => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.Customer.Name)        : baseQuery.OrderBy(x => x.ii.Invoice.Customer.Name),
             "partNumber" => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : ""),
             "qty"        => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Qty : 0)    : baseQuery.OrderBy(x => x.poi != null ? x.poi.Qty : 0),
+            "receivedQty" => sortDesc
+                ? baseQuery.OrderByDescending(x => x.poi == null ? 0 : _db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0)
+                : baseQuery.OrderBy(x => x.poi == null ? 0 : _db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0),
+            "remainingQty" => sortDesc
+                ? baseQuery.OrderByDescending(x => x.poi == null ? 0 : x.poi.Qty - (_db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0))
+                : baseQuery.OrderBy(x => x.poi == null ? 0 : x.poi.Qty - (_db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0)),
             "status"     => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Status : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.Status : ""),
             "invDate"    => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt)            : baseQuery.OrderBy(x => x.ii.Invoice.CreatedAt),
             _            => baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id),
@@ -309,6 +315,7 @@ public class TotalPNService : ITotalPNService
             ? await _db.Set<Supplier>().Where(supplier => poItemSupplierIds.Contains(supplier.Id))
                 .ToDictionaryAsync(supplier => supplier.Id, supplier => supplier.Name)
             : new Dictionary<long, string>();
+        var qtyProgress = await LoadQtyProgressAsync(pageItems.Where(x => x.poi != null).Select(x => x.poi!.Id).Distinct().ToList());
 
         // ── Final Invoices ──
         var invoiceIds = pageItems.Select(x => x.ii.InvoiceId).Distinct().ToList();
@@ -399,6 +406,7 @@ public class TotalPNService : ITotalPNService
             FinalInvoice? fi = finalInvoiceMap.TryGetValue(invoice.Id, out var fiv) ? fiv : null;
             decimal? recvTotal = paymentAgg.TryGetValue(invoice.Id, out var agg) ? agg.Total : null;
             DateTime? recvDate = paymentAgg.TryGetValue(invoice.Id, out var agg2) ? agg2.LastDate : null;
+            var progress = poi != null ? qtyProgress.GetValueOrDefault(poi.Id) ?? QtyProgress.Empty : null;
 
             return new TotalPNRowResponse
             {
@@ -415,6 +423,10 @@ public class TotalPNService : ITotalPNService
                 PartNumber = poi?.PartNumber?.Name ?? pi?.PartNumberName ?? ii.QuoteItem?.PartNumber?.Name,
                 Description = poi?.PartNumber?.Description ?? pi?.PartNumberDescription ?? ii.QuoteItem?.PartNumber?.Description,
                 Qty = purchQty,      // Prioritize PO qty over Invoice qty for consistent purchasing vs selling tracking
+                InTransitQty = progress?.InTransit,
+                ReceivedQty = progress?.Received,
+                InWarehouseQty = progress?.InWarehouse,
+                RemainingQty = progress == null ? null : Math.Max(0, purchQty - progress.Received),
                 Condition = poi?.Condition ?? pi?.Condition ?? ii.QuoteItem?.Condition,
                 Priority = pi?.RfqPriority,
                 Warehouse = (ii.QuoteItem?.RFQItem?.RFQ?.ExType ?? pi?.RfqExType) switch { 0 => "Warehouse", 1 => "Vendor/Customer", 2 => "Vendor/Customer", _ => null },
@@ -464,9 +476,12 @@ public class TotalPNService : ITotalPNService
 
         // Lines served from Our Stock have no POItem: cost comes from the stock issue, status from the reservation.
         var stockLineIds = pageItems.Where(x => x.pi != null && x.pi.FromStock && x.poi == null).Select(x => x.pi!.Id).ToHashSet();
+        var stockInvoiceItemIds = rows.Where(r => r.ProcurementItemId.HasValue && stockLineIds.Contains(r.ProcurementItemId.Value))
+            .Select(r => r.InvoiceItemId).Distinct().ToList();
+        var stockStatuses = await _stock.GetLineStatusesAsync(stockInvoiceItemIds);
         foreach (var row in rows.Where(r => r.ProcurementItemId.HasValue && stockLineIds.Contains(r.ProcurementItemId.Value)))
         {
-            var stock = await _stock.GetLineStatusAsync(row.InvoiceItemId);
+            var stock = stockStatuses.GetValueOrDefault(row.InvoiceItemId) ?? new StockLineStatus(0, 0, null);
             if (stock.IssueCost is decimal cost)
             {
                 row.PurchasingUnitPriceUsd = cost;
@@ -475,6 +490,10 @@ public class TotalPNService : ITotalPNService
             row.ShippingStatus = stock.Issued > 0
                 ? $"Issued {stock.Issued:0.##} from Our Stock"
                 : $"Reserved {stock.Reserved:0.##} in Our Stock";
+            row.InTransitQty = null;
+            row.ReceivedQty = decimal.ToInt32(stock.Issued);
+            row.InWarehouseQty = decimal.ToInt32(stock.Reserved);
+            row.RemainingQty = Math.Max(0, row.Qty - row.ReceivedQty.Value);
         }
 
         var stockCount = 0;
@@ -564,6 +583,7 @@ public class TotalPNService : ITotalPNService
             .OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id)
             .ApplyPaging(page)
             .ToListAsync();
+        var qtyProgress = await LoadQtyProgressAsync(pageItems.Select(x => x.poi.Id).Distinct().ToList());
 
         var rows = pageItems.Select(x =>
         {
@@ -573,6 +593,7 @@ public class TotalPNService : ITotalPNService
             var pi = x.pi;
             var poi = x.poi;
             var po = poi.PurchaseOrder;
+            var progress = qtyProgress.GetValueOrDefault(poi.Id) ?? QtyProgress.Empty;
 
             string? supplierName = po?.Supplier?.Name ?? pi?.SupplierName ?? ii.QuoteItem?.ProcumentRecord?.Supplier?.Name;
 
@@ -606,6 +627,10 @@ public class TotalPNService : ITotalPNService
                 PartNumber = poi.PartNumber?.Name ?? pi?.PartNumberName,
                 Description = poi.PartNumber?.Description ?? pi?.PartNumberDescription,
                 Qty = poi.Qty,
+                InTransitQty = progress.InTransit,
+                ReceivedQty = progress.Received,
+                InWarehouseQty = progress.InWarehouse,
+                RemainingQty = Math.Max(0, poi.Qty - progress.Received),
                 Condition = poi.Condition ?? pi?.Condition,
                 Priority = pi?.RfqPriority,
                 Warehouse = BuildWarehouseChain(poi.TrackNumbers),
@@ -884,6 +909,7 @@ public class TotalPNService : ITotalPNService
         {
             var po = line.PurchaseOrder!;
             var got = received.GetValueOrDefault(line.Id);
+            var gotQty = decimal.ToInt32(got);
             var tracks = line.TrackNumbers.Select(t => t.Status).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
             if (got > 0 || po.AdminApproval == "Approved") tracks.Add($"Received {got:0.##}/{line.Qty} into Our Stock");
             return new TotalPNRowResponse
@@ -900,6 +926,10 @@ public class TotalPNService : ITotalPNService
                 PartNumber = line.PartNumber?.Name,
                 Description = line.PartNumber?.Description,
                 Qty = line.Qty,
+                InTransitQty = null,
+                ReceivedQty = gotQty,
+                InWarehouseQty = null,
+                RemainingQty = Math.Max(0, line.Qty - gotQty),
                 Condition = line.Condition,
                 Warehouse = po.DestinationWarehouse?.DisplayName ?? po.DestinationWarehouse?.Name,
                 ShippingStatus = string.Join(", ", tracks),
@@ -916,6 +946,39 @@ public class TotalPNService : ITotalPNService
                 Note = line.Note,
             };
         }).ToList();
+    }
+
+    private async Task<Dictionary<long, QtyProgress>> LoadQtyProgressAsync(IReadOnlyCollection<long> poItemIds)
+    {
+        if (poItemIds.Count == 0) return [];
+        var ids = poItemIds.Distinct().ToList();
+        var items = await (
+            from item in _db.Set<TrackNumberItem>().AsNoTracking()
+            join track in _db.Set<POItemTrackNumber>().AsNoTracking() on item.TrackNumberId equals track.Id
+            where ids.Contains(item.POItemId)
+            select new
+            {
+                item.POItemId,
+                item.Status,
+                item.ExpectedQty,
+                item.ActualQty,
+                item.TransferredOutQty,
+                track.Origin,
+                OnShipmentNote = _db.Set<ShipmentNoteTrackNumber>().Any(link => link.TrackNumberId == track.Id)
+            }).ToListAsync();
+
+        return items.GroupBy(item => item.POItemId).ToDictionary(
+            group => group.Key,
+            group => new QtyProgress(
+                group.Where(item => item.Origin != "Transfer" && item.Status == "Pending").Sum(item => item.ExpectedQty),
+                group.Where(item => item.Origin != "Transfer" && item.Status == "Accepted").Sum(item => item.ActualQty ?? 0),
+                group.Where(item => item.Status == "Accepted" && !item.OnShipmentNote)
+                    .Sum(item => (item.ActualQty ?? 0) - item.TransferredOutQty)));
+    }
+
+    private sealed record QtyProgress(int InTransit, int Received, int InWarehouse)
+    {
+        public static QtyProgress Empty { get; } = new(0, 0, 0);
     }
 
     private sealed class TotalPNFilterRow

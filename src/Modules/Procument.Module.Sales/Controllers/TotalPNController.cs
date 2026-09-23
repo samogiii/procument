@@ -26,7 +26,9 @@ public class TotalPNController : ControllerBase
     {
         ["poNumber"] = "PO#", ["poRef"] = "PO Ref#", ["experts"] = "Expert",
         ["customer"] = "Customer", ["supplier"] = "Supplier", ["partNumber"] = "P/N",
-        ["description"] = "Description", ["qty"] = "QTY", ["condition"] = "CD",
+        ["description"] = "Description", ["qty"] = "QTY",
+        ["inTransitQty"] = "In Transit", ["receivedQty"] = "Received QTY",
+        ["inWarehouseQty"] = "In Warehouse", ["remainingQty"] = "Remaining QTY", ["condition"] = "CD",
         ["priority"] = "Priority", ["warehouse"] = "Warehouse", ["serialNumber"] = "SN#",
         ["customerInvoiceNumber"] = "PI# to Customer",
         ["purchasingUnitPriceUsd"] = "Purchasing Unit Price (USD)",
@@ -36,7 +38,7 @@ public class TotalPNController : ControllerBase
         ["sellingTotalPriceUsd"] = "Selling Total Price (USD)",
         ["sellingUnitPriceYuan"] = "Selling Unit Price (Yuan)",
         ["sellingTotalPriceYuan"] = "Selling Total Price (Yuan)", ["poDate"] = "PO Date",
-        ["invDate"] = "INV Date", ["received"] = "Received", ["receivedDate"] = "Received Date",
+        ["invDate"] = "INV Date", ["received"] = "Received (Payment)", ["receivedDate"] = "Received Date (Payment)",
         ["paymentTerm"] = "Payment Term", ["customerDeliveryTime"] = "Customer Delivery Time",
         ["rate"] = "Rate", ["trackNumbers"] = "Track#", ["shippingStatus"] = "Shipping Status",
         ["shippingCost"] = "Shipping Cost", ["note"] = "NOTE 02"

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Services;
 using WalletSelectionResponse = Procument.Module.Sales.DTOs.WalletSelectionResponse;
@@ -93,6 +94,36 @@ public class PaymentBoxesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPatch("{id:long}/transactions/{txId:long}/exchange-rate")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
+    public async Task<ActionResult<UpdateExchangeRateResponse>> UpdateExchangeRate(
+        long id, long txId, [FromBody] UpdateExchangeRateRequest req)
+    {
+        try
+        {
+            var result = await _service.UpdateExchangeRateAsync(id, txId, req.ExchangeRate, req.Note, CurrentUserId());
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPatch("{id:long}/transactions/{txId:long}/review")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
+    public async Task<ActionResult<PaymentTransactionRow>> SetReviewed(
+        long id, long txId, [FromBody] SetTransactionReviewRequest req)
+    {
+        var result = await _service.SetReviewedAsync(id, txId, req.Reviewed, CurrentUserId());
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("unreviewed-count")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
+    public async Task<ActionResult<UnreviewedTransactionCountResponse>> GetUnreviewedCount()
+        => Ok(await _service.GetUnreviewedCountAsync());
+
     [HttpDelete("{id:long}/transactions/{txId:long}")]
     [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> DeleteTransaction(long id, long txId)
@@ -108,4 +139,7 @@ public class PaymentBoxesController : ControllerBase
         if (!await _service.TransferAsync(id, req)) return NotFound();
         return Ok();
     }
+
+    private long CurrentUserId()
+        => long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 }

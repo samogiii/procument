@@ -22,6 +22,16 @@
       </div>
 
       <div class="d-flex align-center gap-2">
+        <v-chip
+          v-if="unreviewedCount > 0"
+          color="warning"
+          variant="tonal"
+          prepend-icon="mdi-flag-outline"
+          class="cursor-pointer"
+          @click="showOnlyNew = !showOnlyNew"
+        >
+          {{ unreviewedCount }} new
+        </v-chip>
         <v-btn
           v-if="hasAnyFilter"
           variant="text"
@@ -69,6 +79,7 @@
         :loading="loading"
         density="comfortable"
         :items-per-page="50"
+        :row-props="transactionRowProps"
       >
         <!-- ── Excel-style filter + sort headers ── -->
         <template #header.deposit="{ column, toggleSort, isSorted, sortBy }">
@@ -387,13 +398,31 @@
 
         <!-- Exchange Rate -->
         <template #item.exchangeRate="{ item }">
-          <div v-if="item.exchangeRate != null" class="text-caption">
-            <v-chip size="x-small" color="surface-variant" variant="tonal" class="mr-1">
-              {{ item.txCurrency ?? detail?.currency }}
-            </v-chip>
-            <span>×{{ item.exchangeRate }}</span>
+          <div class="d-flex align-center gap-1 text-caption">
+            <template v-if="item.exchangeRate != null">
+              <v-chip size="x-small" color="surface-variant" variant="tonal">
+                {{ item.txCurrency ?? detail?.currency }}
+              </v-chip>
+              <span>×{{ item.exchangeRate }}</span>
+            </template>
+            <span v-else class="text-medium-emphasis">1:1</span>
+            <v-tooltip v-if="item.originalExchangeRate != null" location="top">
+              <template #activator="{ props }">
+                <v-chip v-bind="props" size="x-small" color="info" variant="tonal" prepend-icon="mdi-pencil">Corrected</v-chip>
+              </template>
+              Was {{ item.originalExchangeRate }} — corrected by {{ item.rateEditedByName || 'Unknown' }}
+              <template v-if="item.rateEditedAt"> on {{ new Date(item.rateEditedAt).toLocaleDateString() }}</template>
+            </v-tooltip>
+            <v-btn
+              v-if="item.isAuto && authStore.isAdmin"
+              icon="mdi-pencil-outline"
+              size="x-small"
+              variant="text"
+              color="primary"
+              title="Correct exchange rate"
+              @click="openRateCorrection(item)"
+            />
           </div>
-          <span v-else class="text-medium-emphasis">—</span>
         </template>
 
         <!-- Balance -->
@@ -427,8 +456,18 @@
 
         <!-- Actions -->
         <template #item.actions="{ item }">
-          <div v-if="authStore.isSuperAdmin" class="d-flex align-center">
+          <div class="d-flex align-center">
             <v-btn
+              v-if="item.isAuto && authStore.isAdmin"
+              :icon="item.isNew ? 'mdi-flag-outline' : 'mdi-flag-off-outline'"
+              size="x-small"
+              variant="text"
+              :color="item.isNew ? 'warning' : 'default'"
+              :title="item.isNew ? 'Mark as reviewed' : 'Mark as new'"
+              @click="toggleReviewed(item)"
+            />
+            <v-btn
+              v-if="authStore.isSuperAdmin"
               icon="mdi-pencil-outline"
               size="x-small"
               variant="text"
@@ -436,6 +475,7 @@
               @click="openEditTx(item)"
             />
             <v-btn
+              v-if="authStore.isSuperAdmin"
               icon="mdi-delete-outline"
               size="x-small"
               variant="text"
@@ -471,6 +511,15 @@
         </template>
       </v-data-table>
     </v-card>
+
+    <WalletRateCorrectionDialog
+      v-model="rateDialog"
+      :box-id="id"
+      :wallet-currency="detail?.currency || ''"
+      :transaction="rateTarget"
+      :linked-bank-fee="linkedBankFee"
+      @saved="onRateCorrected"
+    />
 
     <!-- Export Dialog -->
     <v-dialog v-model="exportDialog" max-width="460">
@@ -842,6 +891,12 @@ interface TransactionRow {
   txCurrency: string | null
   exchangeRate: number | null
   base: string | null
+  isNew: boolean
+  reviewedAt: string | null
+  reviewedByName: string | null
+  originalExchangeRate: number | null
+  rateEditedAt: string | null
+  rateEditedByName: string | null
 }
 
 interface BoxDetail {
@@ -867,6 +922,9 @@ const api = useApi()
 const id = computed(() => Number(route.params.id))
 const detail = ref<BoxDetail | null>(null)
 const loading = ref(true)
+const showOnlyNew = ref(false)
+const rateDialog = ref(false)
+const rateTarget = ref<TransactionRow | null>(null)
 
 // Show the wallet name instead of the raw id in the breadcrumb trail
 const { setBreadcrumbLabel } = useBreadcrumb()
@@ -1108,7 +1166,7 @@ const LIST_COLS = {
   exchangeRate: (t: TransactionRow) =>
     t.exchangeRate != null ? `${t.txCurrency ?? detail.value?.currency ?? ''} ×${t.exchangeRate}` : '—',
   notes: (t: TransactionRow) => t.notes?.trim() || '—',
-  isAuto: (t: TransactionRow) => (t.isAuto ? 'Auto' : 'Manual'),
+  isAuto: (t: TransactionRow) => (t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual'),
   createdAt: (t: TransactionRow) => new Date(t.createdAt).toLocaleDateString(),
 } satisfies Record<string, (t: TransactionRow) => string>
 
@@ -1121,6 +1179,12 @@ function uniq(vals: string[]) {
 }
 
 const allTx = computed(() => detail.value?.transactions ?? [])
+const unreviewedCount = computed(() => allTx.value.filter(t => t.isNew).length)
+const linkedBankFee = computed(() => {
+  const tx = rateTarget.value
+  if (!tx?.prId) return null
+  return allTx.value.find(t => t.prId === tx.prId && t.toType === 'BankFee' && t.isAuto) ?? null
+})
 
 const cfOptions = computed(() => {
   const out = {} as Record<ListColKey, string[]>
@@ -1148,6 +1212,7 @@ const balanceBounds = computed(() => bounds(allTx.value.map(t => t.balance)))
 
 const displayedTransactions = computed(() =>
   allTx.value.filter(t => {
+    if (showOnlyNew.value && !t.isNew) return false
     for (const key of LIST_KEYS) {
       const sel = colFilter.selected[key]
       if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
@@ -1160,12 +1225,43 @@ const displayedTransactions = computed(() =>
 )
 
 const hasAnyFilter = computed(() =>
-  LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+  showOnlyNew.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
 )
 
 function clearFilters() {
+  showOnlyNew.value = false
   for (const k of LIST_KEYS) colFilter.clearAll(k)
   for (const k of RANGE_KEYS) rangeFilter.clear(k)
+}
+
+function transactionRowProps({ item }: { item: TransactionRow }) {
+  return item.isNew ? { class: 'tx-row-new' } : {}
+}
+
+function openRateCorrection(item: TransactionRow) {
+  rateTarget.value = item
+  rateDialog.value = true
+}
+
+async function onRateCorrected() {
+  await loadDetail()
+}
+
+async function toggleReviewed(item: TransactionRow) {
+  const before = { isNew: item.isNew, reviewedAt: item.reviewedAt, reviewedByName: item.reviewedByName }
+  const reviewed = item.isNew
+  item.isNew = !reviewed
+  item.reviewedAt = reviewed ? new Date().toISOString() : null
+  item.reviewedByName = reviewed ? authStore.user?.name ?? null : null
+  try {
+    const updated = await api.patch<TransactionRow>(`/payment-boxes/${id.value}/transactions/${item.id}/review`, { reviewed })
+    Object.assign(item, updated)
+  } catch (e) {
+    Object.assign(item, before)
+    snackbarText.value = 'Failed to update the review flag'
+    snackbarColor.value = 'error'
+    snackbar.value = true
+  }
 }
 
 // ── Footer totals ─────────────────────────────────────────────────────────────
@@ -1441,6 +1537,9 @@ function doExport() {
     'Original Amount': t.deposit ?? t.withdraw ?? '',
     'Original Currency': t.txCurrency ?? detail.value?.currency ?? '',
     'Exchange Rate': t.exchangeRate ?? '',
+    'Original rate': t.originalExchangeRate ?? '',
+    Reviewed: t.isNew ? 'No' : 'Yes',
+    'Reviewed by': t.reviewedByName ?? '',
     Notes: t.notes ?? '',
     Source: t.isAuto ? 'Auto' : 'Manual',
     Date: new Date(t.createdAt).toLocaleDateString(),
@@ -1495,5 +1594,11 @@ onMounted(async () => {
 }
 .tx-total-cell {
   white-space: nowrap;
+}
+:deep(.tx-row-new:not(.tx-total-row) td) {
+  background: rgba(255, 193, 7, 0.16) !important;
+}
+:deep(.v-theme--dark .tx-row-new:not(.tx-total-row) td) {
+  background: rgba(255, 193, 7, 0.10) !important;
 }
 </style>

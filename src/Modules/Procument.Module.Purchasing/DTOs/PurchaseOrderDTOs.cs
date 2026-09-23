@@ -315,6 +315,10 @@ public class TotalPNRowResponse
     public string? PartNumber { get; set; }            // POItem.PartNumber.Name
     public string? Description { get; set; }           // POItem.PartNumber.Description
     public int Qty { get; set; }                       // POItem.Qty
+    public int? InTransitQty { get; set; }             // supplier shipped, warehouse review pending
+    public int? ReceivedQty { get; set; }              // accepted warehouse receipt / stock issue
+    public int? InWarehouseQty { get; set; }           // accepted and not yet packed for customer
+    public int? RemainingQty { get; set; }             // max(0, ordered - received)
     public string? Condition { get; set; }             // POItem.Condition
     public string? Priority { get; set; }              // ProcurementItem.RfqPriority
     public string? Warehouse { get; set; }             // RFQ.ExType → "Warehouse" / "Vendor" / "Customer"

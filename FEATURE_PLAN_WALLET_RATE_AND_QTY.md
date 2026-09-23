@@ -9,7 +9,8 @@ can ship in one release.
 - **Part B — Total Project (`total-pn`):** next to the ordered QTY, show how much has arrived at the
   warehouse, how much is still sitting there, and how much the supplier still owes.
 
-Status: **not started.** Nothing in this document is implemented yet.
+Status: **implementation complete.** Part A (Epics A1–A5) and Part B (Epics B1–B3) are complete;
+Epic C rollout remains.
 
 ---
 
@@ -206,6 +207,10 @@ which feeds the same grid. `BuildStockPoRowsAsync` already calls `GetReceivedByP
 "Received x/y into Our Stock" text — reuse that dictionary for the new fields instead of querying
 twice.
 
+Transfer-origin track items contribute to `inWarehouseQty` (net of `TransferredOutQty`) but not to
+`receivedQty` or `inTransitQty`; those two measure supplier fulfilment and must not count the same
+physical units again when they arrive at a second warehouse.
+
 Sorting: add `receivedQty` and `remainingQty` to the `sortBy` switch (customer rows). Filtering: the
 new columns follow the `qty` pattern — client-side value filters, so `TotalPNFilterOptions` and the
 filter-options endpoint do not change.
@@ -229,51 +234,51 @@ filter-options endpoint do not change.
 ## Epics & tasks
 
 ### Epic A1 — Database & DTOs
-- [ ] Add `ReviewedAt`, `ReviewedByUserId`, `OriginalExchangeRate`, `RateEditedAt`, `RateEditedByUserId` to `PaymentTransaction`.
-- [ ] Migration + filtered index `IX_PaymentTransactions_Unreviewed` + backfill `ReviewedAt = CreatedAt` for existing auto rows.
-- [ ] Extend `PaymentTransactionRow` / `AllTransactionRow` with `IsNew` and the audit fields.
+- [x] Add `ReviewedAt`, `ReviewedByUserId`, `OriginalExchangeRate`, `RateEditedAt`, `RateEditedByUserId` to `PaymentTransaction`.
+- [x] Migration + filtered index `IX_PaymentTransactions_Unreviewed` + backfill `ReviewedAt = CreatedAt` for existing auto rows.
+- [x] Extend `PaymentTransactionRow` / `AllTransactionRow` with `IsNew` and the audit fields.
 
 ### Epic A2 — Rate correction (backend)
-- [ ] Extract `BuildRowAsync` and reuse it in Add / Update / the new rate endpoint.
-- [ ] `UpdateExchangeRateAsync` with validation (positive rate; null only for same-currency).
-- [ ] Bank-fee reconciliation, including the negative-fee rejection message.
-- [ ] `PATCH .../exchange-rate`, roles `SuperAdmin,Admin`.
+- [x] Extract `BuildRowAsync` and reuse it in Add / Update / the new rate endpoint.
+- [x] `UpdateExchangeRateAsync` with validation (positive rate; null only for same-currency).
+- [x] Bank-fee reconciliation, including the negative-fee rejection message.
+- [x] `PATCH .../exchange-rate`, roles `SuperAdmin,Admin`.
 
 ### Epic A3 — Review flag (backend)
-- [ ] `SetReviewedAsync(txId, reviewed, userId)` + `PATCH .../review`.
-- [ ] `GET /payment-boxes/unreviewed-count`.
+- [x] `SetReviewedAsync(txId, reviewed, userId)` + `PATCH .../review`.
+- [x] `GET /payment-boxes/unreviewed-count`.
 
 ### Epic A4 — Wallet screens
-- [ ] Yellow rows via `row-props` on both tables, light + dark theme, totals row unaffected.
-- [ ] Per-row review toggle with optimistic update.
-- [ ] "N new" header chip that filters to unreviewed.
-- [ ] Correct-exchange-rate dialog with wallet-amount and bank-fee preview.
-- [ ] "corrected" chip + tooltip; `New` option in the `isAuto` filter; export columns.
-- [ ] Refresh the wallet summary / balance after a correction on both pages.
+- [x] Yellow rows via `row-props` on both tables, light + dark theme, totals row unaffected.
+- [x] Per-row review toggle with optimistic update.
+- [x] "N new" header chip that filters to unreviewed.
+- [x] Correct-exchange-rate dialog with wallet-amount and bank-fee preview.
+- [x] "corrected" chip + tooltip; `New` option in the `isAuto` filter; export columns.
+- [x] Refresh the wallet summary / balance after a correction on both pages.
 
 ### Epic A5 — Tests (Part A)
-- [ ] Correcting a rate changes the wallet balance and the running balance, and leaves `Amount`, PR status and PO payment status alone.
-- [ ] Bank fee follows the rate; the bank's total stays constant; a too-high rate is rejected; a zero fee deletes the row.
-- [ ] Review toggle flips `IsNew` both ways; a manual row is never new; the backfill leaves historical rows not-new.
+- [x] Correcting a rate changes the wallet balance and the running balance, and leaves `Amount`, PR status and PO payment status alone.
+- [x] Bank fee follows the rate; the bank's total stays constant; a too-high rate is rejected; a zero fee deletes the row.
+- [x] Review toggle flips `IsNew` both ways; a manual row is never new; the backfill leaves historical rows not-new.
 
 ### Epic B1 — Quantities (backend)
-- [ ] Four fields on `TotalPNRowResponse`.
-- [ ] Batched track-item aggregate; wire into `GetAsync` and `GetTotalOrderAsync`.
-- [ ] Stock PO rows and `FromStock` rows per D3 / D4 (reuse the existing dictionaries; no second query).
-- [ ] Sorting by received / remaining.
+- [x] Four fields on `TotalPNRowResponse`.
+- [x] Batched track-item aggregate; wire into `GetAsync` and `GetTotalOrderAsync`.
+- [x] Stock PO rows and `FromStock` rows per D3 / D4 (reuse page-level dictionaries; no per-row query).
+- [x] Sorting by received / remaining.
 
 ### Epic B2 — Total Project grid
-- [ ] QTY cell second line + tooltip.
-- [ ] Four optional columns, default visibility per D5.
-- [ ] Relabel the money `Received` columns per D6.
-- [ ] CSV + Excel export.
+- [x] QTY cell second line + tooltip.
+- [x] Four optional columns, default visibility per D5.
+- [x] Relabel the money `Received` columns per D6.
+- [x] CSV + Excel export.
 
 ### Epic B3 — Tests (Part B)
-- [ ] Partially received line: received / in-warehouse / remaining are right; rejected items count 0.
-- [ ] A track number packed onto a Shipment Note leaves `inWarehouse` but stays in `received`.
-- [ ] A warehouse transfer moves `inWarehouse` to the destination and is not double-counted.
-- [ ] Stock PO row and `FromStock` row behave per D3 / D4.
-- [ ] One page load issues one extra query regardless of row count (no N+1).
+- [x] Partially received line: received / in-warehouse / remaining are right; rejected items count 0.
+- [x] A track number packed onto a Shipment Note leaves `inWarehouse` but stays in `received`.
+- [x] A warehouse transfer moves `inWarehouse` to the destination and is not double-counted.
+- [x] Stock PO row and `FromStock` row behave per D3 / D4.
+- [x] One page load issues one extra query regardless of row count (no N+1).
 
 ### Epic C — Rollout
 - [ ] Apply the migration to a copy of production first and check the backfill count.

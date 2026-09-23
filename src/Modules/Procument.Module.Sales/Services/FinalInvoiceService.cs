@@ -341,7 +341,10 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         var finalInvoice = new FinalInvoice
         {
-            InvoiceNumber = "",
+            // Unique placeholder, replaced with "INV-{Id}" right after the insert. Invoices.InvoiceNumber
+            // has a unique index, so a fixed placeholder left behind by a failed creation would block
+            // every later final invoice.
+            InvoiceNumber = $"TMP-{Guid.NewGuid():N}",
             // Same digits as the proforma's B1 number, re-lettered I (null when the proforma has none).
             B1FinalInvoiceNumber = _b1Service.Relabel(proforma.B1InvoiceNumber, B1NumberService.FinalInvoiceLetter),
             TotalAmount = proforma.TotalAmount,

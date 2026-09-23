@@ -59,13 +59,39 @@ public sealed class StockReservationService(DbContext db, IStockLedgerService le
 
     public async Task<StockLineStatus> GetLineStatusAsync(long invoiceItemId, CancellationToken cancellationToken = default)
     {
-        var reserved = await ActiveFor(invoiceItemId).SumAsync(r => (decimal?)r.Qty, cancellationToken) ?? 0;
+        var statuses = await GetLineStatusesAsync([invoiceItemId], cancellationToken);
+        return statuses.GetValueOrDefault(invoiceItemId) ?? new StockLineStatus(0, 0, null);
+    }
+
+    public async Task<IReadOnlyDictionary<long, StockLineStatus>> GetLineStatusesAsync(
+        IReadOnlyCollection<long> invoiceItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (invoiceItemIds.Count == 0) return new Dictionary<long, StockLineStatus>();
+        var ids = invoiceItemIds.Distinct().ToList();
+        var reservations = await db.Set<OurStockReservation>().AsNoTracking()
+            .Where(r => r.InvoiceItemId.HasValue && ids.Contains(r.InvoiceItemId.Value) && r.Status == OurStockReservationStatuses.Active)
+            .GroupBy(r => r.InvoiceItemId!.Value)
+            .Select(g => new { InvoiceItemId = g.Key, Qty = g.Sum(r => r.Qty) })
+            .ToDictionaryAsync(x => x.InvoiceItemId, x => x.Qty, cancellationToken);
         var issues = await db.Set<OurStockMovement>().AsNoTracking()
-            .Where(m => m.InvoiceItemId == invoiceItemId && m.Type == OurStockMovementTypes.Issue)
-            .Select(m => new { m.Qty, m.UnitCost }).ToListAsync(cancellationToken);
-        var issued = -issues.Sum(m => m.Qty);
-        decimal? cost = issued > 0 ? Math.Round(issues.Sum(m => -m.Qty * (m.UnitCost ?? 0)) / issued, 4) : null;
-        return new StockLineStatus(reserved, issued, cost);
+            .Where(m => m.InvoiceItemId.HasValue && ids.Contains(m.InvoiceItemId.Value) && m.Type == OurStockMovementTypes.Issue)
+            .GroupBy(m => m.InvoiceItemId!.Value)
+            .Select(g => new
+            {
+                InvoiceItemId = g.Key,
+                Issued = -g.Sum(m => m.Qty),
+                CostTotal = g.Sum(m => -m.Qty * (m.UnitCost ?? 0))
+            })
+            .ToDictionaryAsync(x => x.InvoiceItemId, cancellationToken);
+
+        return ids.ToDictionary(id => id, id =>
+        {
+            var issue = issues.GetValueOrDefault(id);
+            var issued = issue?.Issued ?? 0;
+            var cost = issued > 0 ? Math.Round(issue!.CostTotal / issued, 4) : (decimal?)null;
+            return new StockLineStatus(reservations.GetValueOrDefault(id), issued, cost);
+        });
     }
 
     /// <summary>Tops the line's active reservation up to <paramref name="quantity"/>; reserves what is available and reports the rest.</summary>

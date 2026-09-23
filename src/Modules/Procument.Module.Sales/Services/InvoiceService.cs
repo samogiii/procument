@@ -416,7 +416,9 @@ public class InvoiceService : IInvoiceService
 
         var invoice = new Invoice
         {
-            InvoiceNumber = "",
+            // Unique placeholder, replaced with "PI-{Id}" right after the insert — a fixed one left
+            // behind by a failed creation would collide with the next invoice.
+            InvoiceNumber = $"TMP-{Guid.NewGuid():N}",
             // Same digits as the source quote's B1 number, re-lettered P (null when the quote has none).
             B1InvoiceNumber = _b1Service.Relabel(primaryQuote.B1QuoteNumber, B1NumberService.InvoiceLetter),
             QuoteId = request.QuoteId,

@@ -398,6 +398,32 @@
           <v-btn
             size="small"
             variant="tonal"
+            color="warning"
+            prepend-icon="mdi-content-copy"
+            :disabled="allAlternatives.length === 0"
+            :title="allAlternatives.length === 0
+              ? 'No item has an alternative part number yet'
+              : 'Copy every alternative part number on this RFQ'"
+            @click="copyAllAlternatives"
+          >
+            Copy All Alts ({{ allAlternatives.length }})
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="outlined"
+            color="warning"
+            prepend-icon="mdi-content-copy"
+            :disabled="alternativesWithoutSuppliers.length === 0"
+            :title="alternativesWithoutSuppliers.length === 0
+              ? 'No alternative belongs to a part that is still without a supplier'
+              : 'Copy the alternatives of the parts that still have no supplier quote'"
+            @click="copyAlternativesWithoutSuppliers"
+          >
+            Copy No-Supplier Alts ({{ alternativesWithoutSuppliers.length }})
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="tonal"
             :color="rfq.isUnread ? 'blue' : 'grey'"
             :prepend-icon="rfq.isUnread ? 'mdi-email-mark-as-unread' : 'mdi-email-open-outline'"
             @click="toggleUnread"
@@ -578,6 +604,9 @@
                       color="warning"
                       variant="tonal"
                       closable
+                      class="cursor-pointer"
+                      :title="'Click to copy: ' + alt.name"
+                      @click.stop="copyPartNumber(alt.name)"
                       @click:close="removeAlternative(item, alt)"
                     >
                       {{ alt.name }}
@@ -2991,6 +3020,35 @@ function copyPartNumbersWithoutSuppliers() {
   }
   copyToClipboard(items.map(i => i.partNumberName).join('\n'))
   showSnack(`Copied ${items.length} part number${items.length !== 1 ? 's' : ''} without suppliers`, 'success')
+}
+
+// ──── Copy Alternatives ────
+// Same two actions as the part numbers above, over the alternative P/Ns instead.
+const allAlternatives = computed(() =>
+  editableItems.value.flatMap(i => (i.alternatives || []).map((a: any) => a.name).filter(Boolean))
+)
+
+// Alternatives of the parts that are still waiting on sourcing.
+const alternativesWithoutSuppliers = computed(() =>
+  itemsWithoutSuppliers.value.flatMap(i => (i.alternatives || []).map((a: any) => a.name).filter(Boolean))
+)
+
+function copyAlternatives(names: string[], emptyMessage: string, label: string) {
+  if (names.length === 0) {
+    showSnack(emptyMessage, 'info')
+    return
+  }
+  copyToClipboard(names.join('\n'))
+  showSnack(`Copied ${names.length} alternative${names.length !== 1 ? 's' : ''}${label}`, 'success')
+}
+
+function copyAllAlternatives() {
+  copyAlternatives(allAlternatives.value, 'No item has an alternative part number yet', '')
+}
+
+function copyAlternativesWithoutSuppliers() {
+  copyAlternatives(alternativesWithoutSuppliers.value,
+    'No alternative belongs to a part that is still without a supplier', ' without suppliers')
 }
 
 // ──── Helpers ────

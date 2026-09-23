@@ -44,7 +44,9 @@ public sealed class StockPurchaseOrderService(
 
         var po = new PurchaseOrder
         {
-            PONumber = string.Empty,
+            // Unique until the number is assigned below: PurchaseOrders.PONumber is unique, so two
+            // stock POs created at once must not both hold the same placeholder.
+            PONumber = $"TMP-{Guid.NewGuid():N}",
             Origin = "Stock",
             Status = "Draft",
             AdminApproval = "Pending",

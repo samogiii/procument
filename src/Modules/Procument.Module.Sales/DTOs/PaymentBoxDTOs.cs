@@ -47,7 +47,13 @@ public record PaymentTransactionRow(
     string? Base = null,
     string? PONumber = null,
     string? POType = null,
-    string? POLink = null);
+    string? POLink = null,
+    bool IsNew = false,
+    DateTime? ReviewedAt = null,
+    string? ReviewedByName = null,
+    decimal? OriginalExchangeRate = null,
+    DateTime? RateEditedAt = null,
+    string? RateEditedByName = null);
 
 public record PaymentBoxDetailResponse(
     long Id,
@@ -88,7 +94,13 @@ public record AllTransactionRow(
     string? Base = null,
     string? PONumber = null,
     string? POType = null,
-    string? POLink = null);
+    string? POLink = null,
+    bool IsNew = false,
+    DateTime? ReviewedAt = null,
+    string? ReviewedByName = null,
+    decimal? OriginalExchangeRate = null,
+    DateTime? RateEditedAt = null,
+    string? RateEditedByName = null);
 
 /// <summary>CompanyPresetId is optional — omit it for a wallet that belongs to no company.</summary>
 public record CreatePaymentBoxRequest(long? CompanyPresetId, string Currency, string Name = "",
@@ -136,6 +148,14 @@ public record UpdateTransactionRequest(
     DateTime CreatedAt,
     /// <summary>Wallet-side tag, "B1".."B7".</summary>
     string? Base = null);
+
+public record UpdateExchangeRateRequest(decimal? ExchangeRate, string? Note = null);
+public record SetTransactionReviewRequest(bool Reviewed);
+public record UpdateExchangeRateResponse(
+    PaymentTransactionRow Transaction,
+    decimal WalletBalance,
+    decimal? BankFeeAmount);
+public record UnreviewedTransactionCountResponse(int Total, Dictionary<long, int> ByBoxId);
 
 public record WalletTransferRequest(
     long ToBoxId,

@@ -14,6 +14,9 @@ public interface IPaymentBoxService : IPaymentLedgerService
     Task<bool> DeleteBoxAsync(long id);
     Task<PaymentTransactionRow?> AddTransactionAsync(long boxId, CreateTransactionRequest req);
     Task<PaymentTransactionRow?> UpdateTransactionAsync(long txId, UpdateTransactionRequest req);
+    Task<UpdateExchangeRateResponse?> UpdateExchangeRateAsync(long boxId, long txId, decimal? exchangeRate, string? note, long userId);
+    Task<PaymentTransactionRow?> SetReviewedAsync(long boxId, long txId, bool reviewed, long userId);
+    Task<UnreviewedTransactionCountResponse> GetUnreviewedCountAsync();
     Task<bool> DeleteTransactionAsync(long txId);
     Task<bool> TransferAsync(long sourceBoxId, WalletTransferRequest req);
     Task<List<PaymentBoxSummaryResponse>> GetBoxesForCustomerAsync(long customerId);

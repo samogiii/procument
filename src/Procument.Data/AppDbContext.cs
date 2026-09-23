@@ -1288,6 +1288,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Notes).HasMaxLength(1000);
       entity.Property(e => e.TxCurrency).HasMaxLength(10).IsRequired(false);
       entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
+      entity.Property(e => e.OriginalExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
       entity.Property(e => e.Base).HasMaxLength(10).IsRequired(false);
 
       entity.HasOne(e => e.FromCustomer)
@@ -1314,8 +1315,25 @@ public class AppDbContext : DbContext
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
+      entity.HasOne(e => e.ReviewedBy)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedByUserId)
+                .IsRequired(false)
+                // SQL Server rejects multiple SET NULL paths from this table to Users.
+                // Audit references are retained; user deletion must be handled explicitly.
+                .OnDelete(DeleteBehavior.NoAction);
+
+      entity.HasOne(e => e.RateEditedBy)
+                .WithMany()
+                .HasForeignKey(e => e.RateEditedByUserId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.NoAction);
+
       entity.HasIndex(e => e.PaymentBoxId);
       entity.HasIndex(e => e.CreatedAt);
+      entity.HasIndex(e => new { e.IsAuto, e.ReviewedAt })
+                .HasDatabaseName("IX_PaymentTransactions_Unreviewed")
+                .HasFilter("[ReviewedAt] IS NULL");
     });
 
     modelBuilder.Entity<WalletTransferPending>(entity =>

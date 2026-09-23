@@ -46,6 +46,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .Include(b => b.Transactions)
                 .ThenInclude(t => t.PaymentRequest)
                     .ThenInclude(pr => pr!.PO)
+            .Include(b => b.Transactions)
+                .ThenInclude(t => t.ReviewedBy)
+            .Include(b => b.Transactions)
+                .ThenInclude(t => t.RateEditedBy)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (box == null) return null;
@@ -60,7 +64,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .Where(b => walletIds.Contains(b.Id))
             .ToDictionaryAsync(b => b.Id, b => b.CompanyPreset?.Name ?? $"Wallet {b.Id}");
 
-        var ordered = box.Transactions.OrderBy(t => t.CreatedAt).ToList();
+        var ordered = box.Transactions.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).ToList();
         decimal running = 0;
         var rows = ordered.Select(t =>
         {
@@ -97,7 +101,13 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 t.Base,
                 t.PaymentRequest?.PO?.PONumber,
                 POType(t.PaymentRequest?.PO),
-                POLink(t.PaymentRequest?.POId));
+                POLink(t.PaymentRequest?.POId),
+                t.IsAuto && t.ReviewedAt == null,
+                t.ReviewedAt,
+                t.ReviewedBy?.Name,
+                t.OriginalExchangeRate,
+                t.RateEditedAt,
+                t.RateEditedBy?.Name);
         }).ToList();
 
         var totalDeposit = ordered.Where(t => t.Type == "Deposit").Sum(t => t.Amount * (t.ExchangeRate ?? 1m));
@@ -127,6 +137,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .Include(b => b.Transactions)
                 .ThenInclude(t => t.PaymentRequest)
                     .ThenInclude(pr => pr!.PO)
+            .Include(b => b.Transactions)
+                .ThenInclude(t => t.ReviewedBy)
+            .Include(b => b.Transactions)
+                .ThenInclude(t => t.RateEditedBy)
             .ToListAsync();
 
         // Wallets are identified by their own name; the company preset is only a fallback.
@@ -136,7 +150,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         foreach (var box in boxes)
         {
             decimal running = 0;
-            foreach (var t in box.Transactions.OrderBy(t => t.CreatedAt))
+            foreach (var t in box.Transactions.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id))
             {
                 decimal factor = t.ExchangeRate ?? 1m;
                 running += t.Type == "Deposit" ? t.Amount * factor : -(t.Amount * factor);
@@ -177,7 +191,13 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                     t.Base,
                     t.PaymentRequest?.PO?.PONumber,
                     POType(t.PaymentRequest?.PO),
-                    POLink(t.PaymentRequest?.POId)));
+                    POLink(t.PaymentRequest?.POId),
+                    t.IsAuto && t.ReviewedAt == null,
+                    t.ReviewedAt,
+                    t.ReviewedBy?.Name,
+                    t.OriginalExchangeRate,
+                    t.RateEditedAt,
+                    t.RateEditedBy?.Name));
             }
         }
 
@@ -344,60 +364,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         };
         _db.Set<PaymentTransaction>().Add(tx);
         await _db.SaveChangesAsync();
-
-        if (tx.FromCustomerId.HasValue)
-            await _db.Entry(tx).Reference(t => t.FromCustomer).LoadAsync();
-        if (tx.ToSupplierId.HasValue)
-            await _db.Entry(tx).Reference(t => t.ToSupplier).LoadAsync();
-        if (tx.InvoiceId.HasValue)
-            await _db.Entry(tx).Reference(t => t.Invoice).LoadAsync();
-        if (tx.PaymentRequestId.HasValue)
-        {
-            await _db.Entry(tx).Reference(t => t.PaymentRequest).LoadAsync();
-            if (tx.PaymentRequest is not null)
-                await _db.Entry(tx.PaymentRequest).Reference(pr => pr.PO).LoadAsync();
-        }
-
-        var allTx = await _db.Set<PaymentTransaction>()
-            .Where(t => t.PaymentBoxId == boxId)
-            .OrderBy(t => t.CreatedAt)
-            .ToListAsync();
-        decimal running = 0;
-        foreach (var t in allTx)
-        {
-            decimal factor = t.ExchangeRate ?? 1m;
-            running += t.Type == "Deposit" ? t.Amount * factor : -(t.Amount * factor);
-        }
-
-        return new PaymentTransactionRow(
-            tx.Id, tx.Type,
-            tx.Type == "Deposit" ? tx.Amount : null,
-            tx.Type == "Withdraw" ? tx.Amount : null,
-            tx.FromType,
-            tx.FromType == "Customer"
-                ? (tx.FromCustomer?.CustomerCode ?? tx.FromCustomer?.Name)
-                : tx.FromType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
-            tx.FromCustomerId,
-            tx.ToType,
-            tx.ToType == "Supplier" ? tx.ToSupplier?.Name
-                : tx.ToType == "BankFee" ? "Bank Fee and Others"
-                : tx.ToType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
-            tx.ToSupplierId,
-            tx.Invoice?.InvoiceNumber,
-            tx.InvoiceId,
-            tx.PaymentRequest?.PRId != null ? $"PR-{tx.PaymentRequest.PRId}" : null,
-            tx.PaymentRequestId,
-            tx.PaymentRequest?.POId,
-            tx.Notes,
-            tx.IsAuto,
-            tx.CreatedAt,
-            running,
-            tx.TxCurrency,
-            tx.ExchangeRate,
-            tx.Base,
-            tx.PaymentRequest?.PO?.PONumber,
-            POType(tx.PaymentRequest?.PO),
-            POLink(tx.PaymentRequest?.POId));
+        return await BuildRowAsync(tx.Id);
     }
 
     public async Task<PaymentTransactionRow?> UpdateTransactionAsync(long txId, UpdateTransactionRequest req)
@@ -425,60 +392,112 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         tx.CreatedAt = req.CreatedAt;
 
         await _db.SaveChangesAsync();
+        return await BuildRowAsync(tx.Id);
+    }
 
-        if (tx.FromCustomerId.HasValue)
-            await _db.Entry(tx).Reference(t => t.FromCustomer).LoadAsync();
-        if (tx.ToSupplierId.HasValue)
-            await _db.Entry(tx).Reference(t => t.ToSupplier).LoadAsync();
-        if (tx.InvoiceId.HasValue)
-            await _db.Entry(tx).Reference(t => t.Invoice).LoadAsync();
-        if (tx.PaymentRequestId.HasValue)
+    public async Task<UpdateExchangeRateResponse?> UpdateExchangeRateAsync(
+        long boxId, long txId, decimal? exchangeRate, string? note, long userId)
+    {
+        var tx = await _db.Set<PaymentTransaction>()
+            .Include(t => t.PaymentBox)
+            .FirstOrDefaultAsync(t => t.Id == txId && t.PaymentBoxId == boxId);
+        if (tx == null) return null;
+        if (!tx.IsAuto)
+            throw new ArgumentException("Only automatic transactions support rate correction.");
+
+        var txCurrency = string.IsNullOrWhiteSpace(tx.TxCurrency) ? tx.PaymentBox.Currency : tx.TxCurrency;
+        var sameCurrency = string.Equals(txCurrency, tx.PaymentBox.Currency, StringComparison.OrdinalIgnoreCase);
+        if (sameCurrency && exchangeRate.HasValue)
+            throw new ArgumentException("Same-currency transactions use the wallet's 1:1 rate and must not have an exchange rate.");
+        if (!sameCurrency && (!exchangeRate.HasValue || exchangeRate.Value <= 0))
+            throw new ArgumentException("A positive exchange rate is required when the transaction and wallet currencies differ.");
+        if (note?.Trim().Length > 500)
+            throw new ArgumentException("The correction note cannot exceed 500 characters.");
+
+        var now = DateTime.UtcNow;
+        decimal? bankFeeAmount = null;
+
+        if (tx.PopUploadId.HasValue && tx.ToType == "Supplier" && tx.PaymentRequestId.HasValue)
         {
-            await _db.Entry(tx).Reference(t => t.PaymentRequest).LoadAsync();
-            if (tx.PaymentRequest is not null)
-                await _db.Entry(tx.PaymentRequest).Reference(pr => pr.PO).LoadAsync();
+            var fee = await _db.Set<PaymentTransaction>().FirstOrDefaultAsync(t =>
+                t.PaymentBoxId == tx.PaymentBoxId &&
+                t.PaymentRequestId == tx.PaymentRequestId &&
+                t.ToType == "BankFee" && t.IsAuto);
+
+            if (fee != null)
+            {
+                var oldInitial = RoundWalletAmount(tx.Amount * (tx.ExchangeRate ?? 1m));
+                var oldFee = RoundWalletAmount(fee.Amount * (fee.ExchangeRate ?? 1m));
+                var finalTotal = oldInitial + oldFee;
+                var newInitial = RoundWalletAmount(tx.Amount * (exchangeRate ?? 1m));
+                var newFee = finalTotal - newInitial;
+
+                if (newFee < 0)
+                {
+                    var max = tx.Amount == 0 ? 0 : finalTotal / tx.Amount;
+                    throw new ArgumentException(
+                        $"A rate above {max:0.######} would make the bank fee negative. " +
+                        $"The bank debited {finalTotal:0.00} {tx.PaymentBox.Currency} in total.");
+                }
+
+                if (newFee == 0)
+                {
+                    _db.Set<PaymentTransaction>().Remove(fee);
+                    bankFeeAmount = 0;
+                }
+                else
+                {
+                    fee.Amount = newFee;
+                    fee.ExchangeRate = null;
+                    fee.TxCurrency = tx.PaymentBox.Currency;
+                    fee.ReviewedAt = now;
+                    fee.ReviewedByUserId = userId;
+                    bankFeeAmount = newFee;
+                }
+            }
         }
 
-        var allTx = await _db.Set<PaymentTransaction>()
-            .Where(t => t.PaymentBoxId == tx.PaymentBoxId)
-            .OrderBy(t => t.CreatedAt)
-            .ToListAsync();
-        decimal running = 0;
-        foreach (var t in allTx)
+        tx.OriginalExchangeRate ??= tx.ExchangeRate;
+        tx.ExchangeRate = exchangeRate;
+        tx.RateEditedAt = now;
+        tx.RateEditedByUserId = userId;
+        tx.ReviewedAt = now;
+        tx.ReviewedByUserId = userId;
+        if (!string.IsNullOrWhiteSpace(note))
         {
-            decimal factor = t.ExchangeRate ?? 1m;
-            running += t.Type == "Deposit" ? t.Amount * factor : -(t.Amount * factor);
+            var combined = string.IsNullOrWhiteSpace(tx.Notes) ? note.Trim() : $"{tx.Notes}\n{note.Trim()}";
+            if (combined.Length > 1000)
+                throw new ArgumentException("The transaction notes cannot exceed 1,000 characters after adding the correction note.");
+            tx.Notes = combined;
         }
 
-        return new PaymentTransactionRow(
-            tx.Id, tx.Type,
-            tx.Type == "Deposit" ? tx.Amount : null,
-            tx.Type == "Withdraw" ? tx.Amount : null,
-            tx.FromType,
-            tx.FromType == "Customer"
-                ? (tx.FromCustomer?.CustomerCode ?? tx.FromCustomer?.Name)
-                : tx.FromType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
-            tx.FromCustomerId,
-            tx.ToType,
-            tx.ToType == "Supplier" ? tx.ToSupplier?.Name
-                : tx.ToType == "BankFee" ? "Bank Fee and Others"
-                : tx.ToType == "Wallet" ? "Wallet Transfer" : "Mother Wallet",
-            tx.ToSupplierId,
-            tx.Invoice?.InvoiceNumber,
-            tx.InvoiceId,
-            tx.PaymentRequest?.PRId != null ? $"PR-{tx.PaymentRequest.PRId}" : null,
-            tx.PaymentRequestId,
-            tx.PaymentRequest?.POId,
-            tx.Notes,
-            tx.IsAuto,
-            tx.CreatedAt,
-            running,
-            tx.TxCurrency,
-            tx.ExchangeRate,
-            tx.Base,
-            tx.PaymentRequest?.PO?.PONumber,
-            POType(tx.PaymentRequest?.PO),
-            POLink(tx.PaymentRequest?.POId));
+        await _db.SaveChangesAsync();
+
+        var row = await BuildRowAsync(tx.Id) ?? throw new InvalidOperationException("Updated transaction could not be rebuilt.");
+        var walletBalance = await WalletBalanceAsync(boxId);
+        return new UpdateExchangeRateResponse(row, walletBalance, bankFeeAmount);
+    }
+
+    public async Task<PaymentTransactionRow?> SetReviewedAsync(long boxId, long txId, bool reviewed, long userId)
+    {
+        var tx = await _db.Set<PaymentTransaction>()
+            .FirstOrDefaultAsync(t => t.Id == txId && t.PaymentBoxId == boxId);
+        if (tx == null) return null;
+
+        tx.ReviewedAt = reviewed ? DateTime.UtcNow : null;
+        tx.ReviewedByUserId = reviewed ? userId : null;
+        await _db.SaveChangesAsync();
+        return await BuildRowAsync(tx.Id);
+    }
+
+    public async Task<UnreviewedTransactionCountResponse> GetUnreviewedCountAsync()
+    {
+        var byBoxId = await _db.Set<PaymentTransaction>()
+            .Where(t => t.IsAuto && t.ReviewedAt == null)
+            .GroupBy(t => t.PaymentBoxId)
+            .Select(g => new { BoxId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.BoxId, x => x.Count);
+        return new UnreviewedTransactionCountResponse(byBoxId.Values.Sum(), byBoxId);
     }
 
     private static string? POType(PurchaseOrder? po)
@@ -633,6 +652,86 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private async Task<PaymentTransactionRow?> BuildRowAsync(long txId)
+    {
+        var tx = await _db.Set<PaymentTransaction>()
+            .AsNoTracking()
+            .Include(t => t.FromCustomer)
+            .Include(t => t.ToSupplier)
+            .Include(t => t.Invoice)
+            .Include(t => t.PaymentRequest).ThenInclude(pr => pr!.PO)
+            .Include(t => t.ReviewedBy)
+            .Include(t => t.RateEditedBy)
+            .FirstOrDefaultAsync(t => t.Id == txId);
+        if (tx == null) return null;
+
+        string? otherWallet = null;
+        if (tx.ToPaymentBoxId.HasValue)
+        {
+            var box = await _db.Set<PaymentBox>()
+                .AsNoTracking()
+                .Include(b => b.CompanyPreset)
+                .FirstOrDefaultAsync(b => b.Id == tx.ToPaymentBoxId.Value);
+            if (box != null) otherWallet = DisplayName(box);
+        }
+
+        var running = await _db.Set<PaymentTransaction>()
+            .Where(t => t.PaymentBoxId == tx.PaymentBoxId &&
+                (t.CreatedAt < tx.CreatedAt || (t.CreatedAt == tx.CreatedAt && t.Id <= tx.Id)))
+            .Select(t => (decimal?)(t.Type == "Deposit"
+                ? t.Amount * (t.ExchangeRate ?? 1m)
+                : -(t.Amount * (t.ExchangeRate ?? 1m))))
+            .SumAsync() ?? 0m;
+
+        return new PaymentTransactionRow(
+            tx.Id,
+            tx.Type,
+            tx.Type == "Deposit" ? tx.Amount : null,
+            tx.Type == "Withdraw" ? tx.Amount : null,
+            tx.FromType,
+            tx.FromType == "Customer"
+                ? (tx.FromCustomer?.CustomerCode ?? tx.FromCustomer?.Name)
+                : tx.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+            tx.FromCustomerId,
+            tx.ToType,
+            tx.ToType == "Supplier" ? tx.ToSupplier?.Name
+                : tx.ToType == "BankFee" ? "Bank Fee and Others"
+                : tx.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+            tx.ToSupplierId,
+            tx.Invoice?.InvoiceNumber,
+            tx.InvoiceId,
+            tx.PaymentRequest?.PRId != null ? $"PR-{tx.PaymentRequest.PRId}" : null,
+            tx.PaymentRequestId,
+            tx.PaymentRequest?.POId,
+            tx.Notes,
+            tx.IsAuto,
+            tx.CreatedAt,
+            running,
+            tx.TxCurrency,
+            tx.ExchangeRate,
+            tx.Base,
+            tx.PaymentRequest?.PO?.PONumber,
+            POType(tx.PaymentRequest?.PO),
+            POLink(tx.PaymentRequest?.POId),
+            tx.IsAuto && tx.ReviewedAt == null,
+            tx.ReviewedAt,
+            tx.ReviewedBy?.Name,
+            tx.OriginalExchangeRate,
+            tx.RateEditedAt,
+            tx.RateEditedBy?.Name);
+    }
+
+    private async Task<decimal> WalletBalanceAsync(long boxId)
+        => await _db.Set<PaymentTransaction>()
+            .Where(t => t.PaymentBoxId == boxId)
+            .Select(t => (decimal?)(t.Type == "Deposit"
+                ? t.Amount * (t.ExchangeRate ?? 1m)
+                : -(t.Amount * (t.ExchangeRate ?? 1m))))
+            .SumAsync() ?? 0m;
+
+    private static decimal RoundWalletAmount(decimal value)
+        => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>The wallet's company, or null when it is the "no company" placeholder.</summary>
     private static string? PresetNameOrNull(PaymentBox box) =>

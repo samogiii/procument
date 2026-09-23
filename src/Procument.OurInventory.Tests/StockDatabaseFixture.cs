@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Procument.Data;
@@ -34,6 +35,7 @@ public sealed class StockDatabaseFixture : IAsyncLifetime
     public long PresetId { get; private set; }
     public long MainWarehouseId { get; private set; }
     public long SecondWarehouseId { get; private set; }
+    public QueryCounterInterceptor QueryCounter { get; } = new();
 
     private string? _databaseName;
 
@@ -48,11 +50,15 @@ public sealed class StockDatabaseFixture : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
-        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(cs, s =>
+        services.AddDbContext<AppDbContext>(o =>
         {
-            s.MigrationsAssembly("Procument.Data");
-            s.EnableRetryOnFailure(3);
-        }));
+            o.UseSqlServer(cs, s =>
+            {
+                s.MigrationsAssembly("Procument.Data");
+                s.EnableRetryOnFailure(3);
+            });
+            o.AddInterceptors(QueryCounter);
+        });
         services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<INotificationService, NoopNotifications>();
         services.AddSingleton<IDocumentStorageService, DocumentStorageService>();
@@ -151,6 +157,23 @@ public sealed class StockDatabaseFixture : IAsyncLifetime
         public Task CreateAsync(long userId, string type, string entityName, long entityId, string entityNumber, string message, long? triggeredByUserId = null, string? triggeredByUserName = null) => Task.CompletedTask;
         public Task CreateForUsersAsync(IEnumerable<long> userIds, string type, string entityName, long entityId, string entityNumber, string message, long? triggeredByUserId = null, string? triggeredByUserName = null) => Task.CompletedTask;
         public Task CreateForAllAdminsAsync(string type, string entityName, long entityId, string entityNumber, string message, long? triggeredByUserId = null, string? triggeredByUserName = null) => Task.CompletedTask;
+    }
+}
+
+public sealed class QueryCounterInterceptor : DbCommandInterceptor
+{
+    private int _count;
+    public int Count => Volatile.Read(ref _count);
+    public void Reset() => Interlocked.Exchange(ref _count, 0);
+
+    public override ValueTask<InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+        System.Data.Common.DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<System.Data.Common.DbDataReader> result,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _count);
+        return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
     }
 }
 

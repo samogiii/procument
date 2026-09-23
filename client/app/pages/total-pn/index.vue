@@ -106,7 +106,15 @@
         </v-card>
       </v-menu>
 
-      <v-btn variant="tonal" color="success" prepend-icon="mdi-download" :disabled="!filteredRows.length" @click="exportCsv">Export CSV</v-btn>
+      <v-menu>
+        <template #activator="{ props }">
+          <v-btn v-bind="props" variant="tonal" color="success" prepend-icon="mdi-download" :disabled="!filteredRows.length">Export</v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item prepend-icon="mdi-file-delimited-outline" title="Export CSV" @click="exportCsv" />
+          <v-list-item prepend-icon="mdi-microsoft-excel" title="Export Excel" @click="exportExcel" />
+        </v-list>
+      </v-menu>
     </div>
 
     <v-card class="glass-card">
@@ -192,6 +200,11 @@
                 </div>
               </th>
 
+              <th v-if="visibleColumns.includes('inTransitQty')"><div class="tpn-th-inner"><span class="tpn-th-label">In Transit</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inTransitQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inTransitQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inTransitQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inTransitQty', val) }" @click.stop="tpnToggleFilter('inTransitQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inTransitQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inTransitQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inTransitQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inTransitQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-if="visibleColumns.includes('receivedQty')"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('receivedQty')">Received QTY <v-icon :icon="sortIcon('receivedQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['receivedQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['receivedQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('receivedQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('receivedQty', val) }" @click.stop="tpnToggleFilter('receivedQty', val)"><v-checkbox-btn :model-value="tpnColFilters['receivedQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('receivedQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('receivedQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('receivedQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-if="visibleColumns.includes('inWarehouseQty')"><div class="tpn-th-inner"><span class="tpn-th-label">In Warehouse</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inWarehouseQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inWarehouseQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inWarehouseQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inWarehouseQty', val) }" @click.stop="tpnToggleFilter('inWarehouseQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inWarehouseQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inWarehouseQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inWarehouseQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inWarehouseQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-if="visibleColumns.includes('remainingQty')"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('remainingQty')">Remaining QTY <v-icon :icon="sortIcon('remainingQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['remainingQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['remainingQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('remainingQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('remainingQty', val) }" @click.stop="tpnToggleFilter('remainingQty', val)"><v-checkbox-btn :model-value="tpnColFilters['remainingQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('remainingQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('remainingQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('remainingQty')">Clear</v-btn></v-card></v-menu></div></th>
+
               <!-- CD -->
               <th v-if="visibleColumns.includes('condition')"><div class="tpn-th-inner"><span class="tpn-th-label">CD</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['condition']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['condition']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('condition')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('condition', val) }" @click.stop="tpnToggleFilter('condition', val)"><v-checkbox-btn :model-value="tpnColFilters['condition']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('condition', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('condition')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('condition')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['condition'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['condition'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('condition')" /></v-card></v-menu></div></th>
 
@@ -237,8 +250,8 @@
                 </div>
               </th>
 
-              <th v-if="visibleColumns.includes('received')" class="text-right">Received</th>
-              <th v-if="visibleColumns.includes('receivedDate')">Received Date</th>
+              <th v-if="visibleColumns.includes('received')" class="text-right">Received (Payment)</th>
+              <th v-if="visibleColumns.includes('receivedDate')">Received Date (Payment)</th>
 
               <!-- Payment Term -->
               <th v-if="visibleColumns.includes('paymentTerm')"><div class="tpn-th-inner"><span class="tpn-th-label">Payment Term</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['paymentTerm']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['paymentTerm']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('paymentTerm')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('paymentTerm', val) }" @click.stop="tpnToggleFilter('paymentTerm', val)"><v-checkbox-btn :model-value="tpnColFilters['paymentTerm']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('paymentTerm', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('paymentTerm')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('paymentTerm')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['paymentTerm'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['paymentTerm'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('paymentTerm')" /></v-card></v-menu></div></th>
@@ -304,7 +317,22 @@
               </td>
               <td v-if="visibleColumns.includes('partNumber')" class="cell-pn cell-wrap">{{ r.partNumber || '-' }}</td>
               <td v-if="visibleColumns.includes('description')" class="cell-wrap">{{ r.description || '-' }}</td>
-              <td v-if="visibleColumns.includes('qty')" class="text-center">{{ r.qty }}</td>
+              <td v-if="visibleColumns.includes('qty')" class="text-center">
+                <v-tooltip v-if="r.receivedQty != null" location="top">
+                  <template #activator="{ props }">
+                    <div v-bind="props" class="qty-progress-cell">
+                      <span>{{ r.qty }}</span>
+                      <span class="qty-progress-line" :class="qtyProgressClass(r)">↓{{ r.receivedQty }} · {{ r.remainingQty }} left</span>
+                    </div>
+                  </template>
+                  Ordered: {{ qtyValue(r.qty) }} · In transit: {{ qtyValue(r.inTransitQty) }} · Received: {{ qtyValue(r.receivedQty) }} · In warehouse: {{ qtyValue(r.inWarehouseQty) }} · Remaining: {{ qtyValue(r.remainingQty) }}
+                </v-tooltip>
+                <span v-else>{{ r.qty }}</span>
+              </td>
+              <td v-if="visibleColumns.includes('inTransitQty')" class="text-center">{{ qtyValue(r.inTransitQty) }}</td>
+              <td v-if="visibleColumns.includes('receivedQty')" class="text-center">{{ qtyValue(r.receivedQty) }}</td>
+              <td v-if="visibleColumns.includes('inWarehouseQty')" class="text-center">{{ qtyValue(r.inWarehouseQty) }}</td>
+              <td v-if="visibleColumns.includes('remainingQty')" class="text-center">{{ qtyValue(r.remainingQty) }}</td>
               <td v-if="visibleColumns.includes('condition')">{{ r.condition || '-' }}</td>
               <td v-if="visibleColumns.includes('priority')" class="cell-wrap">{{ r.priority || '-' }}</td>
               <td v-if="visibleColumns.includes('warehouse')" class="cell-wrap">{{ r.warehouse || '-' }}</td>
@@ -465,6 +493,8 @@
 </template>
 
 <script setup lang="ts">
+import { downloadExcel } from '~/utils/exportExcel'
+
 const api = useApi()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -484,6 +514,10 @@ const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'partNumber', label: 'P/N' },
   { key: 'description', label: 'Description' },
   { key: 'qty', label: 'QTY' },
+  { key: 'inTransitQty', label: 'In Transit' },
+  { key: 'receivedQty', label: 'Received QTY' },
+  { key: 'inWarehouseQty', label: 'In Warehouse' },
+  { key: 'remainingQty', label: 'Remaining QTY' },
   { key: 'condition', label: 'CD' },
   { key: 'priority', label: 'Priority' },
   { key: 'warehouse', label: 'Warehouse' },
@@ -499,8 +533,8 @@ const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'sellingTotalPriceYuan', label: 'Selling Total Price (Yuan)' },
   { key: 'poDate', label: 'PO Date' },
   { key: 'invDate', label: 'INV Date' },
-  { key: 'received', label: 'Received' },
-  { key: 'receivedDate', label: 'Received Date' },
+  { key: 'received', label: 'Received (Payment)' },
+  { key: 'receivedDate', label: 'Received Date (Payment)' },
   { key: 'paymentTerm', label: 'Payment Term' },
   { key: 'customerDeliveryTime', label: 'Customer Delivery Time' },
   { key: 'rate', label: 'Rate' },
@@ -513,7 +547,8 @@ const ALL_COLUMNS: ColumnConfig[] = [
 const serverAllowedColumnKeys = ref<string[]>([])
 const availableColumns = computed(() => ALL_COLUMNS.filter(column => serverAllowedColumnKeys.value.includes(column.key)))
 const visibleColumns = ref<string[]>([])
-const COL_VISIBILITY_STORAGE_KEY = computed(() => `total-pn-column-visibility:${authStore.user?.id ?? 'anonymous'}`)
+const COL_VISIBILITY_STORAGE_KEY = computed(() => `total-pn-column-visibility-v2:${authStore.user?.id ?? 'anonymous'}`)
+const DEFAULT_HIDDEN_COLUMNS = new Set(['inTransitQty', 'inWarehouseQty'])
 
 async function loadColumnAccess() {
   const allowed = await api.get<string[]>('/po-items/total-pn/columns')
@@ -530,7 +565,7 @@ async function loadColumnAccess() {
   }
   visibleColumns.value = saved.length
     ? saved.filter(key => validAllowed.includes(key))
-    : [...validAllowed]
+    : validAllowed.filter(key => !DEFAULT_HIDDEN_COLUMNS.has(key))
 }
 
 function saveColumnVisibility() {
@@ -633,6 +668,10 @@ const TPN_COLUMNS = [
   { key: 'partNumber',            field: (r: any) => r.partNumber },
   { key: 'description',           field: (r: any) => r.description },
   { key: 'qty',                   field: (r: any) => r.qty != null ? String(r.qty) : null },
+  { key: 'inTransitQty',          field: (r: any) => r.inTransitQty != null ? String(r.inTransitQty) : null },
+  { key: 'receivedQty',           field: (r: any) => r.receivedQty != null ? String(r.receivedQty) : null },
+  { key: 'inWarehouseQty',        field: (r: any) => r.inWarehouseQty != null ? String(r.inWarehouseQty) : null },
+  { key: 'remainingQty',          field: (r: any) => r.remainingQty != null ? String(r.remainingQty) : null },
   { key: 'condition',             field: (r: any) => r.condition },
   { key: 'priority',              field: (r: any) => r.priority },
   { key: 'warehouse',             field: (r: any) => r.warehouse },
@@ -1185,6 +1224,16 @@ function formatDate(v: string | null | undefined) {
   return isNaN(d.getTime()) ? '-' : d.toLocaleDateString()
 }
 
+function qtyValue(value: number | null | undefined) {
+  return value == null ? '—' : String(value)
+}
+
+function qtyProgressClass(row: any) {
+  if (Number(row.remainingQty) === 0) return 'qty-progress-complete'
+  if (Number(row.receivedQty) > 0) return 'qty-progress-partial'
+  return 'qty-progress-none'
+}
+
 function statusColorClass(status: string | null | undefined) {
   if (isInShopCountdown(status) || status === 'In Shop') return 'status-warning'
   switch (status) {
@@ -1370,6 +1419,10 @@ function exportCsv() {
     { key: 'partNumber', label: 'P/N', value: (r) => r.partNumber },
     { key: 'description', label: 'Description', value: (r) => r.description },
     { key: 'qty', label: 'QTY', value: (r) => r.qty },
+    { key: 'inTransitQty', label: 'In Transit', value: (r) => r.inTransitQty },
+    { key: 'receivedQty', label: 'Received QTY', value: (r) => r.receivedQty },
+    { key: 'inWarehouseQty', label: 'In Warehouse', value: (r) => r.inWarehouseQty },
+    { key: 'remainingQty', label: 'Remaining QTY', value: (r) => r.remainingQty },
     { key: 'condition', label: 'CD', value: (r) => r.condition },
     { key: 'priority', label: 'Priority', value: (r) => r.priority },
     { key: 'warehouse', label: 'Warehouse', value: (r) => r.warehouse },
@@ -1385,8 +1438,8 @@ function exportCsv() {
     { key: 'sellingTotalPriceYuan', label: 'Selling Total Price (Yuan)', value: (r) => r.sellingTotalPriceYuan },
     { key: 'poDate', label: 'PO Date', value: (r) => r.poDate },
     { key: 'invDate', label: 'INV Date', value: (r) => r.invDate },
-    { key: 'received', label: 'Received', value: (r) => r.received },
-    { key: 'receivedDate', label: 'Received Date', value: (r) => r.receivedDate },
+    { key: 'received', label: 'Received (Payment)', value: (r) => r.received },
+    { key: 'receivedDate', label: 'Received Date (Payment)', value: (r) => r.receivedDate },
     { key: 'paymentTerm', label: 'Payment Term', value: (r) => r.paymentTerm },
     { key: 'customerDeliveryTime', label: 'Customer Delivery Time', value: (r) => r.customerDeliveryTime },
     { key: 'rate', label: 'Rate', value: (r) => r.rate },
@@ -1419,6 +1472,19 @@ function exportCsv() {
   a.download = `total-pn-${new Date().toISOString().slice(0, 10)}.csv`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function exportExcel() {
+  const activeColumns = ALL_COLUMNS.filter(column => visibleColumns.value.includes(column.key))
+  const exportRows = filteredRows.value.map((row, index) => {
+    const result: Record<string, unknown> = { '#': index + 1 }
+    for (const column of activeColumns) {
+      const value = column.key === 'experts' ? (row.experts ?? []).join(', ') : row[column.key]
+      result[column.label] = value ?? ''
+    }
+    return result
+  })
+  downloadExcel(exportRows, `total-pn-${new Date().toISOString().slice(0, 10)}`, 'Total Project')
 }
 
 onMounted(async () => {
@@ -1498,6 +1564,23 @@ onMounted(async () => {
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
   white-space: nowrap;
 }
+
+.qty-progress-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.qty-progress-line {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.qty-progress-complete { color: rgb(var(--v-theme-success)); }
+.qty-progress-partial { color: rgb(var(--v-theme-warning)); }
+.qty-progress-none { color: rgb(var(--v-theme-on-surface) / 0.48); }
 
 .tpn-table tbody td.cell-wrap {
   width: 180px;
