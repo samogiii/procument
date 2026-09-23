@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using Procument.Module.Identity.DTOs;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
@@ -13,6 +15,7 @@ namespace Procument.Module.Identity.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
+    private const string RefreshCookieName = "procument_refresh";
     private readonly IAuthService _authService;
     public AuthController(IAuthService authService)
     {
@@ -26,14 +29,63 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var result = await _authService.LoginAsync(request);
+            var session = await _authService.LoginAsync(request, ClientIp());
+            WriteRefreshCookie(session);
             // Audit handled by filter
-            return Ok(result);
+            return Ok(session.Response);
         }
         catch (UnauthorizedAccessException ex)
         {
             return Unauthorized(new { message = ex.Message });
         }
+    }
+
+    /// <summary>Rotate the 30-day browser session and issue a fresh access token.</summary>
+    [HttpPost("refresh")]
+    public async Task<ActionResult<AuthResponse>> Refresh()
+    {
+        try
+        {
+            var session = await _authService.RefreshSessionAsync(
+                Request.Cookies[RefreshCookieName] ?? string.Empty, ClientIp());
+            WriteRefreshCookie(session);
+            return Ok(session.Response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            DeleteRefreshCookie();
+            return Unauthorized(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Upgrade an existing valid bearer-only login to a 30-day browser session.</summary>
+    [HttpPost("session")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> BootstrapSession()
+    {
+        if (!long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+            return Unauthorized(new { message = "The current access token is invalid." });
+
+        try
+        {
+            var session = await _authService.BootstrapSessionAsync(userId, ClientIp());
+            WriteRefreshCookie(session);
+            return Ok(session.Response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Revoke the current browser session.</summary>
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        await _authService.RevokeRefreshTokenAsync(
+            Request.Cookies[RefreshCookieName] ?? string.Empty, ClientIp());
+        DeleteRefreshCookie();
+        return NoContent();
     }
 
     /// <summary>
@@ -63,15 +115,40 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var result = await _authService.RegisterAsync(request);
+            var session = await _authService.RegisterAsync(request, ClientIp());
+            WriteRefreshCookie(session);
             // Audit handled by filter
-            return Ok(result);
+            return Ok(session.Response);
         }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { message = ex.Message });
         }
     }
+
+    private string? ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+    private void WriteRefreshCookie(AuthSession session)
+    {
+        Response.Cookies.Append(RefreshCookieName, session.RefreshToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            Path = "/api/auth",
+            Expires = session.RefreshTokenExpiresAt,
+            MaxAge = session.RefreshTokenExpiresAt - DateTime.UtcNow,
+            IsEssential = true,
+        });
+    }
+
+    private void DeleteRefreshCookie() => Response.Cookies.Delete(RefreshCookieName, new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = Request.IsHttps,
+        SameSite = SameSiteMode.Lax,
+        Path = "/api/auth",
+    });
 }
 
 [ApiController]

@@ -11,6 +11,7 @@ public class User : AuditableEntity
 
     public ICollection<UserBase> UserBases { get; set; } = [];
     public ICollection<UserCustomer> UserCustomers { get; set; } = [];
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
 }
 
 public static class UserRoles

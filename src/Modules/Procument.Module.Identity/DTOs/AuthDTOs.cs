@@ -43,6 +43,14 @@ public class AuthResponse
     public List<int> Bases { get; set; } = new();
 }
 
+/// <summary>Internal session result. The refresh token is written only to an HttpOnly cookie.</summary>
+public sealed class AuthSession
+{
+    public AuthResponse Response { get; set; } = new();
+    public string RefreshToken { get; set; } = string.Empty;
+    public DateTime RefreshTokenExpiresAt { get; set; }
+}
+
 public class UserResponse
 {
     public long Id { get; set; }

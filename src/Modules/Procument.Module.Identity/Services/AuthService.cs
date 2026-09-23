@@ -12,8 +12,11 @@ namespace Procument.Module.Identity.Services;
 
 public interface IAuthService
 {
-    Task<AuthResponse> LoginAsync(LoginRequest request);
-    Task<AuthResponse> RegisterAsync(RegisterRequest request);
+    Task<AuthSession> LoginAsync(LoginRequest request, string? ipAddress = null);
+    Task<AuthSession> RegisterAsync(RegisterRequest request, string? ipAddress = null);
+    Task<AuthSession> BootstrapSessionAsync(long userId, string? ipAddress = null);
+    Task<AuthSession> RefreshSessionAsync(string refreshToken, string? ipAddress = null);
+    Task RevokeRefreshTokenAsync(string refreshToken, string? ipAddress = null);
     Task<UserResponse> AdminCreateUserAsync(AdminCreateUserRequest request);
     Task<List<UserResponse>> GetAllUsersAsync();
     Task<UserResponse?> GetUserByIdAsync(long id);
@@ -40,7 +43,7 @@ public class AuthService : IAuthService
         _config = config;
     }
 
-    public async Task<AuthResponse> LoginAsync(LoginRequest request)
+    public async Task<AuthSession> LoginAsync(LoginRequest request, string? ipAddress = null)
     {
         var user = await _db.Set<User>()
             .FirstOrDefaultAsync(u => u.Email == request.Email);
@@ -55,18 +58,10 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Account Deactivated !");
         }
         var bases = await GetUserBasesAsync(user.Id);
-        return new AuthResponse
-        {
-            Id = user.Id,
-            Name = user.Name,
-            Email = user.Email,
-            Role = user.Role,
-            Token = await GenerateJwtTokenAsync(user, bases),
-            Bases = bases
-        };
+        return await CreateSessionAsync(user, bases, ipAddress);
     }
 
-    public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
+    public async Task<AuthSession> RegisterAsync(RegisterRequest request, string? ipAddress = null)
     {
         await EnsureEmailUnique(request.Email);
 
@@ -84,15 +79,80 @@ public class AuthService : IAuthService
         await _db.SaveChangesAsync();
 
         var bases = new List<int>(); // newly registered users have no bases
-        return new AuthResponse
+        return await CreateSessionAsync(user, bases, ipAddress);
+    }
+
+    public async Task<AuthSession> BootstrapSessionAsync(long userId, string? ipAddress = null)
+    {
+        var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null || !user.IsActive)
+            throw new UnauthorizedAccessException("Account is unavailable.");
+
+        var bases = await GetUserBasesAsync(user.Id);
+        return await CreateSessionAsync(user, bases, ipAddress);
+    }
+
+    public async Task<AuthSession> RefreshSessionAsync(string refreshToken, string? ipAddress = null)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            throw new UnauthorizedAccessException("Refresh session is missing.");
+
+        return await _db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            Id = user.Id,
-            Name = user.Name,
-            Email = user.Email,
-            Role = user.Role,
-            Token = await GenerateJwtTokenAsync(user, bases),
-            Bases = bases
-        };
+            await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var now = DateTime.UtcNow;
+            var tokenHash = HashRefreshToken(refreshToken);
+            var stored = await _db.Set<RefreshToken>().Include(t => t.User)
+                .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
+
+            if (stored is null)
+                throw new UnauthorizedAccessException("Refresh session is invalid.");
+
+            if (stored.RevokedAt.HasValue)
+            {
+                // A rotated token being reused may mean it was copied. Revoke the replacement chain.
+                await RevokeAllUserSessionsAsync(stored.UserId, now, ipAddress);
+                await _db.SaveChangesAsync();
+                await transaction.CommitAsync();
+                throw new UnauthorizedAccessException("Refresh session has already been used.");
+            }
+
+            if (stored.ExpiresAt <= now || !stored.User.IsActive)
+            {
+                stored.RevokedAt = now;
+                stored.RevokedByIp = ipAddress;
+                await _db.SaveChangesAsync();
+                await transaction.CommitAsync();
+                throw new UnauthorizedAccessException("Refresh session has expired.");
+            }
+
+            var bases = await GetUserBasesAsync(stored.UserId);
+            var next = NewRefreshToken(stored.UserId, ipAddress);
+            stored.RevokedAt = now;
+            stored.RevokedByIp = ipAddress;
+            stored.ReplacedByTokenHash = next.Entity.TokenHash;
+            _db.Set<RefreshToken>().Add(next.Entity);
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return new AuthSession
+            {
+                Response = await BuildAuthResponseAsync(stored.User, bases),
+                RefreshToken = next.RawToken,
+                RefreshTokenExpiresAt = next.Entity.ExpiresAt,
+            };
+        });
+    }
+
+    public async Task RevokeRefreshTokenAsync(string refreshToken, string? ipAddress = null)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken)) return;
+        var hash = HashRefreshToken(refreshToken);
+        var stored = await _db.Set<RefreshToken>().FirstOrDefaultAsync(t => t.TokenHash == hash);
+        if (stored is null || stored.RevokedAt.HasValue) return;
+        stored.RevokedAt = DateTime.UtcNow;
+        stored.RevokedByIp = ipAddress;
+        await _db.SaveChangesAsync();
     }
 
     public async Task<UserResponse> AdminCreateUserAsync(AdminCreateUserRequest request)
@@ -151,6 +211,8 @@ public class AuthService : IAuthService
 
         user.IsActive = !user.IsActive;
         user.ModifyAt = DateTime.UtcNow;
+        if (!user.IsActive)
+            await RevokeAllUserSessionsAsync(user.Id, DateTime.UtcNow, null);
         await _db.SaveChangesAsync();
         return true;
     }
@@ -182,6 +244,7 @@ public class AuthService : IAuthService
 
         user.Password = HashPassword(newPassword);
         user.ModifyAt = DateTime.UtcNow;
+        await RevokeAllUserSessionsAsync(user.Id, DateTime.UtcNow, null);
 
         await _db.SaveChangesAsync();
         return true;
@@ -271,7 +334,7 @@ public class AuthService : IAuthService
             new Claim("bases", string.Join(",", bases))
         };
 
-        var expMinutes = int.Parse(jwtSettings["ExpirationInMinutes"] ?? "480");
+        var expMinutes = int.Parse(jwtSettings["ExpirationInMinutes"] ?? "10080");
         var expiresAt = DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromMinutes(expMinutes));
 
         var token = new JwtSecurityToken(
@@ -284,6 +347,58 @@ public class AuthService : IAuthService
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+
+    private async Task<AuthSession> CreateSessionAsync(User user, List<int> bases, string? ipAddress)
+    {
+        var refresh = NewRefreshToken(user.Id, ipAddress);
+        _db.Set<RefreshToken>().Add(refresh.Entity);
+        await _db.SaveChangesAsync();
+        return new AuthSession
+        {
+            Response = await BuildAuthResponseAsync(user, bases),
+            RefreshToken = refresh.RawToken,
+            RefreshTokenExpiresAt = refresh.Entity.ExpiresAt,
+        };
+    }
+
+    private async Task<AuthResponse> BuildAuthResponseAsync(User user, List<int> bases) => new()
+    {
+        Id = user.Id,
+        Name = user.Name,
+        Email = user.Email,
+        Role = user.Role,
+        Token = await GenerateJwtTokenAsync(user, bases),
+        Bases = bases,
+    };
+
+    private (RefreshToken Entity, string RawToken) NewRefreshToken(long userId, string? ipAddress)
+    {
+        var raw = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(64));
+        var days = int.Parse(_config["JwtSettings:RefreshTokenDays"] ?? "30");
+        return (new RefreshToken
+        {
+            UserId = userId,
+            TokenHash = HashRefreshToken(raw),
+            ExpiresAt = DateTime.UtcNow.AddDays(days),
+            CreatedAt = DateTime.UtcNow,
+            CreatedByIp = ipAddress,
+        }, raw);
+    }
+
+    private async Task RevokeAllUserSessionsAsync(long userId, DateTime revokedAt, string? ipAddress)
+    {
+        var active = await _db.Set<RefreshToken>()
+            .Where(t => t.UserId == userId && t.RevokedAt == null && t.ExpiresAt > revokedAt)
+            .ToListAsync();
+        foreach (var token in active)
+        {
+            token.RevokedAt = revokedAt;
+            token.RevokedByIp = ipAddress;
+        }
+    }
+
+    private static string HashRefreshToken(string token)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     public async Task<List<int>> GetUserBasesAsync(long userId)
     {

@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
 
   // Identity
   public DbSet<User> Users => Set<User>();
+  public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
   public DbSet<EntityPermission> EntityPermissions => Set<EntityPermission>();
   public DbSet<UserBase> UserBases => Set<UserBase>();
   public DbSet<UserCustomer> UserCustomers => Set<UserCustomer>();
@@ -117,6 +118,22 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Password).HasMaxLength(500);
       entity.Property(e => e.Role).HasMaxLength(50);
       entity.HasIndex(e => e.Email).IsUnique();
+    });
+
+    modelBuilder.Entity<RefreshToken>(entity =>
+    {
+      entity.ToTable("RefreshTokens");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.TokenHash).HasMaxLength(64).IsRequired();
+      entity.Property(e => e.ReplacedByTokenHash).HasMaxLength(64);
+      entity.Property(e => e.CreatedByIp).HasMaxLength(64);
+      entity.Property(e => e.RevokedByIp).HasMaxLength(64);
+      entity.HasIndex(e => e.TokenHash).IsUnique();
+      entity.HasIndex(e => new { e.UserId, e.ExpiresAt });
+      entity.HasOne(e => e.User)
+            .WithMany(u => u.RefreshTokens)
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     modelBuilder.Entity<EntityPermission>(entity =>
