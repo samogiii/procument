@@ -69,16 +69,24 @@ public class PaymentRequestsController : ControllerBase
     [HttpPatch("{id}/status")]
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] string status)
     {
-        var result = await _service.UpdateStatusAsync(id, status);
-        if (!result) return NotFound();
-        return Ok();
+        try
+        {
+            var result = await _service.UpdateStatusAsync(id, status);
+            if (!result) return NotFound();
+            return Ok();
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(long id)
     {
-        var result = await _service.DeleteAsync(id);
-        if (!result) return NotFound();
-        return Ok();
+        try
+        {
+            var result = await _service.DeleteAsync(id);
+            if (!result) return NotFound();
+            return Ok();
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
     }
 }

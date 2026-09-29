@@ -44,7 +44,10 @@ public class PaymentRequestResponse
     public decimal ItemsTotal { get; set; }
     public decimal WireFee { get; set; }
     public decimal Amount { get; set; }
+    /// <summary>Wallet payments plus supplier credit applied.</summary>
     public decimal PaidAmount { get; set; }
+    /// <summary>The supplier-credit part of PaidAmount.</summary>
+    public decimal CreditApplied { get; set; }
     public decimal RemainingAmount => Math.Max(0, Amount - PaidAmount);
     public decimal POTotalAmount { get; set; }
     public long? PendingWalletId { get; set; }

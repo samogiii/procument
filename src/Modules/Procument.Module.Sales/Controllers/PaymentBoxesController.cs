@@ -89,9 +89,16 @@ public class PaymentBoxesController : ControllerBase
     [Authorize(Roles = "SuperAdmin")]
     public async Task<ActionResult<PaymentTransactionRow>> UpdateTransaction(long id, long txId, [FromBody] UpdateTransactionRequest req)
     {
-        var result = await _service.UpdateTransactionAsync(txId, req);
-        if (result == null) return NotFound();
-        return Ok(result);
+        try
+        {
+            var result = await _service.UpdateTransactionAsync(txId, req);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id:long}/transactions/{txId:long}/exchange-rate")]
@@ -128,8 +135,15 @@ public class PaymentBoxesController : ControllerBase
     [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> DeleteTransaction(long id, long txId)
     {
-        if (!await _service.DeleteTransactionAsync(txId)) return NotFound();
-        return Ok();
+        try
+        {
+            if (!await _service.DeleteTransactionAsync(txId)) return NotFound();
+            return Ok();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:long}/transfer")]

@@ -321,7 +321,7 @@
           <template v-if="item.type === 'Deposit'">
             <div class="d-flex align-center gap-1">
               <v-icon
-                :icon="item.fromType === 'Wallet' ? 'mdi-bank-transfer' : item.fromType === 'MotherWallet' ? 'mdi-bank-outline' : 'mdi-account-outline'"
+                :icon="item.fromType === 'Wallet' ? 'mdi-bank-transfer' : item.fromType === 'MotherWallet' ? 'mdi-bank-outline' : item.fromType === 'SupplierCredit' ? 'mdi-cash-refund' : 'mdi-account-outline'"
                 size="14"
                 class="text-medium-emphasis"
               />
@@ -336,7 +336,7 @@
           <template v-if="item.type === 'Withdraw'">
             <div class="d-flex align-center gap-1">
               <v-icon
-                :icon="item.toType === 'Wallet' ? 'mdi-bank-transfer' : item.toType === 'MotherWallet' ? 'mdi-bank-outline' : item.toType === 'BankFee' ? 'mdi-bank-minus' : 'mdi-truck-outline'"
+                :icon="item.toType === 'Wallet' ? 'mdi-bank-transfer' : item.toType === 'MotherWallet' ? 'mdi-bank-outline' : item.toType === 'BankFee' ? 'mdi-bank-minus' : item.toType === 'SupplierCredit' ? 'mdi-cash-refund' : 'mdi-truck-outline'"
                 size="14"
                 class="text-medium-emphasis"
               />
@@ -466,8 +466,9 @@
               :title="item.isNew ? 'Mark as reviewed' : 'Mark as new'"
               @click="toggleReviewed(item)"
             />
+            <!-- Supplier-credit rows are changed by reversing the credit entry (the API refuses edits here). -->
             <v-btn
-              v-if="authStore.isSuperAdmin"
+              v-if="authStore.isSuperAdmin && !isSupplierCreditRow(item)"
               icon="mdi-pencil-outline"
               size="x-small"
               variant="text"
@@ -475,7 +476,7 @@
               @click="openEditTx(item)"
             />
             <v-btn
-              v-if="authStore.isSuperAdmin"
+              v-if="authStore.isSuperAdmin && !isSupplierCreditRow(item)"
               icon="mdi-delete-outline"
               size="x-small"
               variant="text"
@@ -1490,6 +1491,11 @@ const transferRealAmount = computed(() =>
 /** Wallets are identified by their own name; fall back to the company preset when unnamed. */
 function boxLabel(box: { id?: number; name?: string | null; companyPresetName?: string | null }) {
   return box.name?.trim() || box.companyPresetName || `Wallet ${box.id ?? ''}`.trim()
+}
+
+/** Prepayment into supplier credit, or its refund after a reversal. */
+function isSupplierCreditRow(tx: TransactionRow) {
+  return tx.toType === 'SupplierCredit' || tx.fromType === 'SupplierCredit'
 }
 
 function confirmDeleteTx(tx: TransactionRow) {

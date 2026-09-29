@@ -66,7 +66,17 @@ public class ShipmentNoteService : IShipmentNoteService
             query = query.Where(s => ExpertVisibleStatuses.Contains(s.Status));
 
         var notes = await query.OrderByDescending(s => s.CreatedAt).ToListAsync();
-        return notes.Select(MapResponse).ToList();
+        var result = notes.Select(MapResponse).ToList();
+        var bases = await ShippingCustomerBases.LoadAsync(_db,
+            result.SelectMany(n => n.TrackNumbers).Select(t => t.POItemId));
+        FillCustomerBases(result, bases);
+        return result;
+    }
+
+    private static void FillCustomerBases(IEnumerable<ShipmentNoteResponse> notes, Dictionary<long, int?> bases)
+    {
+        foreach (var t in notes.SelectMany(n => n.TrackNumbers))
+            t.CustomerBase = bases.GetValueOrDefault(t.POItemId);
     }
 
     // ── Get by ID ──────────────────────────────────────────────────────────
@@ -74,7 +84,10 @@ public class ShipmentNoteService : IShipmentNoteService
     public async Task<ShipmentNoteResponse?> GetByIdAsync(long id)
     {
         var note = await BuildDetailQuery().FirstOrDefaultAsync(s => s.Id == id);
-        return note == null ? null : MapResponse(note);
+        if (note == null) return null;
+        var result = MapResponse(note);
+        FillCustomerBases([result], await ShippingCustomerBases.LoadAsync(_db, result.TrackNumbers.Select(t => t.POItemId)));
+        return result;
     }
 
     // ── Create ─────────────────────────────────────────────────────────────
@@ -465,6 +478,7 @@ public class ShipmentNoteService : IShipmentNoteService
     private IQueryable<ShipmentNote> BuildDetailQuery() =>
         _db.Set<ShipmentNote>()
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(s => s.Warehouse)
             .Include(s => s.CreatedBy)
             .Include(s => s.TrackNumbers)

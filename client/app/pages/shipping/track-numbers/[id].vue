@@ -366,7 +366,11 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ layout: 'default' })
+definePageMeta({
+  layout: 'default',
+  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
+  key: route => route.path,
+})
 
 const api = useApi()
 const docPreview = useDocPreview()

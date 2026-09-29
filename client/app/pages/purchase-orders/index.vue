@@ -562,10 +562,41 @@
             density="comfortable"
             prepend-inner-icon="mdi-domain"
             :loading="presetsLoading"
+            :item-props="presetItemProps"
             clearable
             hide-details
             class="mb-3"
           />
+
+          <!-- Supplier credit per company: only the PO's own company's credit can be used at payment -->
+          <v-alert
+            v-if="selectedPresetCredit > 0 || selectedPresetLine > 0"
+            type="success"
+            variant="tonal"
+            density="compact"
+            icon="mdi-cash-refund"
+            class="mb-3"
+          >
+            {{ selectedPresetName }} can use at payment:
+            <template v-if="selectedPresetCredit > 0"><strong>${{ formatPrice(selectedPresetCredit) }}</strong> prepaid credit</template>
+            <template v-if="selectedPresetCredit > 0 && selectedPresetLine > 0"> and </template>
+            <template v-if="selectedPresetLine > 0"><strong>${{ formatPrice(selectedPresetLine) }}</strong> on its credit line (to be paid back later)</template>.
+          </v-alert>
+          <v-alert
+            v-else-if="bestOtherCredit"
+            type="info"
+            variant="tonal"
+            density="compact"
+            icon="mdi-cash-refund"
+            class="mb-3"
+          >
+            <strong>{{ bestOtherCredit.name }}</strong> has ${{ formatPrice(bestOtherCredit.balance) }} usable with this supplier
+            (prepaid credit or credit line).
+            Choose {{ bestOtherCredit.name }} to use it at payment.
+            <v-btn size="x-small" variant="tonal" color="primary" class="ml-2" @click="pendingCreate.presetId = bestOtherCredit.id">
+              Use {{ bestOtherCredit.name }}
+            </v-btn>
+          </v-alert>
 
           <!-- /companypresets is Admin/SuperAdmin/Expert only — other roles keep the old flow -->
           <v-alert
@@ -631,6 +662,46 @@ const creatingPo = ref(false)
 const pendingCreate = reactive<{ supplierName: string; group: any[]; presetId: number | null }>({
   supplierName: '', group: [], presetId: null,
 })
+
+// ── Supplier credit per company for the supplier being ordered from ──
+// A hint only: roles without Supplier Credits access (403) see the picker exactly as before.
+const creditByPreset = shallowRef<Record<number, number>>({})
+/** Credit lines: what is still available per company (to be paid back after use). */
+const lineByPreset = shallowRef<Record<number, number>>({})
+let creditLoadSeq = 0
+async function loadSupplierCredit(supplierId: number | null | undefined) {
+  const seq = ++creditLoadSeq
+  creditByPreset.value = {}
+  lineByPreset.value = {}
+  if (!supplierId) return
+  type Row = { companyPresetId: number; balance: number }
+  try {
+    const [prepaid, lines] = await Promise.all([
+      api.get<Row[]>(`/supplier-credits/balances?supplierId=${supplierId}`),
+      api.get<Row[]>(`/supplier-credits/balances?supplierId=${supplierId}&kind=CreditLine`).catch(() => [] as Row[]),
+    ])
+    if (seq !== creditLoadSeq) return
+    creditByPreset.value = Object.fromEntries(prepaid.map(r => [r.companyPresetId, r.balance]))
+    lineByPreset.value = Object.fromEntries(lines.map(r => [r.companyPresetId, r.balance]))
+  } catch { /* no access or no data: no hints */ }
+}
+function presetItemProps(item: any) {
+  const credit = creditByPreset.value[item?.id] ?? 0
+  const line = lineByPreset.value[item?.id] ?? 0
+  const parts = [
+    credit > 0 ? `Credit $${formatPrice(credit)}` : null,
+    line > 0 ? `Credit line $${formatPrice(line)} available` : null,
+  ].filter(Boolean)
+  return parts.length ? { subtitle: `With this supplier: ${parts.join(' · ')}` } : {}
+}
+const selectedPresetCredit = computed(() => (pendingCreate.presetId ? creditByPreset.value[pendingCreate.presetId] : 0) ?? 0)
+const selectedPresetLine = computed(() => (pendingCreate.presetId ? lineByPreset.value[pendingCreate.presetId] : 0) ?? 0)
+/** The selectable company (other than the chosen one) that can use the most with this supplier. */
+const bestOtherCredit = computed(() => presetOptions.value
+  .map((p: any) => ({ id: p.id as number, name: p.name as string,
+    balance: (creditByPreset.value[p.id] ?? 0) + (lineByPreset.value[p.id] ?? 0) }))
+  .filter(p => p.id !== pendingCreate.presetId && p.balance > 0)
+  .sort((a, b) => b.balance - a.balance)[0] ?? null)
 
 // ── Company presets — the "which of our companies is buying" choice ──
 const apiPresets = ref<any[]>([])
@@ -869,6 +940,7 @@ function createPOFromGroup(supplierName: string, group: any[]) {
   // Default to Base 105, falling back to the only preset the user is allowed to use.
   const options = presetOptions.value
   pendingCreate.presetId = (options.find((p: any) => p.sortOrder === 105) || options[0])?.id ?? null
+  loadSupplierCredit(selected[0]?.supplierId)
   showPresetPickerDialog.value = true
 }
 

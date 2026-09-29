@@ -488,7 +488,7 @@
               <template v-if="item.deposit != null && item.fromName">
                 <div class="d-flex align-center gap-1">
                   <v-icon
-                    :icon="item.fromType === 'MotherWallet' ? 'mdi-bank-outline' : 'mdi-account-outline'"
+                    :icon="item.fromType === 'MotherWallet' ? 'mdi-bank-outline' : item.fromType === 'SupplierCredit' ? 'mdi-cash-refund' : 'mdi-account-outline'"
                     size="14"
                     class="text-medium-emphasis"
                   />
@@ -503,7 +503,7 @@
               <template v-if="item.withdraw != null && item.toName">
                 <div class="d-flex align-center gap-1">
                   <v-icon
-                    :icon="item.toType === 'MotherWallet' ? 'mdi-bank-outline' : 'mdi-truck-outline'"
+                    :icon="item.toType === 'MotherWallet' ? 'mdi-bank-outline' : item.toType === 'SupplierCredit' ? 'mdi-cash-refund' : 'mdi-truck-outline'"
                     size="14"
                     class="text-medium-emphasis"
                   />

@@ -32,7 +32,9 @@ An aviation-parts trading business. A customer sends an **RFQ**; an expert sourc
 to a supplier. Goods arrive against **POItemTrackNumbers** into a **Warehouse**, are packed into
 a **ShipmentNote** going out to the customer, and are billed on a **FinalInvoice**.
 Money in from customers and out to suppliers moves through **PaymentBoxes** (wallets) via
-**PaymentTransactions**.
+**PaymentTransactions**. Credit we hold with a supplier (per buying company) lives in
+**SupplierCreditAccounts** with its ledger in **SupplierCreditEntries**; applying it pays a PO
+without any wallet movement.
 
 ## Pipeline
 
@@ -76,6 +78,8 @@ RFQItems.Id
 | Cancelled sales orders | `Invoices.IsCancelled` **and** `Status='Cancelled'` both exist. Exclude them from revenue reports and say so. |
 | `ProcurementItems` snapshot columns | Denormalized copies, deliberately allowed to drift. Read them directly instead of re-joining upstream. |
 | `Customers.Base` | NULL on many older rows. Fall back to `CustomerCode LIKE 'C<base>%'`. |
+| "How much do we owe a supplier?" | Not `PaymentRequests`. Credit lines: `SupplierCreditAccounts` with `Kind='CreditLine'`, owed = `CreditLimit − Balance` (H6). |
+| "How much have we paid this supplier on a PO/PR?" | **Wallet** part = `PaymentTransactions` with `Type='Withdraw' AND ToType='Supplier'`. **Credit** part = `SupplierCreditEntries` with that `PaymentRequestId`: Σ `Out` − Σ `In`. Paid = both. `ToType='SupplierCredit'` is a prepayment into credit and pays **no** PO. |
 | Fan-out children | `ProcurementSupplierQuotes`, `POItems`, `POItemTrackNumbers`, `TrackNumberItems`, `ShipmentNoteTrackNumbers`, `RFQItems`, `QuoteItems`, `InvoiceItems`, `CustomerPayments`, `Alternatives`, `PartNumberSuppliers`. Pre-aggregate or `OUTER APPLY TOP 1` before joining more than one. |
 
 ---
@@ -100,7 +104,10 @@ RFQItems.Id
 | `ShipmentNotes.Type` | DDP · CPT |
 | `FinalInvoices.Status` | Draft -> Net30 / Completed -> Paid |
 | `Suppliers.Status` | Pending -> Approved / Rejected / Disabled |
-| `PaymentTransactions.Type` | Deposit · Withdraw (`FromType`/`ToType` ∈ Customer / Wallet / Supplier) |
+| `PaymentTransactions.Type` | Deposit · Withdraw (`FromType` ∈ MotherWallet / Customer / Wallet / SupplierCredit; `ToType` ∈ MotherWallet / Supplier / BankFee / Wallet / SupplierCredit) |
+| `SupplierCreditEntries.Direction` | In · Out |
+| `SupplierCreditEntries.Source` | CreditNote · WalletTopUp · POApplication · Adjustment · Reversal · CreditLimit · Repayment |
+| `SupplierCreditAccounts.Kind` | Prepaid (supplier holds credit for us) · CreditLine (buy now, pay back later) |
 | `WalletTransferPendings.Status` | Pending -> Accepted -> Completed / Rejected |
 | `Tasks.Status` (**int**) | 0 To-Do · 1 In-Progress · 2 Done |
 | `EntityPermissions.Permission` | View · Edit |
@@ -574,7 +581,7 @@ Wallets (per company preset + currency).
 
 ### PaymentTransactions
 
-Money movements. `FromType`/`ToType` ∈ Customer/Wallet/Supplier.
+Money movements. `FromType`/`ToType` ∈ Customer/Wallet/Supplier/BankFee/SupplierCredit (see Status values).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -618,6 +625,85 @@ Wallet-to-wallet transfers awaiting approval.
 | Status | nvarchar(20) | ⚑ |
 | ToBoxId | bigint | FK→`PaymentBoxes` ⚑ |
 | WithdrawAmount | decimal(18,2) |  |
+
+### SupplierCreditAccounts
+
+Credit with one supplier under one of our companies. One row per
+(Supplier, CompanyPreset, Currency, Kind). `Balance` is a cached running total; the ledger is the truth
+(reconciliation query: `db-summary-queries.sql` K3).
+
+- **Prepaid**: `Balance` = credit the supplier holds for us; `CreditLimit` is NULL.
+- **CreditLine** (E10): `Balance` = credit still **available**; **owed to the supplier =
+  `CreditLimit − Balance`**. Using the line is a normal `POApplication` (Out), so PO "paid" figures
+  need no special case. The limit moves only through `CreditLimit` entries; paying back is a
+  `Repayment` entry (In) linked to the POP wallet withdrawal.
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | bigint | **PK** |
+| Balance | decimal(18,2) | default 0, CHECK `>= 0` |
+| CompanyPresetId | bigint | FK→`CompanyPresets` ⚑ (INCLUDE Balance) |
+| CreatedAt | datetime2 |  |
+| CreditLimit | decimal(18,2)? | CreditLine only; CHECK `Balance <= CreditLimit` |
+| Currency | nvarchar(3) | default `USD` (only USD used in v1) |
+| Kind | nvarchar(20) | `Prepaid` (default) · `CreditLine` |
+| ModifyAt | datetime2? |  |
+| RowVersion | rowversion | concurrency token |
+| SupplierId | bigint | FK→`Suppliers` |
+
+Unique: `(SupplierId, CompanyPresetId, Currency, Kind)`.
+
+### SupplierCreditEntries
+
+Append-only ledger of a credit account — never updated or deleted; undo = a `Reversal` entry.
+`Amount` is always positive; `Direction` gives the sign.
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | bigint | **PK** |
+| AccountId | bigint | FK→`SupplierCreditAccounts` ⚑ (with CreatedAt DESC, Id DESC) |
+| Amount | decimal(18,2) | CHECK `> 0` |
+| BalanceAfter | decimal(18,2) | account balance after this entry, CHECK `>= 0` |
+| CreatedAt | datetime2 |  |
+| CreatedByUserId | bigint? | FK→`Users` ⚑ |
+| Direction | nvarchar(3) | In · Out |
+| CreditMemo | nvarchar(200)? | the supplier's credit memo (number or text); was `Reference` before E9 |
+| Notes | nvarchar(500)? |  |
+| PaymentRequestId | bigint? | FK→`PaymentRequests` ⚑ filtered, INCLUDE (Direction, Amount). Only on `POApplication` and its `Reversal`. |
+| PaymentTransactionId | bigint? | FK→`PaymentTransactions` ⚑ — wallet row of a `WalletTopUp` / its reversal |
+| PurchaseOrderId | bigint? | FK→`PurchaseOrders` ⚑ |
+| SourcePoReference | nvarchar(100)? | free-text origin of a credit note (e.g. "Opening balance 2026") |
+| SourcePurchaseOrderId | bigint? | FK→`PurchaseOrders` ⚑ filtered — our PO the credit came from |
+| RequestId | uniqueidentifier | **unique** idempotency key |
+| ReversesEntryId | bigint? | FK→`SupplierCreditEntries`, **unique** (an entry is reversed at most once) |
+| Source | nvarchar(20) | CreditNote · WalletTopUp · POApplication · Adjustment · Reversal |
+
+CHECKs: `POApplication` ⇒ `Out` + PO + PR set; `Reversal` ⇔ `ReversesEntryId` set;
+`WalletTopUp` ⇒ `PaymentTransactionId` set; never both `SourcePurchaseOrderId` and `SourcePoReference`
+(the API requires exactly one of them on credit notes).
+
+**Two different PO links:** `PurchaseOrderId` = the PO the credit was *used on* (applications and
+their reversals); `SourcePurchaseOrderId` = the PO the credit *came from* (credit notes).
+
+**`PaymentRequestId` only on applications:** CHECK `CK_SupplierCreditEntries_PaymentRequestOnlyOnApplications`
+— the "paid on a PO" rule sums every entry with a `PaymentRequestId`, so a `Repayment` never carries
+one (its PR is reachable through `PaymentTransactionId → PaymentTransactions.PaymentRequestId`).
+
+### SupplierCreditDocuments
+
+Proof files of a credit entry — any number per entry, attachable later. Evidence only: never part
+of a balance. Files are stored under `…/Supplier Credits/{Supplier}/Credit Notes/`.
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | bigint | **PK** |
+| Category | nvarchar(20) | SupplierPI · CreditMemo · Other |
+| EntryId | bigint | FK→`SupplierCreditEntries` ⚑ |
+| FileName | nvarchar(260) | name on disk (`{prefix}-{original}`) |
+| OriginalFileName | nvarchar(260) | name as uploaded |
+| SizeBytes | bigint | 0 for files moved from the pre-E9 single-file column |
+| UploadedAt | datetime2 |  |
+| UploadedByUserId | bigint? | FK→`Users` ⚑ |
 
 ## Module: Purchasing
 
@@ -844,12 +930,16 @@ PO lines. `POId` is nullable (unassigned/returned items). `SourceProcurementItem
 
 ### PaymentRequests
 
-Payment approval requests against a PO.
+Payment approval requests against a PO — or (E10) the repayment of a supplier credit line, then
+`POId` is NULL and `SupplierCreditAccountId` is set (CHECK: never both). A repayment reuses the
+Pending* draft columns, the POP upload (`PaymentTransactions.ToType = 'SupplierCredit'`) and the
+final bank amount / `BankFee` row exactly like a PO payment.
 
 | Column | Type | Notes |
 |---|---|---|
 | Id | bigint | **PK** |
 | CompanyPresetId | bigint? | FK→`CompanyPresets` ⚑ |
+| SupplierCreditAccountId | bigint? | FK→`SupplierCreditAccounts` ⚑ filtered — credit-line repayment |
 | CreatedAt | datetime2 |  |
 | IsActive | bit |  |
 | ModifyAt | datetime2? |  |

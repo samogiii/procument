@@ -2,7 +2,10 @@
   <div>
     <div class="d-flex align-center gap-3 mb-4">
       <div>
-        <h1 class="text-h5 font-weight-bold">Shipping Control</h1>
+        <h1 class="text-h5 font-weight-bold">
+          Shipping Control
+          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
+        </h1>
         <p class="text-caption text-medium-emphasis mt-1">Management of track numbers and shipment notes</p>
       </div>
     </div>
@@ -16,7 +19,7 @@
         <v-icon start icon="mdi-package-variant-closed" />
         Track Numbers
       </v-tab> -->
-      <v-tab value="tid" @click="loadTidGroups" v-if="isSydOrAdmin">
+      <v-tab value="tid" @click="loadTidGroups" v-if="isSydOrAdmin && !isExternal">
         <v-icon start icon="mdi-family-tree" />
         By T-ID
         <v-chip v-if="tidGroups.length" size="x-small" color="primary" variant="tonal" class="ml-2">
@@ -397,9 +400,9 @@
         </div>
 
         <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- SYD / Expert view: T-ID tree                                  -->
+        <!-- SYD / Expert view: T-ID tree (External has no T-ID → flat table) -->
         <!-- ══════════════════════════════════════════════════════════════ -->
-        <template v-if="authStore.isExpert">
+        <template v-if="authStore.isExpert && !isExternal">
           <v-progress-linear v-if="snLoading" indeterminate color="deep-purple" class="mb-4" />
 
           <!-- Search -->
@@ -729,11 +732,13 @@
                       </v-card>
 
                       <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="160">
-                        <div class="text-caption font-weight-bold text-medium-emphasis mb-1">T-ID / SO# / DESTINATION</div>
+                        <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ isExternal ? 'DESTINATION' : 'T-ID / SO# / DESTINATION' }}</div>
                         <div class="d-flex align-center gap-2">
                           <div class="flex-grow-1">
-                            <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
-                            <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                            <template v-if="!isExternal">
+                              <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
+                              <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                            </template>
                             <div><span class="text-caption text-medium-emphasis">Dest: </span><span class="text-body-2">{{ item.destination || '—' }}</span></div>
                           </div>
                           <v-btn v-if="isSydOrAdmin" icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openEditTId(item)" />
@@ -1059,8 +1064,10 @@
                     <span v-else class="text-medium-emphasis">—</span>
                   </td>
                   <td class="font-weight-medium text-pn">{{ row.trackNumbers || '—' }}</td>
-                  <td>{{ row.soNumber || '—' }}</td>
-                  <td class="font-weight-medium">{{ row.tId || '—' }}</td>
+                  <template v-if="!isExternal">
+                    <td>{{ row.soNumber || '—' }}</td>
+                    <td class="font-weight-medium">{{ row.tId || '—' }}</td>
+                  </template>
                   <td>{{ row.awbNumber || '—' }}</td>
                 </tr>
               </tbody>
@@ -1113,11 +1120,11 @@
 
         <v-progress-linear v-if="loadingTransfers" indeterminate color="primary" class="mb-3" />
 
-        <div v-if="!loadingTransfers && transfers.length === 0" class="text-center text-medium-emphasis pa-8">
+        <div v-if="!loadingTransfers && scopedTransfers.length === 0" class="text-center text-medium-emphasis pa-8">
           No warehouse transfers yet.
         </div>
 
-        <v-card v-for="t in transfers" :key="t.id" variant="outlined" class="mb-3">
+        <v-card v-for="t in scopedTransfers" :key="t.id" variant="outlined" class="mb-3">
           <div class="d-flex align-center gap-2 pa-3 flex-wrap">
             <v-icon icon="mdi-transfer" size="18" color="deep-purple" />
             <span class="text-subtitle-2 font-weight-bold">{{ t.transferNumber }}</span>
@@ -1215,7 +1222,7 @@
             <p class="text-caption text-medium-emphasis">Confirmed SN# records — read-only archive</p>
           </div>
           <v-spacer />
-          <v-btn-toggle v-model="finishedViewMode" mandatory density="compact" variant="tonal" color="success">
+          <v-btn-toggle v-if="!isExternal" v-model="finishedViewMode" mandatory density="compact" variant="tonal" color="success">
             <v-btn value="flat" size="small" prepend-icon="mdi-view-list">Shipping Numbers</v-btn>
             <v-btn value="tid" size="small" prepend-icon="mdi-family-tree">By T-ID</v-btn>
           </v-btn-toggle>
@@ -1276,9 +1283,11 @@
                       <v-chip :color="item.type === 'CPT' ? 'primary' : 'secondary'" size="small" variant="tonal">{{ item.type }}</v-chip>
                     </v-card>
                     <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="200">
-                      <div class="text-caption font-weight-bold text-medium-emphasis mb-1">T-ID / SO# / DESTINATION</div>
-                      <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
-                      <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                      <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ isExternal ? 'DESTINATION' : 'T-ID / SO# / DESTINATION' }}</div>
+                      <template v-if="!isExternal">
+                        <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
+                        <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                      </template>
                       <div><span class="text-caption text-medium-emphasis">Dest: </span><span class="text-body-2">{{ item.destination || '—' }}</span></div>
                     </v-card>
                     <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="160">
@@ -1782,27 +1791,29 @@
       <v-card>
         <v-card-title class="text-h6 pa-4 pb-2">
           <v-icon icon="mdi-identifier" class="mr-2" color="primary" />
-          Edit T-ID / SO# / Destination
+          {{ isExternal ? 'Edit Destination' : 'Edit T-ID / SO# / Destination' }}
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-4">
-          <v-text-field
-            v-model="editTIdValue"
-            label="T-ID"
-            variant="outlined"
-            density="compact"
-            prepend-inner-icon="mdi-identifier"
-            class="mb-3"
-            autofocus
-          />
-          <v-text-field
-            v-model="editSONumberValue"
-            label="SO#"
-            variant="outlined"
-            density="compact"
-            prepend-inner-icon="mdi-file-document-outline"
-            class="mb-3"
-          />
+          <template v-if="!isExternal">
+            <v-text-field
+              v-model="editTIdValue"
+              label="T-ID"
+              variant="outlined"
+              density="compact"
+              prepend-inner-icon="mdi-identifier"
+              class="mb-3"
+              autofocus
+            />
+            <v-text-field
+              v-model="editSONumberValue"
+              label="SO#"
+              variant="outlined"
+              density="compact"
+              prepend-inner-icon="mdi-file-document-outline"
+              class="mb-3"
+            />
+          </template>
           <v-combobox
             v-model="editDestinationValue"
             :items="warehouses"
@@ -1999,11 +2010,16 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ layout: 'default' })
+definePageMeta({
+  layout: 'default',
+  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
+  key: route => route.path,
+})
 
 const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
+const { scope, isExternal, scopeTitle, inScope, noteInScope } = useShippingScope()
 const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
 // Warehouse transfers are gated to SuperAdmin and the SYD shipping account —
 // must stay in step with WarehouseTransfersController.IsUnrestricted().
@@ -2271,7 +2287,11 @@ const snFilterWarehouse = ref<number | null>(null)
 const snTidSearch = ref('')
 const snOpenTids = ref<string[]>([])
 
-const snHeaders = [
+// External shipments carry no T-ID / SO#.
+const withoutTidSo = <T extends { key: string }>(headers: T[]) =>
+  isExternal.value ? headers.filter(h => h.key !== 'tId' && h.key !== 'soNumber') : headers
+
+const snHeaders = computed(() => withoutTidSo([
   { title: 'SN#', key: 'snNumber', sortable: true },
   { title: 'Type', key: 'type', sortable: false },
   { title: 'Warehouse', key: 'warehouseName', sortable: false },
@@ -2283,9 +2303,9 @@ const snHeaders = [
   { title: 'Created At', key: 'createdAt', sortable: true },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
   { title: '', key: 'data-table-expand' },
-]
+]))
 
-const finishedHeaders = [
+const finishedHeaders = computed(() => withoutTidSo([
   { title: 'SN#', key: 'snNumber', sortable: true },
   { title: 'Type', key: 'type', sortable: false },
   { title: 'Warehouse', key: 'warehouseName', sortable: false },
@@ -2297,7 +2317,7 @@ const finishedHeaders = [
   { title: 'Created At', key: 'createdAt', sortable: true },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
   { title: '', key: 'data-table-expand' },
-]
+]))
 
 const snTidGroups = computed(() => {
   const map = new Map<string, any>()
@@ -2407,7 +2427,8 @@ async function loadSnNotes() {
   snLoading.value = true
   try {
     const params = snFilterWarehouse.value ? `?warehouseId=${snFilterWarehouse.value}` : ''
-    const all: any[] = await api.get(`/shipment-notes${params}`)
+    // Internal / External Shipping split; the original page shows every note.
+    const all: any[] = (await api.get<any[]>(`/shipment-notes${params}`)).filter(noteInScope)
     allSnNotes.value = all
     snNotes.value = all.filter((n: any) => n.status !== 'Confirmed')
     snFinishedNotes.value = all.filter((n: any) => n.status === 'Confirmed')
@@ -2527,7 +2548,10 @@ async function openAddTrack(item: any) {
   selectedTrackId.value = null
   addTrackDialog.value = true
   tracksLoading.value = true
-  try { availableTracks.value = await api.get('/shipping/track-numbers') }
+  try {
+    const tracks: any[] = await api.get('/shipping/track-numbers')
+    availableTracks.value = tracks.filter(t => inScope(t.customerBase))
+  }
   finally { tracksLoading.value = false }
 }
 
@@ -2655,7 +2679,7 @@ function toMoney(v: any): string | null {
   return Number.isFinite(n) && n !== 0 ? `$${n.toFixed(2)}` : null
 }
 
-const TO_COLUMNS = [
+const ALL_TO_COLUMNS = [
   { key: 'id',                   label: 'ID#',             field: (r: any) => r.id != null ? String(r.id) : null },
   { key: 'poNumber',             label: 'PO No',           field: (r: any) => r.poNumber },
   { key: 'poRef',                label: 'PO Ref#',         field: (r: any) => r.poRef != null ? String(r.poRef) : null },
@@ -2681,6 +2705,9 @@ const TO_COLUMNS = [
   { key: 'tId',                  label: 'TID',             field: (r: any) => r.tId },
   { key: 'awbNumber',            label: 'Local Track#',    field: (r: any) => r.awbNumber },
 ]
+// External shipments carry no SO# / TID. The scope is fixed for the page's lifetime
+// (the page is keyed by path), so a plain snapshot is enough.
+const TO_COLUMNS = withoutTidSo(ALL_TO_COLUMNS)
 
 const toRows = ref<any[]>([])
 const toLoading = ref(false)
@@ -2692,7 +2719,7 @@ const toColFilters = reactive<Record<string, Set<string>>>({})
 const toFilterSearch = reactive<Record<string, string>>({})
 
 // ── Total Order localStorage persistence ──
-const TO_STORAGE_KEY = 'col-filter-total-order'
+const TO_STORAGE_KEY = scope.value ? `col-filter-total-order-${scope.value}` : 'col-filter-total-order'
 
 if (import.meta.client) {
   try {
@@ -2847,7 +2874,8 @@ async function loadTotalOrder() {
   try {
     // Load all rows so client-side filters work across the full dataset
     const res = await api.get('/po-items/total-order?page=1&pageSize=5000')
-    toRows.value = res.items ?? res
+    const rows: any[] = res.items ?? res
+    toRows.value = rows.filter(r => inScope(r.customerBase))
     toLoaded = true
   } catch (e: any) {
     console.error('[TotalOrder] load failed', e)
@@ -2867,8 +2895,14 @@ const transferFilterWarehouse = ref<number | null>(null)
 const transferFilterStatus = ref<string | null>(null)
 const transferStatuses = ['In Transit', 'Partially Received', 'Received', 'Cancelled']
 
+// A transfer is in scope when any of its lines is.
+const scopedTransfers = computed(() =>
+  transfers.value.filter(t =>
+    t.items?.length ? t.items.some((line: any) => inScope(line.customerBase)) : inScope(null)),
+)
+
 const inTransitCount = computed(() =>
-  transfers.value.filter(t => t.status === 'In Transit' || t.status === 'Partially Received').length)
+  scopedTransfers.value.filter(t => t.status === 'In Transit' || t.status === 'Partially Received').length)
 
 function transferStatusColor(status: string) {
   const map: Record<string, string> = {

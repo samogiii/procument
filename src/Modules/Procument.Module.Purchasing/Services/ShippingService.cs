@@ -10,7 +10,7 @@ namespace Procument.Module.Purchasing.Services;
 public interface IShippingService
 {
     // Track Numbers for Inventory user
-    Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false);
+    Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false);
 
     // Submit / update per-part items
     Task<List<TrackNumberItemResponse>> SubmitItemsAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request);
@@ -67,10 +67,11 @@ public class ShippingService : IShippingService
 
     // ── Track Numbers for user ─────────────────────────────────────────────
 
-    public async Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false)
+    public async Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false)
     {
         IQueryable<POItemTrackNumber> query = _db.Set<POItemTrackNumber>()
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(t => t.Warehouse)
             .Include(t => t.POItem).ThenInclude(i => i.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(t => t.POItem).ThenInclude(i => i.PartNumber)
@@ -84,11 +85,21 @@ public class ShippingService : IShippingService
             query = query.Where(t => t.WarehouseId.HasValue && warehouseIds.Contains(t.WarehouseId.Value));
         }
 
+        if (pendingOnly)
+            query = query.Where(t => t.Status != "Received in Warehouse"
+                && t.Status != "Waiting for Packing" && t.Status != "Ship To USA"
+                && t.Status != "Clearing Customs" && t.Status != "Received in Office"
+                && t.Status != "Delivered to Customer");
+
         var tracks = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
         var assigneesByPoId = await LoadPoAssigneesAsync(tracks);
 
-        return tracks.Select(t => MapTrackResponse(t, assigneesByPoId)).ToList();
+        var result = tracks.Select(t => MapTrackResponse(t, assigneesByPoId)).ToList();
+        var bases = await ShippingCustomerBases.LoadAsync(_db, result.Select(t => t.POItemId));
+        foreach (var t in result)
+            t.CustomerBase = bases.GetValueOrDefault(t.POItemId);
+        return result;
     }
 
     // ── Track Boxes ───────────────────────────────────────────────────────
@@ -561,11 +572,6 @@ public class ShippingService : IShippingService
 
     public async Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null)
     {
-        var assignedTrackIds = await _db.Set<ShipmentNoteTrackNumber>()
-            .Select(s => s.TrackNumberId)
-            .Distinct()
-            .ToListAsync();
-
         var baseQuery =
             from item in _db.Set<TrackNumberItem>().AsNoTracking()
             join track in _db.Set<POItemTrackNumber>().AsNoTracking() on item.TrackNumberId equals track.Id
@@ -586,7 +592,7 @@ public class ShippingService : IShippingService
             // without this they would appear in the Ready-for-SN queue at both warehouses.
             where item.Status == "Accepted" && item.ActualQty.HasValue
                   && item.ActualQty.Value > item.TransferredOutQty
-                  && !assignedTrackIds.Contains(item.TrackNumberId)
+                  && !_db.Set<ShipmentNoteTrackNumber>().Any(s => s.TrackNumberId == item.TrackNumberId)
                   // Stock PO goods belong to Our Stock: they leave through a sale or a warehouse transfer, not a Shipment Note.
                   && (poItem.PurchaseOrder == null || poItem.PurchaseOrder.Origin != "Stock")
             select new ReadyForSnItemResponse
@@ -609,7 +615,11 @@ public class ShippingService : IShippingService
         if (warehouseId.HasValue)
             baseQuery = baseQuery.Where(i => i.WarehouseId == warehouseId.Value);
 
-        return await baseQuery.ToListAsync();
+        var items = await baseQuery.ToListAsync();
+        var bases = await ShippingCustomerBases.LoadAsync(_db, items.Select(i => i.POItemId));
+        foreach (var i in items)
+            i.CustomerBase = bases.GetValueOrDefault(i.POItemId);
+        return items;
     }
 
     // ── Single track review (Admin/Expert) ────────────────────────────────
@@ -629,7 +639,10 @@ public class ShippingService : IShippingService
         if (track == null) return null;
 
         var assigneesByPoId = await LoadPoAssigneesAsync([track]);
-        return MapTrackResponse(track, assigneesByPoId);
+        var result = MapTrackResponse(track, assigneesByPoId);
+        var bases = await ShippingCustomerBases.LoadAsync(_db, [result.POItemId]);
+        result.CustomerBase = bases.GetValueOrDefault(result.POItemId);
+        return result;
     }
 
     // ── PO assignees ──────────────────────────────────────────────────────

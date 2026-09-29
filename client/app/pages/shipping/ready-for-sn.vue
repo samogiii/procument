@@ -2,7 +2,10 @@
   <div>
     <div class="d-flex align-center gap-3 mb-6">
       <div>
-        <h1 class="text-h5 font-weight-bold">Ready for SN#</h1>
+        <h1 class="text-h5 font-weight-bold">
+          Ready for SN#
+          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
+        </h1>
         <p class="text-caption text-medium-emphasis mt-1">Accepted parts ready to create a Shipping Number</p>
       </div>
       <v-spacer />
@@ -112,7 +115,8 @@
             Cannot create CPT — selected parts belong to multiple customers. Switch to DDP or select parts from a single customer only.
           </v-alert>
 
-          <v-row dense class="mb-1">
+          <!-- External shipments run without T-ID / SO# -->
+          <v-row v-if="!isExternal" dense class="mb-1">
             <!-- T-ID -->
             <v-col cols="12" sm="6">
               <v-text-field
@@ -215,11 +219,16 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ layout: 'default' })
+definePageMeta({
+  layout: 'default',
+  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
+  key: route => route.path,
+})
 
 const api = useApi()
 const config = useRuntimeConfig()
 const router = useRouter()
+const { isExternal, scopeTitle, inScope, link } = useShippingScope()
 
 const headers = [
   { title: 'Customer', key: 'customerCode', sortable: true },
@@ -256,9 +265,9 @@ function notify(msg: string, color = 'success') {
 }
 
 const filteredItems = computed(() =>
-  filterWarehouse.value
-    ? items.value.filter(i => i.warehouseId === filterWarehouse.value)
-    : items.value
+  items.value.filter(i =>
+    inScope(i.customerBase)
+    && (!filterWarehouse.value || i.warehouseId === filterWarehouse.value)),
 )
 
 const selectedItems = computed(() =>
@@ -300,8 +309,8 @@ async function createSn() {
     const res = await api.post('/shipment-notes', {
       warehouseId,
       type: snForm.type,
-      tId: snForm.tId || null,
-      soNumber: snForm.soNumber || null,
+      tId: isExternal.value ? null : snForm.tId || null,
+      soNumber: isExternal.value ? null : snForm.soNumber || null,
       destination: destination || null,
       items: selectedItems.value.map(i => ({
         trackNumberItemId: i.trackNumberItemId,
@@ -321,7 +330,7 @@ async function createSn() {
     notify('SN# created successfully')
     createDialog.value = false
     selected.value = []
-    router.push('/total-shipping?tab=sn')
+    router.push(link('/total-shipping?tab=sn'))
   } catch {
     notify('Failed to create SN#', 'error')
   } finally {

@@ -59,10 +59,11 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .Where(t => t.ToPaymentBoxId.HasValue)
             .Select(t => t.ToPaymentBoxId!.Value)
             .Distinct().ToList();
-        var walletNames = await _db.Set<PaymentBox>()
+        var wallets = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
             .Where(b => walletIds.Contains(b.Id))
-            .ToDictionaryAsync(b => b.Id, b => b.CompanyPreset?.Name ?? $"Wallet {b.Id}");
+            .ToListAsync();
+        var walletNames = wallets.ToDictionary(b => b.Id, DisplayName);
 
         var ordered = box.Transactions.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).ToList();
         decimal running = 0;
@@ -79,13 +80,13 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 t.FromType,
                 t.FromType == "Customer"
                     ? (t.FromCustomer?.CustomerCode ?? t.FromCustomer?.Name)
-                    : t.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+                    : t.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : t.FromType == "SupplierCredit" ? "Supplier Credit" : "Mother Wallet",
                 t.FromCustomerId,
                 t.ToType,
                 t.ToType == "Supplier"
                     ? t.ToSupplier?.Name
                     : t.ToType == "BankFee" ? "Bank Fee and Others"
-                    : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+                    : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : t.ToType == "SupplierCredit" ? "Supplier Credit · " + t.ToSupplier?.Name : "Mother Wallet",
                 t.ToSupplierId,
                 t.Invoice?.InvoiceNumber,
                 t.InvoiceId,
@@ -166,7 +167,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                     t.Type == "Deposit"
                         ? (t.FromType == "Customer"
                             ? (t.FromCustomer?.CustomerCode ?? t.FromCustomer?.Name)
-                            : t.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet")
+                            : t.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : t.FromType == "SupplierCredit" ? "Supplier Credit" : "Mother Wallet")
                         : null,
                     t.FromCustomerId,
                     t.ToType,
@@ -174,7 +175,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                         ? (t.ToType == "Supplier"
                             ? t.ToSupplier?.Name
                             : t.ToType == "BankFee" ? "Bank Fee and Others"
-                            : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet")
+                            : t.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : t.ToType == "SupplierCredit" ? "Supplier Credit · " + t.ToSupplier?.Name : "Mother Wallet")
                         : null,
                     t.ToSupplierId,
                     t.Invoice?.InvoiceNumber,
@@ -371,6 +372,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var tx = await _db.Set<PaymentTransaction>().FindAsync(txId);
         if (tx == null) return null;
+        await EnsureNotSupplierCreditRowAsync(tx);
 
         // Automatic POP, supplier-payment and bank-fee rows may need accounting
         // corrections after import. Keep their automatic/document provenance on
@@ -417,7 +419,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         var now = DateTime.UtcNow;
         decimal? bankFeeAmount = null;
 
-        if (tx.PopUploadId.HasValue && tx.ToType == "Supplier" && tx.PaymentRequestId.HasValue)
+        // PO payment POPs and credit-line repayment POPs both carry a bank-fee row on the same PR.
+        if (tx.PopUploadId.HasValue && (tx.ToType is "Supplier" or "SupplierCredit") && tx.PaymentRequestId.HasValue)
         {
             var fee = await _db.Set<PaymentTransaction>().FirstOrDefaultAsync(t =>
                 t.PaymentBoxId == tx.PaymentBoxId &&
@@ -512,6 +515,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         if (tx == null) return false;
         if (tx.PopUploadId.HasValue || (tx.IsAuto && tx.ToType == "BankFee"))
             throw new ArgumentException("POP payments and bank fees cannot be deleted through wallet transactions.");
+        await EnsureNotSupplierCreditRowAsync(tx);
         _db.Set<PaymentTransaction>().Remove(tx);
         await _db.SaveChangesAsync();
         return true;
@@ -530,8 +534,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         if (targetBox == null) return false;
 
         var now = DateTime.UtcNow;
-        var sourceName = sourceBox.CompanyPreset?.Name ?? $"Box {sourceBoxId}";
-        var targetName = targetBox.CompanyPreset?.Name ?? $"Box {req.ToBoxId}";
+        var sourceName = DisplayName(sourceBox);
+        var targetName = DisplayName(targetBox);
 
         var rateNote = req.ExchangeRate.HasValue
             ? $" (Rate: 1 {sourceBox.Currency} = {req.ExchangeRate} {targetBox.Currency})"
@@ -640,18 +644,29 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         await _db.SaveChangesAsync();
     }
 
-    public async Task<Dictionary<long, decimal>> GetSupplierPaidAmountsAsync(IEnumerable<long> paymentRequestIds)
-    {
-        var ids = paymentRequestIds.ToArray();
-        return await _db.Set<PaymentTransaction>()
-            .Where(t => t.PaymentRequestId.HasValue && ids.Contains(t.PaymentRequestId.Value)
-                && t.Type == "Withdraw" && t.ToType == "Supplier")
-            .GroupBy(t => t.PaymentRequestId!.Value)
-            .Select(g => new { Id = g.Key, Paid = g.Sum(t => t.Amount) })
-            .ToDictionaryAsync(t => t.Id, t => t.Paid);
-    }
+    /// <summary>Wallet payments + supplier credit applied, per payment request.</summary>
+    public Task<Dictionary<long, decimal>> GetSupplierPaidAmountsAsync(IEnumerable<long> paymentRequestIds) =>
+        SupplierPaymentLedger.PaidByPrAsync(_db, paymentRequestIds);
+
+    public Task<Dictionary<long, decimal>> GetCreditAppliedAmountsAsync(IEnumerable<long> paymentRequestIds) =>
+        SupplierPaymentLedger.CreditAppliedByPrAsync(_db, paymentRequestIds);
+
+    public Task<bool> HasSupplierCreditHistoryAsync(long paymentRequestId) =>
+        SupplierPaymentLedger.CreditApplications(_db).AnyAsync(e => e.PaymentRequestId == paymentRequestId);
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Wallet rows written by Supplier Credits (prepayment top-ups and their reversals) must stay equal
+    /// to their credit ledger lines, so they are changed by reversing the credit entry, not edited here.
+    /// Exchange-rate correction stays allowed: the credit is in USD and does not depend on the rate.
+    /// </summary>
+    private async Task EnsureNotSupplierCreditRowAsync(PaymentTransaction tx)
+    {
+        if (tx.ToType == "SupplierCredit" || tx.FromType == "SupplierCredit"
+            || await _db.Set<SupplierCreditEntry>().AnyAsync(e => e.PaymentTransactionId == tx.Id))
+            throw new ArgumentException("This wallet row belongs to a supplier credit. Reverse the credit entry on Supplier Credits instead.");
+    }
 
     private async Task<PaymentTransactionRow?> BuildRowAsync(long txId)
     {
@@ -692,12 +707,12 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             tx.FromType,
             tx.FromType == "Customer"
                 ? (tx.FromCustomer?.CustomerCode ?? tx.FromCustomer?.Name)
-                : tx.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+                : tx.FromType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : tx.FromType == "SupplierCredit" ? "Supplier Credit" : "Mother Wallet",
             tx.FromCustomerId,
             tx.ToType,
             tx.ToType == "Supplier" ? tx.ToSupplier?.Name
                 : tx.ToType == "BankFee" ? "Bank Fee and Others"
-                : tx.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : "Mother Wallet",
+                : tx.ToType == "Wallet" ? (otherWallet ?? "Wallet Transfer") : tx.ToType == "SupplierCredit" ? "Supplier Credit · " + tx.ToSupplier?.Name : "Mother Wallet",
             tx.ToSupplierId,
             tx.Invoice?.InvoiceNumber,
             tx.InvoiceId,

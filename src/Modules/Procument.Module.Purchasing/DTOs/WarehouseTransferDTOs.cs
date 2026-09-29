@@ -85,6 +85,8 @@ public class WarehouseTransferItemResponse
     public string? PartNumberName { get; set; }
     public string? PartDescription { get; set; }
     public string? PONumber { get; set; }
+    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    public int? CustomerBase { get; set; }
     public int Qty { get; set; }
     public int? ReceivedQty { get; set; }
     public string Status { get; set; } = "In Transit";

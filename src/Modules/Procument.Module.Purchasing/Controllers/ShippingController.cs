@@ -28,12 +28,12 @@ public class ShippingController : ControllerBase
     /// <summary>List all track numbers assigned to the current user's warehouses.</summary>
     [HttpGet("track-numbers")]
     [Authorize(Roles = "Admin,SuperAdmin,Inventory,Expert")]
-    public async Task<ActionResult<List<ShippingTrackResponse>>> GetTrackNumbers()
+    public async Task<ActionResult<List<ShippingTrackResponse>>> GetTrackNumbers([FromQuery] bool pendingOnly = false)
     {
         var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var isSyd = User.Identity?.Name == "SYD";
         var userId = GetUserId();
-        return Ok(await _service.GetTrackNumbersForUserAsync(userId, isAdmin || isSyd));
+        return Ok(await _service.GetTrackNumbersForUserAsync(userId, isAdmin || isSyd, pendingOnly));
     }
 
     // ── Per-part items ────────────────────────────────────────────────────

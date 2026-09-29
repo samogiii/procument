@@ -14,6 +14,60 @@
       >
         {{ po.companyPresetName }}
       </v-chip>
+      <!-- Supplier credit: the PO's own company (usable at payment), else another company's (switch to use it) -->
+      <v-chip
+        v-if="creditInfo && creditInfo.usableBalance > 0"
+        size="small"
+        color="success"
+        variant="tonal"
+        prepend-icon="mdi-cash-refund"
+        :to="authStore.supplierCredits && creditInfo.accountId ? `/supplier-credits?account=${creditInfo.accountId}` : undefined"
+        :title="`${creditInfo.companyPresetName} credit with ${creditInfo.supplierName} — usable at payment`"
+      >
+        Credit: ${{ formatPrice(creditInfo.usableBalance) }}
+      </v-chip>
+      <!-- The company's credit line: what is still available, and what is owed (to pay back) -->
+      <v-chip
+        v-if="creditInfo && creditInfo.creditLine"
+        size="small"
+        :color="creditInfo.creditLine.available > 0 ? 'indigo' : 'warning'"
+        variant="tonal"
+        prepend-icon="mdi-credit-card-clock-outline"
+        :to="authStore.supplierCredits ? `/supplier-credits?tab=lines&account=${creditInfo.creditLine.accountId}` : undefined"
+        :title="`Credit line with ${creditInfo.supplierName}: limit $${formatPrice(creditInfo.creditLine.creditLimit)}, owed $${formatPrice(creditInfo.creditLine.owed)}`"
+      >
+        Credit line: ${{ formatPrice(creditInfo.creditLine.available) }} available
+      </v-chip>
+      <v-chip
+        v-if="creditInfo && creditInfo.usableBalance <= 0 && !(creditInfo.creditLine?.available) && creditInfo.otherCompanies.length"
+        size="small"
+        color="info"
+        variant="tonal"
+        prepend-icon="mdi-cash-refund"
+        :title="`Only usable if the PO is placed under ${creditInfo.otherCompanies[0].companyPresetName}`"
+      >
+        {{ creditInfo.otherCompanies[0].companyPresetName }}
+        {{ creditInfo.otherCompanies[0].kind === 'CreditLine' ? 'credit line' : 'credit' }}:
+        ${{ formatPrice(creditInfo.otherCompanies[0].balance) }}
+      </v-chip>
+      <ChangePoCompanyDialog v-if="po.id" v-model="showChangeCompany" :po="po" @changed="onCompanyChanged" />
+      <template v-if="canChangeCompanyRole && !isLocked">
+        <v-btn
+          v-if="po.canChangeCompany"
+          size="small"
+          variant="tonal"
+          color="primary"
+          prepend-icon="mdi-domain-switch"
+          @click="showChangeCompany = true"
+        >
+          Change company
+        </v-btn>
+        <v-tooltip v-else-if="po.changeCompanyBlockedReason" location="bottom" :text="`Company cannot be changed: ${po.changeCompanyBlockedReason}`">
+          <template #activator="{ props: tipProps }">
+            <v-icon v-bind="tipProps" icon="mdi-domain-off" size="18" class="text-medium-emphasis" aria-label="Company cannot be changed" tabindex="0" />
+          </template>
+        </v-tooltip>
+      </template>
       <v-chip v-if="isStock" size="small" color="purple" variant="tonal" prepend-icon="mdi-warehouse"
         title="Bought for Our Stock — no customer or Sales Order behind it">
         Stock PO
@@ -1035,7 +1089,10 @@
 </template>
 
 <script setup lang="ts">
+import type { SupplierCreditSuggestion } from '~/utils/supplierCredits'
+
 const route = useRoute()
+const router = useRouter()
 const api = useApi()
 const authStore = useAuthStore()
 const docPreview = useDocPreview()
@@ -1249,6 +1306,25 @@ async function onStockReceived(summary: any) {
   stockReceipts.value = summary
   showSnack(summary?.fullyReceived ? 'All lines received into stock' : 'Stock received', 'success')
   await loadPo()
+}
+
+// ── Buying company & supplier credit ──
+// Changing a PO's company is limited to these roles on the API (plan §3.3).
+const canChangeCompanyRole = computed(() => ['SuperAdmin', 'Admin', 'AHM'].includes(authStore.user?.role ?? ''))
+const showChangeCompany = ref(false)
+const creditInfo = ref<SupplierCreditSuggestion | null>(null)
+
+/** Credit hint for the header chip. Roles without Supplier Credits access (403) simply see no chip. */
+async function loadCredit() {
+  try { creditInfo.value = await api.get<SupplierCreditSuggestion>(`/supplier-credits/po/${route.params.id}/suggestion`) }
+  catch { creditInfo.value = null }
+}
+
+async function onCompanyChanged(updated: any) {
+  const name = updated?.companyPresetName
+  await loadPo()
+  await loadCredit()
+  showSnack(`The PO is now placed under ${name || 'the new company'}. Re-send the PO PDF if the supplier already has it.`, 'success')
 }
 
 async function loadPo() {
@@ -2053,13 +2129,19 @@ onMounted(async () => {
     // Important: wait for enriched trail to identify ALL linked invoices
     await loadEnriched()
     // Then load everything else
-    const tasks: Promise<any>[] = [loadImportDetail(), checkLock(), loadSupplierDocs(), loadPresets()]
+    const tasks: Promise<any>[] = [loadImportDetail(), checkLock(), loadSupplierDocs(), loadPresets(), loadCredit()]
     if (isAdmin.value) {
       tasks.push(loadAssignedUsers(), loadAllUsers())
     }
     await Promise.all(tasks)
     // Load inventory submission data for all track numbers (async, non-blocking)
     loadAllInventoryData()
+    // Arrived from the payment page's credit suggestion: open the company switch once.
+    if (route.query.changeCompany === '1') {
+      if (po.value?.canChangeCompany && canChangeCompanyRole.value && !isLocked.value) showChangeCompany.value = true
+      const { changeCompany: _drop, ...rest } = route.query
+      router.replace({ query: rest })
+    }
   } catch {}
 })
 

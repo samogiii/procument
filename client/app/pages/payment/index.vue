@@ -340,9 +340,17 @@
                 </div>
               </v-expansion-panel-title>
               <v-expansion-panel-text>
-                <div v-for="payment in paymentHistory" :key="payment.id" class="d-flex align-center gap-2 mb-2 pa-2 rounded file-row">
-                  <v-chip size="x-small" :color="payment.category === 'Bank Fee and Others' ? 'orange' : 'primary'" variant="tonal">{{ payment.category }}</v-chip>
-                  <div class="flex-grow-1 text-body-2">
+                <!-- Supplier credit the PO's company holds with this supplier (or another company's, with a way to switch) -->
+                <SupplierCreditSuggestion :po-id="selectedPo.id" :refresh-key="creditRefreshKey" @applied="onCreditApplied" />
+
+                <!-- rowKey is unique across wallet payments and credit applications (their ids can collide) -->
+                <div v-for="payment in paymentHistory" :key="payment.rowKey ?? payment.id" class="d-flex align-center gap-2 mb-2 pa-2 rounded file-row">
+                  <v-chip size="x-small" :color="historyChipColor(payment.category)" variant="tonal">{{ payment.category }}</v-chip>
+                  <div v-if="payment.creditEntryId" class="flex-grow-1 text-body-2">
+                    PR-{{ payment.prNumber }} · {{ payment.amount < 0 ? '−' : '' }}${{ formatPrice(Math.abs(payment.amount)) }}
+                    {{ payment.amount < 0 ? 'credit returned' : 'paid from credit' }} ({{ payment.walletName }})
+                  </div>
+                  <div v-else class="flex-grow-1 text-body-2">
                     PR-{{ payment.prNumber }} · {{ formatPrice(payment.walletAmount) }} {{ payment.walletCurrency }}
                     <span v-if="payment.category === 'Supplier Payment'"> · ${{ formatPrice(payment.amount) }} supplier payment</span>
                   </div>
@@ -481,6 +489,8 @@
 </template>
 
 <script setup lang="ts">
+import type { ApplySupplierCreditResult } from '~/utils/supplierCredits'
+
 const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
@@ -537,6 +547,8 @@ const savingPaymentDetails = ref(false)
 const savingFinalAmount = ref(false)
 const finalWalletAmount = ref(0)
 const paymentHistory = ref<any[]>([])
+/** Bumped whenever what is left to pay may have changed, so the credit suggestion reloads. */
+const creditRefreshKey = ref(0)
 const selectedRequests = computed(() => paymentRequests.value.filter(pr => pr.poId === selectedPo.value?.id))
 const openRequests = computed(() => selectedRequests.value.filter(pr => pr.remainingAmount > 0).map(pr => ({ ...pr, label: `PR-${pr.prNumber} · remaining $${formatPrice(pr.remainingAmount)}` })))
 const pickerRequest = computed(() => openRequests.value.find(pr => pr.id === pickerRequestId.value))
@@ -654,6 +666,7 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
   selectedPo.value = queue.value.find(p => p.id === po.id) || po
   paymentHistory.value = []
   paymentDraft.value = null
+  creditRefreshKey.value++
   detailPanels.value = mode === 'withdraw' ? ['payment'] : []
   try {
     await loadPaymentRequests()
@@ -746,9 +759,48 @@ async function savePaymentDetails() {
     })
     showSnack('Payment details saved. You can upload the POP now or later.', 'success')
     await loadPaymentRequests()
+    creditRefreshKey.value++
   } catch (e: any) {
     showSnack(e?.data?.message || 'Could not save payment details', 'error')
   } finally { savingPaymentDetails.value = false }
+}
+
+function historyChipColor(category: string) {
+  switch (category) {
+    case 'Bank Fee and Others': return 'orange'
+    case 'Supplier Credit': return 'success'
+    case 'Supplier Credit Reversal': return 'grey'
+    default: return 'primary'
+  }
+}
+
+/** Supplier credit was used on this PO: refresh the numbers, the history and the wallet form. */
+async function onCreditApplied(result: ApplySupplierCreditResult) {
+  if (!selectedPo.value) return
+  const poId = selectedPo.value.id
+  // "Submitted" = fully paid and closed. A fully covered PO whose POP still waits for its final
+  // bank amount stays open: that step finishes it.
+  if (result.complete && result.poPaymentStatus === 'Submitted') {
+    showSnack('Paid in full with supplier credit.', 'success')
+    showDetail.value = false
+    await loadAll()
+    activeTab.value = 'finished'
+    return
+  }
+  showSnack(result.complete
+    ? 'Credit applied — the PO is covered. Save the final bank amount of the pending POP to finish.'
+    : `Credit applied — $${formatPrice(result.remainingAmount)} left to pay on this PO.`, 'success')
+  await Promise.all([loadQueue(), loadPaymentRequests()])
+  selectedPo.value = queue.value.find(p => p.id === poId) || selectedPo.value
+  try {
+    paymentHistory.value = await api.get<any[]>(`/supplier-payments/po/${poId}`)
+    paymentDraft.value = await api.get<any>(`/supplier-payments/po/${poId}/draft`)
+  } catch { /* the lists refresh on the next open */ }
+  // No saved wallet draft: offer exactly what is left, moving on if credit cleared the selected PR.
+  if (!paymentDraft.value) {
+    if (!pickerRequest.value) pickerRequestId.value = openRequests.value[0]?.id ?? null
+    pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
+  }
 }
 
 async function uploadPopFiles(files: File[], onProgress: (done: number) => void) {

@@ -10,9 +10,9 @@ public class PaymentTransaction
     public long PaymentBoxId { get; set; }
     public string Type { get; set; } = "";          // "Deposit" | "Withdraw"
     public decimal Amount { get; set; }
-    public string FromType { get; set; } = "";       // "MotherWallet" | "Customer"
+    public string FromType { get; set; } = "";       // "MotherWallet" | "Customer" | "Wallet" | "SupplierCredit" (credit top-up reversal)
     public long? FromCustomerId { get; set; }
-    public string ToType { get; set; } = "";         // "MotherWallet" | "Supplier"
+    public string ToType { get; set; } = "";         // "MotherWallet" | "Supplier" | "BankFee" | "Wallet" | "SupplierCredit" (credit top-up; never counts as paying a PO)
     public long? ToSupplierId { get; set; }
     public long? InvoiceId { get; set; }             // PI reference
     public long? PaymentRequestId { get; set; }      // RP reference

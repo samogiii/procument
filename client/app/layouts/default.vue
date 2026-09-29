@@ -43,6 +43,7 @@
               v-for="sub in item.children"
               :key="sub.to"
               :to="sub.to"
+              :active="sub.basePath ? route.path === sub.to : undefined"
               :prepend-icon="sub.icon"
               :title="sub.title"
               rounded="lg"
@@ -383,6 +384,22 @@ watch(mobile, (isMobile) => {
   if (isMobile) rail.value = false
 })
 
+function shippingGroup(scope: ShippingScope, icon: string) {
+  const page = (title: string, icon: string, basePath: string, flags: Record<string, boolean> = {}) =>
+    ({ title, icon, to: scopedShippingPath(scope, basePath), basePath, ...flags })
+  return {
+    title: SHIPPING_SCOPES[scope].title,
+    icon,
+    shippingScope: scope,
+    children: [
+      page('Warehouse Shippings', 'mdi-warehouse', '/shipping', { inventoryVisible: true }),
+      page('Shipping Control', 'mdi-truck-delivery-outline', '/total-shipping', { shippingMenu: true, inventoryVisible: true }),
+      page('Ready for SN#', 'mdi-package-check', '/shipping/ready-for-sn', { shippingMenu: true }),
+      page('Shipment', 'mdi-file-document-check-outline', '/shipment-notes', { shippingMenu: true }),
+    ],
+  }
+}
+
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
   { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', totalPnMenu: true, adminOnly: false, ilsOnly: false },
@@ -394,22 +411,14 @@ const allNavItems = [
   { title: 'Sales Order', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Checking Purchase Items', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
   { title: 'Purchase Orders', icon: 'mdi-package-variant-closed', to: '/purchase-orders', adminOnly: false, ilsOnly: false },
-  
-  { title: 'Shipping', icon: 'mdi-warehouse', to: '/shipping', inventoryOnly: true },
-  { title: 'Shipping Control', icon: 'mdi-truck-delivery-outline', to: '/total-shipping', inventoryOnly: true,  },
 
   { title: 'Invoice and PackingList', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   // ── Shipping workflow ──
-  {
-    title: 'Shipping',
-    icon: 'mdi-truck-delivery-outline',
-    children: [
-      { title: 'Warehouse Shippings', icon: 'mdi-warehouse', to: '/shipping', expertSydVisible: true },
-      { title: 'Shipping Control', icon: 'mdi-truck-delivery-outline', to: '/total-shipping', shippingMenu: true, ilsOnly: false, inventoryVisible: true, expertSydVisible: true },
-      { title: 'Ready for SN#', icon: 'mdi-package-check', to: '/shipping/ready-for-sn', shippingMenu: true, ilsOnly: false, expertSydVisible: true },
-      { title: 'Shipment', icon: 'mdi-file-document-check-outline', to: '/shipment-notes', shippingMenu: true, ilsOnly: false, expertSydVisible: true },
-    ]
-  },
+  // Two copies of the Shipping menu: Internal (Base 1) and External (Base 2+). Each group
+  // is granted per user in Menu Access — SuperAdmin included — and inside it every page keeps
+  // the visibility rules of the original page it mirrors (basePath). See useShippingScope.
+  shippingGroup('internal', 'mdi-truck-delivery-outline'),
+  shippingGroup('external', 'mdi-earth'),
   {
     title: 'Payment',
     icon: 'mdi-cash-multiple',
@@ -418,6 +427,7 @@ const allNavItems = [
       { title: 'Payment Deposit', icon: 'mdi-cash-plus', to: '/payment/customer-payments', paymentMenu: true },
       { title: 'Customer Credit Trace', icon: 'mdi-credit-card-clock-outline', to: '/payment/customer-credit', paymentMenu: true },
       { title: 'Wallets', icon: 'mdi-wallet-outline', to: '/payment-control', walletMenu: true },
+      { title: 'Supplier Credits', icon: 'mdi-cash-refund', to: '/supplier-credits', supplierCredits: true },
     ]
   },
   { title: 'ILS', icon: 'mdi-warehouse', to: '/ils', ilsMenu: true, ilsOnly: true },
@@ -506,17 +516,25 @@ const navBadges = computed(() => {
 })
 
 const navItems = computed(() => {
-  const filterItem = (item: any) => {
+  const filterItem = (item: any): boolean => {
+    // Internal / External Shipping group — needs its own Menu Access grant, whatever the role.
+    if (item.shippingScope) {
+      if (!(authStore as any)[SHIPPING_SCOPES[item.shippingScope as ShippingScope].feature]) return false
+      return item.children.some(filterItem)
+    }
+    // A page inside it is judged exactly like the original page it mirrors.
+    if (item.basePath) return filterItem({ ...item, to: item.basePath, basePath: undefined })
+
     if (['/invoices', '/final-invoices'].includes(item.to) && ['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase())) return false
     if (item.totalPnMenu) return authStore.totalPnMenu
     if (item.customerMenu) return authStore.customerMenu
     // Granted per user in Menu Access, whatever the role; receiving stays admin-only.
     if (item.ourInventoryMenu) return authStore.ourInventoryMenu && (!item.adminOnly || authStore.isAdmin)
+    // Granted per user in Menu Access (the getter also checks the role the API allows).
+    if (item.supplierCredits) return authStore.supplierCredits
 
     // ── Hardcoded per-username whitelist — overrides everything else ────────
-    // Users in RESTRICTED_USER_NAV see ONLY their allowed routes. Skip the
-    // duplicate inventoryOnly Shipping entries so the Shipping group is the
-    // single source for those pages.
+    // Users in RESTRICTED_USER_NAV see ONLY their allowed routes.
     const restricted = restrictedNav.value
     if (restricted) {
       if (item.inventoryOnly) return false
@@ -534,8 +552,10 @@ const navItems = computed(() => {
       return allowed.has(item.to) || (item.children && item.children.some((c: any) => allowed.has(c.to)))
     }
 
-    // The Payment role only ever sees Wallets, and only if granted walletMenu.
+    // The Payment role only ever sees Wallets (if granted walletMenu) and Supplier Credits
+    // (if granted). A group stays when one of its children is allowed.
     if (authStore.user?.role === 'Payment') {
+      if (item.children) return item.children.some(filterItem)
       return item.walletMenu === true && authStore.walletMenu
     }
 
@@ -566,7 +586,7 @@ const navItems = computed(() => {
       if (i.title === 'Task Manager') {
         return { ...i, badge: tasksPendingCount.value > 0 ? tasksPendingCount.value : undefined }
       }
-      const count = navBadges.value[i.to]
+      const count = navBadges.value[i.basePath ?? i.to]
       return count ? { ...i, badge: count } : i
     }
 

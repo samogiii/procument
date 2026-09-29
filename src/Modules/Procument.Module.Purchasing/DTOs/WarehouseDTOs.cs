@@ -115,6 +115,8 @@ public class ShippingTrackResponse
     /// <summary>Supplier the parent PO buys from — shown on the Shipping list.</summary>
     public string? SupplierName { get; set; }
     public string? PartNumberName { get; set; }
+    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    public int? CustomerBase { get; set; }
     /// <summary>Original ordered quantity from the PO item — used as the default Expected Qty.</summary>
     public int PoItemQty { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -149,6 +151,8 @@ public class ReadyForSnItemResponse
     public long? CustomerId { get; set; }
     public string? CustomerName { get; set; }
     public string? CustomerCode { get; set; }
+    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    public int? CustomerBase { get; set; }
 }
 
 // ── Track Number Boxes ────────────────────────────────
@@ -279,6 +283,8 @@ public class ShipmentNoteTrackResponse
     public string? Condition { get; set; }
     public string? CustomerName { get; set; }
     public string? CustomerCode { get; set; }
+    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    public int? CustomerBase { get; set; }
     public List<ShipmentNoteItemResponse> Items { get; set; } = new();
     /// <summary>Boxes received at the warehouse with this track number (entered by Inventory).</summary>
     public List<TrackBoxResponse> ReceivedBoxes { get; set; } = new();

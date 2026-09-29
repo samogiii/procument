@@ -802,6 +802,102 @@ ORDER BY MonthStart, pb.Currency, Direction;
 GO
 
 
+/* H4. Supplier credit balances, both kinds.
+   Grain: one row per credit account (Supplier x Company x Currency x Kind).
+   Prepaid: Balance = credit the supplier holds for us. CreditLine: Balance = still available.
+   Balance is the cached column; K3 proves it matches the ledger.
+   Entries are pre-aggregated to AccountId before joining (rule 3). */
+WITH Ledger AS (
+    SELECT e.AccountId,
+           SUM(CASE WHEN e.Direction = 'In'  THEN e.Amount ELSE 0 END) AS TotalIn,
+           SUM(CASE WHEN e.Direction = 'Out' THEN e.Amount ELSE 0 END) AS TotalOut,
+           COUNT(*)         AS Entries,
+           MAX(e.CreatedAt) AS LastEntryAt
+    FROM [dbo].[SupplierCreditEntries] e
+    GROUP BY e.AccountId
+)
+SELECT
+    s.Name   AS Supplier,
+    cp.Name  AS Company,
+    a.Kind,
+    a.Currency,
+    a.Balance,
+    ISNULL(l.TotalIn,0)  AS TotalIn,
+    ISNULL(l.TotalOut,0) AS TotalOut,
+    ISNULL(l.Entries,0)  AS Entries,
+    l.LastEntryAt
+FROM [dbo].[SupplierCreditAccounts] a
+JOIN [dbo].[Suppliers]      s  ON s.Id  = a.SupplierId
+JOIN [dbo].[CompanyPresets] cp ON cp.Id = a.CompanyPresetId
+LEFT JOIN Ledger l ON l.AccountId = a.Id
+ORDER BY a.Kind, a.Currency, a.Balance DESC;
+GO
+
+
+/* H6. What we owe suppliers on credit lines (E10) — the "pay back" reminder.
+   Grain: one row per credit line with a debt.
+   Owed = CreditLimit - Balance. OldestUnpaidUseAt is a hint: the first use after the account
+   was last fully repaid (a line that was never at full availability again shows its first use). */
+WITH LastFull AS (
+    SELECT e.AccountId, MAX(e.CreatedAt) AS LastFullAt
+    FROM [dbo].[SupplierCreditEntries] e
+    JOIN [dbo].[SupplierCreditAccounts] a ON a.Id = e.AccountId
+    WHERE a.Kind = 'CreditLine' AND e.BalanceAfter = a.CreditLimit
+    GROUP BY e.AccountId
+)
+SELECT
+    s.Name   AS Supplier,
+    cp.Name  AS Company,
+    a.CreditLimit,
+    a.CreditLimit - a.Balance AS Owed,
+    a.Balance                 AS Available,
+    (SELECT MIN(u.CreatedAt) FROM [dbo].[SupplierCreditEntries] u
+      WHERE u.AccountId = a.Id AND u.Source = 'POApplication'
+        AND u.CreatedAt > ISNULL(lf.LastFullAt, '19000101')) AS OldestUnpaidUseAt,
+    (SELECT COUNT(*) FROM [dbo].[PaymentRequests] pr
+      WHERE pr.SupplierCreditAccountId = a.Id AND pr.Status NOT IN ('PAID')) AS OpenRepaymentRequests
+FROM [dbo].[SupplierCreditAccounts] a
+JOIN [dbo].[Suppliers]      s  ON s.Id  = a.SupplierId
+JOIN [dbo].[CompanyPresets] cp ON cp.Id = a.CompanyPresetId
+LEFT JOIN LastFull lf ON lf.AccountId = a.Id
+WHERE a.Kind = 'CreditLine' AND a.CreditLimit - a.Balance > 0
+ORDER BY Owed DESC;
+GO
+
+
+/* H5. Supplier paid amount per payment request = wallet payments + net credit applied.
+   Grain: one row per payment request.
+   Both halves are pre-aggregated to PaymentRequestId before joining (rule 2/3).
+   ToType = 'SupplierCredit' is a prepayment into credit and deliberately NOT counted. */
+WITH WalletPaid AS (
+    SELECT t.PaymentRequestId, SUM(t.Amount) AS WalletPaid
+    FROM [dbo].[PaymentTransactions] t
+    WHERE t.Type = 'Withdraw' AND t.ToType = 'Supplier' AND t.PaymentRequestId IS NOT NULL
+    GROUP BY t.PaymentRequestId
+), CreditPaid AS (
+    SELECT e.PaymentRequestId,
+           SUM(CASE WHEN e.Direction = 'Out' THEN e.Amount ELSE -e.Amount END) AS CreditPaid
+    FROM [dbo].[SupplierCreditEntries] e
+    WHERE e.PaymentRequestId IS NOT NULL
+    GROUP BY e.PaymentRequestId
+)
+SELECT
+    pr.PRId,
+    po.PONumber,
+    pr.Status,
+    pr.Amount                                       AS RequestedAmount,
+    ISNULL(w.WalletPaid,0)                          AS WalletPaid,
+    ISNULL(c.CreditPaid,0)                          AS CreditPaid,
+    ISNULL(w.WalletPaid,0) + ISNULL(c.CreditPaid,0) AS TotalPaid
+FROM [dbo].[PaymentRequests] pr
+LEFT JOIN [dbo].[PurchaseOrders] po ON po.Id = pr.POId
+LEFT JOIN WalletPaid w ON w.PaymentRequestId = pr.Id
+LEFT JOIN CreditPaid c ON c.PaymentRequestId = pr.Id
+WHERE ISNULL(w.WalletPaid,0) + ISNULL(c.CreditPaid,0) > 0
+ORDER BY pr.PRId DESC;
+GO
+
+
 /* ============================================================================
    I. WAREHOUSE & SHIPPING
    ============================================================================ */
@@ -960,4 +1056,52 @@ SELECT COUNT(*) AS QuotesInScope,
 FROM [dbo].[Quotes] q
 WHERE q.CreatedAt >= @From AND q.CreatedAt < @ToExcl
   AND (q.SentAt IS NOT NULL OR q.Status IN ('Sent','Accepted','Rejected'));
+GO
+
+
+/* K3. Supplier credit integrity — every query here MUST return 0 rows.
+   (a) cached Balance disagrees with the ledger
+   (b) an entry's BalanceAfter breaks the running total (ordered by CreatedAt, Id)
+   (c) net credit applied to a payment request is negative (a reversal without its application) */
+
+-- K3a. Grain: one row per broken account.
+SELECT a.Id AS AccountId, a.Balance,
+       ISNULL(SUM(CASE e.Direction WHEN 'In' THEN e.Amount ELSE -e.Amount END), 0) AS LedgerBalance
+FROM [dbo].[SupplierCreditAccounts] a
+LEFT JOIN [dbo].[SupplierCreditEntries] e ON e.AccountId = a.Id
+GROUP BY a.Id, a.Balance
+HAVING a.Balance <> ISNULL(SUM(CASE e.Direction WHEN 'In' THEN e.Amount ELSE -e.Amount END), 0);
+GO
+
+-- K3b. Grain: one row per broken entry.
+WITH Running AS (
+    SELECT e.Id, e.AccountId, e.BalanceAfter,
+           SUM(CASE e.Direction WHEN 'In' THEN e.Amount ELSE -e.Amount END)
+               OVER (PARTITION BY e.AccountId ORDER BY e.CreatedAt, e.Id
+                     ROWS UNBOUNDED PRECEDING) AS Expected
+    FROM [dbo].[SupplierCreditEntries] e
+)
+SELECT Id AS EntryId, AccountId, BalanceAfter, Expected
+FROM Running
+WHERE BalanceAfter <> Expected;
+GO
+
+-- K3d. Credit lines: cached CreditLimit must equal the net of their CreditLimit entries.
+-- Grain: one row per broken credit line.
+SELECT a.Id AS AccountId, a.CreditLimit,
+       ISNULL(SUM(CASE e.Direction WHEN 'In' THEN e.Amount ELSE -e.Amount END), 0) AS LimitFromLedger
+FROM [dbo].[SupplierCreditAccounts] a
+LEFT JOIN [dbo].[SupplierCreditEntries] e ON e.AccountId = a.Id AND e.Source = 'CreditLimit'
+WHERE a.Kind = 'CreditLine'
+GROUP BY a.Id, a.CreditLimit
+HAVING a.CreditLimit <> ISNULL(SUM(CASE e.Direction WHEN 'In' THEN e.Amount ELSE -e.Amount END), 0);
+GO
+
+-- K3c. Grain: one row per broken payment request.
+SELECT e.PaymentRequestId,
+       SUM(CASE e.Direction WHEN 'Out' THEN e.Amount ELSE -e.Amount END) AS NetCreditApplied
+FROM [dbo].[SupplierCreditEntries] e
+WHERE e.PaymentRequestId IS NOT NULL
+GROUP BY e.PaymentRequestId
+HAVING SUM(CASE e.Direction WHEN 'Out' THEN e.Amount ELSE -e.Amount END) < 0;
 GO

@@ -330,7 +330,8 @@ public class MenuPermissionsController : ControllerBase
         "paymentMenu", "companyPresets", "syncApp", "systemActivity",
         "supplierRequests", "capList", "ils", "shippingMenu",
         "customerMenu", "totalPnMenu", "isAmir", "newRFQ", "ilsUsers", "isPDFSelection",
-        "actionCenter", "taskManager", "ourInventoryMenu"
+        "actionCenter", "taskManager", "ourInventoryMenu", "supplierCredits",
+        "internalShipping", "externalShipping"
     ];
 
     /// <summary>Returns all features with their currently allowed user names.</summary>

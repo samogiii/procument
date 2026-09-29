@@ -164,6 +164,24 @@ public class ProcumentPageService : IProcumentPageService
             .Where(r => allRfqItemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
             .ToListAsync();
 
+        // Certificate references for the page's quotes and shop records, so the PDF badge
+        // shows its count as soon as a row is expanded, not only after opening the dialog.
+        var quoteAndShopIds = allSupplierQuotes
+            .SelectMany(q => (q.ShopRecords ?? new List<ProcumentRecord>()).Select(s => s.Id).Append(q.Id))
+            .ToList();
+        var certReferencesByQuote = quoteAndShopIds.Count == 0
+            ? new Dictionary<long, List<string>>()
+            : (await _db.Set<SupplierQuoteCertificate>()
+                .AsNoTracking()
+                .Where(c => quoteAndShopIds.Contains(c.SupplierQuoteId))
+                .OrderBy(c => c.UploadedAt)
+                .Select(c => new { c.SupplierQuoteId, c.Reference })
+                .ToListAsync())
+                .GroupBy(c => c.SupplierQuoteId)
+                .ToDictionary(g => g.Key, g => g.Select(c => c.Reference).ToList());
+        List<string> CertReferencesFor(long quoteId) =>
+            certReferencesByQuote.TryGetValue(quoteId, out var refs) ? refs : new List<string>();
+
         // 6. Batch-load permissions for this page's unique RFQ IDs
         var loadedRfqIds = pageItems.Select(i => i.RFQId).Distinct().ToList();
         var rfqIdStrings = loadedRfqIds.Select(id => id.ToString()).ToList();
@@ -221,6 +239,8 @@ public class ProcumentPageService : IProcumentPageService
                         FixPrice = q.FixPrice,
                         ParentProcumentId = q.ParentProcumentId,
                         SortOrder = q.SortOrder,
+                        CertReferences = CertReferencesFor(q.Id),
+                        CertificateCount = CertReferencesFor(q.Id).Count,
                         ShopRecords = (q.ShopRecords ?? new List<ProcumentRecord>())
                             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
                             .Select(s => new SupplierQuoteResponse
@@ -254,6 +274,8 @@ public class ProcumentPageService : IProcumentPageService
                                 FixPrice = s.FixPrice,
                                 ParentProcumentId = s.ParentProcumentId,
                                 SortOrder = s.SortOrder,
+                                CertReferences = CertReferencesFor(s.Id),
+                                CertificateCount = CertReferencesFor(s.Id).Count,
                             })
                             .ToList(),
                     })

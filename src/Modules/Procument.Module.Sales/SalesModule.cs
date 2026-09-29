@@ -20,6 +20,7 @@ public static class SalesModule
         services.AddScoped<IPaymentBoxService>(sp => sp.GetRequiredService<PaymentBoxService>());
         services.AddScoped<IPaymentLedgerService>(sp => sp.GetRequiredService<PaymentBoxService>());
         services.AddScoped<IWalletTransferService, WalletTransferService>();
+        services.AddScoped<ISupplierCreditService, SupplierCreditService>();
         return services;
     }
 }

@@ -90,9 +90,20 @@
               v-for="col in filteredColumnList"
               :key="col.key"
               class="d-flex align-center py-1 px-2 rounded hover-row"
+              :class="{
+                'menu-dragging': menuDragKey === col.key,
+                'menu-drop-before': menuDropTarget?.key === col.key && !menuDropTarget.after,
+                'menu-drop-after': menuDropTarget?.key === col.key && menuDropTarget.after,
+              }"
+              draggable="true"
               @click="toggleColumn(col.key)"
+              @dragstart="menuDragKey = col.key"
+              @dragover="onMenuDragOver($event, col.key)"
+              @drop.prevent="onMenuDrop(col.key)"
+              @dragend="onMenuDragEnd"
               style="cursor: pointer;"
             >
+              <v-icon icon="mdi-drag-vertical" size="16" class="menu-drag-handle mr-1" title="Drag to reorder" />
               <v-checkbox-btn
                 :model-value="visibleColumns.includes(col.key)"
                 density="compact"
@@ -101,7 +112,25 @@
                 @click.stop="toggleColumn(col.key)"
               />
               <span class="text-body-2">{{ col.label }}</span>
+              <v-spacer />
+              <span v-if="columnWidths[col.key]" class="text-caption text-medium-emphasis">{{ columnWidths[col.key] }}px</span>
             </div>
+          </div>
+          <v-divider class="my-2" />
+          <div class="d-flex align-center">
+            <span class="text-caption text-medium-emphasis">
+              Drag headers to move them, drag a header's right edge to resize, double-click the edge for auto width.
+            </span>
+            <v-btn
+              size="x-small"
+              variant="text"
+              color="primary"
+              class="ml-2 flex-shrink-0"
+              :disabled="!columnOrder.length && !Object.keys(columnWidths).length"
+              @click="resetColumnLayout"
+            >
+              Reset order &amp; widths
+            </v-btn>
           </div>
         </v-card>
       </v-menu>
@@ -128,17 +157,40 @@
       </div>
 
       <div v-else>
+      <div class="status-legend">
+        <span
+          v-for="item in statusLegend"
+          :key="item.name"
+          class="status-legend-item"
+          :style="{ '--tpn-row-rgb': item.rgb }"
+        >
+          <span class="status-legend-swatch" />{{ item.name }}
+        </span>
+        <span class="status-legend-item" :style="{ '--tpn-row-rgb': NO_SUPPLIER_RGB }">
+          <span class="status-legend-swatch" />No Supplier
+        </span>
+      </div>
       <div ref="topScroll" class="excel-scroll-top" @scroll="syncScrollFromTop">
         <div :style="{ width: `${tableScrollWidth}px` }" />
       </div>
       <div ref="tableScroll" class="excel-container" :style="{ maxHeight: tableMaxHeight }" @scroll="syncScrollFromTable">
-        <table class="tpn-table">
+        <table ref="tpnTable" class="tpn-table" :style="columnWidthVars">
           <thead>
-            <tr>
+            <tr
+              class="tpn-head-row"
+              @mousedown="onHeaderMouseDown"
+              @dblclick="onHeaderDblClick"
+              @dragstart="onHeaderDragStart"
+              @dragover="onHeaderDragOver"
+              @dragleave="onHeaderDragLeave"
+              @drop="onHeaderDrop"
+              @dragend="onHeaderDragEnd"
+            >
               <th>#</th>
+              <template v-for="colKey in orderedVisibleColumns" :key="colKey">
 
               <!-- PO# — sortable + filter -->
-              <th v-if="visibleColumns.includes('poNumber')">
+              <th v-if="colKey === 'poNumber'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('poNumber')">PO# <v-icon :icon="sortIcon('poNumber')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start">
@@ -166,12 +218,12 @@
               </th>
 
               <!-- PO Ref# -->
-              <th v-if="visibleColumns.includes('poRef')"><div class="tpn-th-inner"><span class="tpn-th-label">PO Ref#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poRef']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poRef']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poRef')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poRef', val) }" @click.stop="tpnToggleFilter('poRef', val)"><v-checkbox-btn :model-value="tpnColFilters['poRef']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poRef', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poRef')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poRef')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poRef'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poRef'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poRef')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'poRef'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">PO Ref#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poRef']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poRef']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poRef')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poRef', val) }" @click.stop="tpnToggleFilter('poRef', val)"><v-checkbox-btn :model-value="tpnColFilters['poRef']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poRef', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poRef')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poRef')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poRef'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poRef'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poRef')" /></v-card></v-menu></div></th>
 
-              <th v-if="visibleColumns.includes('experts')"><div class="tpn-th-inner"><span class="tpn-th-label">Expert</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['experts']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['experts']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('experts')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('experts', val) }" @click.stop="tpnToggleFilter('experts', val)"><v-checkbox-btn :model-value="tpnColFilters['experts']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('experts', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('experts')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('experts')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['experts'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['experts'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('experts')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'experts'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Expert</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['experts']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['experts']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('experts')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('experts', val) }" @click.stop="tpnToggleFilter('experts', val)"><v-checkbox-btn :model-value="tpnColFilters['experts']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('experts', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('experts')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('experts')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['experts'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['experts'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('experts')" /></v-card></v-menu></div></th>
 
               <!-- Customer — sortable -->
-              <th v-if="visibleColumns.includes('customer')">
+              <th v-else-if="colKey === 'customer'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('customer')">Customer <v-icon :icon="sortIcon('customer')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['customer']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['customer']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('customer')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('customer', val) }" @click.stop="tpnToggleFilter('customer', val)"><v-checkbox-btn :model-value="tpnColFilters['customer']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('customer', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('customer')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('customer')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['customer'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['customer'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('customer')" /></v-card></v-menu>
@@ -179,10 +231,10 @@
               </th>
 
               <!-- Supplier -->
-              <th v-if="visibleColumns.includes('supplier')"><div class="tpn-th-inner"><span class="tpn-th-label">Supplier</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['supplier']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['supplier']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('supplier')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('supplier', val) }" @click.stop="tpnToggleFilter('supplier', val)"><v-checkbox-btn :model-value="tpnColFilters['supplier']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('supplier', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('supplier')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('supplier')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['supplier'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['supplier'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('supplier')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'supplier'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Supplier</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['supplier']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['supplier']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('supplier')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('supplier', val) }" @click.stop="tpnToggleFilter('supplier', val)"><v-checkbox-btn :model-value="tpnColFilters['supplier']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('supplier', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('supplier')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('supplier')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['supplier'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['supplier'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('supplier')" /></v-card></v-menu></div></th>
 
               <!-- P/N — sortable -->
-              <th v-if="visibleColumns.includes('partNumber')">
+              <th v-else-if="colKey === 'partNumber'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('partNumber')">P/N <v-icon :icon="sortIcon('partNumber')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['partNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['partNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('partNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('partNumber', val) }" @click.stop="tpnToggleFilter('partNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['partNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('partNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('partNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('partNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['partNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['partNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('partNumber')" /></v-card></v-menu>
@@ -190,93 +242,95 @@
               </th>
 
               <!-- Description -->
-              <th v-if="visibleColumns.includes('description')"><div class="tpn-th-inner"><span class="tpn-th-label">Description</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['description']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="220" max-width="300" class="pa-2"><v-text-field v-model="tpnFilterSearch['description']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('description')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('description', val) }" @click.stop="tpnToggleFilter('description', val)"><v-checkbox-btn :model-value="tpnColFilters['description']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('description', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('description')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('description')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['description'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['description'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('description')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'description'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Description</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['description']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="220" max-width="300" class="pa-2"><v-text-field v-model="tpnFilterSearch['description']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('description')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('description', val) }" @click.stop="tpnToggleFilter('description', val)"><v-checkbox-btn :model-value="tpnColFilters['description']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('description', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('description')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('description')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['description'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['description'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('description')" /></v-card></v-menu></div></th>
 
               <!-- QTY — sortable -->
-              <th v-if="visibleColumns.includes('qty')">
+              <th v-else-if="colKey === 'qty'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('qty')">QTY <v-icon :icon="sortIcon('qty')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['qty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['qty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('qty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('qty', val) }" @click.stop="tpnToggleFilter('qty', val)"><v-checkbox-btn :model-value="tpnColFilters['qty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('qty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('qty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('qty')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['qty'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['qty'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('qty')" /></v-card></v-menu>
                 </div>
               </th>
 
-              <th v-if="visibleColumns.includes('inTransitQty')"><div class="tpn-th-inner"><span class="tpn-th-label">In Transit</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inTransitQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inTransitQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inTransitQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inTransitQty', val) }" @click.stop="tpnToggleFilter('inTransitQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inTransitQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inTransitQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inTransitQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inTransitQty')">Clear</v-btn></v-card></v-menu></div></th>
-              <th v-if="visibleColumns.includes('receivedQty')"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('receivedQty')">Received QTY <v-icon :icon="sortIcon('receivedQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['receivedQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['receivedQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('receivedQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('receivedQty', val) }" @click.stop="tpnToggleFilter('receivedQty', val)"><v-checkbox-btn :model-value="tpnColFilters['receivedQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('receivedQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('receivedQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('receivedQty')">Clear</v-btn></v-card></v-menu></div></th>
-              <th v-if="visibleColumns.includes('inWarehouseQty')"><div class="tpn-th-inner"><span class="tpn-th-label">In Warehouse</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inWarehouseQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inWarehouseQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inWarehouseQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inWarehouseQty', val) }" @click.stop="tpnToggleFilter('inWarehouseQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inWarehouseQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inWarehouseQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inWarehouseQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inWarehouseQty')">Clear</v-btn></v-card></v-menu></div></th>
-              <th v-if="visibleColumns.includes('remainingQty')"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('remainingQty')">Remaining QTY <v-icon :icon="sortIcon('remainingQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['remainingQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['remainingQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('remainingQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('remainingQty', val) }" @click.stop="tpnToggleFilter('remainingQty', val)"><v-checkbox-btn :model-value="tpnColFilters['remainingQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('remainingQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('remainingQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('remainingQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'inTransitQty'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">In Transit</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inTransitQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inTransitQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inTransitQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inTransitQty', val) }" @click.stop="tpnToggleFilter('inTransitQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inTransitQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inTransitQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inTransitQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inTransitQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'receivedQty'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('receivedQty')">Received QTY <v-icon :icon="sortIcon('receivedQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['receivedQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['receivedQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('receivedQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('receivedQty', val) }" @click.stop="tpnToggleFilter('receivedQty', val)"><v-checkbox-btn :model-value="tpnColFilters['receivedQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('receivedQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('receivedQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('receivedQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'inWarehouseQty'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">In Warehouse</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['inWarehouseQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['inWarehouseQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('inWarehouseQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('inWarehouseQty', val) }" @click.stop="tpnToggleFilter('inWarehouseQty', val)"><v-checkbox-btn :model-value="tpnColFilters['inWarehouseQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('inWarehouseQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('inWarehouseQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('inWarehouseQty')">Clear</v-btn></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'remainingQty'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label sortable-th" @click="toggleSort('remainingQty')">Remaining QTY <v-icon :icon="sortIcon('remainingQty')" size="12" /></span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['remainingQty']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['remainingQty']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('remainingQty')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('remainingQty', val) }" @click.stop="tpnToggleFilter('remainingQty', val)"><v-checkbox-btn :model-value="tpnColFilters['remainingQty']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('remainingQty', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('remainingQty')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('remainingQty')">Clear</v-btn></v-card></v-menu></div></th>
 
               <!-- CD -->
-              <th v-if="visibleColumns.includes('condition')"><div class="tpn-th-inner"><span class="tpn-th-label">CD</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['condition']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['condition']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('condition')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('condition', val) }" @click.stop="tpnToggleFilter('condition', val)"><v-checkbox-btn :model-value="tpnColFilters['condition']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('condition', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('condition')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('condition')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['condition'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['condition'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('condition')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'condition'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">CD</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['condition']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['condition']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('condition')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('condition', val) }" @click.stop="tpnToggleFilter('condition', val)"><v-checkbox-btn :model-value="tpnColFilters['condition']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('condition', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('condition')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('condition')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['condition'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['condition'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('condition')" /></v-card></v-menu></div></th>
 
               <!-- Priority -->
-              <th v-if="visibleColumns.includes('priority')"><div class="tpn-th-inner"><span class="tpn-th-label">Priority</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['priority']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['priority']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('priority')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('priority', val) }" @click.stop="tpnToggleFilter('priority', val)"><v-checkbox-btn :model-value="tpnColFilters['priority']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('priority', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('priority')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('priority')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['priority'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['priority'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('priority')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'priority'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Priority</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['priority']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="160" max-width="220" class="pa-2"><v-text-field v-model="tpnFilterSearch['priority']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('priority')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('priority', val) }" @click.stop="tpnToggleFilter('priority', val)"><v-checkbox-btn :model-value="tpnColFilters['priority']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('priority', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('priority')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('priority')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['priority'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['priority'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('priority')" /></v-card></v-menu></div></th>
 
               <!-- Warehouse -->
-              <th v-if="visibleColumns.includes('warehouse')"><div class="tpn-th-inner"><span class="tpn-th-label">Warehouse</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['warehouse']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['warehouse']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('warehouse')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('warehouse', val) }" @click.stop="tpnToggleFilter('warehouse', val)"><v-checkbox-btn :model-value="tpnColFilters['warehouse']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('warehouse', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('warehouse')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('warehouse')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['warehouse'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['warehouse'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('warehouse')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'warehouse'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Warehouse</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['warehouse']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['warehouse']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('warehouse')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('warehouse', val) }" @click.stop="tpnToggleFilter('warehouse', val)"><v-checkbox-btn :model-value="tpnColFilters['warehouse']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('warehouse', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('warehouse')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('warehouse')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['warehouse'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['warehouse'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('warehouse')" /></v-card></v-menu></div></th>
 
               <!-- SN# -->
-              <th v-if="visibleColumns.includes('serialNumber')"><div class="tpn-th-inner"><span class="tpn-th-label">SN#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['serialNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['serialNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('serialNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('serialNumber', val) }" @click.stop="tpnToggleFilter('serialNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['serialNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('serialNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('serialNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('serialNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['serialNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['serialNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('serialNumber')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'serialNumber'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">SN#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['serialNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['serialNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('serialNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('serialNumber', val) }" @click.stop="tpnToggleFilter('serialNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['serialNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('serialNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('serialNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('serialNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['serialNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['serialNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('serialNumber')" /></v-card></v-menu></div></th>
 
               <!-- PI# to Customer -->
-              <th v-if="visibleColumns.includes('customerInvoiceNumber')"><div class="tpn-th-inner"><span class="tpn-th-label">PI# to Customer</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['customerInvoiceNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['customerInvoiceNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('customerInvoiceNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('customerInvoiceNumber', val) }" @click.stop="tpnToggleFilter('customerInvoiceNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['customerInvoiceNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('customerInvoiceNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('customerInvoiceNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('customerInvoiceNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['customerInvoiceNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['customerInvoiceNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('customerInvoiceNumber')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'customerInvoiceNumber'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">PI# to Customer</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['customerInvoiceNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['customerInvoiceNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('customerInvoiceNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('customerInvoiceNumber', val) }" @click.stop="tpnToggleFilter('customerInvoiceNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['customerInvoiceNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('customerInvoiceNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('customerInvoiceNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('customerInvoiceNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['customerInvoiceNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['customerInvoiceNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('customerInvoiceNumber')" /></v-card></v-menu></div></th>
 
-              <th v-if="visibleColumns.includes('purchasingUnitPriceUsd')" class="text-right">Purchasing Unit Price (USD)</th>
-              <th v-if="visibleColumns.includes('purchasingTotalPriceUsd')" class="text-right">Purchasing Total Price (USD)</th>
-              <!-- DP# -->
-              <th v-if="visibleColumns.includes('dpNumber')"><div class="tpn-th-inner"><span class="tpn-th-label">DP#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['dpNumber']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['dpNumber']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('dpNumber')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('dpNumber', val) }" @click.stop="tpnToggleFilter('dpNumber', val)"><v-checkbox-btn :model-value="tpnColFilters['dpNumber']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('dpNumber', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('dpNumber')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('dpNumber')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['dpNumber'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['dpNumber'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('dpNumber')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'purchasingUnitPriceUsd'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Purchasing Unit Price (USD)</th>
+              <th v-else-if="colKey === 'purchasingTotalPriceUsd'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Purchasing Total Price (USD)</th>
 
-              <th v-if="visibleColumns.includes('supplierDeliveryTime')">Supplier Delivery Time</th>
+              <th v-else-if="colKey === 'supplierDeliveryTime'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">Supplier Delivery Time</th>
 
               <!-- Status — sortable -->
-              <th v-if="visibleColumns.includes('status')">
+              <th v-else-if="colKey === 'status'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('status')">Status <v-icon :icon="sortIcon('status')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['status']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="280" class="pa-2"><v-text-field v-model="tpnFilterSearch['status']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('status')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('status', val) }" @click.stop="tpnToggleFilter('status', val)"><v-checkbox-btn :model-value="tpnColFilters['status']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('status', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('status')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('status')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['status'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['status'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('status')" /></v-card></v-menu>
                 </div>
               </th>
 
-              <th v-if="visibleColumns.includes('sellingUnitPriceUsd')" class="text-right">Selling Unit Price (USD)</th>
-              <th v-if="visibleColumns.includes('sellingTotalPriceUsd')" class="text-right">Selling Total Price (USD)</th>
-              <th v-if="visibleColumns.includes('sellingUnitPriceYuan')" class="text-right">Selling Unit Price (Yuan)</th>
-              <th v-if="visibleColumns.includes('sellingTotalPriceYuan')" class="text-right">Selling Total Price (Yuan)</th>
+              <th v-else-if="colKey === 'sellingUnitPriceUsd'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Selling Unit Price (USD)</th>
+              <th v-else-if="colKey === 'sellingTotalPriceUsd'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Selling Total Price (USD)</th>
+              <th v-else-if="colKey === 'sellingUnitPriceYuan'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Selling Unit Price (Yuan)</th>
+              <th v-else-if="colKey === 'sellingTotalPriceYuan'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Selling Total Price (Yuan)</th>
               <!-- PO Date — filterable -->
-              <th v-if="visibleColumns.includes('poDate')"><div class="tpn-th-inner"><span class="tpn-th-label">PO Date</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poDate']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poDate']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poDate')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poDate', val) }" @click.stop="tpnToggleFilter('poDate', val)"><v-checkbox-btn :model-value="tpnColFilters['poDate']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poDate', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poDate')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poDate')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poDate'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poDate'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poDate')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'poDate'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">PO Date</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['poDate']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['poDate']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('poDate')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('poDate', val) }" @click.stop="tpnToggleFilter('poDate', val)"><v-checkbox-btn :model-value="tpnColFilters['poDate']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('poDate', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('poDate')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('poDate')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['poDate'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['poDate'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('poDate')" /></v-card></v-menu></div></th>
 
               <!-- INV Date — sortable -->
-              <th v-if="visibleColumns.includes('invDate')">
+              <th v-else-if="colKey === 'invDate'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
                 <div class="tpn-th-inner">
                   <span class="tpn-th-label sortable-th" @click="toggleSort('invDate')">INV Date <v-icon :icon="sortIcon('invDate')" size="12" /></span>
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['invDate']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['invDate']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('invDate')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('invDate', val) }" @click.stop="tpnToggleFilter('invDate', val)"><v-checkbox-btn :model-value="tpnColFilters['invDate']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('invDate', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('invDate')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('invDate')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['invDate'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['invDate'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('invDate')" /></v-card></v-menu>
                 </div>
               </th>
 
-              <th v-if="visibleColumns.includes('received')" class="text-right">Received (Payment)</th>
-              <th v-if="visibleColumns.includes('receivedDate')">Received Date (Payment)</th>
+              <th v-else-if="colKey === 'received'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Received (Payment)</th>
+              <th v-else-if="colKey === 'receivedDate'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">Received Date (Payment)</th>
 
               <!-- Payment Term -->
-              <th v-if="visibleColumns.includes('paymentTerm')"><div class="tpn-th-inner"><span class="tpn-th-label">Payment Term</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['paymentTerm']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['paymentTerm']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('paymentTerm')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('paymentTerm', val) }" @click.stop="tpnToggleFilter('paymentTerm', val)"><v-checkbox-btn :model-value="tpnColFilters['paymentTerm']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('paymentTerm', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('paymentTerm')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('paymentTerm')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['paymentTerm'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['paymentTerm'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('paymentTerm')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'paymentTerm'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Payment Term</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['paymentTerm']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="180" max-width="240" class="pa-2"><v-text-field v-model="tpnFilterSearch['paymentTerm']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('paymentTerm')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('paymentTerm', val) }" @click.stop="tpnToggleFilter('paymentTerm', val)"><v-checkbox-btn :model-value="tpnColFilters['paymentTerm']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('paymentTerm', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('paymentTerm')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('paymentTerm')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['paymentTerm'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['paymentTerm'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('paymentTerm')" /></v-card></v-menu></div></th>
 
-              <th v-if="visibleColumns.includes('customerDeliveryTime')">Customer Delivery Time</th>
-              <th v-if="visibleColumns.includes('rate')" class="text-right">Rate</th>
+              <th v-else-if="colKey === 'customerDeliveryTime'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">Customer Delivery Time</th>
+              <th v-else-if="colKey === 'rate'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Rate</th>
 
               <!-- Track# -->
-              <th v-if="visibleColumns.includes('trackNumbers')"><div class="tpn-th-inner"><span class="tpn-th-label">Track#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['trackNumbers']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['trackNumbers']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('trackNumbers')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('trackNumbers', val) }" @click.stop="tpnToggleFilter('trackNumbers', val)"><v-checkbox-btn :model-value="tpnColFilters['trackNumbers']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('trackNumbers', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('trackNumbers')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('trackNumbers')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['trackNumbers'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['trackNumbers'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('trackNumbers')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'trackNumbers'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Track#</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['trackNumbers']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['trackNumbers']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('trackNumbers')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('trackNumbers', val) }" @click.stop="tpnToggleFilter('trackNumbers', val)"><v-checkbox-btn :model-value="tpnColFilters['trackNumbers']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('trackNumbers', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('trackNumbers')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('trackNumbers')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['trackNumbers'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['trackNumbers'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('trackNumbers')" /></v-card></v-menu></div></th>
 
               <!-- Shipping Status -->
-              <th v-if="visibleColumns.includes('shippingStatus')"><div class="tpn-th-inner"><span class="tpn-th-label">Shipping Status</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['shippingStatus']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="280" class="pa-2"><v-text-field v-model="tpnFilterSearch['shippingStatus']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('shippingStatus')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('shippingStatus', val) }" @click.stop="tpnToggleFilter('shippingStatus', val)"><v-checkbox-btn :model-value="tpnColFilters['shippingStatus']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('shippingStatus', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('shippingStatus')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('shippingStatus')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['shippingStatus'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['shippingStatus'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('shippingStatus')" /></v-card></v-menu></div></th>
+              <th v-else-if="colKey === 'shippingStatus'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Shipping Status</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['shippingStatus']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="280" class="pa-2"><v-text-field v-model="tpnFilterSearch['shippingStatus']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('shippingStatus')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('shippingStatus', val) }" @click.stop="tpnToggleFilter('shippingStatus', val)"><v-checkbox-btn :model-value="tpnColFilters['shippingStatus']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('shippingStatus', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('shippingStatus')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('shippingStatus')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['shippingStatus'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['shippingStatus'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('shippingStatus')" /></v-card></v-menu></div></th>
 
-              <th v-if="visibleColumns.includes('shippingCost')" class="text-right">Shipping Cost</th>
-              <th v-if="visibleColumns.includes('note')">NOTE 02</th>
+              <th v-else-if="colKey === 'shippingCost'" :data-col="colKey" draggable="true" :style="colStyle[colKey]" class="text-right">Shipping Cost</th>
+              <th v-else-if="colKey === 'note'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">NOTE 02</th>
+              </template>
             </tr>
           </thead>
           <tbody>
             <tr
               v-for="(r, idx) in filteredRows"
               :key="r.id"
-              :class="[rowStatusClass(r.status), { 'missing-supplier-row': r.supplier === 'No Supplier' }]"
+              class="tpn-status-row"
+              :class="{ 'missing-supplier-row': isNoSupplier(r) }"
+              :style="rowColorStyle(r)"
             >
               <td class="text-center">{{ (page - 1) * pageSize + idx + 1 }}</td>
-              <td v-if="visibleColumns.includes('poNumber')" class="font-weight-bold">
+              <template v-for="colKey in orderedVisibleColumns" :key="colKey">
+              <td v-if="colKey === 'poNumber'" :style="colStyle[colKey]" class="font-weight-bold">
                 <NuxtLink v-if="r.poNumber && r.purchaseOrderId" :to="`/purchase-orders/${r.purchaseOrderId}`" class="text-primary text-decoration-none hover-underline">
                   {{ r.poNumber }}
                 </NuxtLink>
@@ -291,8 +345,8 @@
                 </button>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('poRef')" class="text-center">{{ r.poRef ?? '-' }}</td>
-              <td v-if="visibleColumns.includes('experts')">
+              <td v-else-if="colKey === 'poRef'" :style="colStyle[colKey]" class="text-center">{{ r.poRef ?? '-' }}</td>
+              <td v-else-if="colKey === 'experts'" :style="colStyle[colKey]">
                 <div v-if="r.experts?.length" class="d-flex flex-wrap gap-1">
                   <v-chip v-for="expert in r.experts" :key="expert" size="x-small" color="primary" variant="tonal">
                     {{ expert }}
@@ -300,11 +354,11 @@
                 </div>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('customer')" class="cell-wrap">
+              <td v-else-if="colKey === 'customer'" :style="colStyle[colKey]" class="cell-wrap">
                 <v-chip v-if="isStockRow(r)" size="x-small" color="purple" variant="tonal" prepend-icon="mdi-warehouse">{{ r.customer }}</v-chip>
                 <template v-else>{{ r.customer || '-' }}</template>
               </td>
-              <td v-if="visibleColumns.includes('supplier')" class="cell-wrap">
+              <td v-else-if="colKey === 'supplier'" :style="colStyle[colKey]" class="cell-wrap">
                 <button
                   v-if="canOpenSupplierEditor(r)"
                   type="button"
@@ -315,9 +369,9 @@
                 </button>
                 <span v-else class="cell-wrap">{{ r.supplier || '-' }}</span>
               </td>
-              <td v-if="visibleColumns.includes('partNumber')" class="cell-pn cell-wrap">{{ r.partNumber || '-' }}</td>
-              <td v-if="visibleColumns.includes('description')" class="cell-wrap">{{ r.description || '-' }}</td>
-              <td v-if="visibleColumns.includes('qty')" class="text-center">
+              <td v-else-if="colKey === 'partNumber'" :style="colStyle[colKey]" class="cell-pn cell-wrap">{{ r.partNumber || '-' }}</td>
+              <td v-else-if="colKey === 'description'" :style="colStyle[colKey]" class="cell-wrap">{{ r.description || '-' }}</td>
+              <td v-else-if="colKey === 'qty'" :style="colStyle[colKey]" class="text-center">
                 <v-tooltip v-if="r.receivedQty != null" location="top">
                   <template #activator="{ props }">
                     <div v-bind="props" class="qty-progress-cell">
@@ -329,20 +383,20 @@
                 </v-tooltip>
                 <span v-else>{{ r.qty }}</span>
               </td>
-              <td v-if="visibleColumns.includes('inTransitQty')" class="text-center">{{ qtyValue(r.inTransitQty) }}</td>
-              <td v-if="visibleColumns.includes('receivedQty')" class="text-center">{{ qtyValue(r.receivedQty) }}</td>
-              <td v-if="visibleColumns.includes('inWarehouseQty')" class="text-center">{{ qtyValue(r.inWarehouseQty) }}</td>
-              <td v-if="visibleColumns.includes('remainingQty')" class="text-center">{{ qtyValue(r.remainingQty) }}</td>
-              <td v-if="visibleColumns.includes('condition')">{{ r.condition || '-' }}</td>
-              <td v-if="visibleColumns.includes('priority')" class="cell-wrap">{{ r.priority || '-' }}</td>
-              <td v-if="visibleColumns.includes('warehouse')" class="cell-wrap">{{ r.warehouse || '-' }}</td>
-              <td v-if="visibleColumns.includes('serialNumber')">
+              <td v-else-if="colKey === 'inTransitQty'" :style="colStyle[colKey]" class="text-center">{{ qtyValue(r.inTransitQty) }}</td>
+              <td v-else-if="colKey === 'receivedQty'" :style="colStyle[colKey]" class="text-center">{{ qtyValue(r.receivedQty) }}</td>
+              <td v-else-if="colKey === 'inWarehouseQty'" :style="colStyle[colKey]" class="text-center">{{ qtyValue(r.inWarehouseQty) }}</td>
+              <td v-else-if="colKey === 'remainingQty'" :style="colStyle[colKey]" class="text-center">{{ qtyValue(r.remainingQty) }}</td>
+              <td v-else-if="colKey === 'condition'" :style="colStyle[colKey]">{{ r.condition || '-' }}</td>
+              <td v-else-if="colKey === 'priority'" :style="colStyle[colKey]" class="cell-wrap">{{ r.priority || '-' }}</td>
+              <td v-else-if="colKey === 'warehouse'" :style="colStyle[colKey]" class="cell-wrap">{{ r.warehouse || '-' }}</td>
+              <td v-else-if="colKey === 'serialNumber'" :style="colStyle[colKey]">
                 <v-chip v-if="r.serialNumber" size="x-small" color="primary" variant="tonal" class="font-weight-bold">
                   {{ r.serialNumber }}
                 </v-chip>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('customerInvoiceNumber')">
+              <td v-else-if="colKey === 'customerInvoiceNumber'" :style="colStyle[colKey]">
                 <NuxtLink
                   v-if="r.invoiceId && r.customerInvoiceNumber"
                   :to="`/invoices/${r.invoiceId}`"
@@ -352,45 +406,50 @@
                 </NuxtLink>
                 <span v-else>{{ r.customerInvoiceNumber || '-' }}</span>
               </td>
-              <td v-if="visibleColumns.includes('purchasingUnitPriceUsd')" class="text-right">${{ formatPrice(r.purchasingUnitPriceUsd) }}</td>
-              <td v-if="visibleColumns.includes('purchasingTotalPriceUsd')" class="text-right cell-price">${{ formatPrice(r.purchasingTotalPriceUsd) }}</td>
-              <td v-if="visibleColumns.includes('supplierDeliveryTime')" class="cell-wrap">{{ r.supplierDeliveryTime || '-' }}</td>
-              <td v-if="visibleColumns.includes('status')">
+              <td v-else-if="colKey === 'purchasingUnitPriceUsd'" :style="colStyle[colKey]" class="text-right">${{ formatPrice(r.purchasingUnitPriceUsd) }}</td>
+              <td v-else-if="colKey === 'purchasingTotalPriceUsd'" :style="colStyle[colKey]" class="text-right cell-price">${{ formatPrice(r.purchasingTotalPriceUsd) }}</td>
+              <td v-else-if="colKey === 'supplierDeliveryTime'" :style="colStyle[colKey]" class="cell-wrap">{{ r.supplierDeliveryTime || '-' }}</td>
+              <td v-else-if="colKey === 'status'" :style="colStyle[colKey]">
                 <select
                   :value="r.status || 'Not Started'"
-                  class="status-select"
-                  :class="statusColorClass(r.status)"
+                  class="status-select status-colored"
+                  :style="{ '--tpn-row-rgb': statusRgb(r.status) }"
                   @change="updateStatus(r, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-if="isInShopCountdown(r.status)" :value="r.status">{{ r.status }}</option>
-                  <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
+                  <option
+                    v-for="s in statusOptions"
+                    :key="s"
+                    :value="s"
+                    :style="{ background: `rgba(${statusRgb(s)}, 0.2)` }"
+                  >{{ s }}</option>
                 </select>
               </td>
-              <td v-if="visibleColumns.includes('sellingUnitPriceUsd')" class="text-right">${{ formatPrice(r.sellingUnitPriceUsd) }}</td>
-              <td v-if="visibleColumns.includes('sellingTotalPriceUsd')" class="text-right cell-price">${{ formatPrice(r.sellingTotalPriceUsd) }}</td>
-              <td v-if="visibleColumns.includes('sellingUnitPriceYuan')" class="text-right">¥{{ formatPrice(r.sellingUnitPriceYuan) }}</td>
-              <td v-if="visibleColumns.includes('sellingTotalPriceYuan')" class="text-right cell-price">¥{{ formatPrice(r.sellingTotalPriceYuan) }}</td>
-              <td v-if="visibleColumns.includes('poDate')" class="text-caption">{{ formatDate(r.poDate) }}</td>
-              <td v-if="visibleColumns.includes('invDate')" class="text-caption">{{ formatDate(r.invDate) }}</td>
-              <td v-if="visibleColumns.includes('received')" class="text-right">{{ r.received != null ? `$${formatPrice(r.received)}` : '-' }}</td>
-              <td v-if="visibleColumns.includes('receivedDate')" class="text-caption">{{ formatDate(r.receivedDate) }}</td>
-              <td v-if="visibleColumns.includes('paymentTerm')">
+              <td v-else-if="colKey === 'sellingUnitPriceUsd'" :style="colStyle[colKey]" class="text-right">${{ formatPrice(r.sellingUnitPriceUsd) }}</td>
+              <td v-else-if="colKey === 'sellingTotalPriceUsd'" :style="colStyle[colKey]" class="text-right cell-price">${{ formatPrice(r.sellingTotalPriceUsd) }}</td>
+              <td v-else-if="colKey === 'sellingUnitPriceYuan'" :style="colStyle[colKey]" class="text-right">¥{{ formatPrice(r.sellingUnitPriceYuan) }}</td>
+              <td v-else-if="colKey === 'sellingTotalPriceYuan'" :style="colStyle[colKey]" class="text-right cell-price">¥{{ formatPrice(r.sellingTotalPriceYuan) }}</td>
+              <td v-else-if="colKey === 'poDate'" :style="colStyle[colKey]" class="text-caption">{{ formatDate(r.poDate) }}</td>
+              <td v-else-if="colKey === 'invDate'" :style="colStyle[colKey]" class="text-caption">{{ formatDate(r.invDate) }}</td>
+              <td v-else-if="colKey === 'received'" :style="colStyle[colKey]" class="text-right">{{ r.received != null ? `$${formatPrice(r.received)}` : '-' }}</td>
+              <td v-else-if="colKey === 'receivedDate'" :style="colStyle[colKey]" class="text-caption">{{ formatDate(r.receivedDate) }}</td>
+              <td v-else-if="colKey === 'paymentTerm'" :style="colStyle[colKey]">
                 <v-chip v-if="r.paymentTerm" size="x-small" :color="paymentTermColor(r.paymentTerm)" variant="tonal" class="font-weight-bold">
                   {{ r.paymentTerm }}
                 </v-chip>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('customerDeliveryTime')" class="text-caption">{{ formatDate(r.customerDeliveryTime) }}</td>
-              <td v-if="visibleColumns.includes('rate')" class="text-center text-caption">{{ r.rate }}</td>
-              <td v-if="visibleColumns.includes('trackNumbers')" class="text-caption cell-wrap">{{ r.trackNumbers || '-' }}</td>
-              <td v-if="visibleColumns.includes('shippingStatus')">
+              <td v-else-if="colKey === 'customerDeliveryTime'" :style="colStyle[colKey]" class="text-caption">{{ formatDate(r.customerDeliveryTime) }}</td>
+              <td v-else-if="colKey === 'rate'" :style="colStyle[colKey]" class="text-center text-caption">{{ r.rate }}</td>
+              <td v-else-if="colKey === 'trackNumbers'" :style="colStyle[colKey]" class="text-caption cell-wrap">{{ r.trackNumbers || '-' }}</td>
+              <td v-else-if="colKey === 'shippingStatus'" :style="colStyle[colKey]">
                 <v-chip v-if="r.shippingStatus" size="x-small" :color="shippingStatusColor(r.shippingStatus)" variant="tonal" class="font-weight-bold">
                   {{ r.shippingStatus }}
                 </v-chip>
                 <span v-else class="text-medium-emphasis">-</span>
               </td>
-              <td v-if="visibleColumns.includes('shippingCost')" class="text-right">{{ r.shippingCost != null ? `$${formatPrice(r.shippingCost)}` : '-' }}</td>
-              <td v-if="visibleColumns.includes('note')">
+              <td v-else-if="colKey === 'shippingCost'" :style="colStyle[colKey]" class="text-right">{{ r.shippingCost != null ? `$${formatPrice(r.shippingCost)}` : '-' }}</td>
+              <td v-else-if="colKey === 'note'" :style="colStyle[colKey]">
                 <input
                   type="text"
                   :value="r.note || ''"
@@ -399,6 +458,7 @@
                   @blur="updateNote(r, ($event.target as HTMLInputElement).value)"
                 />
               </td>
+              </template>
             </tr>
           </tbody>
         </table>
@@ -566,6 +626,215 @@ async function loadColumnAccess() {
   visibleColumns.value = saved.length
     ? saved.filter(key => validAllowed.includes(key))
     : validAllowed.filter(key => !DEFAULT_HIDDEN_COLUMNS.has(key))
+  loadColumnLayout()
+}
+
+// ── Column order & widths (per user, in localStorage) ────────────────────────
+// Users drag a header to move it and drag a header's right edge to resize it.
+
+const COL_ORDER_STORAGE_KEY = computed(() => `total-pn-column-order-v1:${authStore.user?.id ?? 'anonymous'}`)
+const COL_WIDTHS_STORAGE_KEY = computed(() => `total-pn-column-widths-v1:${authStore.user?.id ?? 'anonymous'}`)
+const MIN_COLUMN_WIDTH = 40
+const RESIZE_EDGE_PX = 7
+
+const columnOrder = ref<string[]>([])
+const columnWidths = ref<Record<string, number>>({})
+const tpnTable = ref<HTMLTableElement | null>(null)
+
+function readStored<T>(key: string, isValid: (value: unknown) => boolean, fallback: T): T {
+  if (!import.meta.client) return fallback
+  try {
+    const raw = localStorage.getItem(key)
+    const parsed = raw ? JSON.parse(raw) : null
+    return isValid(parsed) ? parsed as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeStored(key: string, value: unknown) {
+  if (!import.meta.client) return
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
+}
+
+function loadColumnLayout() {
+  const known = new Set(ALL_COLUMNS.map(column => column.key))
+  columnOrder.value = readStored<string[]>(COL_ORDER_STORAGE_KEY.value, Array.isArray, [])
+    .filter(key => known.has(key))
+  const widths = readStored<Record<string, number>>(
+    COL_WIDTHS_STORAGE_KEY.value, value => !!value && typeof value === 'object' && !Array.isArray(value), {})
+  columnWidths.value = Object.fromEntries(Object.entries(widths)
+    .filter(([key, width]) => known.has(key) && Number.isFinite(width) && width >= MIN_COLUMN_WIDTH))
+}
+
+/** Allowed columns in the user's order; columns the user never moved keep their default place at the end. */
+const orderedColumns = computed(() => {
+  const byKey = new Map(availableColumns.value.map(column => [column.key, column]))
+  const moved = columnOrder.value.map(key => byKey.get(key)).filter((column): column is ColumnConfig => !!column)
+  const movedKeys = new Set(columnOrder.value)
+  return [...moved, ...availableColumns.value.filter(column => !movedKeys.has(column.key))]
+})
+
+const orderedVisibleColumns = computed(() => {
+  const visible = new Set(visibleColumns.value)
+  return orderedColumns.value.filter(column => visible.has(column.key)).map(column => column.key)
+})
+
+function moveColumn(fromKey: string, toKey: string, placeAfter: boolean) {
+  if (fromKey === toKey) return
+  const keys = orderedColumns.value.map(column => column.key).filter(key => key !== fromKey)
+  const targetIndex = keys.indexOf(toKey)
+  if (targetIndex < 0) return
+  keys.splice(placeAfter ? targetIndex + 1 : targetIndex, 0, fromKey)
+  columnOrder.value = keys
+  writeStored(COL_ORDER_STORAGE_KEY.value, keys)
+}
+
+function resetColumnLayout() {
+  columnOrder.value = []
+  columnWidths.value = {}
+  writeStored(COL_ORDER_STORAGE_KEY.value, [])
+  writeStored(COL_WIDTHS_STORAGE_KEY.value, {})
+}
+
+/** Widths live in CSS variables on the table so a resize drag repaints without re-rendering every row. */
+const columnWidthVars = computed(() => Object.fromEntries(
+  Object.entries(columnWidths.value).map(([key, width]) => [`--tpn-w-${key}`, `${width}px`])))
+
+const colStyle = computed(() => {
+  const styles: Record<string, Record<string, string>> = {}
+  for (const key of Object.keys(columnWidths.value)) {
+    const width = `var(--tpn-w-${key})`
+    styles[key] = {
+      width, minWidth: width, maxWidth: width,
+      boxSizing: 'border-box', whiteSpace: 'normal', overflowWrap: 'anywhere',
+    }
+  }
+  return styles
+})
+
+function headerCellAt(event: Event) {
+  return (event.target as HTMLElement | null)?.closest<HTMLTableCellElement>('th[data-col]') ?? null
+}
+
+function isOnResizeEdge(event: MouseEvent, th: HTMLElement) {
+  return event.clientX >= th.getBoundingClientRect().right - RESIZE_EDGE_PX
+}
+
+function onHeaderMouseDown(event: MouseEvent) {
+  const th = headerCellAt(event)
+  if (!th || event.button !== 0 || !isOnResizeEdge(event, th)) return
+  // Stops the header's own drag-to-move and any text selection.
+  event.preventDefault()
+  const key = th.dataset.col!
+  const startX = event.clientX
+  const startWidth = th.getBoundingClientRect().width
+  let width = Math.round(startWidth)
+  if (columnWidths.value[key] !== width) columnWidths.value = { ...columnWidths.value, [key]: width }
+
+  const onMove = (move: MouseEvent) => {
+    width = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + move.clientX - startX))
+    tpnTable.value?.style.setProperty(`--tpn-w-${key}`, `${width}px`)
+  }
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('tpn-resizing')
+    columnWidths.value = { ...columnWidths.value, [key]: width }
+    writeStored(COL_WIDTHS_STORAGE_KEY.value, columnWidths.value)
+    nextTick(updateTableScrollWidth)
+  }
+  document.body.classList.add('tpn-resizing')
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+/** Double-clicking a resize edge gives the column back its automatic width. */
+function onHeaderDblClick(event: MouseEvent) {
+  const th = headerCellAt(event)
+  if (!th || !isOnResizeEdge(event, th)) return
+  const { [th.dataset.col!]: _removed, ...rest } = columnWidths.value
+  columnWidths.value = rest
+  writeStored(COL_WIDTHS_STORAGE_KEY.value, rest)
+  nextTick(updateTableScrollWidth)
+}
+
+let draggedColumnKey: string | null = null
+let dropMarkedCell: HTMLElement | null = null
+
+function clearDropMark() {
+  dropMarkedCell?.classList.remove('tpn-drop-before', 'tpn-drop-after')
+  dropMarkedCell = null
+}
+
+function dropsAfter(event: DragEvent, th: HTMLElement) {
+  const rect = th.getBoundingClientRect()
+  return event.clientX > rect.left + rect.width / 2
+}
+
+function onHeaderDragStart(event: DragEvent) {
+  const th = headerCellAt(event)
+  if (!th) return
+  draggedColumnKey = th.dataset.col!
+  th.classList.add('tpn-dragging')
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', draggedColumnKey)
+  }
+}
+
+function onHeaderDragOver(event: DragEvent) {
+  const th = headerCellAt(event)
+  if (!th || !draggedColumnKey) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  if (dropMarkedCell !== th) clearDropMark()
+  dropMarkedCell = th
+  const after = dropsAfter(event, th)
+  th.classList.toggle('tpn-drop-after', after)
+  th.classList.toggle('tpn-drop-before', !after)
+}
+
+function onHeaderDragLeave(event: DragEvent) {
+  const th = headerCellAt(event)
+  if (th && th === dropMarkedCell && !th.contains(event.relatedTarget as Node | null)) clearDropMark()
+}
+
+function onHeaderDrop(event: DragEvent) {
+  const th = headerCellAt(event)
+  if (!th || !draggedColumnKey) return
+  event.preventDefault()
+  moveColumn(draggedColumnKey, th.dataset.col!, dropsAfter(event, th))
+  clearDropMark()
+}
+
+function onHeaderDragEnd(event: DragEvent) {
+  headerCellAt(event)?.classList.remove('tpn-dragging')
+  draggedColumnKey = null
+  clearDropMark()
+}
+
+// Reordering from the Columns menu list works the same way as on the headers.
+const menuDragKey = ref<string | null>(null)
+const menuDropTarget = ref<{ key: string; after: boolean } | null>(null)
+
+function onMenuDragOver(event: DragEvent, key: string) {
+  if (!menuDragKey.value) return
+  event.preventDefault()
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  menuDropTarget.value = { key, after: event.clientY > rect.top + rect.height / 2 }
+}
+
+function onMenuDrop(key: string) {
+  if (menuDragKey.value && menuDropTarget.value?.key === key) {
+    moveColumn(menuDragKey.value, key, menuDropTarget.value.after)
+  }
+  onMenuDragEnd()
+}
+
+function onMenuDragEnd() {
+  menuDragKey.value = null
+  menuDropTarget.value = null
 }
 
 function saveColumnVisibility() {
@@ -595,8 +864,8 @@ const columnSearchQuery = ref('')
 
 const filteredColumnList = computed(() => {
   const q = columnSearchQuery.value.trim().toLowerCase()
-  if (!q) return availableColumns.value
-  return availableColumns.value.filter(c => c.label.toLowerCase().includes(q))
+  if (!q) return orderedColumns.value
+  return orderedColumns.value.filter(c => c.label.toLowerCase().includes(q))
 })
 
 const loading = ref(true)
@@ -615,7 +884,7 @@ const totalCount = computed(() => loadedAllRows.value ? locallyFilteredRows.valu
 const totalPages = computed(() => pageSize.value > 0 ? Math.ceil(totalCount.value / pageSize.value) : 1)
 const rangeStart = computed(() => totalCount.value > 0 ? (page.value - 1) * pageSize.value + 1 : 0)
 const rangeEnd = computed(() => totalCount.value > 0 ? Math.min(rangeStart.value + filteredRows.value.length - 1, totalCount.value) : 0)
-const tableMaxHeight = computed(() => `calc(100vh - 260px)`)
+const tableMaxHeight = computed(() => `calc(100vh - 300px)`)
 const search = ref('')
 const sortBy = ref('')
 const sortDesc = ref(false)
@@ -636,7 +905,7 @@ function syncScrollFromTable() {
   }
 }
 
-watch([rows, visibleColumns], () => {
+watch([rows, visibleColumns, orderedVisibleColumns, columnWidths], () => {
   nextTick(updateTableScrollWidth)
 }, { deep: true })
 
@@ -1234,30 +1503,44 @@ function qtyProgressClass(row: any) {
   return 'qty-progress-none'
 }
 
-function statusColorClass(status: string | null | undefined) {
-  if (isInShopCountdown(status) || status === 'In Shop') return 'status-warning'
-  switch (status) {
-    case 'Ship to Warehouse':
-    case 'Completed': return 'status-success'
-    case 'Payment Done': return 'status-info'
-    case 'Waiting For Shipment':
-    case 'Document Added':
-    case 'PO Sent':
-    case 'Waiting For Payment':
-    case 'Under Contract':
-    case 'Sourcing': return 'status-warning'
-    case 'Cancelled': return 'status-error'
-    default: return 'status-grey'
-  }
+/**
+ * One hue per status (as "r, g, b"). The row is a light tint of it and the status select a
+ * stronger tint, so a row always matches its status. Red is kept for rows with no supplier.
+ */
+const STATUS_COLORS: Record<string, string> = {
+  'Not Started': '189, 189, 189',
+  'Sourcing': '0, 188, 212',
+  'EndUser': '255, 152, 0',
+  'In Shop': '205, 220, 57',
+  'Received in Warehouse': '121, 85, 72',
+  'Waiting For Supplier Documents': '156, 39, 176',
+  'Waiting For PR': '103, 58, 183',
+  'Waiting For Payment': '233, 30, 99',
+  'PR Rejected': '255, 87, 34',
+  'Payment Done': '63, 81, 181',
+  'Waiting For Shipment': '33, 150, 243',
+  'Ship to Warehouse': '0, 150, 136',
+  'Waiting for Expert Approval Shipment': '255, 213, 0',
+  'Completed': '76, 175, 80',
+  'Returned': '96, 125, 139',
+  'Cancelled': '33, 33, 33',
+}
+const NO_SUPPLIER_RGB = '244, 67, 54'
+const STATUS_COLORS_BY_NAME = new Map(Object.entries(STATUS_COLORS).map(([name, rgb]) => [name.toLowerCase(), rgb]))
+
+function statusRgb(status: string | null | undefined) {
+  if (isInShopCountdown(status)) return STATUS_COLORS['In Shop']
+  return STATUS_COLORS_BY_NAME.get((status || '').trim().toLowerCase()) ?? STATUS_COLORS['Not Started']
 }
 
-function rowStatusClass(status: string | null | undefined) {
-  switch ((status || '').trim().toLowerCase()) {
-    case 'enduser': return 'tpn-row-end-user'
-    case 'payment done': return 'tpn-row-payment-done'
-    case 'waiting for expert approval shipment': return 'tpn-row-expert-shipment'
-    default: return ''
-  }
+const statusLegend = Object.entries(STATUS_COLORS).map(([name, rgb]) => ({ name, rgb }))
+
+function isNoSupplier(row: any) {
+  return row.supplier === 'No Supplier'
+}
+
+function rowColorStyle(row: any) {
+  return { '--tpn-row-rgb': isNoSupplier(row) ? NO_SUPPLIER_RGB : statusRgb(row.status) }
 }
 
 function isInShopCountdown(status: string | null | undefined) {
@@ -1449,7 +1732,9 @@ function exportCsv() {
     { key: 'note', label: 'NOTE 02', value: (r) => r.note }
   ]
 
-  const activeCols = columnsMap.filter(c => visibleColumns.value.includes(c.key))
+  const activeCols = orderedVisibleColumns.value
+    .map(key => columnsMap.find(c => c.key === key))
+    .filter((c): c is (typeof columnsMap)[number] => !!c)
   activeCols.forEach(c => headers.push(c.label))
 
   const esc = (v: any) => {
@@ -1475,7 +1760,7 @@ function exportCsv() {
 }
 
 function exportExcel() {
-  const activeColumns = ALL_COLUMNS.filter(column => visibleColumns.value.includes(column.key))
+  const activeColumns = orderedColumns.value.filter(column => visibleColumns.value.includes(column.key))
   const exportRows = filteredRows.value.map((row, index) => {
     const result: Record<string, unknown> = { '#': index + 1 }
     for (const column of activeColumns) {
@@ -1545,6 +1830,54 @@ onMounted(async () => {
   z-index: 4;
 }
 
+/* Movable, resizable headers: the right edge is the resize grip. */
+.tpn-table thead th[data-col] {
+  cursor: grab;
+}
+
+.tpn-table thead th[data-col]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.tpn-table thead th[data-col]:hover::after {
+  background: rgba(var(--v-theme-primary), 0.35);
+}
+
+.tpn-table thead th.tpn-dragging {
+  opacity: 0.45;
+}
+
+.tpn-table thead th.tpn-drop-before {
+  box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary)) !important;
+}
+
+.tpn-table thead th.tpn-drop-after {
+  box-shadow: inset -3px 0 0 rgb(var(--v-theme-primary)) !important;
+}
+
+.menu-drag-handle {
+  cursor: grab;
+  opacity: 0.5;
+}
+
+.menu-dragging {
+  opacity: 0.45;
+}
+
+.menu-drop-before {
+  box-shadow: inset 0 2px 0 rgb(var(--v-theme-primary));
+}
+
+.menu-drop-after {
+  box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
+}
+
 /* A selected Excel-style filter makes its whole header easy to spot. */
 .tpn-table thead th:has(.tpn-filter-active) {
   background-color: rgb(var(--v-theme-primary) / 0.14) !important;
@@ -1595,37 +1928,45 @@ onMounted(async () => {
   background: rgba(var(--v-theme-primary), 0.04);
 }
 
+/* Each row is tinted with its status color (--tpn-row-rgb); rows with no supplier use red. */
+.tpn-table tbody tr.tpn-status-row {
+  background: rgba(var(--tpn-row-rgb), 0.14);
+}
+
+.tpn-table tbody tr.tpn-status-row:hover {
+  background: rgba(var(--tpn-row-rgb), 0.24);
+}
+
 .tpn-table tbody tr.missing-supplier-row {
-  background: rgba(244, 67, 54, 0.14);
+  background: rgba(var(--tpn-row-rgb), 0.2);
 }
 
 .tpn-table tbody tr.missing-supplier-row:hover {
-  background: rgba(244, 67, 54, 0.22);
+  background: rgba(var(--tpn-row-rgb), 0.3);
 }
 
-/* Workflow highlights take priority over the generic missing-supplier color. */
-.tpn-table tbody tr.tpn-row-end-user {
-  background: rgba(255, 152, 0, 0.18);
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 12px 4px;
 }
 
-.tpn-table tbody tr.tpn-row-end-user:hover {
-  background: rgba(255, 152, 0, 0.28);
+.status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+  white-space: nowrap;
 }
 
-.tpn-table tbody tr.tpn-row-payment-done {
-  background: rgba(76, 175, 80, 0.17);
-}
-
-.tpn-table tbody tr.tpn-row-payment-done:hover {
-  background: rgba(76, 175, 80, 0.27);
-}
-
-.tpn-table tbody tr.tpn-row-expert-shipment {
-  background: rgba(255, 213, 0, 0.22);
-}
-
-.tpn-table tbody tr.tpn-row-expert-shipment:hover {
-  background: rgba(255, 213, 0, 0.32);
+.status-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: rgba(var(--tpn-row-rgb), 0.35);
+  box-shadow: inset 0 0 0 1px rgba(var(--tpn-row-rgb), 0.9);
 }
 
 .tpn-th-inner {
@@ -1718,11 +2059,12 @@ onMounted(async () => {
   background: rgba(var(--v-theme-surface), 1);
 }
 
-.status-success { background: rgba(76, 175, 80, 0.12); color: rgb(var(--v-theme-success)); font-weight: 700; }
-.status-info    { background: rgba(33, 150, 243, 0.12); color: rgb(var(--v-theme-info));    font-weight: 700; }
-.status-warning { background: rgba(255, 152, 0, 0.12);  color: rgb(var(--v-theme-warning)); font-weight: 700; }
-.status-error   { background: rgba(244, 67, 54, 0.12);  color: rgb(var(--v-theme-error));   font-weight: 700; }
-.status-grey    { color: rgba(var(--v-theme-on-surface), 0.6); }
+/* The status select uses the row's color, a step stronger, with a solid edge. */
+.status-colored {
+  background: rgba(var(--tpn-row-rgb), 0.3);
+  border-left: 3px solid rgb(var(--tpn-row-rgb));
+  font-weight: 700;
+}
 
 .hover-underline:hover { text-decoration: underline !important; }
 
@@ -1764,5 +2106,14 @@ onMounted(async () => {
 
 .sortable-th:hover {
   color: rgb(var(--v-theme-primary));
+}
+</style>
+
+<style>
+/* While a Total Project column is being resized the pointer stays a resize cursor everywhere. */
+body.tpn-resizing,
+body.tpn-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 </style>

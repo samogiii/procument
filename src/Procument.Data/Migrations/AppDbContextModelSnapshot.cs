@@ -1768,13 +1768,23 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<long?>("SupplierCreditAccountId")
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyPresetId");
 
                     b.HasIndex("POId");
 
-                    b.ToTable("PaymentRequests", (string)null);
+                    b.HasIndex("SupplierCreditAccountId")
+                        .HasDatabaseName("IX_PaymentRequests_SupplierCreditAccountId")
+                        .HasFilter("[SupplierCreditAccountId] IS NOT NULL");
+
+                    b.ToTable("PaymentRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PaymentRequests_PoOrCreditLine", "[POId] IS NULL OR [SupplierCreditAccountId] IS NULL");
+                        });
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ProcumentRecord", b =>
@@ -3703,6 +3713,240 @@ namespace Procument.Data.Migrations
                     b.ToTable("QuoteItems", (string)null);
                 });
 
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditAccount", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Balance")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<long>("CompanyPresetId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("CreditLimit")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)")
+                        .HasDefaultValue("USD");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Prepaid");
+
+                    b.Property<DateTime?>("ModifyAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<long>("SupplierId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyPresetId")
+                        .HasDatabaseName("IX_SupplierCreditAccounts_CompanyPresetId");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("CompanyPresetId"), new[] { "Balance" });
+
+                    b.HasIndex("SupplierId", "CompanyPresetId", "Currency", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SupplierCreditAccounts_Supplier_Company_Currency_Kind");
+
+                    b.ToTable("SupplierCreditAccounts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SupplierCreditAccounts_Balance", "[Balance] >= 0");
+
+                            t.HasCheckConstraint("CK_SupplierCreditAccounts_Kind", "([Kind] = 'Prepaid' AND [CreditLimit] IS NULL) OR ([Kind] = 'CreditLine' AND [CreditLimit] IS NOT NULL AND [Balance] <= [CreditLimit])");
+                        });
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditDocument", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<long>("EntryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("UploadedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EntryId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("SupplierCreditDocuments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SupplierCreditDocuments_Category", "[Category] IN ('SupplierPI','CreditMemo','Other')");
+                        });
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AccountId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("BalanceAfter")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CreditMemo")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long?>("PaymentRequestId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PaymentTransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PurchaseOrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long?>("ReversesEntryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SourcePoReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<long?>("SourcePurchaseOrderId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("PaymentRequestId")
+                        .HasDatabaseName("IX_SupplierCreditEntries_PaymentRequestId")
+                        .HasFilter("[PaymentRequestId] IS NOT NULL");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("PaymentRequestId"), new[] { "Direction", "Amount" });
+
+                    b.HasIndex("PaymentTransactionId")
+                        .HasDatabaseName("IX_SupplierCreditEntries_PaymentTransactionId")
+                        .HasFilter("[PaymentTransactionId] IS NOT NULL");
+
+                    b.HasIndex("PurchaseOrderId")
+                        .HasDatabaseName("IX_SupplierCreditEntries_PurchaseOrderId")
+                        .HasFilter("[PurchaseOrderId] IS NOT NULL");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SupplierCreditEntries_RequestId");
+
+                    b.HasIndex("ReversesEntryId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SupplierCreditEntries_ReversesEntryId")
+                        .HasFilter("[ReversesEntryId] IS NOT NULL");
+
+                    b.HasIndex("SourcePurchaseOrderId")
+                        .HasDatabaseName("IX_SupplierCreditEntries_SourcePurchaseOrderId")
+                        .HasFilter("[SourcePurchaseOrderId] IS NOT NULL");
+
+                    b.HasIndex("AccountId", "CreatedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_SupplierCreditEntries_Account_CreatedAt");
+
+                    b.ToTable("SupplierCreditEntries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_Amount", "[Amount] > 0");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_Application", "[Source] <> 'POApplication' OR ([Direction] = 'Out' AND [PurchaseOrderId] IS NOT NULL AND [PaymentRequestId] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_BalanceAfter", "[BalanceAfter] >= 0");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_Direction", "[Direction] IN ('In','Out')");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_PaymentRequestOnlyOnApplications", "[PaymentRequestId] IS NULL OR [Source] IN ('POApplication','Reversal')");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_Reversal", "([Source] = 'Reversal' AND [ReversesEntryId] IS NOT NULL) OR ([Source] <> 'Reversal' AND [ReversesEntryId] IS NULL)");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_Source", "[Source] IN ('CreditNote','WalletTopUp','POApplication','Adjustment','Reversal','CreditLimit','Repayment')");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_SourcePo", "[SourcePurchaseOrderId] IS NULL OR [SourcePoReference] IS NULL");
+
+                            t.HasCheckConstraint("CK_SupplierCreditEntries_TopUp", "[Source] NOT IN ('WalletTopUp','Repayment') OR [PaymentTransactionId] IS NOT NULL");
+                        });
+                });
+
             modelBuilder.Entity("Procument.Module.Sales.Entities.WalletTransferPending", b =>
                 {
                     b.Property<long>("Id")
@@ -4577,6 +4821,11 @@ namespace Procument.Data.Migrations
                         .HasForeignKey("POId")
                         .OnDelete(DeleteBehavior.Cascade);
 
+                    b.HasOne("Procument.Module.Sales.Entities.SupplierCreditAccount", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierCreditAccountId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.Navigation("CompanyPreset");
 
                     b.Navigation("PO");
@@ -5182,6 +5431,96 @@ namespace Procument.Data.Migrations
                     b.Navigation("RFQItem");
                 });
 
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditAccount", b =>
+                {
+                    b.HasOne("Procument.Module.Catalog.Entities.CompanyPreset", "CompanyPreset")
+                        .WithMany()
+                        .HasForeignKey("CompanyPresetId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Catalog.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CompanyPreset");
+
+                    b.Navigation("Supplier");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditDocument", b =>
+                {
+                    b.HasOne("Procument.Module.Sales.Entities.SupplierCreditEntry", "Entry")
+                        .WithMany("Documents")
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Entry");
+
+                    b.Navigation("UploadedBy");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditEntry", b =>
+                {
+                    b.HasOne("Procument.Module.Sales.Entities.SupplierCreditAccount", "Account")
+                        .WithMany("Entries")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.PaymentRequest", "PaymentRequest")
+                        .WithMany()
+                        .HasForeignKey("PaymentRequestId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentTransaction", "PaymentTransaction")
+                        .WithMany()
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Sales.Entities.SupplierCreditEntry", "ReversesEntry")
+                        .WithMany()
+                        .HasForeignKey("ReversesEntryId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Purchasing.Entities.PurchaseOrder", "SourcePurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("SourcePurchaseOrderId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Account");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("PaymentRequest");
+
+                    b.Navigation("PaymentTransaction");
+
+                    b.Navigation("PurchaseOrder");
+
+                    b.Navigation("ReversesEntry");
+
+                    b.Navigation("SourcePurchaseOrder");
+                });
+
             modelBuilder.Entity("Procument.Module.Sales.Entities.WalletTransferPending", b =>
                 {
                     b.HasOne("Procument.Module.Sales.Entities.PaymentBox", "FromBox")
@@ -5373,6 +5712,16 @@ namespace Procument.Data.Migrations
             modelBuilder.Entity("Procument.Module.Sales.Entities.QuoteItem", b =>
                 {
                     b.Navigation("InvoiceItems");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditAccount", b =>
+                {
+                    b.Navigation("Entries");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditEntry", b =>
+                {
+                    b.Navigation("Documents");
                 });
 #pragma warning restore 612, 618
         }

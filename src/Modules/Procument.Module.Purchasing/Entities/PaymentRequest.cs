@@ -16,6 +16,11 @@ namespace Procument.Module.Purchasing.Entities
         public decimal? PendingPaymentAmount { get; set; }
         public decimal? PendingExchangeRate { get; set; }
         public Guid? PendingUploadId { get; set; }
+        /// <summary>
+        /// Set on a credit-line repayment (then POId is null): the Supplier Credits account being paid
+        /// back. A plain id — the account lives in the Sales module; the FK is configured in AppDbContext.
+        /// </summary>
+        public long? SupplierCreditAccountId { get; set; }
         public virtual PurchaseOrder? PO { get; set; }
         public virtual CompanyPreset? CompanyPreset { get; set; }
     }

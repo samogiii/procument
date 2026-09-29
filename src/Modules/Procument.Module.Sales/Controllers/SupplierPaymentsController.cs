@@ -14,6 +14,14 @@ namespace Procument.Module.Sales.Controllers;
 
 public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long WalletId, decimal Amount, decimal? ExchangeRate, decimal? WireFee);
 public record FinalizeSupplierPaymentRequest(decimal FinalWalletAmount);
+/// <summary>
+/// One row of a PO's supplier payment history. Id is the wallet transaction (null for credit rows);
+/// RowKey is unique across both kinds and is what the UI should key on.
+/// </summary>
+public record SupplierPaymentHistoryRow(
+    string RowKey, long? Id, long? CreditEntryId, long? PaymentRequestId, long? PrNumber,
+    decimal Amount, string WalletName, string WalletCurrency, decimal WalletAmount,
+    string? PopFileName, DateTime CreatedAt, string Category, string? Notes);
 
 [ApiController]
 [Route("api/supplier-payments")]
@@ -27,25 +35,48 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
     public async Task<IActionResult> Wallets() => Ok(await wallets.GetSimpleListAsync());
 
     [HttpGet("po/{poId:long}")]
-    public async Task<IActionResult> History(long poId) => Ok(await db.Set<PaymentTransaction>()
-        .Where(t => t.PaymentRequest!.POId == poId && t.Type == "Withdraw"
-            && (t.ToType == "Supplier" || t.ToType == "BankFee"))
-        .OrderByDescending(t => t.CreatedAt)
-        .Select(t => new
-        {
-            t.Id,
-            t.PaymentRequestId,
-            PrNumber = t.PaymentRequest!.PRId,
-            t.Amount,
-            WalletName = t.PaymentBox.Name,
-            WalletCurrency = t.PaymentBox.Currency,
-            WalletAmount = t.Amount * (t.ExchangeRate ?? 1m),
-            t.PopFileName,
-            t.CreatedAt,
-            Category = t.ToType == "BankFee" ? "Bank Fee and Others" : "Supplier Payment",
-            t.Notes,
-        })
-        .ToListAsync());
+    public async Task<IActionResult> History(long poId)
+    {
+        var wallet = await db.Set<PaymentTransaction>()
+            .Where(t => t.PaymentRequest!.POId == poId && t.Type == "Withdraw"
+                && (t.ToType == "Supplier" || t.ToType == "BankFee"))
+            .Select(t => new SupplierPaymentHistoryRow(
+                $"tx-{t.Id}",
+                t.Id,
+                null,
+                t.PaymentRequestId,
+                t.PaymentRequest!.PRId,
+                t.Amount,
+                t.PaymentBox.Name,
+                t.PaymentBox.Currency,
+                t.Amount * (t.ExchangeRate ?? 1m),
+                t.PopFileName,
+                t.CreatedAt,
+                t.ToType == "BankFee" ? "Bank Fee and Others" : "Supplier Payment",
+                t.Notes))
+            .ToListAsync();
+
+        // Credit applications pay the PO without a wallet; reversals are shown as negative rows.
+        var credit = await SupplierPaymentLedger.CreditApplications(db)
+            .Where(e => e.PaymentRequest!.POId == poId)
+            .Select(e => new SupplierPaymentHistoryRow(
+                $"credit-{e.Id}",
+                null,
+                e.Id,
+                e.PaymentRequestId,
+                e.PaymentRequest!.PRId,
+                e.Direction == SupplierCreditDirections.Out ? e.Amount : -e.Amount,
+                "Credit · " + e.Account.CompanyPreset.Name,
+                e.Account.Currency,
+                e.Direction == SupplierCreditDirections.Out ? e.Amount : -e.Amount,
+                null,
+                e.CreatedAt,
+                e.Source == SupplierCreditSources.Reversal ? "Supplier Credit Reversal" : "Supplier Credit",
+                e.Notes))
+            .ToListAsync();
+
+        return Ok(wallet.Concat(credit).OrderByDescending(r => r.CreatedAt).ToList());
+    }
 
     [HttpGet("po/{poId:long}/draft")]
     public async Task<IActionResult> Draft(long poId)
@@ -125,10 +156,9 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             }
 
             var poTotal = SupplierPaymentAmounts.Total(po);
-            var payments = db.Set<PaymentTransaction>().Where(t => t.PaymentRequest!.POId == poId
-                && t.Type == "Withdraw" && t.ToType == "Supplier");
-            var poPaid = await payments.SumAsync(t => t.Amount);
-            var prPaid = await payments.Where(t => t.PaymentRequestId == request.PaymentRequestId).SumAsync(t => t.Amount);
+            // Wallet payments + supplier credit applied, so credit is never paid a second time.
+            var poPaid = await SupplierPaymentLedger.PaidByPoAsync(db, poId);
+            var prPaid = await SupplierPaymentLedger.PaidByPrAsync(db, request.PaymentRequestId);
             var otherAllocated = await db.Set<PaymentRequest>()
                 .Where(p => p.POId == poId && p.Id != pr.Id)
                 .SumAsync(p => p.Amount ?? 0);
@@ -266,31 +296,18 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 });
             }
 
-            var poTotal = SupplierPaymentAmounts.Total(po);
-            var supplierPayments = db.Set<PaymentTransaction>().Where(t => t.PaymentRequest!.POId == poId
-                && t.Type == "Withdraw" && t.ToType == "Supplier");
-            var poPaid = await supplierPayments.SumAsync(t => t.Amount);
-            var prPaid = await supplierPayments.Where(t => t.PaymentRequestId == pr.Id).SumAsync(t => t.Amount);
-            pr.Status = prPaid >= (pr.Amount ?? poTotal) ? "PAID" : "PARTIALLY PAID";
             pr.PendingWalletId = null;
             pr.PendingPaymentAmount = null;
             pr.PendingExchangeRate = null;
             pr.PendingUploadId = null;
-
-            var complete = poPaid >= poTotal;
-            po.PaymentStatus = complete ? "Submitted" : "PartiallyPaid";
-            if (complete)
-            {
-                po.PaymentSubmittedAt = DateTime.UtcNow;
-                po.PaymentSubmittedBy = long.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var userId) ? userId : null;
-                await PurchaseOrderStatusFlow.ApplyAsync(db, po, PurchaseOrderStatusFlow.PaymentDone);
-            }
+            var userId = long.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var parsedUserId) ? parsedUserId : (long?)null;
+            var progress = await SupplierPaymentCompletion.ApplyAsync(db, po, pr, userId);
 
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
             return Ok(new { initialWalletAmount, finalWalletAmount = request.FinalWalletAmount, bankFee,
-                walletCurrency = wallet.Currency, paidAmount = poPaid, remainingAmount = Math.Max(0, poTotal - poPaid),
-                complete, status = po.PaymentStatus });
+                walletCurrency = wallet.Currency, paidAmount = progress.PoPaid, remainingAmount = progress.PoRemaining,
+                complete = progress.Complete, status = po.PaymentStatus });
         });
     }
 }

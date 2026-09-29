@@ -37,6 +37,9 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     taskManager:     [],
     totalPnMenu:     [],
     ourInventoryMenu:[],
+    supplierCredits: [],
+    internalShipping:[],
+    externalShipping:[],
 }
 
 /**
@@ -132,6 +135,23 @@ export const useAuthStore = defineStore('auth', {
         totalPnMenu():       boolean { return (this as any).isSuperAdmin || this.can('totalPnMenu') },
         /** Our Inventory module — our own stock, Stock POs and receiving. */
         ourInventoryMenu(): boolean { return (this as any).isSuperAdmin || this.can('ourInventoryMenu') },
+        /**
+         * Supplier Credits — granted per user in Menu Access, but only for the roles the API
+         * serves (/api/supplier-credits: SuperAdmin, Admin, Payment, AHM).
+         */
+        supplierCredits(): boolean {
+            if ((this as any).isSuperAdmin) return true
+            return this.can('supplierCredits') && ['Admin', 'Payment', 'AHM'].includes((this as any).user?.role ?? '')
+        },
+
+        /**
+         * Internal Shipping (Base 1) / External Shipping (Base 2+) menus. Granted per user
+         * in Menu Access — no role grants them and SuperAdmin does NOT bypass.
+         */
+        internalShipping: (state): boolean =>
+            !!state.user?.name && (state.featurePermissions.internalShipping ?? []).includes(state.user.name),
+        externalShipping: (state): boolean =>
+            !!state.user?.name && (state.featurePermissions.externalShipping ?? []).includes(state.user.name),
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'

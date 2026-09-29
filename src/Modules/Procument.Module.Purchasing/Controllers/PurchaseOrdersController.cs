@@ -24,14 +24,16 @@ public class PurchaseOrdersController : ControllerBase
     private readonly IFinalInvoiceLockGuard _lockGuard;
     private readonly IPaymentLedgerService _paymentLedgerService;
     private readonly INotificationService _notifications;
+    private readonly IPurchaseOrderCompanyService _companyService;
 
-    public PurchaseOrdersController(IPurchaseOrderService poService, DbContext db, IFinalInvoiceLockGuard lockGuard, IPaymentLedgerService paymentLedgerService, INotificationService notifications)
+    public PurchaseOrdersController(IPurchaseOrderService poService, DbContext db, IFinalInvoiceLockGuard lockGuard, IPaymentLedgerService paymentLedgerService, INotificationService notifications, IPurchaseOrderCompanyService companyService)
     {
         _poService = poService;
         _db = db;
         _lockGuard = lockGuard;
         _paymentLedgerService = paymentLedgerService;
         _notifications = notifications;
+        _companyService = companyService;
     }
 
     /// <summary>Get all purchase orders (paginated). Non-admins see only POs assigned to them via EntityPermission("PO").</summary>
@@ -106,6 +108,44 @@ public class PurchaseOrdersController : ControllerBase
         var result = await _poService.GetByIdAsync(id);
         if (result == null) return NotFound();
         await FillCompanyPresetAsync(result);
+        await FillCanChangeCompanyAsync(result);
+        return Ok(result);
+    }
+
+    private async Task FillCanChangeCompanyAsync(POResponse result)
+    {
+        var po = await _db.Set<PurchaseOrder>().AsNoTracking().FirstAsync(p => p.Id == result.Id);
+        result.ChangeCompanyBlockedReason = await _lockGuard.IsPurchaseOrderLocked(result.Id)
+            ? "This PO is locked because a Final Invoice has been created."
+            : await _companyService.GetChangeBlockedReasonAsync(po);
+        result.CanChangeCompany = result.ChangeCompanyBlockedReason == null;
+    }
+
+    /// <summary>
+    /// Change the buying company of a PO before anything is paid on it — e.g. to use the supplier
+    /// credit another of our companies holds. The PO/PR PDFs re-brand to the new company.
+    /// </summary>
+    [HttpPatch("{id:long}/company-preset")]
+    [Authorize(Roles = "SuperAdmin,Admin,AHM")]
+    [Auditable("PurchaseOrder", "ChangeCompany", CaptureBody = true)]
+    public async Task<ActionResult<POResponse>> ChangeCompany(long id, [FromBody] ChangePOCompanyRequest request)
+    {
+        var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
+        if (!await CanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)) return Forbid();
+        if (await _lockGuard.IsPurchaseOrderLocked(id))
+            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+
+        try
+        {
+            await _companyService.ChangeCompanyAsync(id, request.CompanyPresetId, request.DestinationWarehouseId);
+        }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+
+        var result = await _poService.GetByIdAsync(id);
+        if (result == null) return NotFound();
+        await FillCompanyPresetAsync(result);
+        await FillCanChangeCompanyAsync(result);
         return Ok(result);
     }
 

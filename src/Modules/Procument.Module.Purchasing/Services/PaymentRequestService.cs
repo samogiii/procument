@@ -47,6 +47,7 @@ public class PaymentRequestService : IPaymentRequestService
         // Batch the per-row lookups (paid amount + preset name) into one query each
         // instead of two round trips per payment request.
         var paidById = await _ledger.GetSupplierPaidAmountsAsync(prs.Select(p => p.Id));
+        var creditById = await _ledger.GetCreditAppliedAmountsAsync(prs.Select(p => p.Id));
         var presetIds = prs.Where(p => p.CompanyPresetId.HasValue).Select(p => p.CompanyPresetId!.Value).Distinct().ToArray();
         var presetNames = await _db.Set<CompanyPreset>().AsNoTracking()
             .Where(p => presetIds.Contains(p.Id))
@@ -55,7 +56,7 @@ public class PaymentRequestService : IPaymentRequestService
         var responses = new List<PaymentRequestResponse>(prs.Count);
         foreach (var pr in prs)
         {
-            responses.Add(await MapToResponse(pr, paidById, presetNames));
+            responses.Add(await MapToResponse(pr, paidById, presetNames, creditById));
         }
         return responses;
     }
@@ -101,6 +102,7 @@ public class PaymentRequestService : IPaymentRequestService
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var pr = await _db.Set<PaymentRequest>().Include(p => p.PO).ThenInclude(p => p.ImportDetail)
             .FirstOrDefaultAsync(p => p.Id == id) ?? throw new ArgumentException("Payment request not found.");
+        EnsureNotCreditLineRepayment(pr);
         SetWireFee(pr.PO!, wireFee);
         var total = SupplierPaymentAmounts.Total(pr.PO!);
         var allocated = await _db.Set<PaymentRequest>().Where(p => p.POId == pr.POId && p.Id != id)
@@ -112,6 +114,16 @@ public class PaymentRequestService : IPaymentRequestService
         await transaction.CommitAsync();
         return await GetByIdAsync(id);
         });
+    }
+
+    /// <summary>
+    /// A credit-line repayment is a payment request without a PO (Supplier Credits E10). Its amount,
+    /// status and lifetime belong to the Supplier Credits repayment flow, not to these PO endpoints.
+    /// </summary>
+    private static void EnsureNotCreditLineRepayment(PaymentRequest pr)
+    {
+        if (pr.SupplierCreditAccountId.HasValue)
+            throw new ArgumentException("This payment request pays back a supplier credit line. Manage it on Supplier Credits → Credit lines.");
     }
 
     private void SetWireFee(PurchaseOrder po, decimal? wireFee)
@@ -139,6 +151,7 @@ public class PaymentRequestService : IPaymentRequestService
     {
         var pr = await _db.Set<PaymentRequest>().Include(p => p.PO).FirstOrDefaultAsync(p => p.Id == id);
         if (pr == null) return false;
+        EnsureNotCreditLineRepayment(pr);
 
         pr.Status = status;
         await _db.SaveChangesAsync();
@@ -149,9 +162,12 @@ public class PaymentRequestService : IPaymentRequestService
     {
         var pr = await _db.Set<PaymentRequest>().Include(p => p.PO).FirstOrDefaultAsync(p => p.Id == id);
         if (pr == null) return false;
+        EnsureNotCreditLineRepayment(pr);
 
         if ((await _ledger.GetSupplierPaidAmountsAsync(new[] { id })).GetValueOrDefault(id) > 0)
             throw new ArgumentException("A payment request with recorded payments cannot be deleted.");
+        if (await _ledger.HasSupplierCreditHistoryAsync(id))
+            throw new ArgumentException("Supplier credit was applied to this payment request (and later reversed); its credit history keeps it, so it cannot be deleted.");
         _db.Set<PaymentRequest>().Remove(pr);
         if (pr.PO != null && pr.PO.Status == PurchaseOrderStatusFlow.PrRejected)
         {
@@ -173,7 +189,8 @@ public class PaymentRequestService : IPaymentRequestService
     private async Task<PaymentRequestResponse> MapToResponse(
         PaymentRequest pr,
         IReadOnlyDictionary<long, decimal>? paidById = null,
-        IReadOnlyDictionary<long, string>? presetNames = null)
+        IReadOnlyDictionary<long, string>? presetNames = null,
+        IReadOnlyDictionary<long, decimal>? creditById = null)
     {
         var po = pr.PO;
         if (po == null)
@@ -223,6 +240,9 @@ public class PaymentRequestService : IPaymentRequestService
             response.PaidAmount = paidById != null
                 ? paidById.GetValueOrDefault(pr.Id)
                 : (await _ledger.GetSupplierPaidAmountsAsync(new[] { pr.Id })).GetValueOrDefault(pr.Id);
+            response.CreditApplied = creditById != null
+                ? creditById.GetValueOrDefault(pr.Id)
+                : (await _ledger.GetCreditAppliedAmountsAsync(new[] { pr.Id })).GetValueOrDefault(pr.Id);
             response.CompanyPayingTo = po.Supplier?.Name;
             response.AccountNumber = po.ImportDetail?.BankAccountNumber;
             response.BankName = po.ImportDetail?.BankName;

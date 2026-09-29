@@ -109,6 +109,9 @@ const FEATURE_LABELS: Record<string, string> = {
   taskManager:     'Task Manager',
   totalPnMenu:     'Total Project Menu',
   ourInventoryMenu:'Our Inventory',
+  supplierCredits: 'Supplier Credits',
+  internalShipping:'Internal Shipping (Base 1)',
+  externalShipping:'External Shipping (Base 2+)',
 }
 
 const FEATURE_ICONS: Record<string, string> = {
@@ -129,6 +132,9 @@ const FEATURE_ICONS: Record<string, string> = {
   taskManager:     'mdi-view-list',
   totalPnMenu:     'mdi-table-large',
   ourInventoryMenu:'mdi-warehouse',
+  supplierCredits: 'mdi-cash-refund',
+  internalShipping:'mdi-truck-delivery-outline',
+  externalShipping:'mdi-earth',
 }
 
 function featureLabel(f: string) { return FEATURE_LABELS[f] ?? f }

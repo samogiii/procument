@@ -520,15 +520,17 @@ public class TotalPNService : ITotalPNService
     public async Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
     {
         var iiSet = _db.Set<InvoiceItem>()
+            .AsNoTracking()
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
             .Include(i => i.Invoice).ThenInclude(inv => inv.Quote)
             .Include(i => i.QuoteItem).ThenInclude(qi => qi!.ProcumentRecord).ThenInclude(pr => pr!.Supplier)
             .Include(i => i.QuoteItem).ThenInclude(qi => qi!.RFQItem).ThenInclude(ri => ri!.RFQ);
 
-        var piSet = _db.Set<ProcurementItem>().Include(p => p.CurrentSupplier);
+        var piSet = _db.Set<ProcurementItem>().AsNoTracking().Include(p => p.CurrentSupplier);
 
         // Only POItems that have at least one track number
         var poiSet = _db.Set<POItem>()
+            .AsNoTracking()
             .Where(x => x.ReturnedAt == null && x.TrackNumbers.Any())
             .Include(p => p.PurchaseOrder).ThenInclude(po => po!.Supplier)
             .Include(p => p.PartNumber)
@@ -580,6 +582,7 @@ public class TotalPNService : ITotalPNService
         var totalCount = await baseQuery.CountAsync();
 
         var pageItems = await baseQuery
+            .AsSplitQuery()
             .OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id)
             .ApplyPaging(page)
             .ToListAsync();
@@ -614,6 +617,7 @@ public class TotalPNService : ITotalPNService
                 PONumber = po?.PONumber,
                 PORef = poi.PORef,
                 Customer = customer?.CustomerCode,
+                CustomerBase = customer?.Base,
                 InvoiceId = invoice.Id,
                 CustomerInvoiceNumber = invoice.InvoiceNumber,
                 Supplier = supplierName,

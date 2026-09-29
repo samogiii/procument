@@ -54,6 +54,9 @@ public class AppDbContext : DbContext
   public DbSet<PaymentBox> PaymentBoxes => Set<PaymentBox>();
   public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
   public DbSet<WalletTransferPending> WalletTransferPendings => Set<WalletTransferPending>();
+  public DbSet<SupplierCreditAccount> SupplierCreditAccounts => Set<SupplierCreditAccount>();
+  public DbSet<SupplierCreditEntry> SupplierCreditEntries => Set<SupplierCreditEntry>();
+  public DbSet<SupplierCreditDocument> SupplierCreditDocuments => Set<SupplierCreditDocument>();
 
   // Purchasing
   public DbSet<ProcumentRecord> ProcumentRecords => Set<ProcumentRecord>();
@@ -1252,7 +1255,19 @@ public class AppDbContext : DbContext
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
+      // Supplier Credits E10: a credit-line repayment is a payment request without a PO.
+      // Purchasing cannot reference the Sales entity, so the FK is declared from here only.
+      entity.HasOne<SupplierCreditAccount>().WithMany()
+                .HasForeignKey(e => e.SupplierCreditAccountId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.NoAction);
+      entity.ToTable(t => t.HasCheckConstraint("CK_PaymentRequests_PoOrCreditLine",
+                "[POId] IS NULL OR [SupplierCreditAccountId] IS NULL"));
+
       entity.HasIndex(e => e.POId);
+      entity.HasIndex(e => e.SupplierCreditAccountId)
+                .HasFilter("[SupplierCreditAccountId] IS NOT NULL")
+                .HasDatabaseName("IX_PaymentRequests_SupplierCreditAccountId");
     });
 
     modelBuilder.Entity<PaymentBox>(entity =>
@@ -1357,6 +1372,133 @@ public class AppDbContext : DbContext
 
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.CreatedAt);
+    });
+
+    // ─── Supplier Credits: one account per (Supplier, Company, Currency) + append-only ledger ───
+    modelBuilder.Entity<SupplierCreditAccount>(entity =>
+    {
+      entity.ToTable("SupplierCreditAccounts", t =>
+      {
+        t.HasCheckConstraint("CK_SupplierCreditAccounts_Balance", "[Balance] >= 0");
+        // Prepaid: no limit. Credit line: a limit, and never more available than the limit
+        // (Balance >= 0 above already means "cannot spend more than the limit").
+        t.HasCheckConstraint("CK_SupplierCreditAccounts_Kind",
+          "([Kind] = 'Prepaid' AND [CreditLimit] IS NULL) OR ([Kind] = 'CreditLine' AND [CreditLimit] IS NOT NULL AND [Balance] <= [CreditLimit])");
+      });
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Currency).HasMaxLength(3).HasDefaultValue("USD").IsRequired();
+      entity.Property(e => e.Balance).HasColumnType("decimal(18,2)").HasDefaultValue(0m);
+      entity.Property(e => e.Kind).HasMaxLength(20).HasDefaultValue("Prepaid").IsRequired();
+      entity.Property(e => e.CreditLimit).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.RowVersion).IsRowVersion();
+      entity.Ignore(e => e.Owed);
+
+      entity.HasOne(e => e.Supplier).WithMany()
+            .HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.CompanyPreset).WithMany()
+            .HasForeignKey(e => e.CompanyPresetId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasMany(e => e.Entries).WithOne(x => x.Account)
+            .HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.NoAction);
+
+      // One prepaid account and one credit line per supplier × company × currency.
+      entity.HasIndex(e => new { e.SupplierId, e.CompanyPresetId, e.Currency, e.Kind })
+            .IsUnique()
+            .HasDatabaseName("UX_SupplierCreditAccounts_Supplier_Company_Currency_Kind");
+      entity.HasIndex(e => e.CompanyPresetId)
+            .IncludeProperties(e => e.Balance)
+            .HasDatabaseName("IX_SupplierCreditAccounts_CompanyPresetId");
+    });
+
+    modelBuilder.Entity<SupplierCreditEntry>(entity =>
+    {
+      entity.ToTable("SupplierCreditEntries", t =>
+      {
+        t.HasCheckConstraint("CK_SupplierCreditEntries_Amount", "[Amount] > 0");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_BalanceAfter", "[BalanceAfter] >= 0");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_Direction", "[Direction] IN ('In','Out')");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_Source",
+          "[Source] IN ('CreditNote','WalletTopUp','POApplication','Adjustment','Reversal','CreditLimit','Repayment')");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_Application",
+          "[Source] <> 'POApplication' OR ([Direction] = 'Out' AND [PurchaseOrderId] IS NOT NULL AND [PaymentRequestId] IS NOT NULL)");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_Reversal",
+          "([Source] = 'Reversal' AND [ReversesEntryId] IS NOT NULL) OR ([Source] <> 'Reversal' AND [ReversesEntryId] IS NULL)");
+        t.HasCheckConstraint("CK_SupplierCreditEntries_TopUp",
+          "[Source] NOT IN ('WalletTopUp','Repayment') OR [PaymentTransactionId] IS NOT NULL");
+        // The single "paid on a PO" rule counts every entry that has a PaymentRequestId, so only PO
+        // applications and their reversals may carry one (a repayment links its PR via the wallet row).
+        t.HasCheckConstraint("CK_SupplierCreditEntries_PaymentRequestOnlyOnApplications",
+          "[PaymentRequestId] IS NULL OR [Source] IN ('POApplication','Reversal')");
+        // A credit's origin is either one of our POs or free text, never both.
+        t.HasCheckConstraint("CK_SupplierCreditEntries_SourcePo",
+          "[SourcePurchaseOrderId] IS NULL OR [SourcePoReference] IS NULL");
+      });
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Direction).HasMaxLength(3).IsRequired();
+      entity.Property(e => e.Source).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BalanceAfter).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.SourcePoReference).HasMaxLength(100);
+      entity.Property(e => e.CreditMemo).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(500);
+
+      // NoAction everywhere: ledger rows are financial history and must block deletes.
+      entity.HasOne(e => e.PurchaseOrder).WithMany()
+            .HasForeignKey(e => e.PurchaseOrderId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.PaymentRequest).WithMany()
+            .HasForeignKey(e => e.PaymentRequestId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.PaymentTransaction).WithMany()
+            .HasForeignKey(e => e.PaymentTransactionId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.ReversesEntry).WithMany()
+            .HasForeignKey(e => e.ReversesEntryId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.CreatedBy).WithMany()
+            .HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.SourcePurchaseOrder).WithMany()
+            .HasForeignKey(e => e.SourcePurchaseOrderId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasMany(e => e.Documents).WithOne(d => d.Entry)
+            .HasForeignKey(d => d.EntryId).OnDelete(DeleteBehavior.NoAction);
+
+      entity.HasIndex(e => new { e.AccountId, e.CreatedAt, e.Id })
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_SupplierCreditEntries_Account_CreatedAt");
+      // Keeps the "credit applied per PR" sum used by every paid-amount query cheap.
+      entity.HasIndex(e => e.PaymentRequestId)
+            .IncludeProperties(e => new { e.Direction, e.Amount })
+            .HasFilter("[PaymentRequestId] IS NOT NULL")
+            .HasDatabaseName("IX_SupplierCreditEntries_PaymentRequestId");
+      entity.HasIndex(e => e.PurchaseOrderId)
+            .HasFilter("[PurchaseOrderId] IS NOT NULL")
+            .HasDatabaseName("IX_SupplierCreditEntries_PurchaseOrderId");
+      entity.HasIndex(e => e.PaymentTransactionId)
+            .HasFilter("[PaymentTransactionId] IS NOT NULL")
+            .HasDatabaseName("IX_SupplierCreditEntries_PaymentTransactionId");
+      // An entry can be reversed at most once.
+      entity.HasIndex(e => e.ReversesEntryId)
+            .IsUnique()
+            .HasFilter("[ReversesEntryId] IS NOT NULL")
+            .HasDatabaseName("UX_SupplierCreditEntries_ReversesEntryId");
+      entity.HasIndex(e => e.RequestId)
+            .IsUnique()
+            .HasDatabaseName("UX_SupplierCreditEntries_RequestId");
+      entity.HasIndex(e => e.CreatedByUserId);
+      entity.HasIndex(e => e.SourcePurchaseOrderId)
+            .HasFilter("[SourcePurchaseOrderId] IS NOT NULL")
+            .HasDatabaseName("IX_SupplierCreditEntries_SourcePurchaseOrderId");
+    });
+
+    modelBuilder.Entity<SupplierCreditDocument>(entity =>
+    {
+      entity.ToTable("SupplierCreditDocuments", t =>
+      {
+        t.HasCheckConstraint("CK_SupplierCreditDocuments_Category", "[Category] IN ('SupplierPI','CreditMemo','Other')");
+      });
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Category).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.FileName).HasMaxLength(260).IsRequired();
+      entity.Property(e => e.OriginalFileName).HasMaxLength(260).IsRequired();
+      entity.HasOne(e => e.UploadedBy).WithMany()
+            .HasForeignKey(e => e.UploadedByUserId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasIndex(e => e.EntryId);
+      entity.HasIndex(e => e.UploadedByUserId);
     });
 
     modelBuilder.Entity<ILSItem>(entity =>

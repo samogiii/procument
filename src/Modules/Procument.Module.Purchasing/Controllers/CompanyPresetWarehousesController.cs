@@ -11,7 +11,9 @@ namespace Procument.Module.Purchasing.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/companypresets/{presetId:long}/warehouses")]
-[Authorize(Roles = "Admin,SuperAdmin,Expert,Inventory")]
+// AHM may change a PO's buying company and must then pick one of the new company's warehouses.
+// Link/unlink below keep their own Admin/SuperAdmin-only attributes, so this widens reading only.
+[Authorize(Roles = "Admin,SuperAdmin,Expert,Inventory,AHM")]
 public class CompanyPresetWarehousesController : ControllerBase
 {
     private readonly IWarehouseService _warehouseService;

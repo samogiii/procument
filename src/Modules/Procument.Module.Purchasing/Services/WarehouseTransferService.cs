@@ -299,7 +299,13 @@ public class WarehouseTransferService : IWarehouseTransferService
             query = query.Where(t => t.Status == status);
 
         var transfers = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
-        return transfers.Select(MapTransfer).ToList();
+        var result = transfers.Select(MapTransfer).ToList();
+
+        var lines = result.SelectMany(t => t.Items).ToList();
+        var bases = await ShippingCustomerBases.LoadAsync(_db, lines.Select(i => i.POItemId));
+        foreach (var line in lines)
+            line.CustomerBase = bases.GetValueOrDefault(line.POItemId);
+        return result;
     }
 
     public async Task<WarehouseTransferResponse?> GetByIdAsync(long id)
@@ -310,6 +316,7 @@ public class WarehouseTransferService : IWarehouseTransferService
 
     private IQueryable<WarehouseTransfer> BaseQuery() => _db.Set<WarehouseTransfer>()
         .AsNoTracking()
+        .AsSplitQuery()
         .Include(t => t.FromWarehouse)
         .Include(t => t.ToWarehouse)
         .Include(t => t.CreatedBy)

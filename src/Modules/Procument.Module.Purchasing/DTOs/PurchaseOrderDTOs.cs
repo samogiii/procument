@@ -73,6 +73,9 @@ public class POResponse
     /// <summary>The company placing this PO, independent of payment wallets.</summary>
     public long? CompanyPresetId { get; set; }
     public string? CompanyPresetName { get; set; }
+    /// <summary>Filled on GET /purchase-orders/{id}: whether the buying company may still change (nothing paid yet).</summary>
+    public bool CanChangeCompany { get; set; }
+    public string? ChangeCompanyBlockedReason { get; set; }
     public long? DestinationWarehouseId { get; set; }
     public string? DestinationWarehouseName { get; set; }
     public string? SupplierPIRef { get; set; }
@@ -95,6 +98,14 @@ public class UpdatePOTotalsRequest
 public class UpdatePOSubjectRequest
 {
     public string? Subject { get; set; }
+}
+
+/// <summary>Move a PO to another of our companies (allowed until the first payment or credit).</summary>
+public class ChangePOCompanyRequest
+{
+    public long CompanyPresetId { get; set; }
+    /// <summary>Required when the current destination warehouse is not linked to the new company.</summary>
+    public long? DestinationWarehouseId { get; set; }
 }
 
 public class UpdateAdminApprovalRequest
@@ -311,6 +322,7 @@ public class TotalPNRowResponse
     /// <summary>Users assigned to the Proforma Invoice; falls back to RFQ assignments when the invoice has none.</summary>
     public List<string> Experts { get; set; } = [];
     public string? Customer { get; set; }              // Invoice.Customer.Name
+    public int? CustomerBase { get; set; }             // Invoice.Customer.Base — Internal/External shipping split
     public string? Supplier { get; set; }              // resolved supplier name
     public string? PartNumber { get; set; }            // POItem.PartNumber.Name
     public string? Description { get; set; }           // POItem.PartNumber.Description

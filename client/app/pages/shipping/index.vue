@@ -2,8 +2,11 @@
   <div>
     <div class="d-flex align-center gap-3 mb-6">
       <div>
-        <h1 class="text-h5 font-weight-bold">Shipping</h1>
-        <p class="text-caption text-medium-emphasis mt-1">Track numbers arriving at your warehouse(s)</p>
+        <h1 class="text-h5 font-weight-bold">
+          Shipping
+          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
+        </h1>
+        <p class="text-caption text-medium-emphasis mt-1">Track numbers on their way to your warehouse(s)</p>
       </div>
       <v-spacer />
       <v-btn
@@ -23,7 +26,7 @@
 
     <div v-if="!loading && grouped.length === 0" class="text-center pa-12 text-medium-emphasis">
       <v-icon icon="mdi-truck-check-outline" size="64" color="grey" class="mb-3" />
-      <p>No track numbers assigned to your warehouse(s) yet.</p>
+      <p>No track numbers waiting to arrive at your warehouse(s).</p>
     </div>
 
     <v-card v-else>
@@ -193,10 +196,15 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ layout: 'default' })
+definePageMeta({
+  layout: 'default',
+  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
+  key: route => route.path,
+})
 
 const api = useApi()
 const router = useRouter()
+const { scope, scopeTitle, inScope, link } = useShippingScope()
 
 // Parts and Review Status hold arrays, and Shipping Status lives on `worstStatus`,
 // so those three sort through sortRaw on the row rather than on the column key.
@@ -269,10 +277,19 @@ function trackStatusColor(status: string) {
   return map[status] ?? 'default'
 }
 
+// Once a track is received in the warehouse it has left this page's job, so only tracks
+// still on their way (or rejected on arrival) are listed. The scope then keeps the
+// Internal / External Shipping split.
+const pendingTracks = computed(() =>
+  tracks.value.filter(t =>
+    (statusRank[t.status] ?? 0) < statusRank['Received in Warehouse']!
+    && inScope(t.customerBase)),
+)
+
 // Group tracks that share the same trackNumber + carrier + warehouseId
 const grouped = computed(() => {
   const map = new Map<string, any>()
-  for (const t of tracks.value) {
+  for (const t of pendingTracks.value) {
     const key = `${t.trackNumber}||${t.carrier ?? ''}||${t.warehouseId ?? ''}`
     if (!map.has(key)) {
       map.set(key, {
@@ -326,7 +343,7 @@ const grouped = computed(() => {
 
 // ── Excel-style column filters ────────────────────────────────────────────────
 
-const colFilter = useColFilterPersisted('shipping')
+const colFilter = useColFilterPersisted(scope.value ? `shipping-${scope.value}` : 'shipping')
 
 function uniq(vals: string[]) {
   return [...new Set(vals)].sort((a, b) => a.localeCompare(b))
@@ -365,13 +382,13 @@ function clearFilters() {
 }
 
 function goToGroup(group: any) {
-  router.push(`/shipping/track-numbers/${group.primaryId}`)
+  router.push(link(`/shipping/track-numbers/${group.primaryId}`))
 }
 
 async function loadTracks() {
   loading.value = true
   try {
-    tracks.value = await api.get('/shipping/track-numbers')
+    tracks.value = await api.get('/shipping/track-numbers?pendingOnly=true')
   } catch {
     notify('Failed to load tracks', 'error')
   } finally {

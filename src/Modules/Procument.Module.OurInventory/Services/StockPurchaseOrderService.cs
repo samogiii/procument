@@ -338,10 +338,18 @@ public sealed class StockPurchaseOrderService(
                 command.Parameters.Add(parameter);
                 names.Add(parameter.ParameterName);
             }
-            command.CommandText = $@"SELECT pr.POId, SUM(t.Amount) FROM PaymentTransactions t
-                INNER JOIN PaymentRequests pr ON pr.Id = t.PaymentRequestId
-                WHERE t.Type = 'Withdraw' AND t.ToType = 'Supplier' AND pr.POId IN ({string.Join(",", names)})
-                GROUP BY pr.POId";
+            // Paid = wallet payments + net supplier credit applied (mirrors Sales' SupplierPaymentLedger).
+            var poIds = string.Join(",", names);
+            command.CommandText = $@"SELECT paid.POId, SUM(paid.Amount) FROM (
+                    SELECT pr.POId, t.Amount FROM PaymentTransactions t
+                    INNER JOIN PaymentRequests pr ON pr.Id = t.PaymentRequestId
+                    WHERE t.Type = 'Withdraw' AND t.ToType = 'Supplier' AND pr.POId IN ({poIds})
+                    UNION ALL
+                    SELECT pr.POId, CASE e.Direction WHEN 'Out' THEN e.Amount ELSE -e.Amount END FROM SupplierCreditEntries e
+                    INNER JOIN PaymentRequests pr ON pr.Id = e.PaymentRequestId
+                    WHERE pr.POId IN ({poIds})
+                ) paid
+                GROUP BY paid.POId";
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
                 paid[reader.GetInt64(0)] = reader.IsDBNull(1) ? 0 : reader.GetDecimal(1);

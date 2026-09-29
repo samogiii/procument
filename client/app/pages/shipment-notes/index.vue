@@ -2,7 +2,10 @@
   <div>
     <div class="d-flex align-center gap-3 mb-6">
       <div>
-        <h1 class="text-h5 font-weight-bold">Shipping Number</h1>
+        <h1 class="text-h5 font-weight-bold">
+          Shipping Number
+          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
+        </h1>
         <p class="text-caption text-medium-emphasis mt-1">SN# records for received shipments</p>
       </div>
     </div>
@@ -30,9 +33,9 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════ -->
-    <!-- SYD / Expert view: T-ID tree                                  -->
+    <!-- SYD / Expert view: T-ID tree (External has no T-ID → flat table) -->
     <!-- ══════════════════════════════════════════════════════════════ -->
-    <template v-if="authStore.isExpert">
+    <template v-if="authStore.isExpert && !isExternal">
       <v-progress-linear v-if="loading" indeterminate color="deep-purple" class="mb-4" />
 
       <!-- Search -->
@@ -230,7 +233,7 @@
         <v-data-table
           v-model:expanded="expanded"
           :headers="headers"
-          :items="notes"
+          :items="scopedNotes"
           :loading="loading"
           item-value="id"
           show-expand
@@ -351,11 +354,13 @@
                   </v-card>
 
                   <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="160">
-                    <div class="text-caption font-weight-bold text-medium-emphasis mb-1">T-ID / SO# / DESTINATION</div>
+                    <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ isExternal ? 'DESTINATION' : 'T-ID / SO# / DESTINATION' }}</div>
                     <div class="d-flex align-center gap-2">
                       <div class="flex-grow-1">
-                        <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
-                        <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                        <template v-if="!isExternal">
+                          <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
+                          <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
+                        </template>
                         <div><span class="text-caption text-medium-emphasis">Dest: </span><span class="text-body-2">{{ item.destination || '—' }}</span></div>
                       </div>
                       <v-btn v-if="authStore.isAdmin" icon="mdi-pencil" size="x-small" variant="text" color="primary" @click="openEditTId(item)" />
@@ -517,27 +522,29 @@
       <v-card>
         <v-card-title class="text-h6 pa-4 pb-2">
           <v-icon icon="mdi-identifier" class="mr-2" color="primary" />
-          Edit T-ID / SO# / Destination
+          {{ isExternal ? 'Edit Destination' : 'Edit T-ID / SO# / Destination' }}
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-4">
-          <v-text-field
-            v-model="editTIdValue"
-            label="T-ID"
-            variant="outlined"
-            density="compact"
-            prepend-inner-icon="mdi-identifier"
-            class="mb-3"
-            autofocus
-          />
-          <v-text-field
-            v-model="editSONumberValue"
-            label="SO#"
-            variant="outlined"
-            density="compact"
-            prepend-inner-icon="mdi-file-document-outline"
-            class="mb-3"
-          />
+          <template v-if="!isExternal">
+            <v-text-field
+              v-model="editTIdValue"
+              label="T-ID"
+              variant="outlined"
+              density="compact"
+              prepend-inner-icon="mdi-identifier"
+              class="mb-3"
+              autofocus
+            />
+            <v-text-field
+              v-model="editSONumberValue"
+              label="SO#"
+              variant="outlined"
+              density="compact"
+              prepend-inner-icon="mdi-file-document-outline"
+              class="mb-3"
+            />
+          </template>
           <v-combobox
             v-model="editDestinationValue"
             :items="warehouses"
@@ -725,18 +732,23 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ layout: 'default' })
+definePageMeta({
+  layout: 'default',
+  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
+  key: route => route.path,
+})
 
 const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
 const docPreview = useDocPreview()
+const { isExternal, scopeTitle, inScope, noteInScope } = useShippingScope()
 
 // SYD (Expert) gets the same status-advance and customs controls as admins
 const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
 
 // ── Headers (Admin / Inventory flat table) ───────────────────────────────────
-const headers = [
+const allHeaders = [
   { title: 'SN#', key: 'snNumber', sortable: true },
   { title: 'Type', key: 'type', sortable: false },
   { title: 'Warehouse', key: 'warehouseName', sortable: false },
@@ -749,6 +761,10 @@ const headers = [
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
   { title: '', key: 'data-table-expand' },
 ]
+// External shipments carry no T-ID / SO#.
+const headers = computed(() =>
+  isExternal.value ? allHeaders.filter(h => h.key !== 'tId' && h.key !== 'soNumber') : allHeaders,
+)
 
 function statusColor(status: string) {
   const map: Record<string, string> = {
@@ -772,6 +788,8 @@ function nextAdminStatus(item: any): string | null {
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const notes = ref<any[]>([])
+// Internal / External Shipping split; the original page shows every note.
+const scopedNotes = computed(() => notes.value.filter(noteInScope))
 const warehouses = ref<any[]>([])
 const loading = ref(false)
 const expanded = ref<any[]>([])
@@ -783,7 +801,7 @@ const openTids = ref<string[]>([])
 
 const tidGroups = computed(() => {
   const map = new Map<string, any>()
-  for (const sn of notes.value) {
+  for (const sn of scopedNotes.value) {
     const key = sn.tId || '__no_tid__'
     if (!map.has(key)) {
       map.set(key, { tId: sn.tId || '', notes: [], statusSummary: [] })
@@ -992,7 +1010,10 @@ async function openAddTrack(item: any) {
   selectedTrackId.value = null
   addTrackDialog.value = true
   tracksLoading.value = true
-  try { availableTracks.value = await api.get('/shipping/track-numbers') }
+  try {
+    const tracks: any[] = await api.get('/shipping/track-numbers')
+    availableTracks.value = tracks.filter(t => inScope(t.customerBase))
+  }
   finally { tracksLoading.value = false }
 }
 
