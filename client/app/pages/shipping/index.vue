@@ -2,10 +2,7 @@
   <div>
     <div class="d-flex align-center gap-3 mb-6">
       <div>
-        <h1 class="text-h5 font-weight-bold">
-          Shipping
-          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
-        </h1>
+        <h1 class="text-h5 font-weight-bold">Shipping</h1>
         <p class="text-caption text-medium-emphasis mt-1">Track numbers on their way to your warehouse(s)</p>
       </div>
       <v-spacer />
@@ -196,15 +193,10 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({
-  layout: 'default',
-  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
-  key: route => route.path,
-})
+definePageMeta({ layout: 'default' })
 
 const api = useApi()
 const router = useRouter()
-const { scope, scopeTitle, inScope, link } = useShippingScope()
 
 // Parts and Review Status hold arrays, and Shipping Status lives on `worstStatus`,
 // so those three sort through sortRaw on the row rather than on the column key.
@@ -278,12 +270,10 @@ function trackStatusColor(status: string) {
 }
 
 // Once a track is received in the warehouse it has left this page's job, so only tracks
-// still on their way (or rejected on arrival) are listed. The scope then keeps the
-// Internal / External Shipping split.
+// still on their way (or rejected on arrival) are listed. The API already limits the list
+// to the customer bases granted to the user.
 const pendingTracks = computed(() =>
-  tracks.value.filter(t =>
-    (statusRank[t.status] ?? 0) < statusRank['Received in Warehouse']!
-    && inScope(t.customerBase)),
+  tracks.value.filter(t => (statusRank[t.status] ?? 0) < statusRank['Received in Warehouse']!),
 )
 
 // Group tracks that share the same trackNumber + carrier + warehouseId
@@ -343,7 +333,7 @@ const grouped = computed(() => {
 
 // ── Excel-style column filters ────────────────────────────────────────────────
 
-const colFilter = useColFilterPersisted(scope.value ? `shipping-${scope.value}` : 'shipping')
+const colFilter = useColFilterPersisted('shipping')
 
 function uniq(vals: string[]) {
   return [...new Set(vals)].sort((a, b) => a.localeCompare(b))
@@ -382,7 +372,7 @@ function clearFilters() {
 }
 
 function goToGroup(group: any) {
-  router.push(link(`/shipping/track-numbers/${group.primaryId}`))
+  router.push(`/shipping/track-numbers/${group.primaryId}`)
 }
 
 async function loadTracks() {

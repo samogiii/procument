@@ -170,7 +170,7 @@
 
     <!-- Priority & Notes Row -->
     <v-row class="mb-5" dense>
-      <v-col cols="12" md="6" v-if="rfq.notes || isAdmin">
+      <v-col cols="12" :md="isAdmin ? 4 : 6" v-if="rfq.notes || isAdmin">
         <v-card class="info-card pa-4">
           <div class="d-flex align-center gap-3">
             <v-avatar color="info" variant="tonal" size="40">
@@ -191,7 +191,41 @@
           </div>
         </v-card>
       </v-col>
-      <v-col cols="12" md="6" v-if="rfq.customerTermsAndConditions || isAdmin">
+      <v-col cols="12" md="4" v-if="isAdmin">
+        <v-card class="info-card pa-4 h-100">
+          <div class="d-flex align-center gap-3">
+            <v-avatar color="primary" variant="tonal" size="40">
+              <v-icon icon="mdi-email-outline" size="20" />
+            </v-avatar>
+            <div class="flex-grow-1" style="min-width:0;">
+              <div class="d-flex align-center justify-space-between w-100">
+                <p class="text-caption text-medium-emphasis mb-0">Sender Mail Of RFQ</p>
+                <div class="d-flex align-center gap-2">
+                  <v-btn v-if="!isEditingSenderMail" size="x-small" variant="text" prepend-icon="mdi-pencil" @click="editSenderMail">Edit</v-btn>
+                  <v-btn v-if="isEditingSenderMail" size="x-small" color="primary" variant="tonal" prepend-icon="mdi-check" @click="saveSenderMail" :loading="isSavingSenderMail" :disabled="!senderMailValid">Save</v-btn>
+                  <v-btn v-if="isEditingSenderMail" size="x-small" color="error" variant="text" prepend-icon="mdi-close" @click="isEditingSenderMail = false">Cancel</v-btn>
+                </div>
+              </div>
+              <p class="text-body-2 font-weight-medium mb-0 text-truncate" v-if="!isEditingSenderMail">{{ rfq.senderMail || '—' }}</p>
+              <v-text-field
+                v-else
+                v-model="editingSenderMailValue"
+                type="email"
+                density="compact"
+                variant="outlined"
+                class="mt-2"
+                placeholder="Address the customer sent this RFQ from"
+                :error="!senderMailValid"
+                :hide-details="senderMailValid"
+                :error-messages="senderMailValid ? [] : ['Enter a valid email address']"
+                clearable
+                @keyup.enter="saveSenderMail"
+              />
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+      <v-col cols="12" :md="isAdmin ? 4 : 6" v-if="rfq.customerTermsAndConditions || isAdmin">
         <v-card class="info-card pa-4 h-100">
           <div class="d-flex align-center gap-3">
             <v-avatar color="warning" variant="tonal" size="40">
@@ -2062,6 +2096,36 @@ async function changeExType(newType: number) {
     showSnack('ExType updated', 'success')
   } catch {
     showSnack('Failed to update ExType', 'error')
+  }
+}
+
+// ──── Edit RFQ Sender Mail ────
+const isEditingSenderMail = ref(false)
+const isSavingSenderMail = ref(false)
+const editingSenderMailValue = ref('')
+const senderMailValid = computed(() => {
+  const v = (editingSenderMailValue.value || '').trim()
+  return !v || /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(v)
+})
+
+function editSenderMail() {
+  editingSenderMailValue.value = rfq.value.senderMail || ''
+  isEditingSenderMail.value = true
+}
+
+async function saveSenderMail() {
+  if (!senderMailValid.value) return
+  const value = (editingSenderMailValue.value || '').trim() || null
+  isSavingSenderMail.value = true
+  try {
+    await api.patch(`/rfqs/${route.params.id}/sender-mail`, { senderMail: value })
+    rfq.value.senderMail = value
+    showSnack('Sender Mail updated successfully', 'success')
+    isEditingSenderMail.value = false
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Failed to update Sender Mail', 'error')
+  } finally {
+    isSavingSenderMail.value = false
   }
 }
 

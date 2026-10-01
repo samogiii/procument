@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
 
@@ -17,15 +18,18 @@ public class WarehouseTransfersController : ControllerBase
     private readonly IWarehouseTransferService _service;
     private readonly IWarehouseService _warehouseService;
     private readonly IShippingService _shippingService;
+    private readonly DbContext _db;
 
     public WarehouseTransfersController(
         IWarehouseTransferService service,
         IWarehouseService warehouseService,
-        IShippingService shippingService)
+        IShippingService shippingService,
+        DbContext db)
     {
         _service = service;
         _warehouseService = warehouseService;
         _shippingService = shippingService;
+        _db = db;
     }
 
     private long GetUserId()
@@ -52,12 +56,15 @@ public class WarehouseTransfersController : ControllerBase
 
     // ── Transfers ─────────────────────────────────────────────────────────
 
-    /// <summary>List transfers, optionally filtered by warehouse (either side) or status.</summary>
+    /// <summary>
+    /// List transfers in the customer bases granted to the user, optionally filtered by
+    /// warehouse (either side) or status.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<List<WarehouseTransferResponse>>> GetAll(
         [FromQuery] long? warehouseId = null,
         [FromQuery] string? status = null)
-        => Ok(await _service.GetAllAsync(warehouseId, status));
+        => Ok(await _service.GetAllAsync(warehouseId, status, await ShippingBaseAccess.LoadAsync(_db, User.Identity?.Name)));
 
     [HttpGet("{id:long}")]
     public async Task<ActionResult<WarehouseTransferResponse>> GetById(long id)

@@ -38,8 +38,12 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     totalPnMenu:     [],
     ourInventoryMenu:[],
     supplierCredits: [],
-    internalShipping:[],
-    externalShipping:[],
+    // Shipping — the customer bases each user sees (see composables/useShippingBases.ts)
+    shippingBase1:   [],
+    shippingBase2:   [],
+    shippingBase3:   [],
+    shippingBase4:   [],
+    shippingBase5:   [],
 }
 
 /**
@@ -145,13 +149,17 @@ export const useAuthStore = defineStore('auth', {
         },
 
         /**
-         * Internal Shipping (Base 1) / External Shipping (Base 2+) menus. Granted per user
-         * in Menu Access — no role grants them and SuperAdmin does NOT bypass.
+         * Shipping — the customer bases (1–5) granted to this user in Menu Access
+         * (shippingBase1 … shippingBase5). No role grants them and SuperAdmin does NOT bypass;
+         * the API filters the shipping lists to the same bases.
          */
-        internalShipping: (state): boolean =>
-            !!state.user?.name && (state.featurePermissions.internalShipping ?? []).includes(state.user.name),
-        externalShipping: (state): boolean =>
-            !!state.user?.name && (state.featurePermissions.externalShipping ?? []).includes(state.user.name),
+        shippingBases: (state): number[] => {
+            const name = state.user?.name
+            if (!name) return []
+            return [1, 2, 3, 4, 5].filter(b => (state.featurePermissions[`shippingBase${b}`] ?? []).includes(name))
+        },
+        /** The Shipping menu shows once at least one base is granted. */
+        shippingAccess(): boolean { return (this as any).shippingBases.length > 0 },
 
         userInitials: (state) => {
             if (!state.user?.name) return '?'

@@ -16,6 +16,8 @@ public class RFQHeader : BaseEntity
     public string? NoQuoteReason { get; set; }
     public string? RejectionNote { get; set; }
     public int? ExType { get; set; }
+    /// <summary>Address the customer sent this RFQ from. Quote emails go To this address, with the customer's primary email in CC.</summary>
+    public string? SenderMail { get; set; }
 
     // Foreign keys
     public long CustomerId { get; set; }

@@ -20,12 +20,12 @@ namespace Procument.OurInventory.Tests;
 public sealed class TotalProjectTests(StockDatabaseFixture fx)
 {
     private async Task<(long PoItemId, long InvoiceItemId, long ProcurementItemId, string PoNumber, long PartId, string PartNumber)> CustomerLineAsync(
-        int qty, bool fromStock = false)
+        int qty, bool fromStock = false, int? customerBase = null)
     {
         var part = await fx.NewPartAsync();
         await using var s = fx.Scope();
         var db = s.ServiceProvider.GetRequiredService<AppDbContext>();
-        var customer = new Customer { Name = $"Cust-{Guid.NewGuid():N}"[..12], CustomerCode = $"C-{Guid.NewGuid():N}"[..8] };
+        var customer = new Customer { Name = $"Cust-{Guid.NewGuid():N}"[..12], CustomerCode = $"C-{Guid.NewGuid():N}"[..8], Base = customerBase };
         var rfq = new RFQHeader { Name = $"RFQ-{Guid.NewGuid():N}"[..12], Customer = customer, UserId = fx.UserId, LeadTime = DateTime.UtcNow.AddDays(5), ReceivedDate = DateTime.UtcNow };
         var rfqItem = new RFQItem { RFQ = rfq, PartNumberId = part.Id, Qty = qty, Condition = "NE" };
         var record = new ProcumentRecord { RFQItem = rfqItem, SupplierId = fx.SupplierId, Qty = qty, Price = 10, Condition = "NE" };
@@ -67,6 +67,29 @@ public sealed class TotalProjectTests(StockDatabaseFixture fx)
         List<string>? poNumbers = null, List<string>? customers = null, List<string>? invoiceNumbers = null, int page = 1, int pageSize = -1)
         => service.GetAsync(new PageQuery { Page = page, PageSize = pageSize }, fx.UserId, isAdmin: true, isSuperAdmin: true,
             customers: customers, invoiceNumbers: invoiceNumbers, poNumbers: poNumbers, origin: origin);
+
+    [SkippableFact]
+    public async Task Base_filter_limits_total_project_rows_and_cascading_options()
+    {
+        fx.RequireDatabase();
+        var baseOne = await CustomerLineAsync(1, customerBase: 1);
+        var baseTwo = await CustomerLineAsync(1, customerBase: 2);
+        await using var s = fx.Scope();
+        var service = s.ServiceProvider.GetRequiredService<ITotalPNService>();
+        var poNumbers = new List<string> { baseOne.PoNumber, baseTwo.PoNumber };
+
+        var rows = await service.GetAsync(new PageQuery { Page = 1, PageSize = 1 }, fx.UserId,
+            isAdmin: true, isSuperAdmin: true, bases: [1], poNumbers: poNumbers, origin: TotalPNOrigins.All);
+        Assert.Equal(1, rows.TotalCount);
+        Assert.Equal((baseOne.PoNumber, 1), (Assert.Single(rows.Items).PONumber, rows.Items[0].CustomerBase));
+
+        var options = await service.GetFilterOptionsAsync(fx.UserId, true, true, null,
+            bases: [1], poNumbers: poNumbers, origin: TotalPNOrigins.All);
+        Assert.Contains(baseOne.PoNumber, options.PoNumbers);
+        Assert.DoesNotContain(baseTwo.PoNumber, options.PoNumbers);
+        Assert.Contains(1, options.Bases);
+        Assert.Contains(2, options.Bases);
+    }
 
     [SkippableFact]
     public async Task Stock_po_lines_are_listed_with_received_progress_and_filtered_like_other_rows()

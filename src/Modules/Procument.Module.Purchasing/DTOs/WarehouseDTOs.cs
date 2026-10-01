@@ -115,7 +115,7 @@ public class ShippingTrackResponse
     /// <summary>Supplier the parent PO buys from — shown on the Shipping list.</summary>
     public string? SupplierName { get; set; }
     public string? PartNumberName { get; set; }
-    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    /// <summary>Customer.Base of the RFQ behind the PO line — Shipping shows only the bases granted to the user; Base 1 carries T-ID / SO#.</summary>
     public int? CustomerBase { get; set; }
     /// <summary>Original ordered quantity from the PO item — used as the default Expected Qty.</summary>
     public int PoItemQty { get; set; }
@@ -151,7 +151,7 @@ public class ReadyForSnItemResponse
     public long? CustomerId { get; set; }
     public string? CustomerName { get; set; }
     public string? CustomerCode { get; set; }
-    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    /// <summary>Customer.Base of the RFQ behind the PO line — Shipping shows only the bases granted to the user; Base 1 carries T-ID / SO#.</summary>
     public int? CustomerBase { get; set; }
 }
 
@@ -224,6 +224,17 @@ public class CreateShipmentNoteRequest
     public List<SnItemSelection> Items { get; set; } = new();
 }
 
+/// <summary>
+/// PickUp (Base 2–5): the customer collected these parts at the warehouse and handed over
+/// documents. Sent as multipart/form-data together with the files.
+/// </summary>
+public class CreatePickupRequest
+{
+    public long WarehouseId { get; set; }
+    public List<long> TrackNumberItemIds { get; set; } = new();
+    public string? Note { get; set; }
+}
+
 public class UpdateShipmentNoteRequest
 {
     public string? TId { get; set; }
@@ -251,7 +262,7 @@ public class ShipmentNoteResponse
     public string SNNumber { get; set; } = string.Empty;
     public long WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
-    /// <summary>"CPT" | "DDP"</summary>
+    /// <summary>"CPT" | "DDP" | "PickUp"</summary>
     public string Type { get; set; } = "DDP";
     public string? TId { get; set; }
     public string? SONumber { get; set; }
@@ -265,8 +276,22 @@ public class ShipmentNoteResponse
     public DateTime CreatedAt { get; set; }
     public long CreatedByUserId { get; set; }
     public string? CreatedByName { get; set; }
+    /// <summary>PickUp only — free-text note, e.g. who collected the parts.</summary>
+    public string? PickupNote { get; set; }
     public List<ShipmentNoteTrackResponse> TrackNumbers { get; set; } = new();
     public List<SnBoxResponse> Boxes { get; set; } = new();
+    public List<ShipmentNoteDocumentResponse> Documents { get; set; } = new();
+}
+
+public class ShipmentNoteDocumentResponse
+{
+    public long Id { get; set; }
+    public long ShipmentNoteId { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public string? MimeType { get; set; }
+    public long FileSizeBytes { get; set; }
+    public DateTime UploadedAt { get; set; }
+    public string? UploadedByName { get; set; }
 }
 
 public class ShipmentNoteTrackResponse
@@ -283,7 +308,7 @@ public class ShipmentNoteTrackResponse
     public string? Condition { get; set; }
     public string? CustomerName { get; set; }
     public string? CustomerCode { get; set; }
-    /// <summary>Customer.Base of the RFQ behind the PO line — splits Internal (1) / External (2–5) shipping.</summary>
+    /// <summary>Customer.Base of the RFQ behind the PO line — Shipping shows only the bases granted to the user; Base 1 carries T-ID / SO#.</summary>
     public int? CustomerBase { get; set; }
     public List<ShipmentNoteItemResponse> Items { get; set; } = new();
     /// <summary>Boxes received at the warehouse with this track number (entered by Inventory).</summary>

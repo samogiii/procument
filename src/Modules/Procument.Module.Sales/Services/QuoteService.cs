@@ -820,6 +820,7 @@ public class QuoteService : IQuoteService
             FinalPrice = q.FinalPrice,
             SentAt = q.SentAt,
             RFQExType = q.RFQ?.ExType,
+            RFQSenderMail = q.RFQ?.SenderMail,
             CoefYuan = q.CoefYuan,
             ExchangeRateYuan = q.ExchangeRateYuan,
             Items = q.QuoteItems

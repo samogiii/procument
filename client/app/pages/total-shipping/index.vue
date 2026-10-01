@@ -2,10 +2,7 @@
   <div>
     <div class="d-flex align-center gap-3 mb-4">
       <div>
-        <h1 class="text-h5 font-weight-bold">
-          Shipping Control
-          <v-chip v-if="scopeTitle" size="small" color="primary" variant="tonal" class="ml-2">{{ scopeTitle }}</v-chip>
-        </h1>
+        <h1 class="text-h5 font-weight-bold">Shipping Control</h1>
         <p class="text-caption text-medium-emphasis mt-1">Management of track numbers and shipment notes</p>
       </div>
     </div>
@@ -19,7 +16,7 @@
         <v-icon start icon="mdi-package-variant-closed" />
         Track Numbers
       </v-tab> -->
-      <v-tab value="tid" @click="loadTidGroups" v-if="isSydOrAdmin && !isExternal">
+      <v-tab value="tid" @click="loadTidGroups" v-if="isSydOrAdmin && seesBase1">
         <v-icon start icon="mdi-family-tree" />
         By T-ID
         <v-chip v-if="tidGroups.length" size="x-small" color="primary" variant="tonal" class="ml-2">
@@ -400,9 +397,9 @@
         </div>
 
         <!-- ══════════════════════════════════════════════════════════════ -->
-        <!-- SYD / Expert view: T-ID tree (External has no T-ID → flat table) -->
+        <!-- SYD / Expert view: T-ID tree (Base 1 only — without Base 1 there is no T-ID → flat table) -->
         <!-- ══════════════════════════════════════════════════════════════ -->
-        <template v-if="authStore.isExpert && !isExternal">
+        <template v-if="authStore.isExpert && seesBase1">
           <v-progress-linear v-if="snLoading" indeterminate color="deep-purple" class="mb-4" />
 
           <!-- Search -->
@@ -481,7 +478,7 @@
                     <div class="d-flex align-center gap-2 flex-wrap mb-2">
                       <v-icon icon="mdi-note-text-outline" size="16" color="primary" />
                       <span class="font-weight-bold text-pn">{{ sn.snNumber }}</span>
-                      <v-chip size="x-small" :color="sn.type === 'CPT' ? 'primary' : 'secondary'" variant="tonal">{{ sn.type }}</v-chip>
+                      <v-chip size="x-small" :color="typeColor(sn.type)" variant="tonal">{{ sn.type }}</v-chip>
                       <v-chip size="x-small" :color="snStatusColor(sn.status)" variant="tonal">{{ sn.status }}</v-chip>
                       <v-chip v-if="sn.warehouseName" size="x-small" variant="tonal">
                         <v-icon icon="mdi-home-city-outline" size="10" class="mr-1" />{{ sn.warehouseName }}
@@ -618,7 +615,7 @@
               class="elevation-0"
             >
               <template #item.type="{ item }">
-                <v-chip size="x-small" :color="item.type === 'CPT' ? 'primary' : 'secondary'" variant="tonal">
+                <v-chip size="x-small" :color="typeColor(item.type)" variant="tonal">
                   {{ item.type }}
                 </v-chip>
               </template>
@@ -630,7 +627,7 @@
               </template>
 
               <template #item.tId="{ item }">
-                <div class="d-flex align-center gap-1">
+                <div v-if="noteUsesTidSo(item)" class="d-flex align-center gap-1">
                   <span class="font-weight-medium">{{ item.tId || '—' }}</span>
                   <v-btn
                     v-if="isSydOrAdmin && item.status !== 'Confirmed'"
@@ -641,6 +638,12 @@
                     @click="openEditTId(item)"
                   />
                 </div>
+                <span v-else class="text-medium-emphasis">—</span>
+              </template>
+
+              <template #item.soNumber="{ item }">
+                <span v-if="noteUsesTidSo(item)">{{ item.soNumber || '—' }}</span>
+                <span v-else class="text-medium-emphasis">—</span>
               </template>
 
               <template #item.awbNumber="{ item }">
@@ -728,14 +731,14 @@
                     <div class="d-flex gap-4 flex-wrap mb-3">
                       <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="140">
                         <div class="text-caption font-weight-bold text-medium-emphasis mb-1">TYPE</div>
-                        <v-chip :color="item.type === 'CPT' ? 'primary' : 'secondary'" size="small" variant="tonal">{{ item.type }}</v-chip>
+                        <v-chip :color="typeColor(item.type)" size="small" variant="tonal">{{ item.type }}</v-chip>
                       </v-card>
 
                       <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="160">
-                        <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ isExternal ? 'DESTINATION' : 'T-ID / SO# / DESTINATION' }}</div>
+                        <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ noteUsesTidSo(item) ? 'T-ID / SO# / DESTINATION' : 'DESTINATION' }}</div>
                         <div class="d-flex align-center gap-2">
                           <div class="flex-grow-1">
-                            <template v-if="!isExternal">
+                            <template v-if="noteUsesTidSo(item)">
                               <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
                               <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
                             </template>
@@ -1064,9 +1067,9 @@
                     <span v-else class="text-medium-emphasis">—</span>
                   </td>
                   <td class="font-weight-medium text-pn">{{ row.trackNumbers || '—' }}</td>
-                  <template v-if="!isExternal">
-                    <td>{{ row.soNumber || '—' }}</td>
-                    <td class="font-weight-medium">{{ row.tId || '—' }}</td>
+                  <template v-if="seesBase1">
+                    <td>{{ (baseUsesTidSo(row.customerBase) && row.soNumber) || '—' }}</td>
+                    <td class="font-weight-medium">{{ (baseUsesTidSo(row.customerBase) && row.tId) || '—' }}</td>
                   </template>
                   <td>{{ row.awbNumber || '—' }}</td>
                 </tr>
@@ -1120,11 +1123,11 @@
 
         <v-progress-linear v-if="loadingTransfers" indeterminate color="primary" class="mb-3" />
 
-        <div v-if="!loadingTransfers && scopedTransfers.length === 0" class="text-center text-medium-emphasis pa-8">
+        <div v-if="!loadingTransfers && transfers.length === 0" class="text-center text-medium-emphasis pa-8">
           No warehouse transfers yet.
         </div>
 
-        <v-card v-for="t in scopedTransfers" :key="t.id" variant="outlined" class="mb-3">
+        <v-card v-for="t in transfers" :key="t.id" variant="outlined" class="mb-3">
           <div class="d-flex align-center gap-2 pa-3 flex-wrap">
             <v-icon icon="mdi-transfer" size="18" color="deep-purple" />
             <span class="text-subtitle-2 font-weight-bold">{{ t.transferNumber }}</span>
@@ -1219,10 +1222,10 @@
         <!-- Header + view toggle -->
         <div class="d-flex align-center gap-3 mb-4 flex-wrap">
           <div>
-            <p class="text-caption text-medium-emphasis">Confirmed SN# records — read-only archive</p>
+            <p class="text-caption text-medium-emphasis">Confirmed SN# records and customer Pick Ups — read-only archive</p>
           </div>
           <v-spacer />
-          <v-btn-toggle v-if="!isExternal" v-model="finishedViewMode" mandatory density="compact" variant="tonal" color="success">
+          <v-btn-toggle v-if="seesBase1" v-model="finishedViewMode" mandatory density="compact" variant="tonal" color="success">
             <v-btn value="flat" size="small" prepend-icon="mdi-view-list">Shipping Numbers</v-btn>
             <v-btn value="tid" size="small" prepend-icon="mdi-family-tree">By T-ID</v-btn>
           </v-btn-toggle>
@@ -1247,7 +1250,7 @@
             class="elevation-0"
           >
             <template #item.type="{ item }">
-              <v-chip size="x-small" :color="item.type === 'CPT' ? 'primary' : 'secondary'" variant="tonal">{{ item.type }}</v-chip>
+              <v-chip size="x-small" :color="typeColor(item.type)" variant="tonal">{{ item.type }}</v-chip>
             </template>
             <template #item.status="{ item }">
               <v-chip color="success" size="x-small" variant="tonal">
@@ -1255,7 +1258,12 @@
               </v-chip>
             </template>
             <template #item.tId="{ item }">
-              <span class="font-weight-medium">{{ item.tId || '—' }}</span>
+              <span v-if="noteUsesTidSo(item)" class="font-weight-medium">{{ item.tId || '—' }}</span>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+            <template #item.soNumber="{ item }">
+              <span v-if="noteUsesTidSo(item)">{{ item.soNumber || '—' }}</span>
+              <span v-else class="text-medium-emphasis">—</span>
             </template>
             <template #item.awbNumber="{ item }">
               <span :class="item.awbNumber ? 'font-weight-medium' : 'text-medium-emphasis'">{{ item.awbNumber || '—' }}</span>
@@ -1280,17 +1288,24 @@
                   <div class="d-flex gap-4 flex-wrap mb-3">
                     <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="140">
                       <div class="text-caption font-weight-bold text-medium-emphasis mb-1">TYPE</div>
-                      <v-chip :color="item.type === 'CPT' ? 'primary' : 'secondary'" size="small" variant="tonal">{{ item.type }}</v-chip>
+                      <v-chip :color="typeColor(item.type)" size="small" variant="tonal">{{ item.type }}</v-chip>
                     </v-card>
-                    <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="200">
-                      <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ isExternal ? 'DESTINATION' : 'T-ID / SO# / DESTINATION' }}</div>
-                      <template v-if="!isExternal">
+                    <!-- PickUp: the customer collected the parts — their documents finished the shipping -->
+                    <ShipmentNoteDocuments
+                      v-if="item.type === 'PickUp' || item.documents?.length"
+                      :note="item"
+                      :can-upload="isSydOrAdmin"
+                      @updated="replaceSnNote"
+                    />
+                    <v-card v-if="item.type !== 'PickUp'" variant="outlined" class="pa-3 flex-grow-1" min-width="200">
+                      <div class="text-caption font-weight-bold text-medium-emphasis mb-1">{{ noteUsesTidSo(item) ? 'T-ID / SO# / DESTINATION' : 'DESTINATION' }}</div>
+                      <template v-if="noteUsesTidSo(item)">
                         <div><span class="text-caption text-medium-emphasis">T-ID: </span><span class="font-weight-bold">{{ item.tId || '—' }}</span></div>
                         <div><span class="text-caption text-medium-emphasis">SO#: </span><span class="font-weight-medium">{{ item.soNumber || '—' }}</span></div>
                       </template>
                       <div><span class="text-caption text-medium-emphasis">Dest: </span><span class="text-body-2">{{ item.destination || '—' }}</span></div>
                     </v-card>
-                    <v-card variant="outlined" class="pa-3 flex-grow-1" min-width="160">
+                    <v-card v-if="item.type !== 'PickUp'" variant="outlined" class="pa-3 flex-grow-1" min-width="160">
                       <div class="text-caption font-weight-bold text-medium-emphasis mb-1">LOCAL TRACK#</div>
                       <span class="text-body-1 font-weight-bold">{{ item.awbNumber || '—' }}</span>
                     </v-card>
@@ -1378,7 +1393,7 @@
                     <div class="d-flex align-center gap-2 flex-wrap mb-2">
                       <v-icon icon="mdi-note-text-outline" size="16" color="success" />
                       <span class="font-weight-bold text-pn">{{ sn.snNumber }}</span>
-                      <v-chip size="x-small" :color="sn.type === 'CPT' ? 'primary' : 'secondary'" variant="tonal">{{ sn.type }}</v-chip>
+                      <v-chip size="x-small" :color="typeColor(sn.type)" variant="tonal">{{ sn.type }}</v-chip>
                       <v-chip size="x-small" color="success" variant="tonal">
                         <v-icon start icon="mdi-check-circle-outline" size="11" />{{ sn.status }}
                       </v-chip>
@@ -1791,11 +1806,11 @@
       <v-card>
         <v-card-title class="text-h6 pa-4 pb-2">
           <v-icon icon="mdi-identifier" class="mr-2" color="primary" />
-          {{ isExternal ? 'Edit Destination' : 'Edit T-ID / SO# / Destination' }}
+          {{ editTidSoAllowed ? 'Edit T-ID / SO# / Destination' : 'Edit Destination' }}
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-4">
-          <template v-if="!isExternal">
+          <template v-if="editTidSoAllowed">
             <v-text-field
               v-model="editTIdValue"
               label="T-ID"
@@ -2010,16 +2025,13 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({
-  layout: 'default',
-  // Also served as Internal / External Shipping — routes added in nuxt.config.ts (pages:extend).
-  key: route => route.path,
-})
+definePageMeta({ layout: 'default' })
 
 const api = useApi()
 const config = useRuntimeConfig()
 const authStore = useAuthStore()
-const { scope, isExternal, scopeTitle, inScope, noteInScope } = useShippingScope()
+// Base 1 shipments carry T-ID / SO#; the API returns only the bases granted to the user.
+const { seesBase1 } = useShippingBases()
 const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
 // Warehouse transfers are gated to SuperAdmin and the SYD shipping account —
 // must stay in step with WarehouseTransfersController.IsUnrestricted().
@@ -2287,9 +2299,23 @@ const snFilterWarehouse = ref<number | null>(null)
 const snTidSearch = ref('')
 const snOpenTids = ref<string[]>([])
 
-// External shipments carry no T-ID / SO#.
+// T-ID / SO# belong to Base 1 only — no columns for users who do not work Base 1.
 const withoutTidSo = <T extends { key: string }>(headers: T[]) =>
-  isExternal.value ? headers.filter(h => h.key !== 'tId' && h.key !== 'soNumber') : headers
+  seesBase1.value ? headers : headers.filter(h => h.key !== 'tId' && h.key !== 'soNumber')
+
+function typeColor(type: string) {
+  if (type === 'CPT') return 'primary'
+  if (type === 'PickUp') return 'teal'
+  return 'secondary'
+}
+
+/** A note came back from the API (e.g. after adding documents) — swap it in place. */
+function replaceSnNote(updated: any) {
+  for (const list of [allSnNotes, snNotes, snFinishedNotes]) {
+    const i = list.value.findIndex((n: any) => n.id === updated?.id)
+    if (i >= 0) list.value[i] = updated
+  }
+}
 
 const snHeaders = computed(() => withoutTidSo([
   { title: 'SN#', key: 'snNumber', sortable: true },
@@ -2357,6 +2383,7 @@ watch(snTidGroups, (groups) => {
 
 const editTIdDialog = ref(false)
 const editTIdSnId = ref<number | null>(null)
+const editTidSoAllowed = ref(true)
 const editTIdValue = ref('')
 const editSONumberValue = ref('')
 const editDestinationValue = ref<string | null>(null)
@@ -2427,8 +2454,8 @@ async function loadSnNotes() {
   snLoading.value = true
   try {
     const params = snFilterWarehouse.value ? `?warehouseId=${snFilterWarehouse.value}` : ''
-    // Internal / External Shipping split; the original page shows every note.
-    const all: any[] = (await api.get<any[]>(`/shipment-notes${params}`)).filter(noteInScope)
+    // The API returns only the customer bases granted to the user.
+    const all: any[] = await api.get<any[]>(`/shipment-notes${params}`)
     allSnNotes.value = all
     snNotes.value = all.filter((n: any) => n.status !== 'Confirmed')
     snFinishedNotes.value = all.filter((n: any) => n.status === 'Confirmed')
@@ -2466,6 +2493,7 @@ watch(finishedTidGroups, (groups) => {
 
 function openEditTId(item: any) {
   editTIdSnId.value = item.id
+  editTidSoAllowed.value = noteUsesTidSo(item)
   editTIdValue.value = item.tId || ''
   editSONumberValue.value = item.soNumber || ''
   editDestinationValue.value = item.destination || null
@@ -2477,8 +2505,8 @@ async function saveTId() {
   savingTId.value = true
   try {
     await api.put(`/shipment-notes/${editTIdSnId.value}`, {
-      tId: editTIdValue.value || null,
-      soNumber: editSONumberValue.value || null,
+      tId: editTidSoAllowed.value ? editTIdValue.value || null : null,
+      soNumber: editTidSoAllowed.value ? editSONumberValue.value || null : null,
       destination: editDestinationValue.value || null,
     })
     notify('Saved')
@@ -2549,8 +2577,10 @@ async function openAddTrack(item: any) {
   addTrackDialog.value = true
   tracksLoading.value = true
   try {
+    // Base 1 notes (T-ID / SO#) take Base 1 tracks only, and Base 2–5 notes the rest.
     const tracks: any[] = await api.get('/shipping/track-numbers')
-    availableTracks.value = tracks.filter(t => inScope(t.customerBase))
+    const usesTidSo = noteUsesTidSo(item)
+    availableTracks.value = tracks.filter(t => baseUsesTidSo(t.customerBase) === usesTidSo)
   }
   finally { tracksLoading.value = false }
 }
@@ -2701,12 +2731,13 @@ const ALL_TO_COLUMNS = [
   { key: 'serialNumber',         label: 'SN #',            field: (r: any) => r.serialNumber },
   { key: 'shippingStatus',       label: 'Shipping Status', field: (r: any) => r.shippingStatus },
   { key: 'trackNumbers',         label: 'Track#',          field: (r: any) => r.trackNumbers },
-  { key: 'soNumber',             label: 'SO#',             field: (r: any) => r.soNumber },
-  { key: 'tId',                  label: 'TID',             field: (r: any) => r.tId },
+  // SO# / TID belong to Base 1 only.
+  { key: 'soNumber',             label: 'SO#',             field: (r: any) => baseUsesTidSo(r.customerBase) ? r.soNumber : null },
+  { key: 'tId',                  label: 'TID',             field: (r: any) => baseUsesTidSo(r.customerBase) ? r.tId : null },
   { key: 'awbNumber',            label: 'Local Track#',    field: (r: any) => r.awbNumber },
 ]
-// External shipments carry no SO# / TID. The scope is fixed for the page's lifetime
-// (the page is keyed by path), so a plain snapshot is enough.
+// Users who do not work Base 1 get no SO# / TID columns. Menu permissions are loaded
+// before any page (auth middleware), so a plain snapshot is enough.
 const TO_COLUMNS = withoutTidSo(ALL_TO_COLUMNS)
 
 const toRows = ref<any[]>([])
@@ -2719,7 +2750,7 @@ const toColFilters = reactive<Record<string, Set<string>>>({})
 const toFilterSearch = reactive<Record<string, string>>({})
 
 // ── Total Order localStorage persistence ──
-const TO_STORAGE_KEY = scope.value ? `col-filter-total-order-${scope.value}` : 'col-filter-total-order'
+const TO_STORAGE_KEY = 'col-filter-total-order'
 
 if (import.meta.client) {
   try {
@@ -2874,8 +2905,8 @@ async function loadTotalOrder() {
   try {
     // Load all rows so client-side filters work across the full dataset
     const res = await api.get('/po-items/total-order?page=1&pageSize=5000')
-    const rows: any[] = res.items ?? res
-    toRows.value = rows.filter(r => inScope(r.customerBase))
+    // The API returns only the customer bases granted to the user.
+    toRows.value = res.items ?? res
     toLoaded = true
   } catch (e: any) {
     console.error('[TotalOrder] load failed', e)
@@ -2895,14 +2926,9 @@ const transferFilterWarehouse = ref<number | null>(null)
 const transferFilterStatus = ref<string | null>(null)
 const transferStatuses = ['In Transit', 'Partially Received', 'Received', 'Cancelled']
 
-// A transfer is in scope when any of its lines is.
-const scopedTransfers = computed(() =>
-  transfers.value.filter(t =>
-    t.items?.length ? t.items.some((line: any) => inScope(line.customerBase)) : inScope(null)),
-)
-
+// The API returns only transfers with a line in the customer bases granted to the user.
 const inTransitCount = computed(() =>
-  scopedTransfers.value.filter(t => t.status === 'In Transit' || t.status === 'Partially Received').length)
+  transfers.value.filter(t => t.status === 'In Transit' || t.status === 'Partially Received').length)
 
 function transferStatusColor(status: string) {
   const map: Record<string, string> = {
@@ -2989,6 +3015,9 @@ onMounted(async () => {
   // and skip the Track Numbers summary call (Admin/SuperAdmin only endpoint).
   if (authStore.isInventory || route.query.tab === 'sn') {
     activeTab.value = 'sn'
+    await loadSnData()
+  } else if (route.query.tab === 'finished' && isSydOrAdmin.value) {
+    activeTab.value = 'finished'
     await loadSnData()
   } else {
     await loadItems()

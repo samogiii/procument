@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
 
@@ -12,8 +13,13 @@ namespace Procument.Module.Purchasing.Controllers;
 public class ShippingController : ControllerBase
 {
     private readonly IShippingService _service;
+    private readonly DbContext _db;
 
-    public ShippingController(IShippingService service) => _service = service;
+    public ShippingController(IShippingService service, DbContext db)
+    {
+        _service = service;
+        _db = db;
+    }
 
     private long GetUserId()
     {
@@ -33,7 +39,8 @@ public class ShippingController : ControllerBase
         var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var isSyd = User.Identity?.Name == "SYD";
         var userId = GetUserId();
-        return Ok(await _service.GetTrackNumbersForUserAsync(userId, isAdmin || isSyd, pendingOnly));
+        var bases = await ShippingBaseAccess.LoadAsync(_db, User.Identity?.Name);
+        return Ok(await _service.GetTrackNumbersForUserAsync(userId, isAdmin || isSyd, pendingOnly, bases));
     }
 
     // ── Per-part items ────────────────────────────────────────────────────
@@ -223,5 +230,5 @@ public class ShippingController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin,Expert")]
     public async Task<ActionResult<List<ReadyForSnItemResponse>>> GetReadyForSn(
         [FromQuery] long? warehouseId = null)
-        => Ok(await _service.GetReadyForSnAsync(warehouseId));
+        => Ok(await _service.GetReadyForSnAsync(warehouseId, await ShippingBaseAccess.LoadAsync(_db, User.Identity?.Name)));
 }

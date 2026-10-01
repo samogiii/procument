@@ -2472,6 +2472,10 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("PickupNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("SNNumber")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -2557,6 +2561,49 @@ namespace Procument.Data.Migrations
                     b.HasIndex("TrackNumberId");
 
                     b.ToTable("ShipmentNoteBoxes", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNoteDocument", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("MimeType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("ShipmentNoteId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("UploadedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShipmentNoteId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("ShipmentNoteDocuments", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNoteTrackNumber", b =>
@@ -3017,6 +3064,10 @@ namespace Procument.Data.Migrations
 
                     b.Property<string>("RejectionNote")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SenderMail")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -4995,6 +5046,25 @@ namespace Procument.Data.Migrations
                     b.Navigation("TrackNumber");
                 });
 
+            modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNoteDocument", b =>
+                {
+                    b.HasOne("Procument.Module.Purchasing.Entities.ShipmentNote", "ShipmentNote")
+                        .WithMany("Documents")
+                        .HasForeignKey("ShipmentNoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShipmentNote");
+
+                    b.Navigation("UploadedBy");
+                });
+
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNoteTrackNumber", b =>
                 {
                     b.HasOne("Procument.Module.Purchasing.Entities.ShipmentNote", "ShipmentNote")
@@ -5660,6 +5730,8 @@ namespace Procument.Data.Migrations
             modelBuilder.Entity("Procument.Module.Purchasing.Entities.ShipmentNote", b =>
                 {
                     b.Navigation("Boxes");
+
+                    b.Navigation("Documents");
 
                     b.Navigation("TrackNumbers");
                 });

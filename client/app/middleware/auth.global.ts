@@ -35,6 +35,9 @@ function matchesAnyPrefix(path: string, prefixes: readonly string[]): boolean {
     return prefixes.some(p => path === p || path.startsWith(p + '/'))
 }
 
+// Shipping pages — need at least one customer base granted in Menu Access (any role).
+const SHIPPING_PREFIXES = ['/shipping', '/total-shipping', '/shipment-notes'] as const
+
 // Routes gated by a named feature permission rather than by role.
 const FEATURE_GATED_PREFIXES: ReadonlyArray<{ prefix: string; feature: string }> = [
     { prefix: '/payment-control', feature: 'walletMenu' },
@@ -80,14 +83,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
         throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
     }
 
-    // ── Internal / External Shipping ───────────────────────────────────
-    // Needs its own Menu Access grant, SuperAdmin included. Past that, the page is held
-    // to the same role rules as the original shipping page it mirrors (rolePath below).
-    const shippingScope = shippingScopeOf(to.path)
-    if (authStore.isAuthenticated && shippingScope && !(authStore as any)[SHIPPING_SCOPES[shippingScope].feature]) {
+    // ── Shipping ───────────────────────────────────────────────────────
+    // Needs at least one customer base (Shipping — Base 1…5) granted in Menu Access,
+    // SuperAdmin included. Past that, the role rules below still apply.
+    if (authStore.isAuthenticated && matchesAnyPrefix(to.path, SHIPPING_PREFIXES) && !authStore.shippingAccess) {
         throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
     }
-    const rolePath = unscopedShippingPath(to.path)
 
     // ── Feature-gated routes ───────────────────────────────────────────
     // Applies to every role, SuperAdmin included. Typing the URL is denied the
@@ -112,12 +113,9 @@ export default defineNuxtRouteMiddleware(async (to) => {
     if (authStore.isAuthenticated && authStore.user?.role === 'Inventory') {
         if (to.path === '/login') return
         if (to.path === '/' || to.path === '/dashboard') {
-            // Land on the first shipping view they were granted.
-            if (authStore.internalShipping) return navigateTo(SHIPPING_SCOPES.internal.prefix)
-            if (authStore.externalShipping) return navigateTo(SHIPPING_SCOPES.external.prefix)
             return navigateTo('/shipping')
         }
-        if (!matchesAnyPrefix(rolePath, INVENTORY_ALLOWED_PREFIXES)) {
+        if (!matchesAnyPrefix(to.path, INVENTORY_ALLOWED_PREFIXES)) {
             throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
         }
     }
@@ -135,7 +133,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
             return navigateTo('/rfqs')
         }
 
-        if (!matchesAnyPrefix(rolePath, allowed)) {
+        if (!matchesAnyPrefix(to.path, allowed)) {
             throw createError({ statusCode: 404, statusMessage: 'Not Found', fatal: true })
         }
     }

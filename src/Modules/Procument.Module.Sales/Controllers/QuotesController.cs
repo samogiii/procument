@@ -292,7 +292,7 @@ public class QuotesController : ControllerBase
             }
 
             var sendResult = await _emailService.SendAsync(smtpConfig, request.ToEmail, request.ToName, request.Subject, request.Body,
-                emailAttachments, ccEmail: null, imap: imapConfig);
+                emailAttachments, ccEmail: request.CcEmail, imap: imapConfig);
             sentFolderError = sendResult.SentFolderError;
 
             PersistSentAttachments(quote.QuoteNumber, emailAttachments);

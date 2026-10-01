@@ -84,7 +84,14 @@ public class SmtpEmailService : IEmailService
         message.From.Add(new MailboxAddress(config.FromDisplayName ?? config.FromEmail, config.FromEmail));
         message.To.Add(new MailboxAddress(toName ?? toEmail, toEmail));
         if (!string.IsNullOrWhiteSpace(ccEmail))
-            message.Cc.Add(MailboxAddress.Parse(ccEmail));
+        {
+            foreach (var cc in ccEmail.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(cc, toEmail, StringComparison.OrdinalIgnoreCase))
+                    message.Cc.Add(MailboxAddress.Parse(cc));
+            }
+        }
         message.Subject = subject;
 
         var builder = new BodyBuilder { HtmlBody = bodyHtml };

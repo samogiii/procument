@@ -331,7 +331,8 @@ public class MenuPermissionsController : ControllerBase
         "supplierRequests", "capList", "ils", "shippingMenu",
         "customerMenu", "totalPnMenu", "isAmir", "newRFQ", "ilsUsers", "isPDFSelection",
         "actionCenter", "taskManager", "ourInventoryMenu", "supplierCredits",
-        "internalShipping", "externalShipping"
+        // Shipping: the customer bases each user sees (ShippingBaseAccess in Purchasing).
+        "shippingBase1", "shippingBase2", "shippingBase3", "shippingBase4", "shippingBase5"
     ];
 
     /// <summary>Returns all features with their currently allowed user names.</summary>

@@ -36,6 +36,8 @@ public class SendQuoteEmailRequest
     public string? ToName { get; set; }
     public string Subject { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
+    /// <summary>Comma/semicolon separated CC addresses — defaults to the customer's primary email on the client.</summary>
+    public string? CcEmail { get; set; }
     public List<long> CertificateIds { get; set; } = new();
 }
 
@@ -78,6 +80,8 @@ public class QuoteResponse
     public string? CustomerEmail { get; set; }
     public string? CustomerContacts { get; set; }
     public int? RFQExType { get; set; }
+    /// <summary>Address the RFQ was sent from — the default To of the quote email.</summary>
+    public string? RFQSenderMail { get; set; }
     public decimal? CoefYuan { get; set; }
     public decimal? ExchangeRateYuan { get; set; }
     public List<QuoteItemResponse> Items { get; set; } = new();

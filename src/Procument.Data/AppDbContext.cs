@@ -82,6 +82,7 @@ public class AppDbContext : DbContext
   public DbSet<ShipmentNoteTrackNumber> ShipmentNoteTrackNumbers => Set<ShipmentNoteTrackNumber>();
   public DbSet<TrackNumberBox> TrackNumberBoxes => Set<TrackNumberBox>();
   public DbSet<ShipmentNoteBox> ShipmentNoteBoxes => Set<ShipmentNoteBox>();
+  public DbSet<ShipmentNoteDocument> ShipmentNoteDocuments => Set<ShipmentNoteDocument>();
   public DbSet<WarehouseTransfer> WarehouseTransfers => Set<WarehouseTransfer>();
   public DbSet<WarehouseTransferItem> WarehouseTransferItems => Set<WarehouseTransferItem>();
   public DbSet<ILSItem> ILSItems => Set<ILSItem>();
@@ -306,6 +307,7 @@ public class AppDbContext : DbContext
       entity.ToTable("RFQs");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.Name).HasMaxLength(300);
+      entity.Property(e => e.SenderMail).HasMaxLength(256);
 
       entity.HasOne(e => e.Customer)
                 .WithMany()
@@ -1161,6 +1163,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Draft");
       entity.Property(e => e.CustomsFileName).HasMaxLength(500);
       entity.Property(e => e.CustomsOriginalFileName).HasMaxLength(500);
+      entity.Property(e => e.PickupNote).HasMaxLength(1000);
 
       entity.HasOne(e => e.Warehouse)
                 .WithMany(w => w.ShipmentNotes)
@@ -1175,6 +1178,27 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.WarehouseId);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.SNNumber).IsUnique();
+    });
+
+    modelBuilder.Entity<ShipmentNoteDocument>(entity =>
+    {
+      entity.ToTable("ShipmentNoteDocuments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(500);
+      entity.Property(e => e.OriginalFileName).HasMaxLength(500);
+      entity.Property(e => e.MimeType).HasMaxLength(100);
+
+      entity.HasOne(e => e.ShipmentNote)
+                .WithMany(sn => sn.Documents)
+                .HasForeignKey(e => e.ShipmentNoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.UploadedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => e.ShipmentNoteId);
     });
 
     modelBuilder.Entity<ShipmentNoteTrackNumber>(entity =>

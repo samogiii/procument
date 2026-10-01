@@ -30,16 +30,17 @@ public static class TotalPNOrigins
 public interface ITotalPNService
 {
     Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
-        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? customers = null, List<int>? bases = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
         List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
         string origin = TotalPNOrigins.Customer);
     Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
-        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? customers = null, List<int>? bases = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
         List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
         string origin = TotalPNOrigins.Customer);
-    Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
+    /// <param name="shippingBases">Shipping Total Order: customer bases granted in Menu Access (no customer = Base 1); null = no filter.</param>
+    Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null, int[]? shippingBases = null);
     Task<bool> UpdateAsync(long poItemId, UpdatePOItemTotalPNRequest request);
 }
 
@@ -150,7 +151,7 @@ public class TotalPNService : ITotalPNService
     }
 
     public async Task<PagedResult<TotalPNRowResponse>> GetAsync(PageQuery page, long userId, bool isAdmin, string? sortBy = null, bool sortDesc = false, bool isSuperAdmin = true, int[]? userBases = null,
-        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? customers = null, List<int>? bases = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
         List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
         string origin = TotalPNOrigins.Customer)
@@ -244,6 +245,10 @@ public class TotalPNService : ITotalPNService
             baseQuery = baseQuery.Where(x =>
                 x.ii.Invoice.Customer != null && customers.Contains(x.ii.Invoice.Customer.CustomerCode ?? ""));
 
+        if (bases?.Count > 0)
+            baseQuery = baseQuery.Where(x => x.ii.Invoice.Customer != null &&
+                x.ii.Invoice.Customer.Base.HasValue && bases.Contains(x.ii.Invoice.Customer.Base.Value));
+
         if (invoiceNumbers?.Count > 0)
             baseQuery = baseQuery.Where(x => invoiceNumbers.Contains(x.ii.Invoice.InvoiceNumber));
 
@@ -286,6 +291,9 @@ public class TotalPNService : ITotalPNService
         var orderedQuery = sortBy switch
         {
             "customer"   => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.Customer.Name)        : baseQuery.OrderBy(x => x.ii.Invoice.Customer.Name),
+            "customerBase" => sortDesc
+                ? baseQuery.OrderByDescending(x => x.ii.Invoice.Customer != null ? x.ii.Invoice.Customer.Base : null)
+                : baseQuery.OrderBy(x => x.ii.Invoice.Customer != null ? x.ii.Invoice.Customer.Base : null),
             "partNumber" => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.PartNumber.Name : x.pi != null ? x.pi.PartNumberName : ""),
             "qty"        => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Qty : 0)    : baseQuery.OrderBy(x => x.poi != null ? x.poi.Qty : 0),
             "receivedQty" => sortDesc
@@ -419,6 +427,7 @@ public class TotalPNService : ITotalPNService
                 PORef = poi?.PORef,
                 Experts = experts,
                 Customer = customer?.CustomerCode,
+                CustomerBase = customer?.Base,
                 Supplier = supplierName,
                 PartNumber = poi?.PartNumber?.Name ?? pi?.PartNumberName ?? ii.QuoteItem?.PartNumber?.Name,
                 Description = poi?.PartNumber?.Description ?? pi?.PartNumberDescription ?? ii.QuoteItem?.PartNumber?.Description,
@@ -501,6 +510,7 @@ public class TotalPNService : ITotalPNService
         {
             var stockQuery = StockPoLineQuery(page.Search, customers, invoiceNumbers, partNumbers, conditions, poNumbers,
                 suppliers, paymentTerms, poStatuses, shippingStatuses);
+            if (bases?.Count > 0) stockQuery = stockQuery.Where(_ => false);
             stockCount = await stockQuery.CountAsync();
             var stockSkip = Math.Max(0, skip - customerCount);
             var stockTake = take == int.MaxValue ? int.MaxValue : take - customerTake;
@@ -517,7 +527,7 @@ public class TotalPNService : ITotalPNService
         };
     }
 
-    public async Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null)
+    public async Task<PagedResult<TotalPNRowResponse>> GetTotalOrderAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null, int[]? shippingBases = null)
     {
         var iiSet = _db.Set<InvoiceItem>()
             .AsNoTracking()
@@ -568,6 +578,11 @@ public class TotalPNService : ITotalPNService
         baseQuery = baseQuery.Where(x =>
             (x.poi.PartNumber != null || x.poi.PartNumber.Name != "-" || x.poi.PartNumber.Name != "") ||
             (x.pi != null || x.pi.PartNumberName != null || x.pi.PartNumberName != "-" || x.pi.PartNumberName != ""));
+
+        // Shipping shows only the customer bases granted to the user. Filtered in SQL so the
+        // count and paging stay right.
+        if (shippingBases != null)
+            baseQuery = baseQuery.Where(x => shippingBases.Contains(x.ii.Invoice.Customer.Base ?? 1));
 
         if (!string.IsNullOrWhiteSpace(page.Search))
         {
@@ -717,12 +732,13 @@ public class TotalPNService : ITotalPNService
     }
 
     public async Task<TotalPNFilterOptions> GetFilterOptionsAsync(long userId, bool isAdmin, bool isSuperAdmin, int[]? userBases,
-        List<string>? customers = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
+        List<string>? customers = null, List<int>? bases = null, List<string>? invoiceNumbers = null, List<string>? partNumbers = null,
         List<string>? conditions = null, List<string>? poNumbers = null, List<string>? suppliers = null,
         List<string>? paymentTerms = null, List<string>? poStatuses = null, List<string>? shippingStatuses = null,
         string origin = TotalPNOrigins.Customer)
     {
         var iiSet = _db.Set<InvoiceItem>()
+            .Where(i => !i.Invoice.IsCancelled)
             .Include(i => i.Invoice).ThenInclude(inv => inv.Customer)
             .Include(i => i.Invoice).ThenInclude(inv => inv.Quote);
 
@@ -781,6 +797,7 @@ public class TotalPNService : ITotalPNService
         var filterRows = rows.Select(x => new TotalPNFilterRow
         {
             Customer = x.ii.Invoice.Customer?.CustomerCode,
+            CustomerBase = x.ii.Invoice.Customer?.Base,
             InvoiceNumber = x.ii.Invoice.InvoiceNumber,
             PartNumber = x.poi?.PartNumber?.Name ?? x.pi?.PartNumberName,
             Condition = x.poi?.Condition ?? x.pi?.Condition,
@@ -819,6 +836,8 @@ public class TotalPNService : ITotalPNService
             IEnumerable<TotalPNFilterRow> query = filterRows;
             if (excludedColumn != "customer" && customers?.Count > 0)
                 query = query.Where(x => customers.Contains(x.Customer ?? ""));
+            if (excludedColumn != "customerBase" && bases?.Count > 0)
+                query = query.Where(x => x.CustomerBase.HasValue && bases.Contains(x.CustomerBase.Value));
             if (excludedColumn != "customerInvoiceNumber" && invoiceNumbers?.Count > 0)
                 query = query.Where(x => invoiceNumbers.Contains(x.InvoiceNumber ?? ""));
             if (excludedColumn != "partNumber" && partNumbers?.Count > 0)
@@ -841,6 +860,8 @@ public class TotalPNService : ITotalPNService
         return new TotalPNFilterOptions
         {
             Customers = Sorted(Build("customer").Select(x => x.Customer)),
+            Bases = Build("customerBase").Where(x => x.CustomerBase.HasValue)
+                .Select(x => x.CustomerBase!.Value).Distinct().OrderBy(x => x).ToList(),
             InvoiceNumbers = Sorted(Build("customerInvoiceNumber").Select(x => x.InvoiceNumber)),
             PartNumbers = Sorted(Build("partNumber").Select(x => x.PartNumber)),
             Conditions = Sorted(Build("condition").Select(x => x.Condition)),
@@ -988,6 +1009,7 @@ public class TotalPNService : ITotalPNService
     private sealed class TotalPNFilterRow
     {
         public string? Customer { get; init; }
+        public int? CustomerBase { get; init; }
         public string? InvoiceNumber { get; init; }
         public string? PartNumber { get; init; }
         public string? Condition { get; init; }

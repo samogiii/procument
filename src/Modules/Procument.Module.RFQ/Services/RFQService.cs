@@ -22,6 +22,7 @@ public interface IRFQService
     Task<bool> UpdateExTypeAsync(long rfqId, int? exType);
     Task<bool> UpdateStatusAsync(long rfqId, string status, string? noQuoteReason = null, string? rejectionNote = null);
     Task<bool> UpdateNotesAsync(long rfqId, string? notes);
+    Task<bool> UpdateSenderMailAsync(long rfqId, string? senderMail);
     Task<bool> UpdateNameAsync(long rfqId, string name);
     Task<bool> UpdateLeadTimeAsync(long rfqId, DateTime leadTime);
     Task<string> DeleteRFQItem(long id);
@@ -99,6 +100,7 @@ public class RFQService : IRFQService
             CreatedAt = DateTime.UtcNow,
             Notes = request.Notes,
             ExType = request.ExType,
+            SenderMail = NormalizeSenderMail(request.SenderMail),
         };
 
         _db.Set<RFQHeader>().Add(rfq);
@@ -571,6 +573,16 @@ public class RFQService : IRFQService
         return true;
     }
 
+    public async Task<bool> UpdateSenderMailAsync(long rfqId, string? senderMail)
+    {
+        var normalized = NormalizeSenderMail(senderMail);
+        var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
+        if (rfq == null) return false;
+        rfq.SenderMail = normalized;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> UpdateNameAsync(long rfqId, string name)
     {
         var rfq = await _db.Set<RFQHeader>().FindAsync(rfqId);
@@ -614,6 +626,7 @@ public class RFQService : IRFQService
         NoQuoteReason = rfq.NoQuoteReason,
         RejectionNote = rfq.RejectionNote,
         ExType = rfq.ExType,
+        SenderMail = rfq.SenderMail,
         Items = rfq.RFQItems.Select(i => new RFQItemResponse
         {
             Id = i.Id,
@@ -671,6 +684,7 @@ public class RFQService : IRFQService
         var customerId = customer.Id;
         var customerCodeResolved = customer.CustomerCode;
         var exType = request.ExType ?? customer.ExWork;
+        var defaultSenderMail = NormalizeSenderMail(request.SenderMail);
         var now = DateTime.UtcNow;
 
         // 1. Merge payload groups on name + deadline, so one RFQ pasted in two chunks stays one RFQ.
@@ -692,6 +706,7 @@ public class RFQService : IRFQService
                 existing.Items.AddRange(items);
                 existing.ReceivedDate ??= group.ReceivedDate;
                 existing.Notes ??= group.Notes;
+                existing.SenderMail ??= NormalizeSenderMail(group.SenderMail);
             }
             else
             {
@@ -703,6 +718,7 @@ public class RFQService : IRFQService
                     Deadline = group.Deadline,
                     ReceivedDate = group.ReceivedDate,
                     Notes = group.Notes,
+                    SenderMail = NormalizeSenderMail(group.SenderMail),
                     Items = items
                 });
             }
@@ -796,6 +812,7 @@ public class RFQService : IRFQService
                     UserId = ownerId,
                     Notes = plan.Notes,
                     ExType = exType,
+                    SenderMail = plan.SenderMail ?? defaultSenderMail,
                 };
 
                 foreach (var src in plan.Items)
@@ -871,6 +888,17 @@ public class RFQService : IRFQService
         public DateTime? Deadline { get; set; }
         public DateTime? ReceivedDate { get; set; }
         public string? Notes { get; set; }
+        public string? SenderMail { get; set; }
         public List<BulkImportRFQItem> Items { get; set; } = new();
+    }
+
+    /// <summary>Trims the sender address; blank becomes null, anything that is not a single valid address is rejected.</summary>
+    private static string? NormalizeSenderMail(string? raw)
+    {
+        var trimmed = raw?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return null;
+        if (!System.Net.Mail.MailAddress.TryCreate(trimmed, out var address) || address.Address != trimmed)
+            throw new Exception($"Sender Mail '{trimmed}' is not a valid email address.");
+        return trimmed;
     }
 }

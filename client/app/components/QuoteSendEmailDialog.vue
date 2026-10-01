@@ -41,6 +41,18 @@
             class="mb-3"
             hide-details
           />
+          <v-text-field
+            v-model="ccEmail"
+            label="CC"
+            variant="outlined"
+            density="compact"
+            class="mb-3"
+            prepend-inner-icon="mdi-account-multiple-outline"
+            :error="!ccValid"
+            :hint="ccValid ? 'Separate multiple addresses with commas' : 'One or more CC addresses are invalid'"
+            persistent-hint
+            clearable
+          />
           <v-textarea
             v-model="body"
             label="Body"
@@ -197,6 +209,7 @@
             <v-card variant="outlined" class="pa-4">
               <div class="mb-2"><span class="font-weight-bold">Subject:</span> {{ subject || '—' }}</div>
               <div class="mb-2"><span class="font-weight-bold">To:</span> {{ toName ? `${toName} <${toEmail}>` : (toEmail || '—') }}</div>
+              <div v-if="ccList.length" class="mb-2"><span class="font-weight-bold">CC:</span> {{ ccList.join(', ') }}</div>
               <v-divider class="my-3" />
               <div style="white-space: pre-wrap;" class="text-body-2">{{ body || '—' }}</div>
               <v-divider class="my-3" />
@@ -268,6 +281,7 @@ const authStore = useAuthStore()
 const subject = ref('')
 const toEmail = ref('')
 const toName = ref('')
+const ccEmail = ref('')
 const body = ref('')
 const sending = ref(false)
 const snackbar = ref(false)
@@ -310,16 +324,34 @@ const MAX_TOTAL_BYTES = 18 * 1024 * 1024
 
 interface ContactOption { label: string; email: string; name?: string }
 
+// The RFQ's sender is the default recipient; the customer's primary email goes in CC.
+const rfqSenderMail = computed<string>(() => (props.quote?.rfqSenderMail || '').trim())
+const customerPrimaryEmail = computed<string>(() => (props.quote?.customerEmail || '').trim())
+
 const contactOptions = computed<ContactOption[]>(() => {
+  const options: ContactOption[] = []
+  if (rfqSenderMail.value) {
+    options.push({ label: `RFQ Sender <${rfqSenderMail.value}>`, email: rfqSenderMail.value })
+  }
   const contacts = parseContacts(props.quote?.customerContacts)
   if (contacts.length) {
-    return contacts.map(c => ({ label: `${c.name} <${c.email}>`, email: c.email, name: c.name }))
+    options.push(...contacts.map(c => ({ label: `${c.name} <${c.email}>`, email: c.email, name: c.name })))
+  } else if (customerPrimaryEmail.value) {
+    options.push({ label: customerPrimaryEmail.value, email: customerPrimaryEmail.value })
   }
-  if (props.quote?.customerEmail) {
-    return [{ label: props.quote.customerEmail, email: props.quote.customerEmail }]
-  }
-  return []
+  const seen = new Set<string>()
+  return options.filter(o => {
+    const key = o.email.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 })
+
+const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+const ccList = computed(() =>
+  (ccEmail.value || '').split(/[,;]/).map(e => e.trim()).filter(Boolean))
+const ccValid = computed(() => ccList.value.every(e => EMAIL_RE.test(e)))
 
 function parseContacts(raw?: string): { name: string; email: string }[] {
   if (!raw) return []
@@ -371,6 +403,7 @@ const oversized = computed(() => totalAttachmentSize.value > MAX_TOTAL_BYTES)
 
 const canSend = computed(() => {
   if (!toEmail.value || !subject.value) return false
+  if (!ccValid.value) return false
   if (!hasAnyAttachment.value) return false
   if (oversized.value) return false
   return pdfReady.value && excelReady.value
@@ -478,6 +511,10 @@ function resetForm() {
   const defaultContact = contactOptions.value[0]
   toEmail.value = defaultContact?.email || ''
   toName.value = defaultContact?.name || ''
+  // CC the customer's primary email, unless it is already the recipient.
+  ccEmail.value = customerPrimaryEmail.value && customerPrimaryEmail.value.toLowerCase() !== toEmail.value.toLowerCase()
+    ? customerPrimaryEmail.value
+    : ''
   body.value = `Dear Team,\n\n\nPlease kindly find the attached quote ${props.quote?.quoteNumber || ''} for your review.\n\n\nPlease let us know if you need any further information or have any specific requirements. We welcome your feedback and are happy to discuss further.\n\n${buildSignature()}`
   pdfMode.value = 'auto'
   excelMode.value = 'none'
@@ -509,6 +546,7 @@ async function sendEmail() {
     const form = new FormData()
     form.append('ToEmail', toEmail.value)
     form.append('ToName', toName.value || '')
+    if (ccList.value.length) form.append('CcEmail', ccList.value.join(','))
     form.append('Subject', subject.value)
     form.append('Body', body.value)
 

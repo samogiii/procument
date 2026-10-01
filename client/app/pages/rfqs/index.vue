@@ -548,6 +548,17 @@
               :rules="[rules.required]"
               class="mb-3"
             />
+            <!-- Sender Mail -->
+            <v-text-field
+              v-model="form.senderMail"
+              label="Sender Mail Of RFQ"
+              prepend-inner-icon="mdi-email-outline"
+              type="email"
+              placeholder="Address the customer sent this RFQ from"
+              :rules="[rules.email]"
+              clearable
+              class="mb-3"
+            />
 
             <!-- Priority -->
             
@@ -882,6 +893,19 @@
               </v-alert>
             </v-col>
             <v-col cols="12" md="7">
+              <v-text-field
+                v-model="bulkDefaults.senderMail"
+                label="Sender Mail Of RFQ"
+                type="email"
+                density="compact"
+                variant="outlined"
+                prepend-inner-icon="mdi-email-outline"
+                :rules="[rules.email]"
+                hint="Applied to every RFQ unless the Sender Mail column is filled"
+                persistent-hint
+                clearable
+                class="mb-2"
+              />
               <v-alert type="info" density="compact" variant="tonal" class="text-caption">
                 Received Date &amp; Deadline are read from the paste data (columns 9 &amp; 10).
               </v-alert>
@@ -891,8 +915,8 @@
           <!-- Paste area -->
           <p class="text-caption text-medium-emphasis mb-1">
             Paste rows from Excel (tab-separated). Columns:
-            <strong>RFQ Name &nbsp;|&nbsp; # &nbsp;|&nbsp; Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition &nbsp;|&nbsp; Priority &nbsp;|&nbsp; Alt &nbsp;|&nbsp; Remark &nbsp;|&nbsp; Received Date &nbsp;|&nbsp; Deadline</strong>
-            — Alt values separated by comma (,). Rows with the same RFQ Name are grouped into one RFQ.
+            <strong>RFQ Name &nbsp;|&nbsp; # &nbsp;|&nbsp; Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition &nbsp;|&nbsp; Priority &nbsp;|&nbsp; Alt &nbsp;|&nbsp; Remark &nbsp;|&nbsp; Received Date &nbsp;|&nbsp; Deadline &nbsp;|&nbsp; Sender Mail</strong>
+            — Alt values separated by comma (,). Rows with the same RFQ Name are grouped into one RFQ. Sender Mail is optional.
           </p>
           <v-textarea
             v-model="bulkPasteText"
@@ -936,6 +960,13 @@
                     <span v-if="group.receivedDate" class="text-caption text-medium-emphasis">
                       {{ group.receivedDate }} → {{ group.deadline }}
                     </span>
+                    <v-chip
+                      v-if="group.senderMail || bulkDefaults.senderMail"
+                      size="x-small"
+                      :color="isValidEmail(group.senderMail || bulkDefaults.senderMail) ? 'info' : 'error'"
+                      variant="tonal"
+                      prepend-icon="mdi-email-outline"
+                    >{{ group.senderMail || bulkDefaults.senderMail }}</v-chip>
                     <v-chip v-if="group.isDuplicate" size="x-small" color="error" variant="tonal">DUPLICATE — will be skipped</v-chip>
                   </div>
                 </v-expansion-panel-title>
@@ -1621,12 +1652,19 @@ const form = ref({
   leadTime: '',
   date: '',
   notes: '',
+  senderMail: '',
   exType: null as number | null,
   items: Array.from({ length: 10 }, makeEmptyRow) as ItemRow[],
 })
 
+const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+function isValidEmail(v?: string | null) {
+  return !v || EMAIL_RE.test(v.trim())
+}
+
 const rules = {
   required: (v: any) => !!v || 'This field is required',
+  email: (v: any) => isValidEmail(v) || 'Enter a valid email address',
 }
 
 // ── Customer Autocomplete ──
@@ -1902,7 +1940,7 @@ const showBulkImport = ref(false)
 const bulkPasteText = ref('')
 
 interface BulkRFQItem { partNumber: string; description: string; qty: number; condition: string; priority: string; remark: string; alternatives: string[] }
-interface BulkRFQGroup { rfqName: string; isDuplicate: boolean; receivedDate: string; deadline: string; items: BulkRFQItem[] }
+interface BulkRFQGroup { rfqName: string; isDuplicate: boolean; receivedDate: string; deadline: string; senderMail: string; items: BulkRFQItem[] }
 
 const bulkGroups = ref<BulkRFQGroup[]>([])
 const bulkImporting = ref(false)
@@ -1910,7 +1948,7 @@ const bulkParseMsg = ref('')
 const bulkParseMsgColor = ref('text-medium-emphasis')
 const bulkSubmitError = ref('')
 
-const bulkDefaults = ref({ customerName: null as any })
+const bulkDefaults = ref({ customerName: null as any, senderMail: '' })
 const bulkCustomerSuggestions = ref<any[]>([])
 const bulkCustomerLoading = ref(false)
 const bulkCustomerTerms = ref<string | null>(null)
@@ -1967,7 +2005,7 @@ function openBulkImport() {
   bulkGroups.value = []
   bulkParseMsg.value = ''
   bulkSubmitError.value = ''
-  bulkDefaults.value = { customerName: null }
+  bulkDefaults.value = { customerName: null, senderMail: '' }
   bulkCustomerTerms.value = null
   showBulkImport.value = true
 }
@@ -2003,7 +2041,8 @@ function parseBulkRFQs() {
   // Column layout:
   // 0: RFQ Name | 1: # (row order, skip) | 2: Part Number | 3: Description
   // 4: Qty | 5: Condition | 6: Priority | 7: Alt | 8: Remark | 9: Received Date | 10: Deadline
-  interface GroupMeta { items: BulkRFQItem[]; receivedDate: string; deadline: string }
+  // 11: Sender Mail (optional — falls back to the dialog's Sender Mail)
+  interface GroupMeta { items: BulkRFQItem[]; receivedDate: string; deadline: string; senderMail: string }
   // Key = "rfqName||deadline" so same name with different deadlines becomes separate groups
   const groupMap = new Map<string, GroupMeta>()
 
@@ -2022,14 +2061,16 @@ function parseBulkRFQs() {
     const remark = (cols[8] || '').trim()
     const receivedDate = parseDateToISO((cols[9] || '').trim())
     const deadline = parseDateToISO((cols[10] || '').trim())
+    const senderMail = (cols[11] || '').trim()
 
     // Group key includes deadline so same-name + different-deadline → separate groups
     const groupKey = `${rfqName}||${deadline}`
     if (!groupMap.has(groupKey)) {
-      groupMap.set(groupKey, { items: [], receivedDate, deadline })
+      groupMap.set(groupKey, { items: [], receivedDate, deadline, senderMail })
     }
     groupMap.get(groupKey)!.items.push({ partNumber, description, qty, condition, priority, remark, alternatives })
     if (receivedDate) groupMap.get(groupKey)!.receivedDate = receivedDate
+    if (senderMail && !groupMap.get(groupKey)!.senderMail) groupMap.get(groupKey)!.senderMail = senderMail
   }
 
   if (groupMap.size === 0) {
@@ -2071,6 +2112,7 @@ function parseBulkRFQs() {
     items: meta.items,
     receivedDate: meta.receivedDate,
     deadline: meta.deadline,
+    senderMail: meta.senderMail,
     isDuplicate: existingNames.has(rfqName.toLowerCase()),
   }))
 
@@ -2091,6 +2133,13 @@ async function submitBulkRFQs() {
   const toCreate = bulkGroups.value.filter(g => !g.isDuplicate)
   if (!toCreate.length) return
 
+  const defaultSenderMail = bulkDefaults.value.senderMail?.trim() || ''
+  const badSender = toCreate.find(g => !isValidEmail(g.senderMail || defaultSenderMail))
+  if (badSender) {
+    bulkSubmitError.value = `Sender Mail of "${badSender.rfqName}" is not a valid email address.`
+    return
+  }
+
   bulkImporting.value = true
   try {
     for (const group of toCreate) {
@@ -2105,6 +2154,7 @@ async function submitBulkRFQs() {
         userId: authStore.user?.id || 0,
         notes: null,
         exType: bulkCustomerExWork.value,
+        senderMail: group.senderMail || defaultSenderMail || null,
         partNumbers,
       })
 
@@ -2162,6 +2212,7 @@ function openCreateModal() {
     leadTime: '',
     date: '',
     notes: '',
+    senderMail: '',
     exType: null,
     items: Array.from({ length: 10 }, makeEmptyRow),
   }
@@ -2195,6 +2246,11 @@ async function submitRfq() {
     return
   }
 
+  if (!isValidEmail(form.value.senderMail)) {
+    submitError.value = 'Sender Mail is not a valid email address.'
+    return
+  }
+
   // Collect non-empty items
   const validItems = form.value.items.filter(row => {
     const name = typeof row.partNumber === 'object' ? row.partNumber?.name : row.partNumber
@@ -2222,6 +2278,7 @@ async function submitRfq() {
       userId: authStore.user?.id || 0,
       notes: form.value.notes || null,
       exType: form.value.exType,
+      senderMail: form.value.senderMail?.trim() || null,
       partNumbers,
     }
 

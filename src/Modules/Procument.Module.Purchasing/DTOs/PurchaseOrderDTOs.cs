@@ -322,7 +322,7 @@ public class TotalPNRowResponse
     /// <summary>Users assigned to the Proforma Invoice; falls back to RFQ assignments when the invoice has none.</summary>
     public List<string> Experts { get; set; } = [];
     public string? Customer { get; set; }              // Invoice.Customer.Name
-    public int? CustomerBase { get; set; }             // Invoice.Customer.Base — Internal/External shipping split
+    public int? CustomerBase { get; set; }             // Invoice.Customer.Base — Shipping base filter; Base 1 carries T-ID / SO#
     public string? Supplier { get; set; }              // resolved supplier name
     public string? PartNumber { get; set; }            // POItem.PartNumber.Name
     public string? Description { get; set; }           // POItem.PartNumber.Description
@@ -384,6 +384,7 @@ public class UpdatePOItemPriceRequest
 public class TotalPNFilterOptions
 {
     public List<string> Customers { get; set; } = [];
+    public List<int> Bases { get; set; } = [];
     public List<string> InvoiceNumbers { get; set; } = [];
     public List<string> PartNumbers { get; set; } = [];
     public List<string> Conditions { get; set; } = [];

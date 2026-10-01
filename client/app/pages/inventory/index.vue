@@ -3,7 +3,9 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-4 mb-md-6">
       <h1 class="text-h5 font-weight-bold">Inventory</h1>
       <v-spacer />
+      <!-- Excel Import and Add Item: Amir Access (Menu Access) only -->
       <v-btn
+        v-if="canAddItems"
         variant="tonal"
         color="success"
         prepend-icon="mdi-file-excel"
@@ -13,6 +15,7 @@
         Excel Import
       </v-btn>
       <v-btn
+        v-if="canAddItems"
         color="primary"
         prepend-icon="mdi-plus"
         size="small"
@@ -511,6 +514,8 @@ const api = useApi()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 const isSydOrAdmin = computed(() => authStore.isAdmin || authStore.user?.name === 'SYD')
+// Adding items and Excel import — granted as "Amir Access" in Menu Access (the API checks it too).
+const canAddItems = computed(() => authStore.isAmir)
 
 interface InventoryForm {
   partNumber: { id: number; name: string; description?: string } | string | null

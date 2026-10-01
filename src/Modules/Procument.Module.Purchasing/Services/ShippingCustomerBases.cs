@@ -5,8 +5,8 @@ using Procument.Module.RFQ.Entities;
 namespace Procument.Module.Purchasing.Services;
 
 /// <summary>
-/// Customer.Base behind each PO line, so the shipping pages can be split into
-/// Internal (Base 1) and External (Base 2+) views. Read-only — nothing is stored.
+/// Customer.Base behind each PO line, so the shipping pages can be filtered to the bases
+/// granted to the user (see <see cref="ShippingBaseAccess"/>). Read-only — nothing is stored.
 ///
 /// Done as a chain of small primary-key lookups instead of one wide join: the single
 /// 8-table join timed out on the full data set. Each id list goes to SQL as one JSON

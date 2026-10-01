@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
+using Procument.Module.Purchasing.Services;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Sales.Services;
 using Procument.Shared.Audit;
@@ -25,7 +26,7 @@ public class TotalPNController : ControllerBase
     private static readonly IReadOnlyDictionary<string, string> TotalPnColumns = new Dictionary<string, string>
     {
         ["poNumber"] = "PO#", ["poRef"] = "PO Ref#", ["experts"] = "Expert",
-        ["customer"] = "Customer", ["supplier"] = "Supplier", ["partNumber"] = "P/N",
+        ["customer"] = "Customer", ["customerBase"] = "Base", ["supplier"] = "Supplier", ["partNumber"] = "P/N",
         ["description"] = "Description", ["qty"] = "QTY",
         ["inTransitQty"] = "In Transit", ["receivedQty"] = "Received QTY",
         ["inWarehouseQty"] = "In Warehouse", ["remainingQty"] = "Remaining QTY", ["condition"] = "CD",
@@ -74,6 +75,7 @@ public class TotalPNController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
         [FromQuery] string? sortBy = null, [FromQuery] bool sortDesc = false,
         [FromQuery] List<string>? customers = null,
+        [FromQuery] List<int>? bases = null,
         [FromQuery] List<string>? invoiceNumbers = null,
         [FromQuery] List<string>? partNumbers = null,
         [FromQuery] List<string>? conditions = null,
@@ -88,7 +90,7 @@ public class TotalPNController : ControllerBase
         if (!await CanAccessTotalPnAsync(isSuperAdmin)) return NotFound();
         var pq = new PageQuery { Page = page, PageSize = pageSize };
         var result = await _service.GetAsync(pq, userId, isAdmin, sortBy, sortDesc, isSuperAdmin, userBases,
-            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
+            customers, bases, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
             await ResolveOriginAsync(origin, isSuperAdmin));
         return Ok(result);
     }
@@ -97,6 +99,7 @@ public class TotalPNController : ControllerBase
     [HttpGet("filter-options")]
     public async Task<ActionResult<TotalPNFilterOptions>> GetFilterOptions(
         [FromQuery] List<string>? customers = null,
+        [FromQuery] List<int>? bases = null,
         [FromQuery] List<string>? invoiceNumbers = null,
         [FromQuery] List<string>? partNumbers = null,
         [FromQuery] List<string>? conditions = null,
@@ -110,7 +113,7 @@ public class TotalPNController : ControllerBase
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         if (!await CanAccessTotalPnAsync(isSuperAdmin)) return NotFound();
         var result = await _service.GetFilterOptionsAsync(userId, isAdmin, isSuperAdmin, userBases,
-            customers, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
+            customers, bases, invoiceNumbers, partNumbers, conditions, poNumbers, suppliers, paymentTerms, poStatuses, shippingStatuses,
             await ResolveOriginAsync(origin, isSuperAdmin));
         return Ok(result);
     }
@@ -141,7 +144,9 @@ public class TotalPNController : ControllerBase
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
-        var result = await _service.GetTotalOrderAsync(pq, userId, isAdmin, isSuperAdmin, userBases);
+        // Shipping Control → Total Order: only the customer bases granted in Menu Access.
+        var shippingBases = (await ShippingBaseAccess.LoadAsync(_db, User.FindFirst(ClaimTypes.Name)?.Value)).ToArray();
+        var result = await _service.GetTotalOrderAsync(pq, userId, isAdmin, isSuperAdmin, userBases, shippingBases);
         return Ok(result);
     }
 

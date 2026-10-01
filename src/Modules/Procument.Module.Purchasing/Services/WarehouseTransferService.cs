@@ -13,7 +13,8 @@ public interface IWarehouseTransferService
 
     Task<WarehouseTransferResponse> CreateAsync(long userId, CreateWarehouseTransferRequest request, IReadOnlyCollection<long>? restrictToWarehouseIds);
 
-    Task<List<WarehouseTransferResponse>> GetAllAsync(long? warehouseId = null, string? status = null);
+    /// <param name="allowedBases">Customer bases the user may see (Menu Access); null = no filter.</param>
+    Task<List<WarehouseTransferResponse>> GetAllAsync(long? warehouseId = null, string? status = null, IReadOnlySet<int>? allowedBases = null);
     Task<WarehouseTransferResponse?> GetByIdAsync(long id);
     Task<bool> CancelAsync(long id, long userId);
 
@@ -288,7 +289,7 @@ public class WarehouseTransferService : IWarehouseTransferService
 
     // ── Read ──────────────────────────────────────────────────────────────
 
-    public async Task<List<WarehouseTransferResponse>> GetAllAsync(long? warehouseId = null, string? status = null)
+    public async Task<List<WarehouseTransferResponse>> GetAllAsync(long? warehouseId = null, string? status = null, IReadOnlySet<int>? allowedBases = null)
     {
         var query = BaseQuery();
 
@@ -305,6 +306,12 @@ public class WarehouseTransferService : IWarehouseTransferService
         var bases = await ShippingCustomerBases.LoadAsync(_db, lines.Select(i => i.POItemId));
         foreach (var line in lines)
             line.CustomerBase = bases.GetValueOrDefault(line.POItemId);
+
+        // A transfer is shown when any of its lines is in one of the user's bases.
+        if (allowedBases != null)
+            result = result.Where(t => t.Items.Count == 0
+                ? allowedBases.Contains(ShippingBaseAccess.Effective(null))
+                : t.Items.Any(i => allowedBases.Contains(ShippingBaseAccess.Effective(i.CustomerBase)))).ToList();
         return result;
     }
 
@@ -507,20 +514,23 @@ public class WarehouseTransferService : IWarehouseTransferService
 
         foreach (var note in notes)
         {
+            // A PickUp is finished the moment it is created: the customer took the parts at the warehouse.
+            var isPickup = note.Type == "PickUp";
+            var isTerminal = isPickup || TerminalSnStatuses.Contains(note.Status);
             legs.Add(new ShippingTraceLeg
             {
                 LegType = "Shipment",
                 FromName = note.Warehouse?.Name,
-                ToName = note.Destination ?? (note.Type == "CPT" ? "Customer" : "Office"),
+                ToName = isPickup ? "Customer pickup" : note.Destination ?? (note.Type == "CPT" ? "Customer" : "Office"),
                 FromWarehouseId = note.WarehouseId,
                 TrackNumber = note.AWBNumber,
                 Reference = note.SNNumber,
                 ReferenceId = note.Id,
                 Status = note.Status,
                 StartedAt = note.CreatedAt,
-                CompletedAt = TerminalSnStatuses.Contains(note.Status) ? note.CustomsUploadedAt : null,
+                CompletedAt = isPickup ? note.CreatedAt : isTerminal ? note.CustomsUploadedAt : null,
                 ActorName = note.CreatedBy?.Name,
-                IsTerminal = TerminalSnStatuses.Contains(note.Status),
+                IsTerminal = isTerminal,
             });
         }
 

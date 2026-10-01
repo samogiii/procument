@@ -18,7 +18,11 @@ public class ShipmentNote : BaseEntity
     /// <summary>Stored file name for the uploaded SN# PDF.</summary>
     public string? PdfFileName { get; set; }
 
-    /// <summary>"CPT" | "DDP" — determines whether items must share one customer (CPT) or can be mixed (DDP).</summary>
+    /// <summary>
+    /// "CPT" | "DDP" — determines whether items must share one customer (CPT) or can be mixed (DDP).
+    /// "PickUp" — Base 2–5 only: the customer collected the parts at the warehouse. Created already
+    /// finished ("Confirmed"), numbered PU-{yyyy}-{seq:000}, with the customer's papers in Documents.
+    /// </summary>
     public string Type { get; set; } = "DDP";
 
     /// <summary>
@@ -32,6 +36,9 @@ public class ShipmentNote : BaseEntity
     public string? CustomsOriginalFileName { get; set; }
     public DateTime? CustomsUploadedAt { get; set; }
 
+    /// <summary>PickUp only — free-text note, e.g. who collected the parts.</summary>
+    public string? PickupNote { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public long CreatedByUserId { get; set; }
 
@@ -40,4 +47,5 @@ public class ShipmentNote : BaseEntity
     public User CreatedBy { get; set; } = null!;
     public ICollection<ShipmentNoteTrackNumber> TrackNumbers { get; set; } = new List<ShipmentNoteTrackNumber>();
     public ICollection<ShipmentNoteBox> Boxes { get; set; } = new List<ShipmentNoteBox>();
+    public ICollection<ShipmentNoteDocument> Documents { get; set; } = new List<ShipmentNoteDocument>();
 }

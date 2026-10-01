@@ -10,7 +10,8 @@ namespace Procument.Module.Purchasing.Services;
 public interface IShippingService
 {
     // Track Numbers for Inventory user
-    Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false);
+    /// <param name="allowedBases">Customer bases the user may see (Menu Access); null = no filter.</param>
+    Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false, IReadOnlySet<int>? allowedBases = null);
 
     // Submit / update per-part items
     Task<List<TrackNumberItemResponse>> SubmitItemsAsync(long trackId, long submittedByUserId, SubmitTrackNumberItemsRequest request);
@@ -33,7 +34,7 @@ public interface IShippingService
     Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null);
 
     // Ready for SN
-    Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null);
+    Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null, IReadOnlySet<int>? allowedBases = null);
 
     // Single track review (Admin/Expert)
     Task<ShippingTrackResponse?> GetTrackForReviewAsync(long trackId);
@@ -67,7 +68,7 @@ public class ShippingService : IShippingService
 
     // ── Track Numbers for user ─────────────────────────────────────────────
 
-    public async Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false)
+    public async Task<List<ShippingTrackResponse>> GetTrackNumbersForUserAsync(long userId, bool isAdminOrSyd = false, bool pendingOnly = false, IReadOnlySet<int>? allowedBases = null)
     {
         IQueryable<POItemTrackNumber> query = _db.Set<POItemTrackNumber>()
             .AsNoTracking()
@@ -99,7 +100,9 @@ public class ShippingService : IShippingService
         var bases = await ShippingCustomerBases.LoadAsync(_db, result.Select(t => t.POItemId));
         foreach (var t in result)
             t.CustomerBase = bases.GetValueOrDefault(t.POItemId);
-        return result;
+        return allowedBases == null
+            ? result
+            : result.Where(t => allowedBases.Contains(ShippingBaseAccess.Effective(t.CustomerBase))).ToList();
     }
 
     // ── Track Boxes ───────────────────────────────────────────────────────
@@ -570,7 +573,7 @@ public class ShippingService : IShippingService
 
     // ── Ready for SN ──────────────────────────────────────────────────────
 
-    public async Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null)
+    public async Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null, IReadOnlySet<int>? allowedBases = null)
     {
         var baseQuery =
             from item in _db.Set<TrackNumberItem>().AsNoTracking()
@@ -619,7 +622,9 @@ public class ShippingService : IShippingService
         var bases = await ShippingCustomerBases.LoadAsync(_db, items.Select(i => i.POItemId));
         foreach (var i in items)
             i.CustomerBase = bases.GetValueOrDefault(i.POItemId);
-        return items;
+        return allowedBases == null
+            ? items
+            : items.Where(i => allowedBases.Contains(ShippingBaseAccess.Effective(i.CustomerBase))).ToList();
     }
 
     // ── Single track review (Admin/Expert) ────────────────────────────────

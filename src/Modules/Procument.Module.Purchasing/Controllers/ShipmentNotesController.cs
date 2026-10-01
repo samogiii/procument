@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Services;
 
@@ -13,12 +14,17 @@ public class ShipmentNotesController : ControllerBase
 {
     private readonly IShipmentNoteService _service;
     private readonly IWarehouseService _warehouseService;
+    private readonly DbContext _db;
 
-    public ShipmentNotesController(IShipmentNoteService service, IWarehouseService warehouseService)
+    public ShipmentNotesController(IShipmentNoteService service, IWarehouseService warehouseService, DbContext db)
     {
         _service = service;
         _warehouseService = warehouseService;
+        _db = db;
     }
+
+    /// <summary>Customer bases granted to the current user in Menu Access (shippingBase1…5).</summary>
+    private Task<HashSet<int>> GetShippingBasesAsync() => ShippingBaseAccess.LoadAsync(_db, User.Identity?.Name);
 
     private long GetUserId()
     {
@@ -28,24 +34,28 @@ public class ShipmentNotesController : ControllerBase
         return id;
     }
 
-    /// <summary>List SN#s. Inventory restricted to their warehouses. Expert sees only Ship To USA and beyond.</summary>
+    /// <summary>
+    /// List SN#s in the customer bases granted to the user. Inventory restricted to their
+    /// warehouses. Expert sees only Ship To USA and beyond.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<List<ShipmentNoteResponse>>> GetAll(
         [FromQuery] long? warehouseId = null)
     {
+        var bases = await GetShippingBasesAsync();
         if (User.IsInRole("Inventory"))
         {
             var userId = GetUserId();
             var warehouseIds = await _warehouseService.GetWarehouseIdsForUserAsync(userId);
-            return Ok(await _service.GetAllAsync(allowedWarehouseIds: warehouseIds));
+            return Ok(await _service.GetAllAsync(allowedWarehouseIds: warehouseIds, allowedBases: bases));
         }
         if (User.IsInRole("Expert"))
         {
             var isSyd = User.Identity?.Name == "SYD";
-            return Ok(await _service.GetAllAsync(expertView: !isSyd));
+            return Ok(await _service.GetAllAsync(expertView: !isSyd, allowedBases: bases));
         }
 
-        return Ok(await _service.GetAllAsync(warehouseId));
+        return Ok(await _service.GetAllAsync(warehouseId, allowedBases: bases));
     }
 
     /// <summary>Get a single SN# with full detail.</summary>
@@ -62,8 +72,57 @@ public class ShipmentNotesController : ControllerBase
     public async Task<ActionResult<ShipmentNoteResponse>> Create([FromBody] CreateShipmentNoteRequest request)
     {
         if (request.WarehouseId == 0) return BadRequest("WarehouseId is required.");
-        var result = await _service.CreateAsync(GetUserId(), request);
-        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        try
+        {
+            var result = await _service.CreateAsync(GetUserId(), request);
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    // ── PickUp (Base 2–5) ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// The customer collected the selected parts at the warehouse and handed over documents.
+    /// Creates a finished PickUp note (PU-yyyy-###) — no packing, AWB or customs steps.
+    /// multipart/form-data: warehouseId, trackNumberItemIds (repeated), note, files (repeated).
+    /// </summary>
+    [HttpPost("pickup")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
+    public async Task<ActionResult<ShipmentNoteResponse>> CreatePickup(
+        [FromForm] CreatePickupRequest request, [FromForm] List<IFormFile> files)
+    {
+        if (request.WarehouseId == 0) return BadRequest(new { message = "WarehouseId is required." });
+        try
+        {
+            var result = await _service.CreatePickupAsync(GetUserId(), request, files.Where(f => f.Length > 0).ToList(), await GetShippingBasesAsync());
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    /// <summary>Attach more documents to a shipment note (e.g. a paper missed at pickup).</summary>
+    [HttpPost("{id:long}/documents")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
+    public async Task<ActionResult<ShipmentNoteResponse>> AddDocuments(long id, [FromForm] List<IFormFile> files)
+    {
+        try
+        {
+            var result = await _service.AddDocumentsAsync(id, GetUserId(), files.Where(f => f.Length > 0).ToList());
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    /// <summary>Download a document attached to a shipment note.</summary>
+    [HttpGet("{id:long}/documents/{docId:long}/file")]
+    public async Task<IActionResult> DownloadDocument(long id, long docId)
+    {
+        var result = await _service.DownloadDocumentAsync(id, docId);
+        if (result == null) return NotFound();
+        var (stream, fileName, mimeType) = result.Value;
+        return File(stream, mimeType, fileName);
     }
 
     /// <summary>Update SN# fields (TId, AWBNumber).</summary>

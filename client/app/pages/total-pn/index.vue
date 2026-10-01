@@ -229,6 +229,20 @@
                   <v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['customer']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['customer']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('customer')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('customer', val) }" @click.stop="tpnToggleFilter('customer', val)"><v-checkbox-btn :model-value="tpnColFilters['customer']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('customer', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('customer')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('customer')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['customer'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['customer'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('customer')" /></v-card></v-menu>
                 </div>
               </th>
+              <th v-else-if="colKey === 'customerBase'" :data-col="colKey" draggable="true" :style="colStyle[colKey]">
+                <div class="tpn-th-inner">
+                  <span class="tpn-th-label sortable-th" @click="toggleSort('customerBase')">Base <v-icon :icon="sortIcon('customerBase')" size="12" /></span>
+                  <v-menu :close-on-content-click="false" location="bottom start">
+                    <template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['customerBase']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template>
+                    <v-card min-width="170" max-width="230" class="pa-2">
+                      <v-text-field v-model="tpnFilterSearch['customerBase']" density="compact" hide-details variant="outlined" placeholder="Search bases..." prepend-inner-icon="mdi-magnify" class="mb-2" />
+                      <div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('customerBase')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('customerBase', val) }" @click.stop="tpnToggleFilter('customerBase', val)"><v-checkbox-btn :model-value="tpnColFilters['customerBase']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('customerBase', val)" /><span class="text-caption">Base {{ val }}</span></div></div>
+                      <v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('customerBase')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('customerBase')">Clear</v-btn>
+                      <v-divider class="my-1" /><v-list-item :title="tpnShowAll['customerBase'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['customerBase'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('customerBase')" />
+                    </v-card>
+                  </v-menu>
+                </div>
+              </th>
 
               <!-- Supplier -->
               <th v-else-if="colKey === 'supplier'" :data-col="colKey" draggable="true" :style="colStyle[colKey]"><div class="tpn-th-inner"><span class="tpn-th-label">Supplier</span><v-menu :close-on-content-click="false" location="bottom start"><template #activator="{ props: mp }"><button v-bind="mp" class="tpn-filter-btn" :class="{ 'tpn-filter-active': tpnColFilters['supplier']?.size }"><v-icon icon="mdi-filter-outline" size="11" /></button></template><v-card min-width="200" max-width="260" class="pa-2"><v-text-field v-model="tpnFilterSearch['supplier']" density="compact" hide-details variant="outlined" placeholder="Search..." prepend-inner-icon="mdi-magnify" class="mb-2" /><div style="max-height:200px;overflow-y:auto"><div v-for="val in tpnDisplayVals('supplier')" :key="val" class="tpn-filter-item" :class="{ 'opacity-40': tpnIsUnavail('supplier', val) }" @click.stop="tpnToggleFilter('supplier', val)"><v-checkbox-btn :model-value="tpnColFilters['supplier']?.has(val)" density="compact" color="primary" @click.stop="tpnToggleFilter('supplier', val)" /><span class="text-caption">{{ val }}</span></div></div><v-divider class="my-1" /><v-btn size="x-small" variant="text" color="primary" @click="tpnSelectAll('supplier')">All</v-btn><v-btn size="x-small" variant="text" color="error" @click="tpnClearFilter('supplier')">Clear</v-btn><v-divider class="my-1" /><v-list-item :title="tpnShowAll['supplier'] ? 'Show available only' : 'Show all'" :prepend-icon="tpnShowAll['supplier'] ? 'mdi-filter' : 'mdi-filter-off'" density="compact" class="text-caption text-medium-emphasis" @click.stop="tpnToggleShowAll('supplier')" /></v-card></v-menu></div></th>
@@ -358,6 +372,7 @@
                 <v-chip v-if="isStockRow(r)" size="x-small" color="purple" variant="tonal" prepend-icon="mdi-warehouse">{{ r.customer }}</v-chip>
                 <template v-else>{{ r.customer || '-' }}</template>
               </td>
+              <td v-else-if="colKey === 'customerBase'" :style="colStyle[colKey]" class="text-center">{{ r.customerBase ?? '-' }}</td>
               <td v-else-if="colKey === 'supplier'" :style="colStyle[colKey]" class="cell-wrap">
                 <button
                   v-if="canOpenSupplierEditor(r)"
@@ -570,6 +585,7 @@ const ALL_COLUMNS: ColumnConfig[] = [
   { key: 'poRef', label: 'PO Ref#' },
   { key: 'experts', label: 'Expert' },
   { key: 'customer', label: 'Customer' },
+  { key: 'customerBase', label: 'Base' },
   { key: 'supplier', label: 'Supplier' },
   { key: 'partNumber', label: 'P/N' },
   { key: 'description', label: 'Description' },
@@ -623,9 +639,16 @@ async function loadColumnAccess() {
       if (Array.isArray(parsed)) saved = parsed
     } catch {}
   }
+  const baseColumnMarker = `${COL_VISIBILITY_STORAGE_KEY.value}:base-added`
+  const showNewBaseColumn = import.meta.client && !localStorage.getItem(baseColumnMarker)
+    && validAllowed.includes('customerBase') && !saved.includes('customerBase')
   visibleColumns.value = saved.length
-    ? saved.filter(key => validAllowed.includes(key))
+    ? [...saved.filter(key => validAllowed.includes(key)), ...(showNewBaseColumn ? ['customerBase'] : [])]
     : validAllowed.filter(key => !DEFAULT_HIDDEN_COLUMNS.has(key))
+  if (import.meta.client) {
+    if (showNewBaseColumn) saveColumnVisibility()
+    if (validAllowed.includes('customerBase')) localStorage.setItem(baseColumnMarker, '1')
+  }
   loadColumnLayout()
 }
 
@@ -917,7 +940,7 @@ watch([rows, visibleColumns, orderedVisibleColumns, columnWidths], () => {
  * server has already narrowed results by the server-side columns).
  */
 const SERVER_SIDE_FILTER_KEYS = new Set([
-  'customer', 'customerInvoiceNumber', 'partNumber', 'condition',
+  'customer', 'customerBase', 'customerInvoiceNumber', 'partNumber', 'condition',
   'poNumber', 'supplier', 'paymentTerm', 'status', 'shippingStatus',
 ])
 
@@ -933,6 +956,7 @@ const TPN_COLUMNS = [
   { key: 'poRef',                 field: (r: any) => r.poRef },
   { key: 'experts',               field: (r: any) => r.experts },
   { key: 'customer',              field: (r: any) => r.customer },
+  { key: 'customerBase',          field: (r: any) => r.customerBase != null ? String(r.customerBase) : null },
   { key: 'supplier',              field: (r: any) => r.supplier },
   { key: 'partNumber',            field: (r: any) => r.partNumber },
   { key: 'description',           field: (r: any) => r.description },
@@ -966,6 +990,7 @@ const filterOptionsLoading = ref(false)
 function mapFilterOptions(opts: any): Record<string, string[]> {
   return {
     customer:              opts.customers        ?? [],
+    customerBase:          (opts.bases ?? []).map(String),
     customerInvoiceNumber: opts.invoiceNumbers   ?? [],
     partNumber:            opts.partNumbers      ?? [],
     condition:             opts.conditions       ?? [],
@@ -981,6 +1006,7 @@ function activeServerFilterQuery(): Record<string, string[]> {
   const query: Record<string, string[]> = {}
   const mappings: Record<string, string> = {
     customer: 'customers',
+    customerBase: 'bases',
     customerInvoiceNumber: 'invoiceNumbers',
     partNumber: 'partNumbers',
     condition: 'conditions',
@@ -1583,6 +1609,7 @@ async function load() {
     const f = tpnColFilters
     const sel = (key: string) => f[key] && f[key].size > 0 ? [...f[key]] : undefined
     if (sel('customer'))              query.customers       = sel('customer')
+    if (sel('customerBase'))          query.bases           = sel('customerBase')
     if (sel('customerInvoiceNumber')) query.invoiceNumbers  = sel('customerInvoiceNumber')
     if (sel('partNumber'))            query.partNumbers     = sel('partNumber')
     if (sel('condition'))             query.conditions      = sel('condition')
@@ -1622,6 +1649,7 @@ const locallyFilteredRows = computed(() => {
     result = result.filter(r => {
       const blob = [
         r.poNumber, r.partNumber, r.description, r.customer, r.supplier,
+        r.customerBase,
         r.customerInvoiceNumber, r.status, r.note, r.priority, r.warehouse,
         ...(r.experts ?? []), r.trackNumbers,
         r.serialNumber, r.shippingStatus
@@ -1698,6 +1726,7 @@ function exportCsv() {
     { key: 'poRef', label: 'PO Ref#', value: (r) => r.poRef },
     { key: 'experts', label: 'Expert', value: (r) => (r.experts ?? []).join(', ') },
     { key: 'customer', label: 'Customer', value: (r) => r.customer },
+    { key: 'customerBase', label: 'Base', value: (r) => r.customerBase },
     { key: 'supplier', label: 'Supplier', value: (r) => r.supplier },
     { key: 'partNumber', label: 'P/N', value: (r) => r.partNumber },
     { key: 'description', label: 'Description', value: (r) => r.description },

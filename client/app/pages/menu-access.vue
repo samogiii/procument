@@ -38,7 +38,7 @@
                 @click:close="removeUser(group.feature, name)"
               >{{ name }}</v-chip>
               <span v-if="!group.userNames.length" class="text-caption text-grey">
-                No users — only SuperAdmin can access
+                {{ NO_BYPASS_FEATURES.has(group.feature) ? 'No users — nobody has access, SuperAdmin included' : 'No users — only SuperAdmin can access' }}
               </span>
             </div>
 
@@ -110,8 +110,11 @@ const FEATURE_LABELS: Record<string, string> = {
   totalPnMenu:     'Total Project Menu',
   ourInventoryMenu:'Our Inventory',
   supplierCredits: 'Supplier Credits',
-  internalShipping:'Internal Shipping (Base 1)',
-  externalShipping:'External Shipping (Base 2+)',
+  shippingBase1:   'Shipping — Base 1 (T-ID / SO#)',
+  shippingBase2:   'Shipping — Base 2 (PickUp)',
+  shippingBase3:   'Shipping — Base 3 (PickUp)',
+  shippingBase4:   'Shipping — Base 4 (PickUp)',
+  shippingBase5:   'Shipping — Base 5 (PickUp)',
 }
 
 const FEATURE_ICONS: Record<string, string> = {
@@ -133,9 +136,15 @@ const FEATURE_ICONS: Record<string, string> = {
   totalPnMenu:     'mdi-table-large',
   ourInventoryMenu:'mdi-warehouse',
   supplierCredits: 'mdi-cash-refund',
-  internalShipping:'mdi-truck-delivery-outline',
-  externalShipping:'mdi-earth',
+  shippingBase1:   'mdi-truck-delivery-outline',
+  shippingBase2:   'mdi-numeric-2-box-outline',
+  shippingBase3:   'mdi-numeric-3-box-outline',
+  shippingBase4:   'mdi-numeric-4-box-outline',
+  shippingBase5:   'mdi-numeric-5-box-outline',
 }
+
+// Features SuperAdmin does not bypass — nobody has them until granted here.
+const NO_BYPASS_FEATURES = new Set(SHIPPING_BASE_FEATURES)
 
 function featureLabel(f: string) { return FEATURE_LABELS[f] ?? f }
 function featureIcon(f: string)  { return FEATURE_ICONS[f] ?? 'mdi-menu' }

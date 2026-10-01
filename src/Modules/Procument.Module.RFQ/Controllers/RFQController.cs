@@ -720,6 +720,22 @@ public class RFQsController : ControllerBase
         return success ? Ok() : NotFound();
     }
 
+    /// <summary>Update the Sender Mail of an RFQ — the default To of its quote emails. Blank clears it.</summary>
+    [HttpPatch("{id:long}/sender-mail")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<IActionResult> UpdateSenderMail(long id, [FromBody] UpdateRFQSenderMailRequest request)
+    {
+        try
+        {
+            var success = await _rfqService.UpdateSenderMailAsync(id, request.SenderMail);
+            return success ? Ok() : NotFound();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Update the Name of an RFQ.</summary>
     [HttpPatch("{id:long}/name")]
     public async Task<IActionResult> UpdateName(long id, [FromBody] UpdateRFQNameRequest request)

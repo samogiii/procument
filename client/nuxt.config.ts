@@ -36,27 +36,4 @@ export default defineNuxtConfig({
       },
     },
   },
-
-  hooks: {
-    // Internal / External Shipping (see app/composables/useShippingScope.ts): the shipping
-    // pages are registered again under /internal-shipping and /external-shipping. These are
-    // real routes, not aliases — Vue Router treats two aliases of one page as the same
-    // location and silently drops the navigation between them.
-    'pages:extend'(pages) {
-      const scopedPages: Array<[original: string, sub: string]> = [
-        ['/shipping', ''],
-        ['/total-shipping', '/control'],
-        ['/shipping/ready-for-sn', '/ready-for-sn'],
-        ['/shipment-notes', '/shipment'],
-        ['/shipping/track-numbers/:id()', '/track-numbers/:id()'],
-      ]
-      for (const [original, sub] of scopedPages) {
-        const page = pages.find(p => p.path === original)
-        if (!page) continue
-        for (const scope of ['internal', 'external']) {
-          pages.push({ name: `${scope}-${String(page.name)}`, path: `/${scope}-shipping${sub}`, file: page.file })
-        }
-      }
-    },
-  },
 })

@@ -101,7 +101,7 @@ RFQItems.Id
 | `POItemTrackNumbers.Status` | Ship to Warehouse -> Received in Warehouse -> Pending -> Rejected |
 | `TrackNumberItems.Status` | Pending -> Accepted / Rejected |
 | `ShipmentNotes.Status` | Draft -> Waiting for Packing -> Ship To USA -> Received in Warehouse -> Confirmed |
-| `ShipmentNotes.Type` | DDP · CPT |
+| `ShipmentNotes.Type` | DDP · CPT · PickUp (Base 2–5, customer collects at the warehouse; created already `Confirmed`, numbered `PU-yyyy-###`) |
 | `FinalInvoices.Status` | Draft -> Net30 / Completed -> Paid |
 | `Suppliers.Status` | Pending -> Approved / Rejected / Disabled |
 | `PaymentTransactions.Type` | Deposit · Withdraw (`FromType` ∈ MotherWallet / Customer / Wallet / SupplierCredit; `ToType` ∈ MotherWallet / Supplier / BankFee / Wallet / SupplierCredit) |
@@ -1105,7 +1105,8 @@ Lines within a warehouse transfer.
 | CustomsUploadedAt | datetime2? |  |
 | Destination | nvarchar(max)? |  |
 | PdfFileName | nvarchar(500)? |  |
-| SNNumber | nvarchar(50) | U |
+| PickupNote | nvarchar(1000)? | PickUp only — e.g. who collected the parts |
+| SNNumber | nvarchar(50) | U — `SN-yyyy-###`, or `PU-yyyy-###` for a PickUp |
 | SONumber | nvarchar(max)? |  |
 | Status | nvarchar(50) | ⚑ def:"Draft" |
 | TId | nvarchar(200)? |  |
@@ -1123,6 +1124,22 @@ M:N junction shipment ↔ track number. **Double fan-out.**
 | TrackNumberId | bigint | FK→`POItemTrackNumbers` U |
 
 Composite index (unique): (ShipmentNoteId, TrackNumberId)
+
+### ShipmentNoteDocuments
+
+Files attached to a shipment note — the papers the customer hands over at a PickUp.
+Stored on disk under `Documents/ShipmentNotes/{ShipmentNoteId}/`.
+
+| Column | Type | Notes |
+|---|---|---|
+| Id | bigint | **PK** |
+| FileName | nvarchar(500) | name on disk |
+| FileSizeBytes | bigint |  |
+| MimeType | nvarchar(100)? |  |
+| OriginalFileName | nvarchar(500) |  |
+| ShipmentNoteId | bigint | FK→`ShipmentNotes` ⚑ (cascade) |
+| UploadedAt | datetime2 |  |
+| UploadedByUserId | bigint | FK→`Users` ⚑ |
 
 ### ShipmentNoteBoxes
 
@@ -1517,6 +1534,8 @@ Use these exact paths. `*` marks a **nullable** FK — join it with `LEFT JOIN` 
 | RFQs | CustomerId | Customers | no |
 | RFQs | UserId | Users | yes * |
 | ShipmentNoteBoxes | ShipmentNoteId | ShipmentNotes | no |
+| ShipmentNoteDocuments | ShipmentNoteId | ShipmentNotes | no |
+| ShipmentNoteDocuments | UploadedByUserId | Users | no |
 | ShipmentNoteBoxes | TrackNumberId | POItemTrackNumbers | yes * |
 | ShipmentNoteTrackNumbers | ShipmentNoteId | ShipmentNotes | no |
 | ShipmentNoteTrackNumbers | TrackNumberId | POItemTrackNumbers | no |

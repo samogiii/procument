@@ -43,7 +43,6 @@
               v-for="sub in item.children"
               :key="sub.to"
               :to="sub.to"
-              :active="sub.basePath ? route.path === sub.to : undefined"
               :prepend-icon="sub.icon"
               :title="sub.title"
               rounded="lg"
@@ -384,22 +383,6 @@ watch(mobile, (isMobile) => {
   if (isMobile) rail.value = false
 })
 
-function shippingGroup(scope: ShippingScope, icon: string) {
-  const page = (title: string, icon: string, basePath: string, flags: Record<string, boolean> = {}) =>
-    ({ title, icon, to: scopedShippingPath(scope, basePath), basePath, ...flags })
-  return {
-    title: SHIPPING_SCOPES[scope].title,
-    icon,
-    shippingScope: scope,
-    children: [
-      page('Warehouse Shippings', 'mdi-warehouse', '/shipping', { inventoryVisible: true }),
-      page('Shipping Control', 'mdi-truck-delivery-outline', '/total-shipping', { shippingMenu: true, inventoryVisible: true }),
-      page('Ready for SN#', 'mdi-package-check', '/shipping/ready-for-sn', { shippingMenu: true }),
-      page('Shipment', 'mdi-file-document-check-outline', '/shipment-notes', { shippingMenu: true }),
-    ],
-  }
-}
-
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
   { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', totalPnMenu: true, adminOnly: false, ilsOnly: false },
@@ -414,11 +397,20 @@ const allNavItems = [
 
   { title: 'Invoice and PackingList', icon: 'mdi-receipt-text-outline', to: '/final-invoices', adminOnly: true, ilsOnly: false },
   // ── Shipping workflow ──
-  // Two copies of the Shipping menu: Internal (Base 1) and External (Base 2+). Each group
-  // is granted per user in Menu Access — SuperAdmin included — and inside it every page keeps
-  // the visibility rules of the original page it mirrors (basePath). See useShippingScope.
-  shippingGroup('internal', 'mdi-truck-delivery-outline'),
-  shippingGroup('external', 'mdi-earth'),
+  // Shown once the user is granted at least one customer base (Shipping — Base 1…5) in
+  // Menu Access, SuperAdmin included; the pages list only those bases. Inside it every page
+  // keeps its role rules. See useShippingBases.
+  {
+    title: 'Shipping',
+    icon: 'mdi-truck-delivery-outline',
+    shippingBases: true,
+    children: [
+      { title: 'Warehouse Shippings', icon: 'mdi-warehouse', to: '/shipping', inventoryVisible: true },
+      { title: 'Shipping Control', icon: 'mdi-truck-delivery-outline', to: '/total-shipping', shippingMenu: true, inventoryVisible: true },
+      { title: 'Ready for SN#', icon: 'mdi-package-check', to: '/shipping/ready-for-sn', shippingMenu: true },
+      { title: 'Shipment', icon: 'mdi-file-document-check-outline', to: '/shipment-notes', shippingMenu: true },
+    ]
+  },
   {
     title: 'Payment',
     icon: 'mdi-cash-multiple',
@@ -517,13 +509,9 @@ const navBadges = computed(() => {
 
 const navItems = computed(() => {
   const filterItem = (item: any): boolean => {
-    // Internal / External Shipping group — needs its own Menu Access grant, whatever the role.
-    if (item.shippingScope) {
-      if (!(authStore as any)[SHIPPING_SCOPES[item.shippingScope as ShippingScope].feature]) return false
-      return item.children.some(filterItem)
-    }
-    // A page inside it is judged exactly like the original page it mirrors.
-    if (item.basePath) return filterItem({ ...item, to: item.basePath, basePath: undefined })
+    // Shipping group — needs at least one base granted in Menu Access, whatever the role.
+    // Its pages are then judged by the role rules below.
+    if (item.shippingBases) return authStore.shippingAccess && item.children.some(filterItem)
 
     if (['/invoices', '/final-invoices'].includes(item.to) && ['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase())) return false
     if (item.totalPnMenu) return authStore.totalPnMenu
@@ -586,7 +574,7 @@ const navItems = computed(() => {
       if (i.title === 'Task Manager') {
         return { ...i, badge: tasksPendingCount.value > 0 ? tasksPendingCount.value : undefined }
       }
-      const count = navBadges.value[i.basePath ?? i.to]
+      const count = navBadges.value[i.to]
       return count ? { ...i, badge: count } : i
     }
 

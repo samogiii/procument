@@ -14,6 +14,8 @@ public class CreateRFQRequest
     public long UserId { get; set; }
     public string? Notes { get; set; }
     public int? ExType { get; set; }
+    /// <summary>Address the customer sent the RFQ from.</summary>
+    public string? SenderMail { get; set; }
     public List<string> PartNumbers { get; set; } = new();
 }
 
@@ -47,6 +49,11 @@ public class UpdateExTypeRequest
 public class UpdateRFQNotesRequest
 {
     public string? Notes { get; set; }
+}
+
+public class UpdateRFQSenderMailRequest
+{
+    public string? SenderMail { get; set; }
 }
 
 public class UpdateRFQNameRequest
@@ -128,6 +135,7 @@ public class RFQResponse
     public string? NoQuoteReason { get; set; }
     public string? RejectionNote { get; set; }
     public int? ExType { get; set; }
+    public string? SenderMail { get; set; }
 
     public bool IsUnread { get; set; }
 
@@ -190,6 +198,8 @@ public class BulkImportRFQRequest
     public long UserId { get; set; }
     /// <summary>Ex-work type. Falls back to the customer's ExWork when null.</summary>
     public int? ExType { get; set; }
+    /// <summary>Default sender address for every RFQ in the payload; a group's own SenderMail wins.</summary>
+    public string? SenderMail { get; set; }
     public List<BulkImportRFQGroup> Rfqs { get; set; } = new();
 }
 
@@ -200,6 +210,7 @@ public class BulkImportRFQGroup
     /// <summary>Maps to RFQHeader.LeadTime.</summary>
     public DateTime? Deadline { get; set; }
     public string? Notes { get; set; }
+    public string? SenderMail { get; set; }
     public List<BulkImportRFQItem> Items { get; set; } = new();
 }
 
