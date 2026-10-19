@@ -11,6 +11,7 @@ public class SaveSupplierQuoteRequest
     public string? Alt { get; set; }
     public string? Unit { get; set; }
     public string? LeadTime { get; set; }
+    public string? SellLeadTime { get; set; }
     public double? Coef_1 { get; set; }
     public double? Coef_2 { get; set; }
     public double? Coef_3 { get; set; }
@@ -26,8 +27,23 @@ public class SaveSupplierQuoteRequest
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
     public bool IsCertificated { get; set; }
+    /// <summary>User-typed cert references. Null = not sent by this client, keep what is stored.</summary>
+    public List<string>? CustomCertReferences { get; set; }
     /// <summary>The Our Stock lot this row offers (from the RFQ availability chip).</summary>
     public long? SourceStockItemId { get; set; }
+    /// <summary>Our company (CompanyPreset) for this quote. Null = not sent by this client, keep what is stored; 0 = clear.</summary>
+    public long? CompanyPresetId { get; set; }
+    /// <summary>Supplier email used for this RFQ item. Null = not sent by this client, keep what is stored; '' = clear.</summary>
+    public string? SupplierEmail { get; set; }
+
+    // Quote details. Each: null = not sent by this client, keep what is stored; '' = clear.
+    public string? SerialNumber { get; set; }
+    public string? TraceTo { get; set; }
+    public string? TagType { get; set; }
+    public string? PriceType { get; set; }
+    public string? TaggedBy { get; set; }
+    public string? MoQ { get; set; }
+    public string? Warranty { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -53,6 +69,7 @@ public class SupplierQuoteResponse
     public string? Alt { get; set; }
     public string? Unit { get; set; }
     public string? LeadTime { get; set; }
+    public string? SellLeadTime { get; set; }
     public double? Coef_1 { get; set; }
     public double? Coef_2 { get; set; }
     public double? Coef_3 { get; set; }
@@ -69,9 +86,23 @@ public class SupplierQuoteResponse
     public decimal? FixPrice { get; set; }
     public long? ParentProcumentId { get; set; }
     public long? SourceStockItemId { get; set; }
+    public long? CompanyPresetId { get; set; }
+    public string? CompanyPresetName { get; set; }
+    public string? SupplierEmail { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? TraceTo { get; set; }
+    public string? TagType { get; set; }
+    public string? PriceType { get; set; }
+    public string? TaggedBy { get; set; }
+    public string? MoQ { get; set; }
+    public string? Warranty { get; set; }
+    /// <summary>The expert who imported this quote. Only filled for SuperAdmin requests.</summary>
+    public long? ExpertUserId { get; set; }
+    public string? ExpertName { get; set; }
     public int SortOrder { get; set; }
     public int CertificateCount { get; set; }
     public List<string> CertReferences { get; set; } = new();
+    public List<string> CustomCertReferences { get; set; } = new();
     public List<SupplierQuoteResponse> ShopRecords { get; set; } = new();
 }
 

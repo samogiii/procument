@@ -12,12 +12,16 @@ public interface IFinalInvoiceService
     Task<PagedResult<FinalInvoiceListItem>> GetAllAsync(PageQuery page, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null, string? sortBy = null, bool sortDesc = false);
     Task<object> GetFilterOptionsAsync(string? search = null, string? customerSearch = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? customerCodes = null, List<string>? statuses = null);
     Task<FinalInvoiceResponse?> GetByIdAsync(long id);
-    Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId);
+    Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId, List<long> invoiceItemIds);
+    Task<FinalInvoiceCandidatesResponse?> GetCandidatesAsync(long proformaInvoiceId);
+    Task<List<InvoicedPartResponse>> GetInvoicedPartsAsync(long? proformaInvoiceId, long? poId);
+    Task<ReleaseFinalInvoicePartsResponse> ReleasePartsAsync(List<long> invoiceItemIds);
     Task<bool> UpdateStatusAsync(long id, string status);
     Task<bool> UpdateAsync(long id, UpdateFinalInvoiceRequest request);
     Task<bool> UpdateB1FinalInvoiceNumberAsync(long id, string? b1FinalInvoiceNumber);
     Task<bool> CanCreateFinalInvoice(long proformaInvoiceId);
     Task<List<EligibleProformaResponse>> GetEligibleProformasAsync();
+    Task<string?> GetShippingMethodAsync(long finalInvoiceId);
 }
 
 public class FinalInvoiceService : IFinalInvoiceService
@@ -217,29 +221,43 @@ public class FinalInvoiceService : IFinalInvoiceService
         return fi == null ? null : MapToResponse(fi);
     }
 
+    /// <summary>A shipping track is finished once its parts reached the customer (SN# finished or PickUp).</summary>
+    private const string FinishedTrackStatus = "Delivered to Customer";
+    private const string CancelledLineStatus = "Cancelled";
+
     /// <summary>
-    /// PO statuses that are considered active enough for deferred customer terms.
-    /// Net, CAD and Credit do not wait for the customer's payment before invoicing —
-    /// any PO that has moved past draft/admin-approval is sufficient.
+    /// Sales Order lines that can go on a Final Invoice right now: the Sales Order is live, the line
+    /// is not cancelled and not on a Final Invoice yet, and its live PO line has at least one finished
+    /// ("Delivered to Customer") track. A Sales Order is invoiced part by part through this rule.
     /// </summary>
-    private static readonly string[] DeferredTermEligiblePoStatuses =
-    [
-        "Waiting For Supplier Documents", "Waiting For PR", "Waiting For Payment",
-        "PR Rejected", "Payment Done", "Waiting For Shipment", "Ship to Warehouse",
-        "Waiting for Expert Approval Shipment", "Completed"
-    ];
+    private IQueryable<InvoiceItem> InvoiceableItems() =>
+        _db.Set<InvoiceItem>().Where(ii =>
+            !ii.Invoice.IsCancelled
+            && ii.Status != CancelledLineStatus
+            && !_db.Set<FinalInvoiceItem>().Any(f => f.InvoiceItemId == ii.Id)
+            && _db.Set<POItem>().Any(pi => pi.InvoiceItemId == ii.Id
+                && pi.ReturnedAt == null
+                && pi.TrackNumbers.Any(t => t.Status == FinishedTrackStatus)));
 
     public async Task<List<EligibleProformaResponse>> GetEligibleProformasAsync()
     {
-        var finalInvoiceProformaIds = await _db.Set<FinalInvoice>().Select(f => f.ProformaInvoiceId).ToListAsync();
+        var eligibleCounts = await InvoiceableItems()
+            .GroupBy(ii => ii.InvoiceId)
+            .Select(g => new { InvoiceId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.InvoiceId, x => x.Count);
+        if (eligibleCounts.Count == 0) return new();
 
-        var eligibleProformas = await _db.Set<Invoice>()
+        var ids = eligibleCounts.Keys.ToList();
+        var lines = await _db.Set<InvoiceItem>().AsNoTracking()
+            .Where(ii => ids.Contains(ii.InvoiceId) && ii.Status != CancelledLineStatus)
+            .Select(ii => new { ii.InvoiceId, Invoiced = _db.Set<FinalInvoiceItem>().Any(f => f.InvoiceItemId == ii.Id) })
+            .ToListAsync();
+        var lineStats = lines.GroupBy(l => l.InvoiceId)
+            .ToDictionary(g => g.Key, g => (Total: g.Count(), Invoiced: g.Count(l => l.Invoiced)));
+
+        var eligibleProformas = await _db.Set<Invoice>().AsNoTracking()
             .Include(i => i.Customer)
-            .Where(i => !finalInvoiceProformaIds.Contains(i.Id) && !i.IsCancelled)
-            .Where(i =>
-                i.PaymentStatus != InvoicePaymentTerms.Prepayment
-                    ? _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && DeferredTermEligiblePoStatuses.Contains(po.Status))
-                    : _db.Set<PurchaseOrder>().Any(po => po.InvoiceId == i.Id && po.Status == "Completed"))
+            .Where(i => ids.Contains(i.Id))
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
@@ -250,164 +268,316 @@ public class FinalInvoiceService : IFinalInvoiceService
             B1ProformaInvoiceNumber = i.B1InvoiceNumber,
             CustomerName = i.Customer?.Name ?? "",
             CustomerCode = i.Customer?.CustomerCode,
-            TotalAmount = i.TotalAmount
+            TotalAmount = i.TotalAmount,
+            EligibleItemCount = eligibleCounts[i.Id],
+            InvoicedItemCount = lineStats.TryGetValue(i.Id, out var s) ? s.Invoiced : 0,
+            TotalItemCount = lineStats.TryGetValue(i.Id, out var t) ? t.Total : 0,
         }).ToList();
     }
 
     /// <summary>
-    /// Check if a final invoice can be created for the given proforma invoice.
-    /// Deferred customer terms: any PO past sourcing qualifies. Prepayment requires a completed PO.
+    /// Every live line of a Sales Order for the Create Final Invoice part picker — selectable ones
+    /// plus the rest with the reason they can't be picked yet. Null when the Sales Order doesn't exist.
     /// </summary>
-    public async Task<bool> CanCreateFinalInvoice(long proformaInvoiceId)
+    public async Task<FinalInvoiceCandidatesResponse?> GetCandidatesAsync(long proformaInvoiceId)
     {
-        var exists = await _db.Set<FinalInvoice>()
-            .AnyAsync(fi => fi.ProformaInvoiceId == proformaInvoiceId);
-        if (exists) return false;
+        var proforma = await _db.Set<Invoice>().AsNoTracking()
+            .Include(i => i.Customer)
+            .Include(i => i.InvoiceItems).ThenInclude(ii => ii.QuoteItem).ThenInclude(qi => qi!.PartNumber)
+            .FirstOrDefaultAsync(i => i.Id == proformaInvoiceId);
+        if (proforma == null) return null;
 
-        var invoice = await _db.Set<Invoice>()
-            .AsNoTracking()
-            .Where(i => i.Id == proformaInvoiceId)
-            .Select(i => new { i.PaymentStatus, i.IsCancelled })
-            .FirstOrDefaultAsync();
+        var lines = proforma.InvoiceItems.Where(ii => ii.Status != CancelledLineStatus).OrderBy(ii => ii.Id).ToList();
+        var lineIds = lines.Select(ii => ii.Id).ToList();
 
-        if (invoice == null || invoice.IsCancelled) return false;
+        var tracks = await _db.Set<POItemTrackNumber>().AsNoTracking()
+            .Where(t => t.POItem.InvoiceItemId != null && lineIds.Contains(t.POItem.InvoiceItemId.Value) && t.POItem.ReturnedAt == null)
+            .OrderBy(t => t.Id)
+            .Select(t => new { InvoiceItemId = t.POItem.InvoiceItemId!.Value, t.TrackNumber, t.Status })
+            .ToListAsync();
+        var tracksByLine = tracks.ToLookup(t => t.InvoiceItemId);
 
-        if (invoice.PaymentStatus != InvoicePaymentTerms.Prepayment)
+        var linesWithPo = (await _db.Set<POItem>().AsNoTracking()
+            .Where(pi => pi.InvoiceItemId != null && lineIds.Contains(pi.InvoiceItemId.Value) && pi.ReturnedAt == null)
+            .Select(pi => pi.InvoiceItemId!.Value)
+            .ToListAsync()).ToHashSet();
+
+        var invoiced = (await _db.Set<FinalInvoiceItem>().AsNoTracking()
+            .Where(f => f.InvoiceItemId != null && lineIds.Contains(f.InvoiceItemId.Value))
+            .Select(f => new { InvoiceItemId = f.InvoiceItemId!.Value, f.FinalInvoiceId, f.FinalInvoice.InvoiceNumber })
+            .ToListAsync())
+            .GroupBy(f => f.InvoiceItemId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return new FinalInvoiceCandidatesResponse
         {
-            return await _db.Set<PurchaseOrder>()
-                .AnyAsync(po => po.InvoiceId == proformaInvoiceId && DeferredTermEligiblePoStatuses.Contains(po.Status));
-        }
+            ProformaInvoiceId = proforma.Id,
+            InvoiceNumber = proforma.InvoiceNumber,
+            B1ProformaInvoiceNumber = proforma.B1InvoiceNumber,
+            CustomerName = proforma.Customer?.Name ?? "",
+            CustomerCode = proforma.Customer?.CustomerCode,
+            Items = lines.Select(ii =>
+            {
+                var lineTracks = tracksByLine[ii.Id].ToList();
+                var finished = lineTracks.Where(t => t.Status == FinishedTrackStatus).Select(t => t.TrackNumber).Distinct().ToList();
+                var open = lineTracks.Where(t => t.Status != FinishedTrackStatus).Select(t => t.TrackNumber).Distinct().ToList();
+                invoiced.TryGetValue(ii.Id, out var onInvoice);
 
-        return await _db.Set<PurchaseOrder>()
-            .AnyAsync(po => po.InvoiceId == proformaInvoiceId && po.Status == "Completed");
+                string? reason =
+                    proforma.IsCancelled ? "Sales Order is cancelled"
+                    : onInvoice != null ? $"Already on {onInvoice.InvoiceNumber}"
+                    : !linesWithPo.Contains(ii.Id) ? "No PO yet"
+                    : lineTracks.Count == 0 ? "No track number yet"
+                    : finished.Count == 0 ? "Shipping not finished"
+                    : null;
+
+                return new FinalInvoiceCandidateItem
+                {
+                    InvoiceItemId = ii.Id,
+                    PartNumber = ii.QuoteItem?.PartNumber?.Name ?? "",
+                    Alt = ii.QuoteItem?.Alt,
+                    Description = ii.QuoteItem?.PartNumber?.Description,
+                    Qty = ii.Qty,
+                    UnitPrice = ii.UnitPrice,
+                    TotalPrice = ii.TotalPrice,
+                    Condition = ii.Condition ?? ii.QuoteItem?.Condition,
+                    Status = ii.Status,
+                    FinishedTrackNumbers = finished,
+                    OpenTrackNumbers = open,
+                    FinalInvoiceId = onInvoice?.FinalInvoiceId,
+                    FinalInvoiceNumber = onInvoice?.InvoiceNumber,
+                    Eligible = reason == null,
+                    Reason = reason,
+                };
+            }).ToList()
+        };
     }
 
-    /// <summary>Create a Final Invoice from a proforma invoice, pulling in items and track numbers from POs.</summary>
-    public async Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId)
+    /// <summary>True while the Sales Order still has at least one part that can be final-invoiced.</summary>
+    public async Task<bool> CanCreateFinalInvoice(long proformaInvoiceId)
     {
-        // Load the proforma invoice with items
-        var proforma = await _db.Set<Invoice>()
-            .Include(i => i.InvoiceItems)
-                .ThenInclude(ii => ii.QuoteItem)
-                    .ThenInclude(qi => qi!.ProcumentRecord)
-            .Include(i => i.InvoiceItems)
-                .ThenInclude(ii => ii.QuoteItem)
-                    .ThenInclude(qi => qi!.PartNumber)
-            .Include(i => i.Customer)
-            .FirstOrDefaultAsync(i => i.Id == proformaInvoiceId);
+        return await InvoiceableItems().AnyAsync(ii => ii.InvoiceId == proformaInvoiceId);
+    }
 
-        if (proforma == null)
-            throw new InvalidOperationException("Proforma invoice not found.");
+    /// <summary>
+    /// Create a Final Invoice for the selected Sales Order lines. Each line must still be invoiceable
+    /// (see <see cref="InvoiceableItems"/>); the rest of the Sales Order stays open for later Final Invoices.
+    /// </summary>
+    public async Task<FinalInvoiceResponse> CreateFromProformaAsync(long proformaInvoiceId, List<long> invoiceItemIds)
+    {
+        var ids = (invoiceItemIds ?? new List<long>()).Distinct().ToList();
+        if (ids.Count == 0)
+            throw new InvalidOperationException("Select at least one part for the Final Invoice.");
 
-        if (proforma.PaymentStatus == InvoicePaymentTerms.Credit)
-            await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, proforma.CustomerId, proforma.TotalAmount, proforma.Id);
-
-        if (proforma.PaymentStatus is InvoicePaymentTerms.Net or InvoicePaymentTerms.Cad)
-            proforma.PaymentTermStartedAt ??= DateTime.UtcNow;
-        if (proforma.PaymentStatus != InvoicePaymentTerms.Prepayment && proforma.Status != "Finish")
-            proforma.Status = "Running";
-
-        // Generate invoice number
-        //var count = await _db.Set<FinalInvoice>().CountAsync();
-        //var invoiceNumber = $"INV-{(count + 1).ToString().PadLeft(5, '0')}";
-
-        // Collect POItem track numbers mapped by InvoiceItemId.
-        // With the PO-return loop, a single InvoiceItem can map to multiple POItems over time
-        // (the returned one + any re-finalized replacement). Only the live (non-returned) POItem
-        // is the "active" fulfiller, so filter those out and group to avoid duplicate-key crashes.
-        var invoiceItemIds = proforma.InvoiceItems.Select(ii => ii.Id).ToList();
-        var poItems = await _db.Set<POItem>()
-            .Where(pi => pi.InvoiceItemId.HasValue
-                         && invoiceItemIds.Contains(pi.InvoiceItemId.Value)
-                         && pi.ReturnedAt == null)
-            .Include(pi => pi.TrackNumbers)
-            .ToListAsync();
-
-        var trackMap = poItems
-            .GroupBy(pi => pi.InvoiceItemId!.Value)
-            .ToDictionary(
-                g => g.Key,
-                g =>
-                {
-                    // Prefer the most recently created live POItem if somehow multiple exist.
-                    var pi = g.OrderByDescending(x => x.Id).First();
-                    return new
-                    {
-                        TrackNumbers = string.Join(", ", (pi.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => t.TrackNumber)),
-                        Carrier = (pi.TrackNumbers ?? new List<POItemTrackNumber>()).FirstOrDefault()?.Carrier ?? ""
-                    };
-                }
-            );
-
-        var finalInvoice = new FinalInvoice
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var finalInvoiceId = await strategy.ExecuteAsync(async () =>
         {
-            // Unique placeholder, replaced with "INV-{Id}" right after the insert. Invoices.InvoiceNumber
-            // has a unique index, so a fixed placeholder left behind by a failed creation would block
-            // every later final invoice.
-            InvoiceNumber = $"TMP-{Guid.NewGuid():N}",
-            // Same digits as the proforma's B1 number, re-lettered I (null when the proforma has none).
-            B1FinalInvoiceNumber = _b1Service.Relabel(proforma.B1InvoiceNumber, B1NumberService.FinalInvoiceLetter),
-            TotalAmount = proforma.TotalAmount,
-            Status = "Draft",
-            ProformaInvoiceId = proforma.Id,
-            CustomerId = proforma.CustomerId,
-            CreatedAt = DateTime.UtcNow,
-        };
+            _db.ChangeTracker.Clear();
+            await using var transaction = await _db.Database.BeginTransactionAsync();
 
-        _db.Set<FinalInvoice>().Add(finalInvoice);
-        await _db.SaveChangesAsync(); // Get the ID
+            // Serialises Final Invoice creation per Sales Order, so two users can't invoice the same part twice.
+            await _db.Database
+                .SqlQuery<long>($"SELECT Id AS [Value] FROM ProformaInvoices WITH (UPDLOCK, HOLDLOCK) WHERE Id = {proformaInvoiceId}")
+                .ToListAsync();
 
+            var proforma = await _db.Set<Invoice>()
+                .Include(i => i.InvoiceItems)
+                    .ThenInclude(ii => ii.QuoteItem)
+                        .ThenInclude(qi => qi!.ProcumentRecord)
+                .Include(i => i.InvoiceItems)
+                    .ThenInclude(ii => ii.QuoteItem)
+                        .ThenInclude(qi => qi!.PartNumber)
+                .Include(i => i.Customer)
+                .FirstOrDefaultAsync(i => i.Id == proformaInvoiceId);
 
-        // Set PO number using the actual Id
-        finalInvoice.InvoiceNumber = $"INV-{finalInvoice.Id}";
-        await _db.SaveChangesAsync();
+            if (proforma == null)
+                throw new InvalidOperationException("Sales Order not found.");
+            if (proforma.IsCancelled)
+                throw new InvalidOperationException("This Sales Order is cancelled.");
 
-        // Create items from proforma items
-        foreach (var ii in proforma.InvoiceItems)
-        {
-            var quoteItem = ii.QuoteItem;
-            var proc = quoteItem?.ProcumentRecord;
-            var track = trackMap.ContainsKey(ii.Id) ? trackMap[ii.Id] : null;
+            var invoiceable = await InvoiceableItems()
+                .Where(ii => ii.InvoiceId == proformaInvoiceId && ids.Contains(ii.Id))
+                .Select(ii => ii.Id)
+                .ToListAsync();
+            if (invoiceable.Count != ids.Count)
+                throw new InvalidOperationException(
+                    "Some selected parts can't be invoiced: each part needs a finished shipping track and must not be on another Final Invoice. Refresh and try again.");
 
-            // Resolve the effective PartNumber: if the expert quoted an alt to the customer,
-            // find or create a PartNumber entry for the alt so the Final Invoice uses it.
-            var effectivePartNumberId = quoteItem?.PartNumberId;
-            var altName = quoteItem?.Alt?.Trim();
-            if (!string.IsNullOrEmpty(altName))
+            var selected = proforma.InvoiceItems.Where(ii => ids.Contains(ii.Id)).OrderBy(ii => ii.Id).ToList();
+
+            if (proforma.PaymentStatus == InvoicePaymentTerms.Credit)
+                await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, proforma.CustomerId, proforma.TotalAmount, proforma.Id);
+
+            if (proforma.PaymentStatus is InvoicePaymentTerms.Net or InvoicePaymentTerms.Cad)
+                proforma.PaymentTermStartedAt ??= DateTime.UtcNow;
+            if (proforma.PaymentStatus != InvoicePaymentTerms.Prepayment && proforma.Status != "Finish")
+                proforma.Status = "Running";
+
+            // Finished tracks of the live (non-returned) PO lines — the shipments this invoice bills for.
+            var finishedTracks = await _db.Set<POItemTrackNumber>()
+                .Where(t => t.POItem.InvoiceItemId != null && ids.Contains(t.POItem.InvoiceItemId.Value)
+                         && t.POItem.ReturnedAt == null && t.Status == FinishedTrackStatus)
+                .OrderBy(t => t.Id)
+                .Select(t => new { InvoiceItemId = t.POItem.InvoiceItemId!.Value, t.TrackNumber, t.Carrier })
+                .ToListAsync();
+            var tracksByLine = finishedTracks.ToLookup(t => t.InvoiceItemId);
+
+            var finalInvoice = new FinalInvoice
             {
-                var altPn = await _db.Set<PartNumber>().FirstOrDefaultAsync(p => p.Name == altName);
-                if (altPn != null)
-                    effectivePartNumberId = altPn.Id;
+                // Unique placeholder, replaced with "INV-{Id}" right after the insert. Invoices.InvoiceNumber
+                // has a unique index, so a fixed placeholder left behind by a failed creation would block
+                // every later final invoice.
+                InvoiceNumber = $"TMP-{Guid.NewGuid():N}",
+                // Same digits as the proforma's B1 number, re-lettered I (null when the proforma has none).
+                B1FinalInvoiceNumber = _b1Service.Relabel(proforma.B1InvoiceNumber, B1NumberService.FinalInvoiceLetter),
+                // Only the selected parts — same rule as the Sales Order total (sum of line TotalPrice).
+                TotalAmount = selected.Sum(ii => ii.TotalPrice),
+                Status = "Draft",
+                ProformaInvoiceId = proforma.Id,
+                CustomerId = proforma.CustomerId,
+                CreatedAt = DateTime.UtcNow,
+            };
+
+            _db.Set<FinalInvoice>().Add(finalInvoice);
+            await _db.SaveChangesAsync(); // Get the ID
+
+            finalInvoice.InvoiceNumber = $"INV-{finalInvoice.Id}";
+
+            foreach (var ii in selected)
+            {
+                var quoteItem = ii.QuoteItem;
+                var proc = quoteItem?.ProcumentRecord;
+                var lineTracks = tracksByLine[ii.Id].ToList();
+
+                // Resolve the effective PartNumber: if the expert quoted an alt to the customer,
+                // find or create a PartNumber entry for the alt so the Final Invoice uses it.
+                var effectivePartNumberId = quoteItem?.PartNumberId;
+                var altName = quoteItem?.Alt?.Trim();
+                if (!string.IsNullOrEmpty(altName))
+                {
+                    var altPn = await _db.Set<PartNumber>().FirstOrDefaultAsync(p => p.Name == altName);
+                    if (altPn != null)
+                        effectivePartNumberId = altPn.Id;
+                    else
+                    {
+                        var newAltPn = new PartNumber { Name = altName, CreatedAt = DateTime.UtcNow };
+                        _db.Set<PartNumber>().Add(newAltPn);
+                        await _db.SaveChangesAsync();
+                        effectivePartNumberId = newAltPn.Id;
+                    }
+                }
+
+                _db.Set<FinalInvoiceItem>().Add(new FinalInvoiceItem
+                {
+                    FinalInvoiceId = finalInvoice.Id,
+                    PartNumberId = effectivePartNumberId,
+                    InvoiceItemId = ii.Id,
+                    Qty = ii.Qty,
+                    UnitPrice = ii.UnitPrice,   // Sell price from proforma
+                    TotalPrice = ii.TotalPrice,
+                    Discount = ii.Discount,     // Copy discount from proforma item
+                    Condition = ii.Condition ?? quoteItem?.Condition,
+                    CertName = proc?.CertName,
+                    TrackNumber = Truncate(string.Join(", ", lineTracks.Select(t => t.TrackNumber).Distinct()), 500),
+                    Carrier = Truncate(lineTracks.Select(t => t.Carrier).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c)) ?? "", 200),
+                });
+            }
+
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return finalInvoice.Id;
+        });
+
+        return (await GetByIdAsync(finalInvoiceId))!;
+    }
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
+
+    /// <summary>
+    /// Parts of a Sales Order (or of a PO's live lines) that sit on a Final Invoice — what the user
+    /// can take off again to unlock the Sales Order / PO.
+    /// </summary>
+    public async Task<List<InvoicedPartResponse>> GetInvoicedPartsAsync(long? proformaInvoiceId, long? poId)
+    {
+        if (!proformaInvoiceId.HasValue && !poId.HasValue) return new();
+
+        var q = _db.Set<FinalInvoiceItem>().AsNoTracking().Where(f => f.InvoiceItemId != null);
+        if (proformaInvoiceId.HasValue)
+            q = q.Where(f => f.InvoiceItem!.InvoiceId == proformaInvoiceId.Value);
+        if (poId.HasValue)
+            q = q.Where(f => _db.Set<POItem>().Any(pi => pi.POId == poId.Value && pi.ReturnedAt == null && pi.InvoiceItemId == f.InvoiceItemId));
+
+        return await q
+            .OrderBy(f => f.FinalInvoiceId).ThenBy(f => f.Id)
+            .Select(f => new InvoicedPartResponse
+            {
+                InvoiceItemId = f.InvoiceItemId!.Value,
+                FinalInvoiceItemId = f.Id,
+                PartNumber = f.PartNumber != null ? f.PartNumber.Name : "",
+                Qty = f.Qty,
+                TotalPrice = f.TotalPrice,
+                TrackNumber = f.TrackNumber,
+                FinalInvoiceId = f.FinalInvoiceId,
+                FinalInvoiceNumber = f.FinalInvoice.InvoiceNumber,
+                B1FinalInvoiceNumber = f.FinalInvoice.B1FinalInvoiceNumber,
+                FinalInvoiceStatus = f.FinalInvoice.Status,
+                FinalInvoiceItemCount = f.FinalInvoice.Items.Count(),
+            })
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Takes Sales Order lines off their Final Invoice so the Sales Order / PO unlock and the parts can be
+    /// edited, returned or invoiced again. Each touched Final Invoice gets its total recalculated; one left
+    /// with no parts is deleted (its uploaded documents stay in storage under its number).
+    /// </summary>
+    public async Task<ReleaseFinalInvoicePartsResponse> ReleasePartsAsync(List<long> invoiceItemIds)
+    {
+        var ids = (invoiceItemIds ?? new List<long>()).Distinct().ToList();
+        if (ids.Count == 0)
+            throw new InvalidOperationException("Select at least one part to remove from its Final Invoice.");
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            _db.ChangeTracker.Clear();
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            var finalItems = await _db.Set<FinalInvoiceItem>()
+                .Where(f => f.InvoiceItemId != null && ids.Contains(f.InvoiceItemId.Value))
+                .ToListAsync();
+            if (finalItems.Count == 0)
+                throw new InvalidOperationException("None of the selected parts are on a Final Invoice.");
+
+            var removedIds = finalItems.Select(f => f.Id).ToHashSet();
+            var finalInvoiceIds = finalItems.Select(f => f.FinalInvoiceId).Distinct().ToList();
+            var finalInvoices = await _db.Set<FinalInvoice>()
+                .Include(fi => fi.Items)
+                .Where(fi => finalInvoiceIds.Contains(fi.Id))
+                .ToListAsync();
+
+            _db.Set<FinalInvoiceItem>().RemoveRange(finalItems);
+
+            var result = new ReleaseFinalInvoicePartsResponse { ReleasedCount = finalItems.Count };
+            foreach (var fi in finalInvoices.OrderBy(fi => fi.Id))
+            {
+                var remaining = fi.Items.Where(i => !removedIds.Contains(i.Id)).ToList();
+                if (remaining.Count == 0)
+                {
+                    _db.Set<FinalInvoice>().Remove(fi);
+                    result.DeletedFinalInvoices.Add(fi.InvoiceNumber);
+                }
                 else
                 {
-                    var newAltPn = new PartNumber { Name = altName, CreatedAt = DateTime.UtcNow };
-                    _db.Set<PartNumber>().Add(newAltPn);
-                    await _db.SaveChangesAsync();
-                    effectivePartNumberId = newAltPn.Id;
+                    fi.TotalAmount = remaining.Sum(i => i.TotalPrice);
+                    result.UpdatedFinalInvoices.Add(fi.InvoiceNumber);
                 }
             }
 
-            var item = new FinalInvoiceItem
-            {
-                FinalInvoiceId = finalInvoice.Id,
-                PartNumberId = effectivePartNumberId,
-                InvoiceItemId = ii.Id,
-                Qty = ii.Qty,
-                UnitPrice = ii.UnitPrice,   // Sell price from proforma
-                TotalPrice = ii.TotalPrice,
-                Discount = ii.Discount,     // Copy discount from proforma item
-                Condition = ii.Condition ?? quoteItem?.Condition,
-                CertName = proc?.CertName,
-                TrackNumber = track?.TrackNumbers ?? "",
-                Carrier = track?.Carrier ?? "",
-            };
-
-            _db.Set<FinalInvoiceItem>().Add(item);
-        }
-
-        await _db.SaveChangesAsync();
-
-        return (await GetByIdAsync(finalInvoice.Id))!;
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return result;
+        });
     }
 
     public async Task<bool> UpdateStatusAsync(long id, string status)
@@ -449,6 +619,32 @@ public class FinalInvoiceService : IFinalInvoiceService
 
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    /// <summary>
+    /// How the invoice's parts went out, read from the shipment notes their live POItems' track numbers
+    /// sit on: "DDP", "CPT", "Pick Up", or several joined when the parts shipped differently.
+    /// Null while nothing is on a shipment note yet.
+    /// </summary>
+    public async Task<string?> GetShippingMethodAsync(long finalInvoiceId)
+    {
+        var invoiceItemIds = _db.Set<FinalInvoiceItem>()
+            .Where(i => i.FinalInvoiceId == finalInvoiceId && i.InvoiceItemId != null)
+            .Select(i => i.InvoiceItemId!.Value);
+
+        var types = await _db.Set<ShipmentNoteTrackNumber>()
+            .Where(snt => snt.TrackNumber.POItem.ReturnedAt == null
+                       && snt.TrackNumber.POItem.InvoiceItemId != null
+                       && invoiceItemIds.Contains(snt.TrackNumber.POItem.InvoiceItemId.Value))
+            .Select(snt => snt.ShipmentNote.Type)
+            .Distinct()
+            .ToListAsync();
+
+        if (types.Count == 0) return null;
+
+        return string.Join(", ", types
+            .OrderBy(t => t switch { "DDP" => 0, "CPT" => 1, _ => 2 })
+            .Select(t => t == "PickUp" ? "Pick Up" : t));
     }
 
     private static FinalInvoiceResponse MapToResponse(FinalInvoice fi)

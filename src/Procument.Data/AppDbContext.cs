@@ -54,12 +54,28 @@ public class AppDbContext : DbContext
   public DbSet<PaymentBox> PaymentBoxes => Set<PaymentBox>();
   public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
   public DbSet<WalletTransferPending> WalletTransferPendings => Set<WalletTransferPending>();
+  public DbSet<UpcomingWithdraw> UpcomingWithdraws => Set<UpcomingWithdraw>();
+  public DbSet<CustomerFollowUp> CustomerFollowUps => Set<CustomerFollowUp>();
+  public DbSet<CustomerFollowUpDocument> CustomerFollowUpDocuments => Set<CustomerFollowUpDocument>();
+  public DbSet<CustomerFollowUpMessage> CustomerFollowUpMessages => Set<CustomerFollowUpMessage>();
+  public DbSet<CustomerFollowUpMessageRead> CustomerFollowUpMessageReads => Set<CustomerFollowUpMessageRead>();
+  public DbSet<WalletSettings> WalletSettings => Set<WalletSettings>();
   public DbSet<SupplierCreditAccount> SupplierCreditAccounts => Set<SupplierCreditAccount>();
   public DbSet<SupplierCreditEntry> SupplierCreditEntries => Set<SupplierCreditEntry>();
   public DbSet<SupplierCreditDocument> SupplierCreditDocuments => Set<SupplierCreditDocument>();
 
   // Purchasing
   public DbSet<ProcumentRecord> ProcumentRecords => Set<ProcumentRecord>();
+  public DbSet<PendingSupplierQuote> PendingSupplierQuotes => Set<PendingSupplierQuote>();
+  public DbSet<PendingSupplierQuoteCertificate> PendingSupplierQuoteCertificates => Set<PendingSupplierQuoteCertificate>();
+  public DbSet<PendingQuoteEmail> PendingQuoteEmails => Set<PendingQuoteEmail>();
+  public DbSet<PendingQuoteEmailAttachment> PendingQuoteEmailAttachments => Set<PendingQuoteEmailAttachment>();
+  public DbSet<PendingRfqItem> PendingRfqItems => Set<PendingRfqItem>();
+  public DbSet<Preferred> Preferreds => Set<Preferred>();
+  public DbSet<PreferredEvent> PreferredEvents => Set<PreferredEvent>();
+  public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
+  public DbSet<ProcurementPlusUpload> ProcurementPlusUploads => Set<ProcurementPlusUpload>();
+  public DbSet<ProcurementPlusOffer> ProcurementPlusOffers => Set<ProcurementPlusOffer>();
   public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
   public DbSet<POItem> POItems => Set<POItem>();
   public DbSet<POImportDetail> POImportDetails => Set<POImportDetail>();
@@ -562,6 +578,19 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(e => e.SourceStockItemId)
             .OnDelete(DeleteBehavior.Restrict);
+      entity.Property(e => e.SupplierEmail).HasMaxLength(320);
+      entity.Property(e => e.SerialNumber).HasMaxLength(200);
+      entity.Property(e => e.TraceTo).HasMaxLength(300);
+      entity.Property(e => e.TagType).HasMaxLength(100);
+      entity.Property(e => e.PriceType).HasMaxLength(100);
+      entity.Property(e => e.TaggedBy).HasMaxLength(300);
+      entity.Property(e => e.MoQ).HasMaxLength(100);
+      entity.Property(e => e.Warranty).HasMaxLength(200);
+      entity.HasIndex(e => e.CompanyPresetId);
+      entity.HasOne<CompanyPreset>()
+            .WithMany()
+            .HasForeignKey(e => e.CompanyPresetId)
+            .OnDelete(DeleteBehavior.Restrict);
 
       entity.HasOne(e => e.RFQItem)
                 .WithMany()
@@ -588,6 +617,238 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.UserId);
       entity.HasIndex(e => e.ParentProcumentId);
       entity.HasIndex(e => e.Type);
+    });
+
+    modelBuilder.Entity<PendingSupplierQuote>(entity =>
+    {
+      entity.ToTable("PendingSupplierQuotes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.MessageId).HasMaxLength(500);
+      entity.Property(e => e.EmailSubject).HasMaxLength(500);
+      entity.Property(e => e.SupplierEmail).HasMaxLength(320);
+      entity.Property(e => e.SupplierNameRaw).HasMaxLength(300);
+      entity.Property(e => e.Mailbox).HasMaxLength(320);
+      entity.Property(e => e.MailboxLabel).HasMaxLength(200);
+      entity.HasIndex(e => e.Mailbox);
+      entity.Property(e => e.PartNumber).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.PriceRaw).HasMaxLength(100);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.CertName).HasMaxLength(200);
+      entity.Property(e => e.LeadTime).HasMaxLength(100);
+      entity.Property(e => e.Remark).HasMaxLength(2000);
+      entity.Property(e => e.Alt).HasMaxLength(200);
+      entity.Property(e => e.TagDateRaw).HasMaxLength(100);
+      entity.Property(e => e.ShippingPoint).HasMaxLength(200);
+      entity.Property(e => e.SellLeadTime).HasMaxLength(100);
+      entity.Property(e => e.MyNotes).HasMaxLength(2000);
+      entity.Property(e => e.CustomCertReferences).HasMaxLength(1000);
+      entity.Property(e => e.SerialNumber).HasMaxLength(200);
+      entity.Property(e => e.TraceTo).HasMaxLength(300);
+      entity.Property(e => e.TagType).HasMaxLength(100);
+      entity.Property(e => e.PriceType).HasMaxLength(100);
+      entity.Property(e => e.TaggedBy).HasMaxLength(300);
+      entity.Property(e => e.MoQ).HasMaxLength(100);
+      entity.Property(e => e.Warranty).HasMaxLength(200);
+      entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
+
+      entity.HasOne(e => e.Supplier)
+                .WithMany()
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.Email)
+                .WithMany()
+                .HasForeignKey(e => e.EmailId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.Property(e => e.Source).HasMaxLength(30);
+      entity.Property(e => e.SourceMethod).HasMaxLength(30);
+
+      entity.HasIndex(e => e.MessageId);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => new { e.Source, e.Status });
+      // Procurement Plus preferred supplier — plain column (no FK: Suppliers already reaches this table).
+      entity.HasIndex(e => e.PreferredId);
+      entity.HasIndex(e => e.PreferredPartId);
+    });
+
+    // ── Procurement Plus ──
+    modelBuilder.Entity<Preferred>(entity =>
+    {
+      entity.ToTable("Preferreds");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Kind).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.Name).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.NameKey).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.Alternatives).HasMaxLength(2000);
+      entity.Property(e => e.Emails).HasMaxLength(2000);
+      entity.Property(e => e.Phone).HasMaxLength(100);
+      entity.Property(e => e.SourceMethod).HasMaxLength(30);
+      entity.Property(e => e.Note).HasMaxLength(500);
+      // Optional catalog links — deleting the catalog row keeps the preferred.
+      entity.HasOne(e => e.CatalogPart)
+                .WithMany()
+                .HasForeignKey(e => e.PartNumberId)
+                .OnDelete(DeleteBehavior.SetNull);
+      entity.HasOne(e => e.Supplier)
+                .WithMany()
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.SetNull);
+      entity.Property(e => e.Track).HasMaxLength(20).HasDefaultValue(PreferredTracks.Ils);
+      entity.Property(e => e.Condition).HasMaxLength(50);
+      entity.Property(e => e.TargetPrice).HasColumnType("decimal(18,2)");
+      entity.HasIndex(e => new { e.Kind, e.UserId, e.NameKey });
+      entity.HasIndex(e => e.SupplierId);
+      entity.HasIndex(e => new { e.Kind, e.UserId, e.RfqId });
+    });
+
+    modelBuilder.Entity<PreferredEvent>(entity =>
+    {
+      entity.ToTable("PreferredEvents");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Kind).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.Text).HasMaxLength(1000).IsRequired();
+      entity.HasOne(e => e.Preferred)
+                .WithMany()
+                .HasForeignKey(e => e.PreferredId)
+                .OnDelete(DeleteBehavior.Cascade);
+      entity.HasIndex(e => new { e.PreferredId, e.CreatedAt });
+    });
+
+    modelBuilder.Entity<SupplierAlias>(entity =>
+    {
+      entity.ToTable("SupplierAliases");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.AliasKey).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.Alias).HasMaxLength(300).IsRequired();
+      entity.HasOne(e => e.Supplier)
+                .WithMany()
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.Cascade);
+      entity.HasIndex(e => e.AliasKey).IsUnique();
+    });
+
+    modelBuilder.Entity<ProcurementPlusUpload>(entity =>
+    {
+      entity.ToTable("ProcurementPlusUploads");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(255).IsRequired();
+      entity.HasIndex(e => new { e.UserId, e.UploadedAt });
+    });
+
+    modelBuilder.Entity<ProcurementPlusOffer>(entity =>
+    {
+      entity.ToTable("ProcurementPlusOffers");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.PartNo).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.PartKey).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.AltPartNo).HasMaxLength(200);
+      entity.Property(e => e.AltKey).HasMaxLength(200);
+      entity.Property(e => e.CompanyRaw).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.CompanyKey).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.SupplierComment).HasMaxLength(1000);
+      entity.Property(e => e.QtyRaw).HasMaxLength(50);
+      entity.Property(e => e.Condition).HasMaxLength(50);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.PriceRaw).HasMaxLength(100);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Phone).HasMaxLength(100);
+      entity.Property(e => e.Fax).HasMaxLength(100);
+      entity.Property(e => e.Email).HasMaxLength(320);
+      entity.Property(e => e.Distance).HasMaxLength(50);
+      entity.Property(e => e.Cage).HasMaxLength(50);
+      entity.Property(e => e.Exch).HasMaxLength(50);
+      entity.HasOne(e => e.Upload)
+                .WithMany(u => u.Offers)
+                .HasForeignKey(e => e.UploadId)
+                .OnDelete(DeleteBehavior.Cascade);
+      entity.HasOne(e => e.Supplier)
+                .WithMany()
+                .HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.SetNull);
+      entity.HasIndex(e => e.PartKey);
+      entity.HasIndex(e => e.AltKey);
+      entity.HasIndex(e => e.CompanyKey);
+    });
+
+    modelBuilder.Entity<PendingSupplierQuoteCertificate>(entity =>
+    {
+      entity.ToTable("PendingSupplierQuoteCertificates");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.OriginalFileName).HasMaxLength(255).IsRequired();
+      entity.HasOne(e => e.PendingSupplierQuote)
+                .WithMany(q => q.Certificates)
+                .HasForeignKey(e => e.PendingSupplierQuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<PendingQuoteEmail>(entity =>
+    {
+      entity.ToTable("PendingQuoteEmails");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.MessageId).HasMaxLength(500);
+      entity.Property(e => e.Subject).HasMaxLength(500);
+      entity.Property(e => e.FromHeader).HasMaxLength(500);
+      entity.Property(e => e.FromEmail).HasMaxLength(320);
+      entity.Property(e => e.ToHeader).HasMaxLength(2000);
+      entity.Property(e => e.CcHeader).HasMaxLength(2000);
+      entity.HasIndex(e => e.MessageId);
+    });
+
+    modelBuilder.Entity<PendingQuoteEmailAttachment>(entity =>
+    {
+      entity.ToTable("PendingQuoteEmailAttachments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(255).IsRequired();
+      entity.Property(e => e.StoredFileName).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.ContentType).HasMaxLength(200);
+      entity.HasOne(e => e.Email)
+                .WithMany(e => e.Attachments)
+                .HasForeignKey(e => e.EmailId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Email RFQs — customer RFQ lines read by MailFlow, accepted into new RFQs
+    modelBuilder.Entity<PendingRfqItem>(entity =>
+    {
+      entity.ToTable("PendingRfqItems");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.MessageId).HasMaxLength(500);
+      entity.Property(e => e.EmailSubject).HasMaxLength(500);
+      entity.Property(e => e.CustomerEmail).HasMaxLength(320);
+      entity.Property(e => e.CustomerNameRaw).HasMaxLength(300);
+      entity.Property(e => e.Mailbox).HasMaxLength(320);
+      entity.Property(e => e.MailboxLabel).HasMaxLength(200);
+      entity.HasIndex(e => e.Mailbox);
+      entity.Property(e => e.RfqName).HasMaxLength(300).IsRequired();
+      entity.Property(e => e.DeadlineRaw).HasMaxLength(100);
+      entity.Property(e => e.PartNumber).HasMaxLength(200).IsRequired();
+      entity.Property(e => e.Description).HasMaxLength(1000);
+      entity.Property(e => e.Condition).HasMaxLength(100);
+      entity.Property(e => e.Priority).HasMaxLength(100);
+      entity.Property(e => e.Alternatives).HasMaxLength(1000);
+      entity.Property(e => e.Remark).HasMaxLength(2000);
+      entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
+      entity.Property(e => e.CreatedRfqName).HasMaxLength(300);
+
+      entity.HasOne(e => e.Customer)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.Email)
+                .WithMany()
+                .HasForeignKey(e => e.EmailId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasIndex(e => e.MessageId);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.CustomerEmail);
+      // The created RFQ — plain column (an FK would give SQL Server a second cascade path from Customers).
+      entity.HasIndex(e => e.RfqId);
     });
 
     modelBuilder.Entity<SupplierQuoteCertificate>(entity =>
@@ -1193,6 +1454,14 @@ public class AppDbContext : DbContext
                 .HasForeignKey(e => e.ShipmentNoteId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+      entity.HasOne(e => e.POItem)
+                .WithMany()
+                .HasForeignKey(e => e.POItemId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(e => new { e.ShipmentNoteId, e.POItemId });
+
       entity.HasOne(e => e.UploadedBy)
                 .WithMany()
                 .HasForeignKey(e => e.UploadedByUserId)
@@ -1373,6 +1642,88 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => new { e.IsAuto, e.ReviewedAt })
                 .HasDatabaseName("IX_PaymentTransactions_Unreviewed")
                 .HasFilter("[ReviewedAt] IS NULL");
+    });
+
+    modelBuilder.Entity<CustomerFollowUp>(entity =>
+    {
+      entity.ToTable("CustomerFollowUps");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.CustomerCode).HasMaxLength(100);
+      entity.Property(e => e.PartNumber).HasMaxLength(100);
+      entity.Property(e => e.RequestedItem).HasMaxLength(4000);
+      entity.Property(e => e.DateOfRequest).HasColumnType("date");
+      entity.Property(e => e.Deadline).HasColumnType("date");
+      entity.Property(e => e.Assign).HasMaxLength(100);
+      entity.Property(e => e.ResponseStatus).HasMaxLength(100);
+      entity.Property(e => e.IssueStatus).HasMaxLength(100);
+      entity.Property(e => e.DateOfReply).HasColumnType("date");
+      entity.Property(e => e.OurResponse).HasMaxLength(4000);
+      entity.Property(e => e.Feedback).HasMaxLength(4000);
+      entity.Property(e => e.CreatedBy).HasMaxLength(100);
+      entity.Property(e => e.ModifiedBy).HasMaxLength(100);
+      entity.HasIndex(e => e.IsActive);
+    });
+
+    modelBuilder.Entity<CustomerFollowUpDocument>(entity =>
+    {
+      entity.ToTable("CustomerFollowUpDocuments");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.FileName).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.OriginalFileName).HasMaxLength(255).IsRequired();
+      entity.Property(e => e.MimeType).HasMaxLength(100);
+      entity.Property(e => e.UploadedBy).HasMaxLength(100);
+      entity.HasOne(e => e.CustomerFollowUp)
+                .WithMany(f => f.Documents)
+                .HasForeignKey(e => e.CustomerFollowUpId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<CustomerFollowUpMessage>(entity =>
+    {
+      entity.ToTable("CustomerFollowUpMessages");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Text).HasMaxLength(4000);
+      entity.Property(e => e.DocumentName).HasMaxLength(255);
+      entity.Property(e => e.SentBy).HasMaxLength(100).IsRequired();
+      entity.HasIndex(e => new { e.CustomerFollowUpId, e.SentAt });
+      entity.HasOne(e => e.CustomerFollowUp)
+                .WithMany(f => f.Messages)
+                .HasForeignKey(e => e.CustomerFollowUpId)
+                .OnDelete(DeleteBehavior.Cascade);
+      // No database action (SQL Server rejects a second cascade path); the service clears DocumentId before deleting a document.
+      entity.HasOne(e => e.Document)
+                .WithMany()
+                .HasForeignKey(e => e.DocumentId)
+                .OnDelete(DeleteBehavior.NoAction);
+    });
+
+    modelBuilder.Entity<CustomerFollowUpMessageRead>(entity =>
+    {
+      entity.ToTable("CustomerFollowUpMessageReads");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.UserName).HasMaxLength(100).IsRequired();
+      entity.HasIndex(e => new { e.CustomerFollowUpId, e.UserName }).IsUnique();
+      entity.HasIndex(e => e.UserName);
+      entity.HasOne(e => e.CustomerFollowUp)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerFollowUpId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<UpcomingWithdraw>(entity =>
+    {
+      entity.ToTable("UpcomingWithdraws");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Description).HasMaxLength(1000).IsRequired();
+    });
+
+    modelBuilder.Entity<WalletSettings>(entity =>
+    {
+      entity.ToTable("WalletSettings");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Id).ValueGeneratedNever();
+      entity.HasData(new WalletSettings { Id = Procument.Module.Sales.Entities.WalletSettings.SingletonId, AutoImport = false });
     });
 
     modelBuilder.Entity<WalletTransferPending>(entity =>

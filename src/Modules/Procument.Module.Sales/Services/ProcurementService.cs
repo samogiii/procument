@@ -784,7 +784,7 @@ public class ProcurementService : IProcurementService
             .AnyAsync(p => p.UserId == userId && p.EntityName == "Procurement" && p.EntityId == itemId.ToString());
     }
 
-    public async Task<bool> CanEditPurchaseItemsAsync(long procurementId)
+    public async Task<bool> CanEditPurchaseItemsAsync(long procurementId, long? itemId = null)
     {
         var procurement = await _db.Set<Procurement>().AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == procurementId);
@@ -793,7 +793,7 @@ public class ProcurementService : IProcurementService
                // has not been attached to a real PO yet. The reset endpoint performs
                // that reopen before supplier edits continue.
                procurement.Status != "Cancelled" &&
-               await IsInvoicePurchaseEditableAsync(procurement.InvoiceId);
+               await IsPurchaseEditableAsync(procurement, itemId);
     }
 
     private async Task<ProcurementResponse?> GetByIdInternalAsync(long id, long userId = 0, bool isAdmin = true)
@@ -953,7 +953,7 @@ public class ProcurementService : IProcurementService
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null) return false;
         if (proc.Status is "Finalized" or "Cancelled") return false;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return false;
 
         var item = await _db.Set<ProcurementItem>()
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
@@ -989,7 +989,7 @@ public class ProcurementService : IProcurementService
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null) return null;
         if (proc.Status is "Finalized" or "Cancelled") return null;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return null;
 
         var item = await _db.Set<ProcurementItem>()
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ProcurementId == procurementId);
@@ -1090,7 +1090,7 @@ public class ProcurementService : IProcurementService
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return false;
 
         var item = await _db.Set<ProcurementItem>()
             .Include(i => i.SupplierQuotes)
@@ -1211,7 +1211,7 @@ public class ProcurementService : IProcurementService
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return false;
 
         var sq = await _db.Set<ProcurementSupplierQuote>()
             .FirstOrDefaultAsync(q => q.Id == supplierQuoteId && q.ProcurementItemId == itemId);
@@ -1246,7 +1246,7 @@ public class ProcurementService : IProcurementService
     {
         var proc = await _db.Set<Procurement>().FindAsync(procurementId);
         if (proc == null || proc.Status is "Finalized" or "Cancelled") return false;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return false;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return false;
 
         var item = await _db.Set<ProcurementItem>()
             .Include(i => i.SupplierQuotes)
@@ -1440,7 +1440,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Finalized" or "Cancelled") return null;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
+        if (!await IsPurchaseEditableAsync(proc)) return null;
 
         var createdItemIds = new List<long>();
         foreach (var pi in proc.Items)
@@ -1490,7 +1490,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Cancelled") return null;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return null;
 
         var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
         if (pi == null) return null;
@@ -1563,7 +1563,7 @@ public class ProcurementService : IProcurementService
             .FirstOrDefaultAsync(p => p.Id == procurementId);
         if (proc == null) return null;
         if (proc.Status is "Cancelled") return null;
-        if (!await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return null;
+        if (!await IsPurchaseEditableAsync(proc, itemId)) return null;
 
         var pi = proc.Items.FirstOrDefault(i => i.Id == itemId);
         if (pi == null || pi.FromStock) return null; // stock rows are served from a reservation, never bought
@@ -1718,6 +1718,23 @@ public class ProcurementService : IProcurementService
         _db.Set<Invoice>().AnyAsync(invoice =>
             invoice.Id == invoiceId &&
             (invoice.Status == "Waiting For Prepayment" || invoice.Status == "Running"));
+
+    /// <summary>
+    /// Purchase items (supplier, qty, price, condition…) are editable while the Sales Order is Waiting For
+    /// Prepayment or Running. A part that came back stays editable whatever the Sales Order status: its
+    /// procurement was Reopened, or the part (its Sales Order line) is Returned.
+    /// </summary>
+    private async Task<bool> IsPurchaseEditableAsync(Procurement proc, long? itemId = null)
+    {
+        if (proc.Status == "Reopened") return true;
+        if (await IsInvoicePurchaseEditableAsync(proc.InvoiceId)) return true;
+        if (!itemId.HasValue) return false;
+
+        return await _db.Set<ProcurementItem>().AnyAsync(item =>
+            item.Id == itemId.Value && item.ProcurementId == proc.Id &&
+            _db.Set<InvoiceItem>().Any(line => line.Id == item.SourceInvoiceItemId
+                                            && line.Status == PurchaseOrderStatusFlow.Returned));
+    }
 
     // ────────────────────────────────────────────────────────────────
     // Mapping helpers

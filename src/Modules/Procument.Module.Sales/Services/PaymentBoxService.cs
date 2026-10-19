@@ -22,7 +22,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var query = _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
             .OrderBy(b => b.CreatedAt)
             .AsQueryable();
 
@@ -37,18 +37,18 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var box = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.FromCustomer)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.ToSupplier)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.Invoice)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.PaymentRequest)
                     .ThenInclude(pr => pr!.PO)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.ReviewedBy)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.RateEditedBy)
             .FirstOrDefaultAsync(b => b.Id == id);
 
@@ -129,18 +129,18 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var boxes = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.FromCustomer)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.ToSupplier)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.Invoice)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.PaymentRequest)
                     .ThenInclude(pr => pr!.PO)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.ReviewedBy)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
                 .ThenInclude(t => t.RateEditedBy)
             .ToListAsync();
 
@@ -262,7 +262,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var box = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
             .FirstOrDefaultAsync(b => b.Id == id);
         if (box == null) return null;
 
@@ -289,7 +289,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var box = await _db.Set<PaymentBox>()
             .Include(b => b.CompanyPreset)
-            .Include(b => b.Transactions)
+            .Include(b => b.Transactions.Where(t => t.InWallet))
             .FirstOrDefaultAsync(b => b.Id == id);
         if (box == null) return null;
         box.BankName = req.BankName;
@@ -328,6 +328,63 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
                 b.CompanyPreset.Name == NoCompanyPresetName ? "" : b.CompanyPreset.Name,
                 b.Currency))
             .ToListAsync();
+    }
+
+    // ── Upcoming withdraws (reminder list, never applied to wallets) ────────
+
+    public async Task<List<UpcomingWithdrawResponse>> GetUpcomingWithdrawsAsync()
+    {
+        return await _db.Set<UpcomingWithdraw>()
+            .AsNoTracking()
+            .OrderBy(w => w.CreatedAt)
+            .Select(w => new UpcomingWithdrawResponse(w.Id, w.Price, w.Description, w.CreatedAt))
+            .ToListAsync();
+    }
+
+    public async Task<UpcomingWithdrawResponse> AddUpcomingWithdrawAsync(CreateUpcomingWithdrawRequest req, long userId)
+    {
+        if (req.Price <= 0) throw new ArgumentException("Price must be greater than zero.");
+        var description = (req.Description ?? string.Empty).Trim();
+        if (description.Length == 0) throw new ArgumentException("Description is required.");
+
+        var entity = new UpcomingWithdraw
+        {
+            Price = req.Price,
+            Description = description,
+            CreatedByUserId = userId,
+        };
+        _db.Set<UpcomingWithdraw>().Add(entity);
+        await _db.SaveChangesAsync();
+        return new UpcomingWithdrawResponse(entity.Id, entity.Price, entity.Description, entity.CreatedAt);
+    }
+
+    public async Task<bool> DeleteUpcomingWithdrawAsync(long id)
+    {
+        var entity = await _db.Set<UpcomingWithdraw>().FindAsync(id);
+        if (entity == null) return false;
+        _db.Set<UpcomingWithdraw>().Remove(entity);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    // ── Wallet settings (single row) ─────────────────────────────────────────
+
+    public async Task<WalletSettingsResponse> GetSettingsAsync() =>
+        new(await WalletImport.IsOnAsync(_db));
+
+    public async Task<WalletSettingsResponse> UpdateSettingsAsync(UpdateWalletSettingsRequest req, long userId)
+    {
+        var row = await _db.Set<WalletSettings>().FirstOrDefaultAsync(s => s.Id == WalletSettings.SingletonId);
+        if (row == null)
+        {
+            row = new WalletSettings();
+            _db.Set<WalletSettings>().Add(row);
+        }
+        row.AutoImport = req.AutoImport;
+        row.UpdatedAt = DateTime.UtcNow;
+        row.UpdatedByUserId = userId;
+        await _db.SaveChangesAsync();
+        return new WalletSettingsResponse(row.AutoImport);
     }
 
     public async Task<bool> DeleteBoxAsync(long id)
@@ -496,7 +553,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     public async Task<UnreviewedTransactionCountResponse> GetUnreviewedCountAsync()
     {
         var byBoxId = await _db.Set<PaymentTransaction>()
-            .Where(t => t.IsAuto && t.ReviewedAt == null)
+            .Where(t => t.IsAuto && t.InWallet && t.ReviewedAt == null)
             .GroupBy(t => t.PaymentBoxId)
             .Select(g => new { BoxId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.BoxId, x => x.Count);
@@ -601,6 +658,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             PopUploadId = Guid.NewGuid(),
             PopFileName = popFileName,
             IsAuto = true,
+            InWallet = await WalletImport.IsOnAsync(_db),
             TxCurrency = normalizedCurrency,
             // Amount * ExchangeRate is the value posted to the wallet. A null
             // factor means the POP and wallet already use the same currency.
@@ -639,6 +697,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             ToSupplierId = supplierId,
             PaymentRequestId = paymentRequestId,
             IsAuto = true,
+            InWallet = await WalletImport.IsOnAsync(_db),
             CreatedAt = DateTime.UtcNow
         });
         await _db.SaveChangesAsync();
@@ -692,7 +751,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         }
 
         var running = await _db.Set<PaymentTransaction>()
-            .Where(t => t.PaymentBoxId == tx.PaymentBoxId &&
+            .Where(t => t.PaymentBoxId == tx.PaymentBoxId && t.InWallet &&
                 (t.CreatedAt < tx.CreatedAt || (t.CreatedAt == tx.CreatedAt && t.Id <= tx.Id)))
             .Select(t => (decimal?)(t.Type == "Deposit"
                 ? t.Amount * (t.ExchangeRate ?? 1m)
@@ -739,7 +798,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
 
     private async Task<decimal> WalletBalanceAsync(long boxId)
         => await _db.Set<PaymentTransaction>()
-            .Where(t => t.PaymentBoxId == boxId)
+            .Where(t => t.PaymentBoxId == boxId && t.InWallet)
             .Select(t => (decimal?)(t.Type == "Deposit"
                 ? t.Amount * (t.ExchangeRate ?? 1m)
                 : -(t.Amount * (t.ExchangeRate ?? 1m))))

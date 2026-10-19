@@ -7,6 +7,7 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Entities;
 using Procument.Module.Identity.Services;
 using Procument.Module.Sales.Enums;
+using Procument.Module.Purchasing.Services;
 using Procument.Shared.DTOs;
 
 namespace Procument.Module.Sales.Services;
@@ -16,8 +17,8 @@ public interface IQuoteService
     Task<List<QuoteResponse>> GetByRFQIdAsync(long rfqId, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null);
     Task<QuoteResponse> CreateAsync(CreateQuoteRequest request, long userId);
-    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null);
-    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null);
+    Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null, DateTime? sentFrom = null, DateTime? sentTo = null);
+    Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null, DateTime? sentFrom = null, DateTime? sentTo = null);
     Task<bool> DeleteAsync(long id);
     Task<bool> UpdateStatusAsync(long id, string newStatus, long userId, bool isAdmin, string? rejectionNote = null, int[]? userBases = null);
     Task<bool> UpdateQuoteTypeAsync(long id, int? newStatus,string additional, long userId, bool isAdmin, int[]? userBases = null);
@@ -309,7 +310,7 @@ public class QuoteService : IQuoteService
         }
     }
 
-    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null)
+    public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null, DateTime? sentFrom = null, DateTime? sentTo = null)
     {
         IQueryable<Quote> query = _db.Set<Quote>()
             .AsNoTracking()
@@ -386,6 +387,13 @@ public class QuoteService : IQuoteService
 
         if (createdTo.HasValue)
             query = query.Where(q => q.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+        // Sent-at range, same inclusive-day semantics. Unsent quotes (null SentAt) drop out.
+        if (sentFrom.HasValue)
+            query = query.Where(q => q.SentAt >= sentFrom.Value);
+
+        if (sentTo.HasValue)
+            query = query.Where(q => q.SentAt <= sentTo.Value.AddDays(1).AddTicks(-1));
 
         if (rfqNames?.Count > 0)
         {
@@ -471,7 +479,7 @@ public class QuoteService : IQuoteService
     /// Called with no filters it returns the unconstrained lists, which the client
     /// caches behind the "Show all" toggle.
     /// </summary>
-    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null)
+    public async Task<QuoteFilterOptions> GetFilterOptionsAsync(long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null, DateTime? sentFrom = null, DateTime? sentTo = null)
     {
         IQueryable<Quote> permitted = _db.Set<Quote>().AsNoTracking();
 
@@ -556,12 +564,18 @@ public class QuoteService : IQuoteService
             if (exclude != "quoteNumber" && quoteNumbers?.Count > 0)
                 q = q.Where(x => quoteNumbers.Contains(x.QuoteNumber));
 
-            // Created-at range narrows every column — it has no column menu of its own.
+            // Date ranges narrow every column — their header menus are range pickers, not option lists.
             if (createdFrom.HasValue)
                 q = q.Where(x => x.CreatedAt >= createdFrom.Value);
 
             if (createdTo.HasValue)
                 q = q.Where(x => x.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+            if (sentFrom.HasValue)
+                q = q.Where(x => x.SentAt >= sentFrom.Value);
+
+            if (sentTo.HasValue)
+                q = q.Where(x => x.SentAt <= sentTo.Value.AddDays(1).AddTicks(-1));
 
             if (exclude != "rfqName" && rfqNames?.Count > 0)
                 q = q.Where(x =>
@@ -842,6 +856,10 @@ public class QuoteService : IQuoteService
                 Condition = qi.Condition,
                 LeadTimeDays = qi.LeadTimeDays,
                 LeadTime = qi.ProcumentRecord?.LeadTime,
+                // Older supplier quotes predate SellLeadTime — derive it from the buy lead time.
+                SellLeadTime = string.IsNullOrWhiteSpace(qi.ProcumentRecord?.SellLeadTime)
+                    ? LeadTimeRules.ToSellLeadTime(qi.ProcumentRecord?.LeadTime, q.Customer?.Base)
+                    : qi.ProcumentRecord.SellLeadTime,
                 Note = qi.ProcumentRecord?.Note,
                 RFQReference = qi.RFQItemId.HasValue && rfqItemRank.TryGetValue(qi.RFQItemId.Value, out var rank)
                     ? rank.ToString()

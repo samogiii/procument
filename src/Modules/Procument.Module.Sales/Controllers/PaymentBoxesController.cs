@@ -27,6 +27,38 @@ public class PaymentBoxesController : ControllerBase
     public async Task<ActionResult<List<AllTransactionRow>>> GetAllTransactions()
         => Ok(await _service.GetAllTransactionsAsync());
 
+    [HttpGet("settings")]
+    public async Task<ActionResult<WalletSettingsResponse>> GetSettings()
+        => Ok(await _service.GetSettingsAsync());
+
+    [HttpPut("settings")]
+    public async Task<ActionResult<WalletSettingsResponse>> UpdateSettings([FromBody] UpdateWalletSettingsRequest req)
+        => Ok(await _service.UpdateSettingsAsync(req, CurrentUserId()));
+
+    [HttpGet("upcoming-withdraws")]
+    public async Task<ActionResult<List<UpcomingWithdrawResponse>>> GetUpcomingWithdraws()
+        => Ok(await _service.GetUpcomingWithdrawsAsync());
+
+    [HttpPost("upcoming-withdraws")]
+    public async Task<ActionResult<UpcomingWithdrawResponse>> AddUpcomingWithdraw([FromBody] CreateUpcomingWithdrawRequest req)
+    {
+        try
+        {
+            return Ok(await _service.AddUpcomingWithdrawAsync(req, CurrentUserId()));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("upcoming-withdraws/{withdrawId:long}")]
+    public async Task<IActionResult> DeleteUpcomingWithdraw(long withdrawId)
+    {
+        if (!await _service.DeleteUpcomingWithdrawAsync(withdrawId)) return NotFound();
+        return Ok();
+    }
+
     [HttpGet("{id:long}")]
     public async Task<ActionResult<PaymentBoxDetailResponse>> GetById(long id)
     {

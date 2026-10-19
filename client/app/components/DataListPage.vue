@@ -12,6 +12,17 @@
         >
           Total: ${{ formatPrice(tableTotalAmountSum) }}
         </v-chip>
+        <v-chip
+          v-if="showRowCount"
+          color="info"
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-table-row"
+          class="mr-2"
+          :title="rowCountTitle"
+        >
+          {{ rowCountLabel }}
+        </v-chip>
         <slot name="actions" />
       </template>
     </PageHeader>
@@ -202,6 +213,8 @@ const props = withDefaults(defineProps<{
   extraParams?: Record<string, string | string[]>
   /** Show a live total-amount sum chip in the page header. Reads from frontend (current page for server-side, all items for client-side). */
   showTotalSum?: boolean
+  /** Show a chip with how many rows the current filters return (next to the total-sum chip). */
+  showRowCount?: boolean
   /** Hide DataListPage's built-in Clear button (use when the parent page renders its own combined Clear). */
   hideClearButton?: boolean
 }>(), {
@@ -211,6 +224,7 @@ const props = withDefaults(defineProps<{
   showSelect: false,
   modelValue: () => [],
   showTotalSum: false,
+  showRowCount: false,
   hideClearButton: false,
 })
 
@@ -262,6 +276,20 @@ const tableTotalAmountSum = computed<number>(() => {
   return filteredClientItems.value.reduce((s: number, item: any) => s + (Number(item.totalAmount) || 0), 0)
 })
 
+// Row count for `showRowCount`. Server-side: the backend's filtered total, plus the rows on
+// this page when that is fewer — the sum chip covers only those visible rows.
+const matchingRowCount = computed(() => props.serverSide ? totalItems.value : searchFilteredItems.value.length)
+const visibleRowCount = computed(() => props.serverSide ? filteredClientItems.value.length : searchFilteredItems.value.length)
+const rowCountLabel = computed(() => {
+  const total = matchingRowCount.value.toLocaleString()
+  return visibleRowCount.value < matchingRowCount.value
+    ? `Rows: ${visibleRowCount.value.toLocaleString()} of ${total}`
+    : `Rows: ${total}`
+})
+const rowCountTitle = computed(() =>
+  visibleRowCount.value < matchingRowCount.value
+    ? `${visibleRowCount.value} rows on this page, ${matchingRowCount.value} match the current filters`
+    : `${matchingRowCount.value} rows match the current filters`)
 
 // Statuses that exist in items AFTER customFilter but BEFORE statusFilter.
 // This makes the status dropdown cascade: pick a customer → only their statuses appear.

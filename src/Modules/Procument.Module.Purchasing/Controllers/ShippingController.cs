@@ -116,6 +116,12 @@ public class ShippingController : ControllerBase
     public async Task<ActionResult<List<TrackNumberDocumentResponse>>> GetDocuments(long trackId)
         => Ok(await _service.GetDocumentsAsync(trackId));
 
+    /// <summary>A PO line's tracks with their shipment and part documents (Shipping Control documents column).</summary>
+    [HttpGet("po-items/{poItemId:long}/documents")]
+    [Authorize(Roles = "Admin,SuperAdmin,Inventory,Expert")]
+    public async Task<ActionResult<List<PoItemTrackDocumentsResponse>>> GetPoItemDocuments(long poItemId)
+        => Ok(await _service.GetPoItemDocumentsAsync(poItemId));
+
     /// <summary>Download a specific document file.</summary>
     [HttpGet("documents/{docId:long}/file")]
     [Authorize(Roles = "Admin,SuperAdmin,Inventory,Expert")]
@@ -166,6 +172,9 @@ public class ShippingController : ControllerBase
     {
         try
         {
+            // Shipping "Receive All" needs a shipment document and a document per part.
+            // (Warehouse transfers call the service directly and are not gated by this.)
+            await _service.EnsureReceiveAllDocumentsAsync(trackId);
             var result = await _service.ReceiveAndAcceptAllAsync(trackId, GetUserId(), request?.Note?.Trim());
             return result == null ? NotFound() : Ok(result);
         }

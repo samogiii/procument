@@ -350,7 +350,7 @@ async function generateAndDownload(q: any, preset: any) {
       description: it.description || null,
       qty: it.qty || 0,
       condition: it.condition || null,
-      leadTime: it.leadTime || null,
+      leadTime: it.sellLeadTime || null, // customer sees the sell lead time
       unitPrice: Number(it.unitPrice) || 0,
       totalPrice: Number(it.totalPrice) || 0,
       certName: it.certName || null,

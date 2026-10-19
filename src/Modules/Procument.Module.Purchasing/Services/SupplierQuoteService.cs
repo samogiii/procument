@@ -22,11 +22,12 @@ public interface ISupplierQuoteService
     Task<List<SupplierQuoteCertificateResponse>> GetCertificatesAsync(long rfqId, long quoteId, long userId, bool isAdmin);
     Task<List<SupplierQuoteCertificateResponse>> UploadCertificatesAsync(long rfqId, long quoteId, long userId, IEnumerable<IFormFile> files);
     Task<(Stream stream, string fileName, string mimeType)?> DownloadCertificateAsync(long rfqId, long quoteId, long certificateId, long userId, bool isAdmin);
+    Task<bool> DeleteCertificateAsync(long rfqId, long quoteId, long certificateId, long userId);
 }
 
 public class SupplierQuoteService : ISupplierQuoteService
 {
-    private const string CertificateRoot = "Documents/SupplierQuoteCertificates";
+    internal const string CertificateRoot = "Documents/SupplierQuoteCertificates";
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
 
@@ -66,16 +67,21 @@ public class SupplierQuoteService : ISupplierQuoteService
         var records = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
             .Include(r => r.Certificates)
+            .Include(r => r.User)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Supplier)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Certificates)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.User)
             .Where(r => r.RFQItem.RFQId == rfqId && (r.Type ?? "Procument") != "Shop")
             .OrderBy(r => r.SortOrder)
             .ThenBy(r => r.Id)
             .ToListAsync();
 
-        return records.Select(MapToResponse).ToList();
+        var customerBase = await GetCustomerBaseAsync(rfqId);
+        var presetNames = await LoadPresetNamesAsync();
+        return records.Select(r => MapToResponse(r, customerBase, presetNames)).ToList();
     }
 
     /// <summary>Create or update a single supplier quote.</summary>
@@ -114,6 +120,9 @@ public class SupplierQuoteService : ISupplierQuoteService
             throw new UnauthorizedAccessException("User does not have permission to add quotes to this RFQ.");
         }
 
+        // Sell lead time rules depend on the customer's base (Base 1 adds 4 weeks).
+        var customerBase = await GetCustomerBaseAsync(rfqId);
+
         // Resolve supplier by name. Normal procurement records require an existing (Catalog)
         // supplier; AR / repair-shop records may still create one on the fly.
         var supplier = await ResolveSupplierAsync(
@@ -137,6 +146,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.Condition = request.Condition;
             record.Alt = request.Alt;
             record.Unit = request.Unit;
+            record.SellLeadTime = ResolveSellLeadTime(request, record, customerBase); // before LeadTime is overwritten
             record.LeadTime = request.LeadTime;
             if (request.Coef_1 != null && request.Coef_2 != null && request.Coef_3 != null)
             {
@@ -149,6 +159,8 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.ShippingCost = request.ShippingCost;
             record.ShippingPoint = request.ShippingPoint;
             record.CertName = request.CertName;
+            if (request.CustomCertReferences != null)
+                record.CustomCertReferences = JoinCertReferences(request.CustomCertReferences);
             
             record.TagDate = request.TagDate;
             record.Note = request.Note;
@@ -161,7 +173,12 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.ParentProcumentId = request.ParentProcumentId;
             // Only overwrite when sent, so older clients that do not know the field keep the link.
             if (request.SourceStockItemId.HasValue) record.SourceStockItemId = request.SourceStockItemId;
-            record.UserId = userId;
+            record.UserId ??= userId; // keep the expert who first imported the quote
+            if (request.CompanyPresetId.HasValue)
+                record.CompanyPresetId = request.CompanyPresetId > 0 ? request.CompanyPresetId : null;
+            if (request.SupplierEmail != null)
+                record.SupplierEmail = CleanSupplierEmail(request.SupplierEmail);
+            ApplyQuoteDetails(request, record);
             record.UpdatedAt = DateTime.UtcNow; // editing the cost refreshes its price age
         }
         else
@@ -177,12 +194,14 @@ public class SupplierQuoteService : ISupplierQuoteService
                 Alt = request.Alt,
                 Unit = request.Unit,
                 LeadTime = request.LeadTime,
+                SellLeadTime = ResolveSellLeadTime(request, null, customerBase),
                 Coef_1 = request.Coef_1,
                 Coef_2 = request.Coef_2,
                 Coef_3 = request.Coef_3,
                 ShippingCost = request.ShippingCost,
                 ShippingPoint = request.ShippingPoint,
                 CertName = request.CertName,
+                CustomCertReferences = JoinCertReferences(request.CustomCertReferences),
                 UnitPrice = request.UnitPrice,
                 TotalPrice = request.TotalPrice,
                 TagDate = request.TagDate,
@@ -193,8 +212,11 @@ public class SupplierQuoteService : ISupplierQuoteService
                 FixPrice = request.FixPrice,
                 ParentProcumentId = request.ParentProcumentId,
                 SourceStockItemId = request.SourceStockItemId,
+                CompanyPresetId = request.CompanyPresetId > 0 ? request.CompanyPresetId : null,
+                SupplierEmail = CleanSupplierEmail(request.SupplierEmail),
                 UserId = userId
             };
+            ApplyQuoteDetails(request, record);
             _db.Set<ProcumentRecord>().Add(record);
 
             // We can't log ID yet.
@@ -274,13 +296,16 @@ public class SupplierQuoteService : ISupplierQuoteService
         record = await _db.Set<ProcumentRecord>()
             .Include(r => r.Supplier)
             .Include(r => r.Certificates)
+            .Include(r => r.User)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Supplier)
             .Include(r => r.ShopRecords)
                 .ThenInclude(s => s.Certificates)
+            .Include(r => r.ShopRecords)
+                .ThenInclude(s => s.User)
             .FirstAsync(r => r.Id == record.Id);
 
-        return MapToResponse(record);
+        return MapToResponse(record, customerBase, await LoadPresetNamesAsync());
     }
 
     /// <summary>Bulk save supplier quotes for an RFQ.</summary>
@@ -565,7 +590,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         {
             var file = validFiles[index];
             var storedName = $"{Guid.NewGuid():N}.pdf";
-            var reference = await GenerateUniqueReferenceAsync(pendingReferences);
+            var reference = await GenerateUniqueReferenceAsync(_db, pendingReferences);
             var displayName = $"REF#{reference}-{safePartNumber}{altSuffix}-cert-{existingCertificateCount + index + 1}.pdf";
             await using (var stream = File.Create(Path.Combine(folder, storedName)))
                 await file.CopyToAsync(stream);
@@ -588,20 +613,20 @@ public class SupplierQuoteService : ISupplierQuoteService
         return result;
     }
 
-    private async Task<string> GenerateUniqueReferenceAsync(HashSet<string> pendingReferences)
+    internal static async Task<string> GenerateUniqueReferenceAsync(DbContext db, HashSet<string> pendingReferences)
     {
         const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         while (true)
         {
             var reference = RandomNumberGenerator.GetString(alphabet, 8);
             if (!pendingReferences.Add(reference)) continue;
-            if (!await _db.Set<SupplierQuoteCertificate>().AnyAsync(c => c.Reference == reference))
+            if (!await db.Set<SupplierQuoteCertificate>().AnyAsync(c => c.Reference == reference))
                 return reference;
             pendingReferences.Remove(reference);
         }
     }
 
-    private static string MakeSafeCertificateName(string? partNumber)
+    internal static string MakeSafeCertificateName(string? partNumber)
     {
         var name = string.IsNullOrWhiteSpace(partNumber) ? "part" : partNumber.Trim();
         foreach (var invalid in Path.GetInvalidFileNameChars())
@@ -626,6 +651,24 @@ public class SupplierQuoteService : ISupplierQuoteService
             : null;
     }
 
+    public async Task<bool> DeleteCertificateAsync(long rfqId, long quoteId, long certificateId, long userId)
+    {
+        if (!await CanAccessRfqAsync(rfqId, userId, isAdmin: false, requireEdit: true))
+            throw new UnauthorizedAccessException();
+
+        var certificate = await _db.Set<SupplierQuoteCertificate>()
+            .FirstOrDefaultAsync(c => c.Id == certificateId && c.SupplierQuoteId == quoteId && c.SupplierQuote.RFQItem.RFQId == rfqId);
+        if (certificate == null) return false;
+
+        _db.Set<SupplierQuoteCertificate>().Remove(certificate);
+        await _db.SaveChangesAsync();
+
+        // Remove the file only after the row is gone, so a failed save never orphans the DB row.
+        var path = Path.Combine(CertificateRoot, quoteId.ToString(), certificate.FileName);
+        if (File.Exists(path)) File.Delete(path);
+        return true;
+    }
+
     private async Task<bool> CanAccessRfqAsync(long rfqId, long userId, bool isAdmin, bool requireEdit)
     {
         if (isAdmin) return true;
@@ -638,7 +681,75 @@ public class SupplierQuoteService : ISupplierQuoteService
             || (!requireEdit && await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit"));
     }
 
-    private static SupplierQuoteResponse MapToResponse(ProcumentRecord r) => new()
+    /// <summary>
+    /// User-entered Sell LeadTime wins; when blank, derive it from the buy lead time. Clients that
+    /// don't send the field (null) keep a hand-typed value already stored on the record.
+    /// </summary>
+    private static string? ResolveSellLeadTime(SaveSupplierQuoteRequest request, ProcumentRecord? existing, int? customerBase)
+    {
+        if (!string.IsNullOrWhiteSpace(request.SellLeadTime)) return request.SellLeadTime.Trim();
+        if (request.SellLeadTime == null && !string.IsNullOrWhiteSpace(existing?.SellLeadTime)
+            && !LeadTimeRules.IsAutoSellLeadTime(existing.SellLeadTime, existing.LeadTime))
+            return existing.SellLeadTime;
+        return LeadTimeRules.ToSellLeadTime(request.LeadTime, customerBase);
+    }
+
+    private Task<int?> GetCustomerBaseAsync(long rfqId) =>
+        _db.Set<RFQHeader>().AsNoTracking()
+            .Where(r => r.Id == rfqId)
+            .Select(r => r.Customer.Base)
+            .FirstOrDefaultAsync();
+
+    internal static string? JoinCertReferences(IEnumerable<string>? references)
+    {
+        var cleaned = (references ?? Enumerable.Empty<string>())
+            .SelectMany(r => r.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return cleaned.Count == 0 ? null : string.Join(",", cleaned);
+    }
+
+    internal static List<string> SplitCertReferences(string? references) =>
+        string.IsNullOrWhiteSpace(references)
+            ? new List<string>()
+            : references.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>Id → name of every company preset (a handful of rows), for the quote's "Our Company".</summary>
+    internal static Task<Dictionary<long, string>> LoadPresetNamesAsync(DbContext db) =>
+        db.Set<CompanyPreset>().AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
+
+    private Task<Dictionary<long, string>> LoadPresetNamesAsync() => LoadPresetNamesAsync(_db);
+
+    /// <summary>Quote detail fields: null = not sent by this client (keep), '' = clear.</summary>
+    private static void ApplyQuoteDetails(SaveSupplierQuoteRequest request, ProcumentRecord record)
+    {
+        if (request.SerialNumber != null) record.SerialNumber = QuoteDetailFields.Clean(request.SerialNumber, QuoteDetailFields.SerialNumberLength);
+        if (request.TraceTo != null) record.TraceTo = QuoteDetailFields.Clean(request.TraceTo, QuoteDetailFields.TraceToLength);
+        if (request.TagType != null) record.TagType = QuoteDetailFields.Clean(request.TagType, QuoteDetailFields.TagTypeLength);
+        if (request.PriceType != null) record.PriceType = QuoteDetailFields.Clean(request.PriceType, QuoteDetailFields.PriceTypeLength);
+        if (request.TaggedBy != null) record.TaggedBy = QuoteDetailFields.Clean(request.TaggedBy, QuoteDetailFields.TaggedByLength);
+        if (request.MoQ != null) record.MoQ = QuoteDetailFields.Clean(request.MoQ, QuoteDetailFields.MoQLength);
+        if (request.Warranty != null) record.Warranty = QuoteDetailFields.Clean(request.Warranty, QuoteDetailFields.WarrantyLength);
+    }
+
+    private static string? CleanSupplierEmail(string? email)
+    {
+        var trimmed = email?.Trim().ToLowerInvariant();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length > 320 ? trimmed[..320] : trimmed;
+    }
+
+    /// <summary>The importing expert is visible to SuperAdmins only — blank it for everyone else.</summary>
+    public static void HideExpert(IEnumerable<SupplierQuoteResponse> quotes)
+    {
+        foreach (var q in quotes)
+        {
+            q.ExpertUserId = null;
+            q.ExpertName = null;
+            HideExpert(q.ShopRecords);
+        }
+    }
+
+    private static SupplierQuoteResponse MapToResponse(ProcumentRecord r, int? customerBase, IReadOnlyDictionary<long, string> presetNames) => new()
     {
         Id = r.Id,
         RFQItemId = r.RFQItemId,
@@ -661,20 +772,35 @@ public class SupplierQuoteService : ISupplierQuoteService
         TotalPrice = r.TotalPrice,
         TagDate = r.TagDate,
         LeadTime = r.LeadTime,
+        // Rows saved before SellLeadTime existed get the derived value until they're next saved.
+        SellLeadTime = string.IsNullOrWhiteSpace(r.SellLeadTime) ? LeadTimeRules.ToSellLeadTime(r.LeadTime, customerBase) : r.SellLeadTime,
         Note = r.Note,
         MyNotes = r.MyNotes,
         IsCertificated = r.IsCertificated,
         Type = r.Type ?? "Procument",
         FixPrice = r.FixPrice,
         SourceStockItemId = r.SourceStockItemId,
+        CompanyPresetId = r.CompanyPresetId,
+        CompanyPresetName = r.CompanyPresetId is long presetId && presetNames.TryGetValue(presetId, out var presetName) ? presetName : null,
+        SupplierEmail = r.SupplierEmail,
+        SerialNumber = r.SerialNumber,
+        TraceTo = r.TraceTo,
+        TagType = r.TagType,
+        PriceType = r.PriceType,
+        TaggedBy = r.TaggedBy,
+        MoQ = r.MoQ,
+        Warranty = r.Warranty,
+        ExpertUserId = r.UserId,
+        ExpertName = r.User?.Name,
         ParentProcumentId = r.ParentProcumentId,
         SortOrder = r.SortOrder,
         CertificateCount = r.Certificates?.Count ?? 0,
         CertReferences = (r.Certificates ?? new List<SupplierQuoteCertificate>())
             .OrderBy(c => c.UploadedAt).Select(c => c.Reference).ToList(),
+        CustomCertReferences = SplitCertReferences(r.CustomCertReferences),
         ShopRecords = (r.ShopRecords ?? new List<ProcumentRecord>())
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
-            .Select(s => MapToResponse(s)).ToList(),
+            .Select(s => MapToResponse(s, customerBase, presetNames)).ToList(),
     };
 
     private static SupplierQuoteCertificateResponse MapCertificate(SupplierQuoteCertificate c, string? uploaderName) => new()

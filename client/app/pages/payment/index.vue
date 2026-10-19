@@ -226,23 +226,47 @@
                 <div class="d-flex align-center">
                   <v-icon icon="mdi-folder-information-outline" size="20" class="mr-2" color="primary" />
                   <span class="font-weight-bold">Supporting Documents</span>
-                  <span class="text-caption text-medium-emphasis ml-2">Supplier invoice, bank info, payment request and customer POP</span>
+                  <span class="text-caption text-medium-emphasis ml-2">Supplier invoice, PO PDF, bank info, payment request{{ isStockPo ? '' : ' and customer POP' }}</span>
                 </div>
               </v-expansion-panel-title>
               <v-expansion-panel-text>
 
-          <!-- Supplier Invoice -->
+          <!-- Supplier Invoice (Stock POs: the PI and invoice uploaded on the PO page) -->
           <div class="mb-4">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon icon="mdi-invoice-text" size="18" class="mr-1" color="primary" />
               Supplier Invoice
             </div>
-            <div v-if="supplierInvoiceFile" class="d-flex align-center gap-2 pa-2 rounded file-row">
-              <v-icon icon="mdi-file-check" color="success" size="20" />
-              <span class="text-body-2 flex-grow-1">{{ supplierInvoiceFile.name }}</span>
-              <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye-outline" @click="downloadSupplierFile(supplierInvoiceFile.name, 'supplier_invoice')">Preview</v-btn>
+            <div v-if="supplierInvoiceFiles.length" class="d-flex flex-column gap-2">
+              <div v-for="f in supplierInvoiceFiles" :key="f.docId ?? f.name" class="d-flex align-center gap-2 pa-2 rounded file-row">
+                <v-icon icon="mdi-file-check" color="success" size="20" />
+                <div class="d-flex flex-column flex-grow-1" style="min-width:0;">
+                  <span class="text-body-2 font-weight-medium text-truncate">{{ f.name }}</span>
+                  <span v-if="f.label" class="text-caption text-medium-emphasis">{{ f.label }}</span>
+                </div>
+                <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye-outline" @click="downloadSupplierFile(f)">Preview</v-btn>
+              </div>
             </div>
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No supplier invoice uploaded yet.</v-alert>
+          </div>
+
+          <!-- PO PDF (saved each time the PO PDF is generated) -->
+          <div class="mb-4">
+            <div class="text-subtitle-2 mb-2 d-flex align-center">
+              <v-icon icon="mdi-file-pdf-box" size="18" class="mr-1" color="error" />
+              PO PDF
+            </div>
+            <div v-if="poPdfFiles.length" class="d-flex flex-column gap-2">
+              <div v-for="f in poPdfFiles" :key="f.name" class="d-flex align-center gap-2 pa-2 rounded file-row">
+                <v-icon icon="mdi-file-pdf-box" color="error" size="20" />
+                <div class="d-flex flex-column flex-grow-1">
+                  <span class="text-body-2 font-weight-medium">{{ f.name }}</span>
+                  <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
+                </div>
+                <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f)" />
+              </div>
+            </div>
+            <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No PO PDF generated yet.</v-alert>
           </div>
 
           <!-- Supplier Bank Info -->
@@ -258,24 +282,28 @@
                   <span class="text-body-2 font-weight-medium">{{ f.name }}</span>
                   <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
                 </div>
-                <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f.name, 'supplier_bank_info')" />
+                <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f)" />
               </div>
             </div>
-            <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No bank info uploaded yet.</v-alert>
+            <v-alert v-else-if="!hasBankDetail" type="info" variant="tonal" density="compact" icon="mdi-information-outline">No bank info uploaded yet.</v-alert>
           </div>
 
-          <!-- Supplier Bank Detail (from PO Import) -->
-          <div v-if="importDetail && (importDetail.bankName || importDetail.bankAccountNumber)" class="mb-4 pa-3 rounded file-row">
+          <!-- Supplier Bank Detail (Bank Information on the PO page) -->
+          <div v-if="hasBankDetail" class="mb-4 pa-3 rounded file-row">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon icon="mdi-bank" size="18" class="mr-1" color="success" />
               Supplier Bank Detail
             </div>
             <v-row dense>
+              <v-col cols="12" md="6"><div class="text-caption text-medium-emphasis">Beneficiary</div><div class="text-body-2">{{ importDetail.beneficiary || '—' }}</div></v-col>
+              <v-col cols="12" md="6"><div class="text-caption text-medium-emphasis">Reference</div><div class="text-body-2">{{ importDetail.reference || '—' }}</div></v-col>
               <v-col cols="12" md="6"><div class="text-caption text-medium-emphasis">Bank Name</div><div class="text-body-2">{{ importDetail.bankName || '—' }}</div></v-col>
               <v-col cols="12" md="6"><div class="text-caption text-medium-emphasis">Account Number</div><div class="text-body-2">{{ importDetail.bankAccountNumber || '—' }}</div></v-col>
               <v-col cols="12" md="6"><div class="text-caption text-medium-emphasis">Bank Address</div><div class="text-body-2">{{ importDetail.bankAddress || '—' }}</div></v-col>
               <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">Bank City</div><div class="text-body-2">{{ importDetail.bankCity || '—' }}</div></v-col>
               <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">Bank Country</div><div class="text-body-2">{{ importDetail.bankCountry || '—' }}</div></v-col>
+              <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">Swift Code</div><div class="text-body-2">{{ importDetail.swiftCode || '—' }}</div></v-col>
+              <v-col cols="6" md="3"><div class="text-caption text-medium-emphasis">ABA (Routing)</div><div class="text-body-2">{{ importDetail.aba || '—' }}</div></v-col>
             </v-row>
           </div>
 
@@ -292,14 +320,14 @@
                   <span class="text-body-2 font-weight-medium">{{ f.name }}</span>
                   <span class="text-caption text-medium-emphasis">{{ new Date(f.modifiedAt).toLocaleString() }}</span>
                 </div>
-                <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f.name, 'dp')" />
+                <v-btn size="small" variant="tonal" color="primary" icon="mdi-eye-outline" @click="downloadSupplierFile(f)" />
               </div>
             </div>
             <v-alert v-else type="info" variant="tonal" density="compact" icon="mdi-information-outline">No Payment Request generated yet.</v-alert>
           </div>
 
-          <!-- Customer Paid POPs -->
-          <div class="mb-4">
+          <!-- Customer Paid POPs (Stock POs have no customer) -->
+          <div v-if="!isStockPo" class="mb-4">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon icon="mdi-cash-plus" size="18" class="mr-1" color="success" />
               Customer Paid POPs
@@ -496,7 +524,8 @@ const config = useRuntimeConfig()
 const authStore = useAuthStore()
 const docPreview = useDocPreview()
 
-type FileInfo = { name: string; size: number; modifiedAt: string; category: string }
+/** A supplier-side file; docId = a Stock PO document (PO page uploads), label = its kind. */
+type FileInfo = { name: string; size?: number; modifiedAt: string; category: string; docId?: number; label?: string }
 type POItem = any
 type WalletBox = { id: number; label: string; currency: string; company?: string }
 
@@ -590,10 +619,16 @@ const selectedPo = ref<POItem | null>(null)
 const dialogMode = ref<'accept' | 'withdraw'>('accept')
 const detailPanels = ref<string[]>(['payment'])
 
-const supplierInvoiceFile = ref<FileInfo | null>(null)
+const supplierInvoiceFiles = ref<FileInfo[]>([])
+const poPdfFiles = ref<FileInfo[]>([])
 const bankInfoFiles = ref<FileInfo[]>([])
 const dpFiles = ref<FileInfo[]>([])
 const importDetail = ref<any>(null)
+const isStockPo = computed(() => selectedPo.value?.origin === 'Stock')
+const hasBankDetail = computed(() => {
+  const d = importDetail.value
+  return !!d && !!(d.beneficiary || d.bankName || d.bankAccountNumber || d.swiftCode || d.aba)
+})
 
 type CustomerPayment = { id: number; fileName: string; amount: number; notes?: string | null; createdAt: string }
 const customerPayments = ref<CustomerPayment[]>([])
@@ -690,7 +725,8 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
   }
   dialogMode.value = mode
   showDetail.value = true
-  supplierInvoiceFile.value = null
+  supplierInvoiceFiles.value = []
+  poPdfFiles.value = []
   bankInfoFiles.value = []
   dpFiles.value = []
   importDetail.value = null
@@ -709,18 +745,44 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
     } catch { /* silent */ }
   }
 
-  if (po.invoiceId && po.supplierId) {
+  // Bank details are entered on the PO page for every PO, with or without a Sales Order.
+  api.get(`/purchase-orders/${po.id}/import-detail`).then(d => { importDetail.value = d }).catch(() => {})
+
+  if (selectedPo.value?.origin === 'Stock') {
+    // Stock POs have no Sales Order: their files are keyed by the PO itself.
+    try {
+      const [docs, generated] = await Promise.all([
+        api.get<any[]>(`/purchase-orders/${po.id}/documents`),
+        api.get<FileInfo[]>(`/purchase-orders/${po.id}/documents/generated`),
+      ])
+      supplierInvoiceFiles.value = docs
+        .filter(d => d.category === 'SupplierInvoice' || d.category === 'SupplierPI')
+        .map(d => ({
+          name: d.fileName,
+          modifiedAt: d.createdAt,
+          category: d.category,
+          docId: d.id,
+          label: [d.category === 'SupplierPI' ? 'Supplier PI' : 'Supplier Invoice', d.documentNumber,
+            d.amount != null ? `$${formatPrice(d.amount)}` : null].filter(Boolean).join(' · '),
+        }))
+      poPdfFiles.value = generated.filter(f => f.category === 'po')
+      dpFiles.value = generated.filter(f => f.category === 'dp')
+    } catch { showSnack('Failed to load Stock PO documents', 'error') }
+  } else if (po.invoiceId && po.supplierId) {
     try {
       const data = await api.get<any>(`/documents/proforma-invoice/${po.invoiceId}`)
       const supplierSection = (data.suppliers || []).find((s: any) => s.supplierId === po.supplierId)
       if (supplierSection) {
         const files: FileInfo[] = supplierSection.files || []
-        supplierInvoiceFile.value = files.find((f: FileInfo) => f.category === 'supplier_invoice') || null
+        supplierInvoiceFiles.value = files.filter((f: FileInfo) => f.category === 'supplier_invoice')
         bankInfoFiles.value = files.filter((f: FileInfo) => f.category === 'supplier_bank_info')
         dpFiles.value = files.filter((f: FileInfo) => f.category === 'dp')
+        // The supplier's PO folder can hold other POs of this Sales Order: keep this PO's ("PO-12.pdf", "PO-12 (1).pdf").
+        const poNumber = selectedPo.value?.poNumber
+        poPdfFiles.value = files.filter((f: FileInfo) => f.category === 'po'
+          && !!poNumber && (f.name === `${poNumber}.pdf` || f.name.startsWith(`${poNumber} (`)))
       }
     } catch {}
-    try { importDetail.value = await api.get(`/purchase-orders/${po.id}/import-detail`) } catch {}
   }
 }
 
@@ -876,14 +938,19 @@ async function downloadCustomerPop(name: string) {
   } catch { showSnack('Failed to open file', 'error') }
 }
 
-async function downloadSupplierFile(name: string, category: string) {
-  if (!selectedPo.value) return
+async function downloadSupplierFile(f: FileInfo) {
+  const po = selectedPo.value
+  if (!po) return
+  const headers = { Authorization: `Bearer ${authStore.user?.token}` }
   try {
-    const blob = await $fetch<Blob>(
-      `${api.baseURL}/documents/proforma-invoice/${selectedPo.value.invoiceId}/supplier/${selectedPo.value.supplierId}/file`,
-      { method: 'GET', query: { name, category }, responseType: 'blob', headers: { Authorization: `Bearer ${authStore.user?.token}` } }
-    )
-    docPreview.previewBlob(blob as Blob, name)
+    const blob = f.docId != null
+      ? await $fetch<Blob>(`${api.baseURL}/purchase-orders/${po.id}/documents/${f.docId}/download`, { responseType: 'blob', headers })
+      : po.origin === 'Stock'
+        ? await $fetch<Blob>(`${api.baseURL}/purchase-orders/${po.id}/documents/generated/${f.category}/download`,
+            { query: { fileName: f.name }, responseType: 'blob', headers })
+        : await $fetch<Blob>(`${api.baseURL}/documents/proforma-invoice/${po.invoiceId}/supplier/${po.supplierId}/file`,
+            { query: { name: f.name, category: f.category }, responseType: 'blob', headers })
+    docPreview.previewBlob(blob as Blob, f.name)
   } catch { showSnack('Failed to open file', 'error') }
 }
 

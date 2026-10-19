@@ -182,6 +182,25 @@ public class ProcumentPageService : IProcumentPageService
         List<string> CertReferencesFor(long quoteId) =>
             certReferencesByQuote.TryGetValue(quoteId, out var refs) ? refs : new List<string>();
 
+        // "Our Company" names for every row; the importing expert's name only for SuperAdmins.
+        var presetNames = await SupplierQuoteService.LoadPresetNamesAsync(_db);
+        string? PresetNameFor(long? presetId) =>
+            presetId is long id && presetNames.TryGetValue(id, out var name) ? name : null;
+        var expertNames = new Dictionary<long, string>();
+        if (isSuperAdmin)
+        {
+            var expertIds = allSupplierQuotes
+                .SelectMany(q => (q.ShopRecords ?? new List<ProcumentRecord>()).Select(s => s.UserId).Append(q.UserId))
+                .Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
+            if (expertIds.Count > 0)
+                expertNames = await _db.Set<User>().AsNoTracking()
+                    .Where(u => expertIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u.Name);
+        }
+        long? ExpertIdFor(long? userId) => isSuperAdmin ? userId : null;
+        string? ExpertNameFor(long? userId) =>
+            userId is long id && expertNames.TryGetValue(id, out var name) ? name : null;
+
         // 6. Batch-load permissions for this page's unique RFQ IDs
         var loadedRfqIds = pageItems.Select(i => i.RFQId).Distinct().ToList();
         var rfqIdStrings = loadedRfqIds.Select(id => id.ToString()).ToList();
@@ -232,14 +251,28 @@ public class ProcumentPageService : IProcumentPageService
                         TotalPrice = q.TotalPrice,
                         TagDate = q.TagDate,
                         LeadTime = q.LeadTime,
+                        SellLeadTime = string.IsNullOrWhiteSpace(q.SellLeadTime) ? LeadTimeRules.ToSellLeadTime(q.LeadTime, rfq.Customer.Base) : q.SellLeadTime,
                         Note = q.Note,
                         MyNotes = q.MyNotes,
                         IsCertificated = q.IsCertificated,
                         Type = q.Type ?? "Procument",
                         FixPrice = q.FixPrice,
                         ParentProcumentId = q.ParentProcumentId,
+                        CompanyPresetId = q.CompanyPresetId,
+                        CompanyPresetName = PresetNameFor(q.CompanyPresetId),
+                        SupplierEmail = q.SupplierEmail,
+                        SerialNumber = q.SerialNumber,
+                        TraceTo = q.TraceTo,
+                        TagType = q.TagType,
+                        PriceType = q.PriceType,
+                        TaggedBy = q.TaggedBy,
+                        MoQ = q.MoQ,
+                        Warranty = q.Warranty,
+                        ExpertUserId = ExpertIdFor(q.UserId),
+                        ExpertName = ExpertNameFor(q.UserId),
                         SortOrder = q.SortOrder,
                         CertReferences = CertReferencesFor(q.Id),
+                        CustomCertReferences = SupplierQuoteService.SplitCertReferences(q.CustomCertReferences),
                         CertificateCount = CertReferencesFor(q.Id).Count,
                         ShopRecords = (q.ShopRecords ?? new List<ProcumentRecord>())
                             .OrderBy(s => s.SortOrder).ThenBy(s => s.Id)
@@ -267,14 +300,28 @@ public class ProcumentPageService : IProcumentPageService
                                 TotalPrice = s.TotalPrice,
                                 TagDate = s.TagDate,
                                 LeadTime = s.LeadTime,
+                                SellLeadTime = string.IsNullOrWhiteSpace(s.SellLeadTime) ? LeadTimeRules.ToSellLeadTime(s.LeadTime, rfq.Customer.Base) : s.SellLeadTime,
                                 Note = s.Note,
                                 MyNotes = s.MyNotes,
                                 IsCertificated = s.IsCertificated,
                                 Type = s.Type ?? "Shop",
                                 FixPrice = s.FixPrice,
                                 ParentProcumentId = s.ParentProcumentId,
+                                CompanyPresetId = s.CompanyPresetId,
+                                CompanyPresetName = PresetNameFor(s.CompanyPresetId),
+                                SupplierEmail = s.SupplierEmail,
+                                SerialNumber = s.SerialNumber,
+                                TraceTo = s.TraceTo,
+                                TagType = s.TagType,
+                                PriceType = s.PriceType,
+                                TaggedBy = s.TaggedBy,
+                                MoQ = s.MoQ,
+                                Warranty = s.Warranty,
+                                ExpertUserId = ExpertIdFor(s.UserId),
+                                ExpertName = ExpertNameFor(s.UserId),
                                 SortOrder = s.SortOrder,
                                 CertReferences = CertReferencesFor(s.Id),
+                                CustomCertReferences = SupplierQuoteService.SplitCertReferences(s.CustomCertReferences),
                                 CertificateCount = CertReferencesFor(s.Id).Count,
                             })
                             .ToList(),
@@ -435,6 +482,13 @@ public class ProcumentPageService : IProcumentPageService
                 ShippingPoint = r.ShippingPoint,
                 Note = r.Note,
                 MyNotes = r.MyNotes,
+                SerialNumber = r.SerialNumber,
+                TraceTo = r.TraceTo,
+                TagType = r.TagType,
+                PriceType = r.PriceType,
+                TaggedBy = r.TaggedBy,
+                MoQ = r.MoQ,
+                Warranty = r.Warranty,
                 RFQId = r.RFQItem.RFQId,
                 RFQName = r.RFQItem.RFQ.Name
             })

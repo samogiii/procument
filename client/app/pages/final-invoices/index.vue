@@ -85,26 +85,6 @@
               />
             </template>
           </v-autocomplete>
-          <v-text-field
-            v-model="createdFrom"
-            label="Created From"
-            type="date"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            style="min-width: 160px; max-width: 200px;"
-          />
-          <v-text-field
-            v-model="createdTo"
-            label="Created To"
-            type="date"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            style="min-width: 160px; max-width: 200px;"
-          />
           <v-btn
             v-if="hasActiveFilters"
             variant="tonal"
@@ -171,6 +151,18 @@
             />
           </template>
 
+          <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
+            <ColDateRangeMenu
+              :label="column.title"
+              :from="createdFrom"
+              :to="createdTo"
+              :is-sorted="isSorted(column)"
+              :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+              @update="(f, t) => { createdFrom = f; createdTo = t }"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
           <!-- Base 1 invoices inherit the proforma's B1 number re-lettered I
                (I101-60701-10) as B1InvoiceNumber; shown beneath the invoice number. -->
           <template #item.invoiceNumber="{ item }">
@@ -202,56 +194,12 @@
       </v-card-text>
     </v-card>
 
-    <v-dialog v-model="showAddDialog" max-width="500">
-      <v-card class="glass-card">
-        <v-card-title>Create Final Invoice</v-card-title>
-        <v-card-text>
-          <div v-if="loadingProformas" class="d-flex justify-center my-4">
-            <v-progress-circular indeterminate color="primary" />
-          </div>
-          <!-- Autocomplete rather than a plain select so a Sales Order can be found by
-               its number or its B1 Proforma Invoice Number. Both are in displayText, which
-               is what the default filter matches on. -->
-          <v-autocomplete
-            v-else
-            v-model="selectedProformaId"
-            :items="eligibleProformas"
-            item-title="displayText"
-            item-value="id"
-            label="Select Sales Order"
-            variant="outlined"
-            density="comfortable"
-            hide-details
-            auto-select-first
-            placeholder="Search by Sales Order # or B1 Proforma Invoice Number..."
-          >
-            <template #item="{ props, item }">
-              <v-list-item
-                v-bind="props"
-                :title="item.raw.invoiceNumber"
-                :subtitle="`${item.raw.b1ProformaInvoiceNumber ? item.raw.b1ProformaInvoiceNumber + ' · ' : ''}${item.raw.customerName} ($${formatPrice(item.raw.totalAmount)})`"
-              />
-            </template>
-          </v-autocomplete>
-          <div v-if="!loadingProformas && eligibleProformas.length === 0" class="text-caption text-error mt-2">
-            No Sales Order are currently eligible. (Requires at least one Completed PO).
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showAddDialog = false">Cancel</v-btn>
-          <v-btn
-            color="primary"
-            variant="tonal"
-            :disabled="!selectedProformaId || eligibleProformas.length === 0"
-            :loading="creating"
-            @click="createFinalInvoice"
-          >
-            Create
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Pick a Sales Order, then the parts (finished shipping track) that go on this Final Invoice -->
+    <CreateFinalInvoiceDialog
+      v-model="showAddDialog"
+      @created="onFinalInvoiceCreated"
+      @error="(msg) => showSnack(msg, 'error')"
+    />
 
     <!-- Merge several final invoices (one customer) into a single packing list -->
     <MergedPackingListDialog v-model="showMergeDialog" />
@@ -429,10 +377,6 @@ const showMergeDialog = ref(false)
 
 // ─── Create dialog ───
 const showAddDialog = ref(false)
-const selectedProformaId = ref<number | null>(null)
-const eligibleProformas = ref<any[]>([])
-const loadingProformas = ref(false)
-const creating = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
@@ -443,38 +387,9 @@ function showSnack(text: string, color: string) {
   snackbar.value = true
 }
 
-watch(showAddDialog, async (val) => {
-  if (val) {
-    selectedProformaId.value = null
-    loadingProformas.value = true
-    try {
-      const data = await api.get<any[]>('/final-invoices/eligible-proformas')
-      eligibleProformas.value = data.map((p: any) => ({
-        ...p,
-        // The B1 number sits in the title text so typing it filters the list.
-        displayText: `${p.invoiceNumber}${p.b1ProformaInvoiceNumber ? ` · ${p.b1ProformaInvoiceNumber}` : ''} - ${p.customerName} ($${formatPrice(p.totalAmount)})`
-      }))
-    } catch {
-      showSnack('Failed to load eligible proformas', 'error')
-    } finally {
-      loadingProformas.value = false
-    }
-  }
-})
-
-async function createFinalInvoice() {
-  if (!selectedProformaId.value) return
-  creating.value = true
-  try {
-    const result = await api.post<any>('/final-invoices', { proformaInvoiceId: selectedProformaId.value })
-    showAddDialog.value = false
-    showSnack('Final invoice created!', 'success')
-    navigateTo(`/final-invoices/${result.id}`)
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Failed to create final invoice', 'error')
-  } finally {
-    creating.value = false
-  }
+function onFinalInvoiceCreated(result: any) {
+  showSnack(`Final Invoice ${result.invoiceNumber} created!`, 'success')
+  navigateTo(`/final-invoices/${result.id}`)
 }
 </script>
 

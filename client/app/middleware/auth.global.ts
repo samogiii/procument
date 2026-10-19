@@ -45,6 +45,10 @@ const FEATURE_GATED_PREFIXES: ReadonlyArray<{ prefix: string; feature: string }>
     { prefix: '/total-pn', feature: 'totalPnMenu' },
     { prefix: '/our-inventory', feature: 'ourInventoryMenu' },
     { prefix: '/supplier-credits', feature: 'supplierCredits' },
+    { prefix: '/email-quotes', feature: 'pendingSupplierQuotes' },
+    { prefix: '/email-rfqs', feature: 'pendingRfqs' },
+    { prefix: '/customer-follow-ups', feature: 'customerFollowUps' },
+    { prefix: '/procurement-plus', feature: 'procurementPlus' },
 ]
 
 const BLOCKED_INVOICE_USERS = new Set(['AHM', 'MOR'])

@@ -180,7 +180,8 @@
                           <th @click="toggleSort('tagDate')" style="width: 100px; cursor:pointer; user-select:none; white-space:nowrap;">Tag Date <v-icon :icon="sortIcon('tagDate')" size="13" :color="sortColor('tagDate')" /></th>
                           <th @click="toggleSort('shippingPoint')" style="width: 120px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Point <v-icon :icon="sortIcon('shippingPoint')" size="13" :color="sortColor('shippingPoint')" /></th>
                           <th @click="toggleSort('shippingCost')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Cost <v-icon :icon="sortIcon('shippingCost')" size="13" :color="sortColor('shippingCost')" /></th>
-                          <th @click="toggleSort('leadTime')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Lead Time <v-icon :icon="sortIcon('leadTime')" size="13" :color="sortColor('leadTime')" /></th>
+                          <th @click="toggleSort('leadTime')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Buy Lead Time <v-icon :icon="sortIcon('leadTime')" size="13" :color="sortColor('leadTime')" /></th>
+                          <th @click="toggleSort('sellLeadTime')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Sell Lead Time <v-icon :icon="sortIcon('sellLeadTime')" size="13" :color="sortColor('sellLeadTime')" /></th>
                           <th @click="toggleSort('note')" style="width: 250px; cursor:pointer; user-select:none; white-space:nowrap;">Note <v-icon :icon="sortIcon('note')" size="13" :color="sortColor('note')" /></th>
                           <th v-if="hasArForItem(item.id)" @click="toggleSort('fixPrice')" style="width: 100px; color: #ff9800; cursor:pointer; user-select:none; white-space:nowrap;">Repair Cost <v-icon :icon="sortIcon('fixPrice')" size="13" :color="sortColor('fixPrice')" /></th>
                           <th @click="toggleSort('price')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Buy Price <v-icon :icon="sortIcon('price')" size="13" :color="sortColor('price')" /></th>
@@ -238,7 +239,17 @@
                           <td style="padding-left: 8px; font-size: 12px;">
                             {{ record.isShop ? (record.condition || '—') : (record.condition || 'N/A') }}
                           </td>
-                          <td class="text-center" style="font-size: 13px;">{{ record.qty }}</td>
+                          <td>
+                            <!-- Saved back to the RFQ supplier quote together with the quote -->
+                            <input
+                              type="number"
+                              class="coef-input"
+                              v-model.number="record.qty"
+                              min="1"
+                              step="1"
+                              style="text-align: center; min-width: 60px;"
+                            />
+                          </td>
                           <td style="padding-left: 8px; font-size: 12px;">
                             {{ record.certName || '—' }}
                           </td>
@@ -270,7 +281,17 @@
                               type="text"
                               class="coef-input"
                               placeholder="e.g. 7-10 days"
-                              v-model="record.leadTime"
+                              :value="record.leadTime"
+                              @input="setBuyLeadTime(record, ($event.target as HTMLInputElement).value, rfq.customerBase)"
+                              style="min-width: 90px;"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              class="coef-input"
+                              placeholder="e.g. 2-3 Weeks"
+                              v-model="record.sellLeadTime"
                               style="min-width: 90px;"
                             />
                           </td>
@@ -871,6 +892,7 @@ async function doSaveQuote() {
         alt: r.alt,
         unit: r.unit || null,
         leadTime: r.leadTime || null,
+        sellLeadTime: r.sellLeadTime || '',
         note: r.note || null,
         myNotes: r.myNotes || null,
         certName: r.certName || null,

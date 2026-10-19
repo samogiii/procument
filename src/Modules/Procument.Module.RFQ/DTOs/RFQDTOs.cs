@@ -192,8 +192,10 @@ public class AlternativeResponse
 /// </summary>
 public class BulkImportRFQRequest
 {
-    /// <summary>Customer code (Customer.CustomerCode). Required — the customer must already exist.</summary>
+    /// <summary>Customer code (Customer.CustomerCode). Required unless CustomerId is set — the customer must already exist.</summary>
     public string CustomerCode { get; set; } = string.Empty;
+    /// <summary>The customer by id instead of code (Email RFQs: a customer may have no code). Wins when set.</summary>
+    public long? CustomerId { get; set; }
     /// <summary>Owner of the created RFQs. Falls back to the calling user when 0.</summary>
     public long UserId { get; set; }
     /// <summary>Ex-work type. Falls back to the customer's ExWork when null.</summary>

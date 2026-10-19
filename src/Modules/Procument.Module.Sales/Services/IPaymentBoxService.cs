@@ -22,4 +22,11 @@ public interface IPaymentBoxService : IPaymentLedgerService
     Task<List<PaymentBoxSummaryResponse>> GetBoxesForCustomerAsync(long customerId);
     /// <summary>Lightweight list for wallet selection dropdowns — accessible to Payment and Expert roles.</summary>
     Task<List<WalletSelectionResponse>> GetSimpleListAsync();
+    /// <summary>Upcoming withdraws — reminder list only, never applied to wallet balances.</summary>
+    Task<List<UpcomingWithdrawResponse>> GetUpcomingWithdrawsAsync();
+    Task<UpcomingWithdrawResponse> AddUpcomingWithdrawAsync(CreateUpcomingWithdrawRequest req, long userId);
+    Task<bool> DeleteUpcomingWithdrawAsync(long id);
+    /// <summary>Global wallet switches. A missing settings row means everything is off.</summary>
+    Task<WalletSettingsResponse> GetSettingsAsync();
+    Task<WalletSettingsResponse> UpdateSettingsAsync(UpdateWalletSettingsRequest req, long userId);
 }

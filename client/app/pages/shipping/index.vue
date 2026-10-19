@@ -3,9 +3,16 @@
     <div class="d-flex align-center gap-3 mb-6">
       <div>
         <h1 class="text-h5 font-weight-bold">Shipping</h1>
-        <p class="text-caption text-medium-emphasis mt-1">Track numbers on their way to your warehouse(s)</p>
+        <p class="text-caption text-medium-emphasis mt-1">
+          {{ showAll ? 'All track numbers of your warehouse(s) — open one to add more documents' : 'Track numbers on their way to your warehouse(s)' }}
+        </p>
       </div>
       <v-spacer />
+      <!-- Received / later tracks are hidden by default; "All" brings them back so documents can still be added -->
+      <v-btn-toggle v-model="showAll" mandatory density="compact" variant="outlined" color="primary" divided>
+        <v-btn :value="false" size="small">Pending</v-btn>
+        <v-btn :value="true" size="small">All</v-btn>
+      </v-btn-toggle>
       <v-btn
         v-if="hasActiveFilters"
         color="error"
@@ -23,7 +30,7 @@
 
     <div v-if="!loading && grouped.length === 0" class="text-center pa-12 text-medium-emphasis">
       <v-icon icon="mdi-truck-check-outline" size="64" color="grey" class="mb-3" />
-      <p>No track numbers waiting to arrive at your warehouse(s).</p>
+      <p>{{ showAll ? 'No track numbers for your warehouse(s).' : 'No track numbers waiting to arrive at your warehouse(s).' }}</p>
     </div>
 
     <v-card v-else>
@@ -371,6 +378,14 @@ function clearFilters() {
   for (const k of CF_KEYS) colFilter.clearAll(k)
 }
 
+// Kept in the URL (?view=all) so coming back from a track page keeps the same list.
+const route = useRoute()
+const showAll = ref(route.query.view === 'all')
+watch(showAll, (all) => {
+  router.replace({ query: { ...route.query, view: all ? 'all' : undefined } })
+  loadTracks()
+})
+
 function goToGroup(group: any) {
   router.push(`/shipping/track-numbers/${group.primaryId}`)
 }
@@ -378,7 +393,7 @@ function goToGroup(group: any) {
 async function loadTracks() {
   loading.value = true
   try {
-    tracks.value = await api.get('/shipping/track-numbers?pendingOnly=true')
+    tracks.value = await api.get(showAll.value ? '/shipping/track-numbers' : '/shipping/track-numbers?pendingOnly=true')
   } catch {
     notify('Failed to load tracks', 'error')
   } finally {

@@ -220,6 +220,7 @@ public class PaymentRequestService : IPaymentRequestService
             Origin = po?.Origin,
             POType = po is null ? null : po.Origin == "Stock" ? "Stock PO" : "Customer PO",
             POLink = po is null ? null : $"/purchase-orders/{po.Id}",
+            InvoiceId = po?.InvoiceId,
             SupplierPIRef = po?.SupplierPIRef,
             CreatedAt = pr.CreatedAt,
             SupplierId = po?.SupplierId,

@@ -4,14 +4,35 @@
       <div>
         <div class="text-h5 font-weight-bold">Wallets</div>
         <div class="text-caption text-medium-emphasis">Company wallet accounts and ledger</div>
-      </div>      <v-btn
-        v-if="authStore.isSuperAdmin && tab === 'wallets'"
-        color="primary"
-        prepend-icon="mdi-plus"
-        @click="addDialog = true"
-      >
-        Add Wallet
-      </v-btn>
+      </div>
+      <div class="d-flex align-center gap-4">
+        <!-- Off: POPs / bank fees / supplier credits still pay the PI, PO or credit, but are kept out of every wallet -->
+        <v-switch
+          :model-value="autoImport"
+          :loading="autoImportSaving"
+          :disabled="autoImportSaving"
+          color="success"
+          density="compact"
+          hide-details
+          inset
+          @update:model-value="setAutoImport"
+        >
+          <template #label>
+            <span class="text-body-2">Auto Import Deposits &amp; Withdraws</span>
+            <v-chip size="x-small" class="ml-2" :color="autoImport ? 'success' : 'default'" variant="tonal">
+              {{ autoImport ? 'ON' : 'OFF' }}
+            </v-chip>
+          </template>
+        </v-switch>
+        <v-btn
+          v-if="authStore.isSuperAdmin && tab === 'wallets'"
+          color="primary"
+          prepend-icon="mdi-plus"
+          @click="addDialog = true"
+        >
+          Add Wallet
+        </v-btn>
+      </div>
     </div>
 
     <!-- Stat Bar -->
@@ -30,7 +51,7 @@
       </v-col>
 
       <!-- Net Balance -->
-      <v-col cols="12" sm="6" md="10" class="d-flex">
+      <v-col cols="12" sm="6" :md="showSupplierCredits ? 4 : 5" class="d-flex">
         <v-card class="glass-card pa-4 w-100" rounded="lg">
           <div class="d-flex align-start gap-3 h-100">
             <v-icon icon="mdi-scale-balance" color="primary" size="32" class="mt-1" />
@@ -51,6 +72,33 @@
             </div>
           </div>
         </v-card>
+      </v-col>
+
+      <!-- Upcoming Withdraws — reminder only, never applied to any wallet -->
+      <v-col cols="12" sm="6" :md="showSupplierCredits ? 3 : 5" class="d-flex">
+        <v-card class="glass-card pa-4 w-100 cursor-pointer" rounded="lg" hover @click="upcomingDialog = true">
+          <div class="d-flex align-start gap-3 h-100">
+            <v-icon icon="mdi-calendar-clock" color="error" size="32" class="mt-1" />
+            <div class="flex-1-1">
+              <div class="text-caption text-medium-emphasis mb-2">
+                Upcoming Withdraws
+                <span v-if="upcomingWithdraws.length">({{ upcomingWithdraws.length }})</span>
+              </div>
+              <div class="d-flex align-center gap-2">
+                <v-chip size="x-small" color="error" variant="tonal">$ USD</v-chip>
+                <span class="wallet-balance-amount font-weight-bold text-error">
+                  -${{ formatPrice(upcomingWithdrawTotal) }}
+                </span>
+              </div>
+              <div class="text-caption text-medium-emphasis mt-1">Not deducted from wallets — click to manage</div>
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+
+      <!-- Supplier Credits — prepaid money suppliers hold for us, per company -->
+      <v-col v-if="showSupplierCredits" cols="12" sm="6" md="3" class="d-flex">
+        <WalletSupplierCreditsCard />
       </v-col>
 
       <!-- Total Deposits -->
@@ -251,6 +299,49 @@
           </v-btn>
         </div>
         <v-card class="glass-card" rounded="lg">
+          <!-- Totals — sums the rows currently shown (filters applied) -->
+          <div class="d-flex flex-wrap align-center gap-2 pa-3 tx-total-bar">
+            <v-chip size="small" color="info" variant="tonal" prepend-icon="mdi-table-row">
+              {{ displayedTransactions.length }} row{{ displayedTransactions.length === 1 ? '' : 's' }}
+            </v-chip>
+            <span class="text-caption text-medium-emphasis ml-2">Deposits</span>
+            <span v-if="depositTotals.length === 0" class="text-medium-emphasis">—</span>
+            <v-chip
+              v-for="t in depositTotals"
+              :key="'d-' + t.currency"
+              size="small"
+              color="success"
+              variant="tonal"
+              class="font-weight-bold"
+            >
+              +{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+            </v-chip>
+            <span class="text-caption text-medium-emphasis ml-2">Withdraws</span>
+            <span v-if="withdrawTotals.length === 0" class="text-medium-emphasis">—</span>
+            <v-chip
+              v-for="t in withdrawTotals"
+              :key="'w-' + t.currency"
+              size="small"
+              color="error"
+              variant="tonal"
+              class="font-weight-bold"
+            >
+              -{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
+            </v-chip>
+            <v-chip
+              v-if="dateFrom"
+              size="small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-calendar-range"
+              closable
+              class="ml-auto"
+              @click:close="dateFrom = ''; dateTo = ''"
+            >
+              {{ dateFrom }}{{ dateTo && dateTo !== dateFrom ? ' → ' + dateTo : '' }}
+            </v-chip>
+          </div>
+          <v-divider />
           <v-data-table
             :headers="ledgerHeaders"
             :items="displayedTransactions"
@@ -258,6 +349,9 @@
             density="comfortable"
             :items-per-page="100"
             :row-props="transactionRowProps"
+            fixed-header
+            height="calc(100vh - 210px)"
+            class="fixed-header-table"
           >
             <!-- ── Excel-style filter + sort headers ── -->
             <template #header.accountName="{ column, toggleSort, isSorted, sortBy }">
@@ -448,6 +542,25 @@
               />
             </template>
 
+            <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
+              <ColDateRangeMenu
+                :label="column.title"
+                :from="dateFrom"
+                :to="dateTo"
+                :is-sorted="isSorted(column)"
+                :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+                @update="(f, t) => { dateFrom = f; dateTo = t }"
+                @sort-click="toggleSort(column)"
+              />
+            </template>
+
+            <!-- Date -->
+            <template #item.createdAt="{ item }">
+              <span class="text-caption text-medium-emphasis">
+                {{ new Date(item.createdAt).toLocaleDateString() }}
+              </span>
+            </template>
+
             <!-- Base -->
             <template #item.base="{ item }">
               <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
@@ -457,10 +570,10 @@
             <!-- Account -->
             <template #item.accountName="{ item }">
               <v-chip
-                size="x-small"
+                size="small"
                 color="primary"
                 variant="tonal"
-                class="cursor-pointer"
+                class="cursor-pointer font-weight-medium"
                 @click="navigateTo('/payment-control/' + item.boxId)"
               >
                 {{ item.accountName }}
@@ -616,30 +729,6 @@
               />
             </template>
 
-            <!-- Totals footer — sums the rows currently shown (filters applied) -->
-            <template #body.append="{ columns }">
-              <tr class="tx-total-row">
-                <td v-for="col in columns" :key="String(col.key ?? col.title)">
-                  <template v-if="col.key === 'accountName'">
-                    <span class="text-caption text-medium-emphasis">
-                      Totals · {{ displayedTransactions.length }} row{{ displayedTransactions.length === 1 ? '' : 's' }}
-                    </span>
-                  </template>
-                  <template v-else-if="col.key === 'deposit'">
-                    <div v-if="depositTotals.length === 0" class="text-medium-emphasis">—</div>
-                    <div v-for="t in depositTotals" :key="t.currency" class="text-success font-weight-bold text-no-wrap">
-                      +{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
-                    </div>
-                  </template>
-                  <template v-else-if="col.key === 'withdraw'">
-                    <div v-if="withdrawTotals.length === 0" class="text-medium-emphasis">—</div>
-                    <div v-for="t in withdrawTotals" :key="t.currency" class="text-error font-weight-bold text-no-wrap">
-                      -{{ currencySymbol(t.currency) }}{{ formatPrice(t.total) }}
-                    </div>
-                  </template>
-                </td>
-              </tr>
-            </template>
           </v-data-table>
         </v-card>
       </v-tabs-window-item>
@@ -894,6 +983,74 @@
       </v-card>
     </v-dialog>
 
+    <!-- Upcoming Withdraws Dialog -->
+    <v-dialog v-model="upcomingDialog" max-width="560">
+      <v-card rounded="lg">
+        <v-card-title class="pa-4 d-flex align-center gap-2">
+          <v-icon icon="mdi-calendar-clock" color="error" />
+          <span class="text-h6">Upcoming Withdraws</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="upcomingDialog = false" />
+        </v-card-title>
+        <v-card-text class="pa-4 pt-0">
+          <div class="text-caption text-medium-emphasis mb-3">
+            Reminder only — these amounts are in USD and are not deducted from any wallet.
+          </div>
+          <v-form ref="upcomingFormRef" class="d-flex align-start gap-2 mb-2" @submit.prevent="addUpcomingWithdraw">
+            <v-text-field
+              v-model.number="upcomingForm.price"
+              label="Price"
+              type="number"
+              prefix="$"
+              min="0"
+              step="0.01"
+              density="compact"
+              variant="outlined"
+              style="max-width: 150px"
+              :rules="[v => (v != null && v !== '' && Number(v) > 0) || 'Required']"
+            />
+            <v-text-field
+              v-model="upcomingForm.description"
+              label="Description"
+              density="compact"
+              variant="outlined"
+              maxlength="1000"
+              :rules="[v => !!(v && String(v).trim()) || 'Required']"
+            />
+            <v-btn type="submit" color="primary" icon="mdi-plus" size="small" class="mt-1" :loading="upcomingSaving" />
+          </v-form>
+
+          <v-progress-linear v-if="upcomingLoading" indeterminate color="primary" class="mb-2" />
+          <div v-if="!upcomingLoading && upcomingWithdraws.length === 0" class="text-body-2 text-medium-emphasis text-center py-4">
+            No upcoming withdraws
+          </div>
+          <v-list v-else density="compact" class="py-0">
+            <v-list-item v-for="w in upcomingWithdraws" :key="w.id" class="px-0">
+              <div class="d-flex align-center gap-3">
+                <span class="font-weight-bold text-error" style="min-width: 110px">-${{ formatPrice(w.price) }}</span>
+                <span class="flex-1-1 text-body-2" style="word-break: break-word">{{ w.description }}</span>
+                <v-btn
+                  icon="mdi-delete-outline"
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  :loading="upcomingDeletingId === w.id"
+                  @click="deleteUpcomingWithdraw(w)"
+                />
+              </div>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="pa-4">
+          <span class="text-body-2 text-medium-emphasis">Total</span>
+          <span class="ml-2 text-h6 font-weight-bold text-error">-${{ formatPrice(upcomingWithdrawTotal) }}</span>
+          <v-spacer />
+          <v-btn variant="text" @click="upcomingDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Delete Confirm Dialog -->
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card rounded="lg">
@@ -980,8 +1137,19 @@ interface CompanyPreset {
   name: string
 }
 
+interface UpcomingWithdraw {
+  id: number
+  price: number
+  description: string
+  createdAt: string
+}
+
 const authStore = useAuthStore()
 const api = useApi()
+
+/** The Supplier Credits box needs /api/supplier-credits, which serves only these roles. */
+const showSupplierCredits = computed(() =>
+  ['SuperAdmin', 'Admin', 'Payment', 'AHM'].includes(authStore.user?.role ?? ''))
 
 const tab = ref<'wallets' | 'ledger' | 'transfers'>('wallets')
 const boxes = ref<PaymentBox[]>([])
@@ -989,7 +1157,6 @@ const allTransactions = ref<AllTransactionRow[]>([])
 const presets = ref<CompanyPreset[]>([])
 const loading = ref(true)
 const ledgerLoading = ref(false)
-const showOnlyNew = ref(false)
 const unreviewedCount = ref(0)
 const rateDialog = ref(false)
 const rateTarget = ref<AllTransactionRow | null>(null)
@@ -1146,13 +1313,34 @@ const ledgerHeaders = [
   { title: 'Base', key: 'base', sortable: true, width: '90px' },
   { title: 'Rate', key: 'exchangeRate', sortable: true, width: '150px' },
   { title: 'Source', key: 'isAuto', sortable: true, width: '90px' },
+  { title: 'Date', key: 'createdAt', sortable: true, width: '100px' },
   { title: 'Balance', key: 'balance', sortable: true, width: '120px' },
   { title: '', key: 'actions', sortable: false, width: '50px' },
 ]
 
 // ── Excel-style column filters (All Transactions tab) ─────────────────────────
-const colFilter = useColFilter()
+// Every ledger filter is remembered per browser (localStorage), like the other list pages.
+const colFilter = useColFilterPersisted('payment-control-ledger')
 const rangeFilter = useRangeFilter()
+const { filters: ledgerPf } = usePageFilters('payment-control-ledger', {
+  showOnlyNew: false,
+  dateFrom: '',
+  dateTo: '',
+  ranges: {} as Record<string, { min: number | null; max: number | null }>,
+})
+const showOnlyNew = ledgerPf.showOnlyNew
+
+// Deposit / Withdraw / Balance ranges: restore the saved bounds, then keep storage in sync.
+for (const [key, r] of Object.entries(ledgerPf.ranges.value || {})) {
+  if (r && (r.min != null || r.max != null)) rangeFilter.setBounds(key, r.min, r.max)
+}
+watch(() => rangeFilter.range, (range) => {
+  const active: Record<string, { min: number | null; max: number | null }> = {}
+  for (const [key, r] of Object.entries(range)) {
+    if (r.min != null || r.max != null) active[key] = { min: r.min, max: r.max }
+  }
+  ledgerPf.ranges.value = active
+}, { deep: true })
 
 /** Value-list columns, each paired with the label rendered in its cell. */
 const LIST_COLS = {
@@ -1165,6 +1353,16 @@ const LIST_COLS = {
   exchangeRate: (t: AllTransactionRow) => t.exchangeRate != null ? `×${t.exchangeRate}` : '1:1',
   isAuto: (t: AllTransactionRow) => t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual',
 } satisfies Record<string, (t: AllTransactionRow) => string>
+
+// Date column range filter (ColDateRangeMenu) — `YYYY-MM-DD`, both ends inclusive.
+const dateFrom = ledgerPf.dateFrom
+const dateTo = ledgerPf.dateTo
+
+/** Local-calendar `YYYY-MM-DD`, so the range matches the date shown in the row. */
+function localDayKey(iso: string) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 /** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
 const allBaseOptions = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', '—']
@@ -1208,16 +1406,22 @@ const displayedTransactions = computed(() =>
     if (!rangeFilter.matches('deposit', t.deposit)) return false
     if (!rangeFilter.matches('withdraw', t.withdraw)) return false
     if (!rangeFilter.matches('balance', t.balance)) return false
+    if (dateFrom.value) {
+      const day = localDayKey(t.createdAt)
+      if (day < dateFrom.value || day > (dateTo.value || dateFrom.value)) return false
+    }
     return true
   })
 )
 
 const hasAnyFilter = computed(() =>
-  showOnlyNew.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+  showOnlyNew.value || !!dateFrom.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
 )
 
 function clearFilters() {
   showOnlyNew.value = false
+  dateFrom.value = ''
+  dateTo.value = ''
   for (const k of LIST_KEYS) colFilter.clearAll(k)
   for (const k of RANGE_KEYS) rangeFilter.clear(k)
 }
@@ -1363,6 +1567,85 @@ async function deleteBox() {
   }
 }
 
+// ── Auto Import (global switch; off = automatic deposits/withdraws are kept out of wallets) ──
+const autoImport = ref(false)
+const autoImportSaving = ref(false)
+
+async function loadWalletSettings() {
+  try {
+    const s = await api.get<{ autoImport: boolean }>('/payment-boxes/settings')
+    autoImport.value = s.autoImport
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function setAutoImport(value: boolean | null) {
+  autoImportSaving.value = true
+  try {
+    const s = await api.put<{ autoImport: boolean }>('/payment-boxes/settings', { autoImport: !!value })
+    autoImport.value = s.autoImport
+  } catch (e) {
+    console.error(e)
+  } finally {
+    autoImportSaving.value = false
+  }
+}
+
+// ── Upcoming withdraws (USD reminder list, never applied to wallets) ──
+const upcomingDialog = ref(false)
+const upcomingWithdraws = ref<UpcomingWithdraw[]>([])
+const upcomingLoading = ref(false)
+const upcomingSaving = ref(false)
+const upcomingDeletingId = ref<number | null>(null)
+const upcomingFormRef = ref<any>(null)
+const upcomingForm = ref<{ price: number | null; description: string }>({ price: null, description: '' })
+
+const upcomingWithdrawTotal = computed(() =>
+  upcomingWithdraws.value.reduce((sum, w) => sum + Number(w.price || 0), 0))
+
+async function loadUpcomingWithdraws() {
+  upcomingLoading.value = true
+  try {
+    upcomingWithdraws.value = await api.get<UpcomingWithdraw[]>('/payment-boxes/upcoming-withdraws')
+  } catch (e) {
+    console.error(e)
+  } finally {
+    upcomingLoading.value = false
+  }
+}
+
+async function addUpcomingWithdraw() {
+  const { valid } = await upcomingFormRef.value?.validate() ?? { valid: false }
+  if (!valid) return
+  upcomingSaving.value = true
+  try {
+    const created = await api.post<UpcomingWithdraw>('/payment-boxes/upcoming-withdraws', {
+      price: Number(upcomingForm.value.price),
+      description: upcomingForm.value.description.trim(),
+    })
+    upcomingWithdraws.value.push(created)
+    upcomingForm.value = { price: null, description: '' }
+    upcomingFormRef.value?.resetValidation()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    upcomingSaving.value = false
+  }
+}
+
+async function deleteUpcomingWithdraw(w: UpcomingWithdraw) {
+  upcomingDeletingId.value = w.id
+  try {
+    await api.del(`/payment-boxes/upcoming-withdraws/${w.id}`)
+    upcomingWithdraws.value = upcomingWithdraws.value.filter(x => x.id !== w.id)
+  } catch (e) {
+    console.error(e)
+  } finally {
+    upcomingDeletingId.value = null
+  }
+}
+
 async function doExport() {
   if (allTransactions.value.length === 0) await loadAllTransactions()
   const { boxIds, type, fromDate, toDate } = exportForm.value
@@ -1404,6 +1687,8 @@ async function doExport() {
 onMounted(() => {
   loadBoxes()
   loadUnreviewedCount()
+  loadUpcomingWithdraws()
+  loadWalletSettings()
   if (authStore.isSuperAdmin) loadPresets()
 })
 </script>
@@ -1424,16 +1709,34 @@ onMounted(() => {
   .wallet-balance-amount { font-size: 1.85rem; }
 }
 
-.tx-total-row {
+.tx-total-bar {
   background: rgba(var(--v-theme-primary), 0.06);
 }
-.tx-total-row td {
-  border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-:deep(.tx-row-new:not(.tx-total-row) td) {
+:deep(.tx-row-new td) {
   background: rgba(255, 193, 7, 0.16) !important;
 }
-:deep(.v-theme--dark .tx-row-new:not(.tx-total-row) td) {
+:deep(.v-theme--dark .tx-row-new td) {
   background: rgba(255, 193, 7, 0.10) !important;
+}
+
+/* Sticky column headers while the ledger scrolls — same treatment as DataListPage. */
+:deep(.fixed-header-table .v-table__wrapper) {
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+:deep(.fixed-header-table .v-table__wrapper > table) {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  overflow: visible !important;
+}
+:deep(.fixed-header-table .v-table__wrapper > table > thead) {
+  position: static !important;
+}
+:deep(.fixed-header-table thead th) {
+  position: sticky !important;
+  top: 0;
+  z-index: 11 !important;
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 0 rgba(var(--v-border-color), 0.7);
 }
 </style>

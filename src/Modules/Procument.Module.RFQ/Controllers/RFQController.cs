@@ -191,7 +191,7 @@ public class RFQsController : ControllerBase
                 q = q.Where(r => r.LeadTime.Date <= cutoff);
             }
 
-            // Created-at range narrows every column — it has no column menu of its own.
+            // Created-at range narrows every column — its header menu is a range picker, not an option list.
             if (createdFrom.HasValue)
                 q = q.Where(r => r.CreatedAt >= createdFrom.Value);
 
@@ -536,7 +536,7 @@ public class RFQsController : ControllerBase
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateStatusRequest request)
     {
         if (await _lockGuard.IsRfqLocked(id))
-            return BadRequest(new { message = "This RFQ is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This RFQ is locked because its Sales Order is fully final-invoiced. Use \"Unlock parts\" on the Sales Order to reopen it." });
 
         // Get current RFQ for audit logging
         var rfq = await _db.Set<RFQHeader>().FindAsync(id);

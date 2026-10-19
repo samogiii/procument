@@ -26,6 +26,7 @@ public class SupplierQuotesController : ControllerBase
     {
         var (userId, isAdmin) = GetUserContext();
         var result = await _procumentService.GetByRFQIdAsync(rfqId, userId, isAdmin);
+        if (!User.IsInRole("SuperAdmin")) SupplierQuoteService.HideExpert(result);
         return Ok(result);
     }
 
@@ -51,6 +52,7 @@ public class SupplierQuotesController : ControllerBase
         try
         {
             var result = await _procumentService.SaveAsync(request, GetUserId());
+            if (!User.IsInRole("SuperAdmin")) SupplierQuoteService.HideExpert(new[] { result });
             return Ok(result);
         }
         catch (SupplierNotFoundException ex)
@@ -67,6 +69,7 @@ public class SupplierQuotesController : ControllerBase
         try
         {
             var result = await _procumentService.BulkSaveAsync(rfqId, request, GetUserId());
+            if (!User.IsInRole("SuperAdmin")) SupplierQuoteService.HideExpert(result);
             return Ok(result);
         }
         catch (SupplierNotFoundException ex)
@@ -131,5 +134,14 @@ public class SupplierQuotesController : ControllerBase
         if (result == null) return NotFound();
         var (stream, fileName, mimeType) = result.Value;
         return File(stream, mimeType, fileName);
+    }
+
+    /// <summary>Delete a certificate PDF (row + file) from one supplier-part quote.</summary>
+    [HttpDelete("{quoteId:long}/certificates/{certificateId:long}")]
+    [Auditable("ProcumentRecord", "DeleteCertificate")]
+    public async Task<IActionResult> DeleteCertificate(long rfqId, long quoteId, long certificateId)
+    {
+        var deleted = await _procumentService.DeleteCertificateAsync(rfqId, quoteId, certificateId, GetUserId());
+        return deleted ? NoContent() : NotFound();
     }
 }

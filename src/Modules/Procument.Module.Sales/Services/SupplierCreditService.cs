@@ -383,6 +383,7 @@ public sealed class SupplierCreditService(
                     PaymentBoxId = wallet.Id, Type = "Withdraw", Amount = request.Amount,
                     TxCurrency = Currency, ExchangeRate = rate,
                     FromType = "MotherWallet", ToType = "SupplierCredit", ToSupplierId = supplier.Id, IsAuto = true,
+                    InWallet = await WalletImport.IsOnAsync(db),
                     Notes = Truncate($"Prepayment credit — {supplier.Name} / {preset.Name}" + (notes != null ? $": {notes}" : ""), 1000),
                 };
                 db.Add(walletTx);
@@ -540,6 +541,7 @@ public sealed class SupplierCreditService(
                         PaymentBoxId = topUp.PaymentBoxId, Type = "Deposit", Amount = topUp.Amount,
                         TxCurrency = topUp.TxCurrency, ExchangeRate = topUp.ExchangeRate,
                         FromType = "SupplierCredit", ToType = "MotherWallet", IsAuto = true,
+                        InWallet = topUp.InWallet,   // refund only where the original money left
                         Notes = Truncate(original.Source == SupplierCreditSources.Repayment
                             ? $"Reversed credit-line repayment — {topUp.ToSupplier?.Name}: {notes}"
                             : $"Reversed prepayment credit — {topUp.ToSupplier?.Name}: {notes}", 1000),
@@ -700,6 +702,7 @@ public sealed class SupplierCreditService(
                 {
                     PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, Amount = amount, TxCurrency = Currency, ExchangeRate = rate,
                     Type = "Withdraw", FromType = "MotherWallet", ToType = "SupplierCredit", ToSupplierId = supplier.Id, IsAuto = true,
+                    InWallet = await WalletImport.IsOnAsync(db),
                     PopUploadId = uploadId, PopFileName = savedName, PopInvoiceNumber = DocumentRoot,
                     Notes = Truncate($"Credit line repayment PR-{pr.PRId} — {supplier.Name} / {company}", 1000),
                 };
@@ -746,6 +749,7 @@ public sealed class SupplierCreditService(
                 {
                     PaymentBoxId = withdrawal.PaymentBoxId, PaymentRequestId = pr.Id, Amount = fee, TxCurrency = withdrawal.PaymentBox.Currency,
                     Type = "Withdraw", FromType = "MotherWallet", ToType = "BankFee", IsAuto = true, CreatedAt = DateTime.UtcNow,
+                    InWallet = withdrawal.InWallet,
                     Notes = $"Bank Fee and Others for credit line repayment PR-{pr.PRId}",
                 });
             }

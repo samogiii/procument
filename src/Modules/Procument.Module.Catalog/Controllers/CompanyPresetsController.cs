@@ -133,6 +133,20 @@ public class CompanyPresetsController : ControllerBase
         return Ok(items);
     }
 
+    /// <summary>Active presets as {id, name} only — for pickers (the full list carries logos).</summary>
+    [HttpGet("options")]
+    [Authorize(Roles = "Admin,SuperAdmin,Expert")]
+    public async Task<ActionResult> GetOptions()
+    {
+        var items = await _db.Set<CompanyPreset>()
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
+            .Select(p => new { p.Id, p.Name })
+            .ToListAsync();
+        return Ok(items);
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult> GetById(long id)
     {

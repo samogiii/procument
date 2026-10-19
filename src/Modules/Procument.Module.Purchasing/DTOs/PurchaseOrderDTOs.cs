@@ -147,12 +147,19 @@ public class POItemResponse
     public DateTime? InShopStartedAt { get; set; }
     public int? InShopRemainingDays { get; set; }
     public string DisplayStatus { get; set; } = "Not Started";
+    /// <summary>Part note printed on the PO PDF: POItem.Note, or the supplier quote note while the part has none.</summary>
+    public string? Note { get; set; }
     public List<TrackNumberResponse> TrackNumbers { get; set; } = new();
 }
 
 public class UpdatePOItemInShopRequest
 {
     public int Days { get; set; }
+}
+
+public class UpdatePOItemNoteRequest
+{
+    public string? Note { get; set; }
 }
 
 // ──── Import Detail DTOs ────
@@ -317,6 +324,10 @@ public class TotalPNRowResponse
     public string? PurchaseOrderStatus { get; set; }
     public long? ProcurementId { get; set; }
     public long? ProcurementItemId { get; set; }
+    /// <summary>Procurement status — "Reopened" after a PO return; such parts stay editable whatever the Sales Order status.</summary>
+    public string? ProcurementStatus { get; set; }
+    /// <summary>Total Order only: shipment + part documents on this PO line's tracks.</summary>
+    public int? DocumentCount { get; set; }
     public string? PONumber { get; set; }              // PurchaseOrder.PONumber, null until assigned
     public int? PORef { get; set; }                    // POItem.PORef (line # within PO)
     /// <summary>Users assigned to the Proforma Invoice; falls back to RFQ assignments when the invoice has none.</summary>

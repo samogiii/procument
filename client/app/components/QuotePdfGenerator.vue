@@ -246,7 +246,7 @@ function buildItemsTable(items: any[], primary: string, sym: string, rate: numbe
       <td style="padding:6px 10px;font-weight:600;color:${primary};">${displayPN}${altNote}</td>
       <td style="padding:6px 10px;text-align:center;">${it.qty}</td>
       <td style="padding:6px 10px;text-align:center;">${it.condition || '—'}</td>
-      <td style="padding:6px 10px;text-align:center;">${it.leadTime || '—'}</td>
+      <td style="padding:6px 10px;text-align:center;">${it.sellLeadTime || '—'}</td>
       <td style="padding:6px 10px;text-align:right;">${sym}${formatPrice(Number(it.unitPrice) * rate)}</td>
       <td style="padding:6px 10px;text-align:right;font-weight:700;">${sym}${formatPrice(Number(it.totalPrice) * rate)}</td>
       <td style="padding:6px 10px;text-align:center;">${(it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'}</td>
@@ -352,7 +352,7 @@ function buildPreviewModel(): PdfPreviewModel {
           { text: it.description },
           { text: String(it.qty), bold: true },
           { text: it.condition },
-          { text: it.leadTime },
+          { text: it.sellLeadTime },
           { text: money((Number(it.unitPrice) || 0) * rate) },
           { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
           { text: (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—' },
@@ -492,7 +492,7 @@ const renderedHtml = computed(() => {
       <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; max-width:120px; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.description || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.qty}</td>
       <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.condition || '—'}</td>
-      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.leadTime || '—'}</td>
+      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.sellLeadTime || '—'}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
       <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
       <td style="padding:9px 8px; font-size:9px; text-align:center; color:#4b5563; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${(it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'}</td>
@@ -674,7 +674,7 @@ async function downloadPdf() {
           description: it.description || null,
           qty: it.qty || 0,
           condition: it.condition || null,
-          leadTime: it.leadTime || null,
+          leadTime: it.sellLeadTime || null, // customer sees the sell lead time
           unitPrice: (Number(it.unitPrice) || 0),
           totalPrice: (Number(it.totalPrice) || 0),
           certName: it.certName || null,

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Catalog.Services;
 using Procument.Shared.DTOs;
 using Procument.Shared.Services;
 
@@ -375,7 +376,9 @@ public class SuppliersController : ControllerBase
                 s.IsActive,
                 s.CreatedAt,
                 s.Status,
-                s.RequestedByUserId
+                s.RequestedByUserId,
+                // Procurement Plus lists preferred suppliers first.
+                IsPreferred = _db.Set<Preferred>().Any(p => p.Kind == PreferredKinds.Supplier && p.SupplierId == s.Id),
             })
             .ToListAsync();
 
@@ -394,10 +397,173 @@ public class SuppliersController : ControllerBase
                         && s.IsActive && (s.Status == "Approved" || s.Status == "Pending"))
             .OrderBy(s => s.Name)
             .Take(10)
-            .Select(s => new { s.Id, s.Name, s.Username, s.Status })
+            .Select(s => new { s.Id, s.Name, s.Username, s.Status, s.Dependency, s.Email })
             .ToListAsync();
 
         return Ok(results);
+    }
+
+    /// <summary>
+    /// One supplier with its emails/contact persons, by id or (normalised) name. Used by the
+    /// RFQ / procument "+ Email" button to know which supplier the row points at.
+    /// </summary>
+    [HttpGet("lookup")]
+    public async Task<ActionResult> Lookup([FromQuery] long? id, [FromQuery] string? name)
+    {
+        var supplier = id is > 0
+            ? await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == id)
+            : await FindByNameAsync(name, tracked: false);
+        if (supplier == null) return NotFound(new { message = "Supplier not found in the Catalog." });
+
+        return Ok(new
+        {
+            supplier.Id,
+            supplier.Name,
+            supplier.Status,
+            supplier.Dependency,
+            supplier.Email,
+            Contacts = SupplierEmails.ContactViews(supplier),
+        });
+    }
+
+    /// <summary>
+    /// Which existing supplier already uses this email's domain (main email or contact persons).
+    /// Free-mail domains (gmail, outlook…) never match.
+    /// </summary>
+    [HttpGet("domain-match")]
+    public async Task<ActionResult> DomainMatch([FromQuery] string? email)
+    {
+        var normalized = SupplierEmails.Normalize(email);
+        if (normalized == null) return Ok(new { valid = false });
+
+        var domain = SupplierEmails.Domain(normalized);
+        var generic = SupplierEmails.IsGenericDomain(domain);
+        var match = generic ? null : await FindByDomainAsync(domain);
+        return Ok(new
+        {
+            valid = true,
+            domain,
+            generic,
+            supplier = match == null ? null : new { match.Id, match.Name, match.Status, match.Dependency },
+        });
+    }
+
+    /// <summary>
+    /// Add a supplier from the RFQ / procument page with a name and an email. When the email's
+    /// domain already belongs to a supplier, that supplier is used (the typed name is ignored);
+    /// otherwise a supplier with the same name is reused, else a new one is created. The email
+    /// is always recorded on the resulting supplier in the Catalog.
+    /// </summary>
+    [HttpPost("quick-add")]
+    public async Task<ActionResult> QuickAdd([FromBody] QuickAddSupplierDto dto)
+    {
+        var email = SupplierEmails.Normalize(dto.Email);
+        if (email == null) return BadRequest(new { message = "Enter a valid email address." });
+        var name = SupplierNameNormalizer.Clean(dto.Name);
+        var (userId, isAdmin) = GetUserContext();
+
+        var domain = SupplierEmails.Domain(email);
+        var matchedBy = "domain";
+        var supplier = SupplierEmails.IsGenericDomain(domain) ? null : await FindByDomainAsync(domain, tracked: true);
+        if (supplier == null)
+        {
+            if (string.IsNullOrEmpty(name)) return BadRequest(new { message = "Enter the supplier name." });
+            matchedBy = "name";
+            supplier = await FindByNameAsync(name, tracked: true);
+        }
+
+        var created = false;
+        string? emailTarget;
+        if (supplier == null)
+        {
+            matchedBy = "none";
+            created = true;
+            supplier = new Supplier
+            {
+                Name = name,
+                Dependency = "Normal",
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true,
+                // Same rule as suppliers created on the fly from quotes: experts' go to admin review.
+                Status = isAdmin ? "Approved" : "Pending",
+                RequestedByUserId = userId,
+            };
+            emailTarget = SupplierEmails.AddEmail(supplier, email, dto.ContactName);
+            _db.Set<Supplier>().Add(supplier);
+        }
+        else
+        {
+            if (!supplier.IsActive)
+            {
+                supplier.IsActive = true;
+                if (supplier.Status == "Disabled") supplier.Status = isAdmin ? "Approved" : "Pending";
+            }
+            emailTarget = SupplierEmails.AddEmail(supplier, email, dto.ContactName);
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new
+        {
+            supplier.Id,
+            supplier.Name,
+            supplier.Status,
+            supplier.Dependency,
+            matchedBy,
+            created,
+            emailAdded = emailTarget != null,
+            emailTarget,
+        });
+    }
+
+    /// <summary>Add an email to a supplier — onto a contact person when one is named.</summary>
+    [HttpPost("{id:long}/emails")]
+    public async Task<ActionResult> AddEmail(long id, [FromBody] AddSupplierEmailDto dto)
+    {
+        var supplier = await _db.Set<Supplier>().FindAsync(id);
+        if (supplier == null) return NotFound(new { message = "Supplier not found in the Catalog." });
+        var email = SupplierEmails.Normalize(dto.Email);
+        if (email == null) return BadRequest(new { message = "Enter a valid email address." });
+
+        var target = SupplierEmails.AddEmail(supplier, email, dto.ContactName);
+        if (target != null) await _db.SaveChangesAsync();
+        return Ok(new { supplier.Id, supplier.Name, added = target != null, target });
+    }
+
+    private (long userId, bool isAdmin) GetUserContext()
+    {
+        long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId);
+        return (userId, User.IsInRole("Admin") || User.IsInRole("SuperAdmin"));
+    }
+
+    /// <summary>Same matching as the quote saver: any supplier (active or not) by normalised name.</summary>
+    private async Task<Supplier?> FindByNameAsync(string? name, bool tracked)
+    {
+        var key = SupplierNameNormalizer.Key(name);
+        if (key.Length == 0) return null;
+        var id = (await _db.Set<Supplier>().AsNoTracking().Select(s => new { s.Id, s.Name }).ToListAsync())
+            .Where(s => SupplierNameNormalizer.Key(s.Name) == key)
+            .OrderBy(s => s.Id)
+            .Select(s => (long?)s.Id)
+            .FirstOrDefault();
+        if (id == null) return null;
+        var query = _db.Set<Supplier>().Where(s => s.Id == id);
+        return await (tracked ? query : query.AsNoTracking()).FirstOrDefaultAsync();
+    }
+
+    /// <summary>The active supplier whose main email or contact persons use this domain (Approved first).</summary>
+    private async Task<Supplier?> FindByDomainAsync(string domain, bool tracked = false)
+    {
+        var at = "@" + domain;
+        var query = _db.Set<Supplier>()
+            .Where(s => s.IsActive && s.Status != "Rejected"
+                        && ((s.Email != null && s.Email.Contains(at)) || (s.Contacts != null && s.Contacts.Contains(at))));
+        var candidates = await (tracked ? query : query.AsNoTracking()).ToListAsync();
+        // SQL LIKE also hits "@acme.com.tr" for "acme.com" — confirm the exact domain in memory.
+        return candidates
+            .Where(s => SupplierEmails.HasDomain(s, domain))
+            .OrderBy(s => s.Status == "Approved" ? 0 : 1)
+            .ThenBy(s => s.Id)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -577,6 +743,36 @@ public class SuppliersController : ControllerBase
         return Ok(new { entity.Id, entity.Name, entity.Email, entity.Phone, entity.Address });
     }
 
+    /// <summary>Star on the Catalog page: mark / unmark a preferred supplier (also managed on Procurement Plus).</summary>
+    [HttpPut("{id:long}/preferred")]
+    public async Task<ActionResult> SetPreferred(long id, [FromBody] SetPreferredSupplierDto dto)
+    {
+        var supplier = await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == id);
+        if (supplier == null) return NotFound();
+        // Preferreds keep their own copy (name, emails, phone); the catalog supplier is just the link.
+        var rows = await _db.Set<Preferred>().Where(p => p.Kind == PreferredKinds.Supplier && p.SupplierId == id).ToListAsync();
+        if (dto.Preferred && rows.Count == 0)
+        {
+            long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId);
+            var emails = string.Join(", ", SupplierEmails.AllEmails(supplier));
+            _db.Set<Preferred>().Add(new Preferred
+            {
+                Kind = PreferredKinds.Supplier,
+                Name = supplier.Name,
+                NameKey = SupplierNameNormalizer.Key(supplier.Name),
+                Emails = emails.Length == 0 ? null : emails[..Math.Min(emails.Length, 2000)],
+                Phone = supplier.Phone,
+                SupplierId = id,
+                SourceMethod = PreferredSupplierMethods.Normalize(dto.SourceMethod),
+                AddedAt = DateTime.UtcNow,
+                AddedByUserId = userId > 0 ? userId : null,
+            });
+        }
+        else if (!dto.Preferred && rows.Count > 0) _db.Set<Preferred>().RemoveRange(rows);
+        await _db.SaveChangesAsync();
+        return Ok(new { id, preferred = dto.Preferred });
+    }
+
     [HttpDelete("{id:long}")]
     public async Task<ActionResult> Delete(long id)
     {
@@ -592,6 +788,13 @@ public class SuppliersController : ControllerBase
     }
 }
 
+public class SetPreferredSupplierDto
+{
+    public bool Preferred { get; set; }
+    /// <summary>Email | WeChat | Search | ILS — when adding; default Email.</summary>
+    public string? SourceMethod { get; set; }
+}
+
 public class SupplierDto
 {
     public string Name { get; set; } = string.Empty;
@@ -603,6 +806,19 @@ public class SupplierDto
     public string? Address { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
+}
+
+public class QuickAddSupplierDto
+{
+    public string? Name { get; set; }
+    public string? Email { get; set; }
+    public string? ContactName { get; set; }
+}
+
+public class AddSupplierEmailDto
+{
+    public string? Email { get; set; }
+    public string? ContactName { get; set; }
 }
 
 public class ResubmitSupplierDto

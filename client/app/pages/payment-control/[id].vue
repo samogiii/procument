@@ -32,6 +32,16 @@
         >
           {{ unreviewedCount }} new
         </v-chip>
+        <v-chip
+          v-if="dateFrom"
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-calendar-range"
+          closable
+          @click:close="dateFrom = ''; dateTo = ''"
+        >
+          {{ dateFrom }}{{ dateTo && dateTo !== dateFrom ? ' → ' + dateTo : '' }}
+        </v-chip>
         <v-btn
           v-if="hasAnyFilter"
           variant="text"
@@ -274,18 +284,13 @@
         </template>
 
         <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
-          <ColFilterMenu
-            col-key="createdAt"
+          <ColDateRangeMenu
             :label="column.title"
-            :options="cfOptions.createdAt"
-            :selected="colFilter.selected['createdAt'] || new Set()"
-            :search="colFilter.search['createdAt'] || ''"
+            :from="dateFrom"
+            :to="dateTo"
             :is-sorted="isSorted(column)"
             :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
-            @toggle="(v) => colFilter.toggle('createdAt', v)"
-            @select-all="() => colFilter.selectAll('createdAt', cfOptions.createdAt)"
-            @clear-all="() => colFilter.clearAll('createdAt')"
-            @update:search="(v) => colFilter.search['createdAt'] = v"
+            @update="(f, t) => { dateFrom = f; dateTo = t }"
             @sort-click="toggleSort(column)"
           />
         </template>
@@ -732,7 +737,7 @@
                 v-if="txForm.fromCustomerId"
                 v-model="txForm.invoiceId"
                 :items="invoices"
-                item-title="invoiceNumber"
+                :item-title="invoiceTitle"
                 item-value="id"
                 label="PI# (optional)"
                 variant="outlined"
@@ -741,7 +746,19 @@
                 :loading="invoicesLoading"
                 no-data-text="No invoices for this customer"
                 class="mb-3"
-              />
+              >
+                <template v-if="txForm.invoiceId" #append>
+                  <v-btn
+                    icon="mdi-eye-outline"
+                    variant="tonal"
+                    color="primary"
+                    size="small"
+                    title="Preview PI PDF"
+                    :loading="previewLoading"
+                    @click="previewPi(txForm.invoiceId)"
+                  />
+                </template>
+              </v-autocomplete>
             </template>
           </template>
 
@@ -778,7 +795,7 @@
                 v-if="txForm.toSupplierId"
                 v-model="txForm.paymentRequestId"
                 :items="filteredPaymentRequests"
-                :item-title="(pr) => `PR-${pr.prNumber}`"
+                :item-title="prTitle"
                 item-value="id"
                 label="PR# (optional)"
                 variant="outlined"
@@ -786,7 +803,19 @@
                 clearable
                 no-data-text="No payment requests for this supplier"
                 class="mb-3"
-              />
+              >
+                <template v-if="txForm.paymentRequestId" #append>
+                  <v-btn
+                    icon="mdi-eye-outline"
+                    variant="tonal"
+                    color="primary"
+                    size="small"
+                    title="Preview PR PDF"
+                    :loading="previewLoading"
+                    @click="previewPr(txForm.paymentRequestId)"
+                  />
+                </template>
+              </v-autocomplete>
             </template>
           </template>
 
@@ -842,6 +871,14 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <DocPreviewModal
+      :open="docPreview.open.value"
+      :blob-url="docPreview.blobUrl.value"
+      :file-name="docPreview.fileName.value"
+      :mime-type="docPreview.mimeType.value"
+      @close="docPreview.close()"
+    />
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="4000" location="bottom end">
       {{ snackbarText }}
@@ -913,8 +950,20 @@ interface BoxDetail {
 
 interface Customer { id: number; name: string; customerCode: string | null }
 interface Supplier { id: number; name: string }
-interface Invoice { id: number; invoiceNumber: string; customerId: number }
-interface PR { id: number; prNumber: number | null; supplierId: number | null; supplierName: string | null }
+interface Invoice { id: number; invoiceNumber: string; customerId: number; customerName: string; totalAmount: number }
+interface PR {
+  id: number
+  prNumber: number | null
+  supplierId: number | null
+  supplierName: string | null
+  amount: number
+  status: string | null
+  poId: number | null
+  invoiceId: number | null
+  companyPresetId: number | null
+  companyPayingFrom: string | null
+  wireFee: number
+}
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -1119,6 +1168,143 @@ async function seedSelectedSupplier(id: number, label: string | null) {
   if (match) selectedSupplier.value = match
 }
 
+// ── PI / PR labels + PDF preview ──────────────────────────────────────────────
+const docPreview = useDocPreview()
+const previewLoading = ref(false)
+
+function invoiceTitle(inv: Invoice) {
+  return `${inv.invoiceNumber} - $${formatPrice(inv.totalAmount || 0)} - ${inv.customerName || '—'}`
+}
+
+function prTitle(pr: PR) {
+  return `PR-${pr.prNumber} - $${formatPrice(pr.amount || 0)} - ${pr.supplierName || '—'}`
+}
+
+function fetchBlob(path: string, query?: Record<string, string>) {
+  return $fetch<Blob>(`${api.baseURL}${path}`, {
+    query,
+    responseType: 'blob',
+    headers: { Authorization: `Bearer ${authStore.user?.token}` },
+  })
+}
+
+function newestFile<T extends { modifiedAt: string }>(files: T[]) {
+  return [...files].sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime())[0] ?? null
+}
+
+function previewFailed(message: string) {
+  snackbarText.value = message
+  snackbarColor.value = 'warning'
+  snackbar.value = true
+}
+
+/** The PI PDF is the one saved to the PI's "Our PI" folder when it was generated. */
+async function previewPi(invoiceId: number | null) {
+  if (!invoiceId || previewLoading.value) return
+  previewLoading.value = true
+  try {
+    const data = await api.get<any>(`/documents/proforma-invoice/${invoiceId}`)
+    const file = newestFile((data.piFiles ?? []).filter((f: any) => f.category === 'our_pi'))
+    if (!file) return previewFailed('No PI PDF has been generated for this PI yet')
+    docPreview.previewBlob(await fetchBlob(`/documents/proforma-invoice/${invoiceId}/file`, { name: file.name, category: 'our_pi' }), file.name)
+  } catch (e) {
+    console.error(e)
+    previewFailed('Failed to open the PI PDF')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+/**
+ * Customer-PO PRs are saved to the PI's supplier "DP" folder, named with the zero-padded PR number.
+ * Stock-PO PRs (and older ones never saved) are rebuilt from the PR + PO records instead.
+ */
+async function previewPr(prId: number | null) {
+  const pr = paymentRequests.value.find(p => p.id === prId)
+  if (!pr || previewLoading.value) return
+  previewLoading.value = true
+  const prNum = String(pr.prNumber ?? '').padStart(5, '0')
+  try {
+    if (pr.invoiceId && pr.supplierId) {
+      const data = await api.get<any>(`/documents/proforma-invoice/${pr.invoiceId}`)
+      const section = (data.suppliers ?? []).find((s: any) => s.supplierId === pr.supplierId)
+      const file = newestFile((section?.files ?? []).filter((f: any) => f.category === 'dp' && f.name.includes(`-${prNum}-`)))
+      if (file) {
+        const blob = await fetchBlob(`/documents/proforma-invoice/${pr.invoiceId}/supplier/${pr.supplierId}/file`, { name: file.name, category: 'dp' })
+        docPreview.previewBlob(blob, file.name)
+        return
+      }
+    }
+    if (!pr.poId) return previewFailed('This PR has no PO to build its PDF from')
+    docPreview.previewBlob(await rebuildPrPdf(pr), `PR${prNum}-${pr.supplierName || 'Supplier'}.pdf`)
+  } catch (e) {
+    console.error(e)
+    previewFailed('Failed to open the PR PDF')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+/** Same payload PaymentRequestPdfGenerator sends, from the stored PR / PO / preset data. */
+async function rebuildPrPdf(pr: PR) {
+  const [po, importDetail, presets] = await Promise.all([
+    api.get<any>(`/purchase-orders/${pr.poId}`),
+    api.get<any>(`/purchase-orders/${pr.poId}/import-detail`).catch(() => null),
+    api.get<any[]>('/companypresets').catch(() => []),
+  ])
+  const preset = presets.find(p => p.id === (pr.companyPresetId ?? po?.companyPresetId))
+  const items = (po?.items ?? []).map((it: any) => ({
+    partNumber: it.partNumberName || it.partNumber || '—',
+    description: it.description || '—',
+    qty: it.qty || 0,
+    unitPrice: it.unitPrice ?? 0,
+    totalPrice: it.totalPrice ?? 0,
+  }))
+  const payload = {
+    prNumber: `PR${String(pr.prNumber).padStart(5, '0')}`,
+    documentDate: new Date().toISOString().slice(0, 10),
+    poNumber: po?.poNumber,
+    invoiceNumber: po?.invoiceNumber,
+    supplierPIRef: po?.supplierPIRef,
+    supplierName: po?.supplierName,
+    currency: po?.currency || 'USD',
+    currencySymbol: '$',
+    status: pr.status || 'PENDING APPROVAL',
+    companyPayingFrom: preset?.name || pr.companyPayingFrom || '—',
+    ourBeneficiaryName: preset?.beneficiaryName,
+    ourAccountNumber: preset?.accountNumber,
+    ourBankName: preset?.bankName,
+    ourSwiftCode: preset?.swiftCode,
+    ourBankAddress: preset?.bankAddress,
+    ourCompanyAddress: preset?.location,
+    companyPayingTo: po?.supplierName,
+    beneficiary: importDetail?.beneficiary,
+    reference: importDetail?.reference,
+    accountNumber: importDetail?.bankAccountNumber,
+    bankName: importDetail?.bankName,
+    swiftCode: importDetail?.swiftCode,
+    aba: importDetail?.aba,
+    companyAddress: po?.supplier?.address || po?.supplierAddress,
+    bankAddress: importDetail?.bankAddress,
+    items,
+    itemsTotal: items.reduce((s: number, i: any) => s + Number(i.totalPrice || 0), 0),
+    wireFee: Number(pr.wireFee ?? 0),
+    grandTotal: Number(pr.amount),
+    bankFeeOption: 'OurCompanyAll',
+    primaryColor: preset?.primaryColor,
+    accentColor: preset?.accentColor,
+    logoBase64: preset?.logoBase64,
+    companyName: preset?.name,
+    companyLocation: preset?.location,
+  }
+  return $fetch<Blob>(`${api.baseURL}/pdf/payment-request`, {
+    method: 'POST',
+    body: payload,
+    responseType: 'blob',
+    headers: { Authorization: `Bearer ${authStore.user?.token}` },
+  })
+}
+
 const filteredPaymentRequests = computed(() =>
   txForm.value.toSupplierId
     ? paymentRequests.value.filter(pr => pr.supplierId === txForm.value.toSupplierId)
@@ -1168,8 +1354,17 @@ const LIST_COLS = {
     t.exchangeRate != null ? `${t.txCurrency ?? detail.value?.currency ?? ''} ×${t.exchangeRate}` : '—',
   notes: (t: TransactionRow) => t.notes?.trim() || '—',
   isAuto: (t: TransactionRow) => (t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual'),
-  createdAt: (t: TransactionRow) => new Date(t.createdAt).toLocaleDateString(),
 } satisfies Record<string, (t: TransactionRow) => string>
+
+// Date column range filter (ColDateRangeMenu) — `YYYY-MM-DD`, both ends inclusive.
+const dateFrom = ref('')
+const dateTo = ref('')
+
+/** Local-calendar `YYYY-MM-DD`, so the range matches the date shown in the row. */
+function localDayKey(iso: string) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 type ListColKey = keyof typeof LIST_COLS
 const LIST_KEYS = Object.keys(LIST_COLS) as ListColKey[]
@@ -1221,16 +1416,22 @@ const displayedTransactions = computed(() =>
     if (!rangeFilter.matches('deposit', walletTransactionAmount(t, 'deposit'))) return false
     if (!rangeFilter.matches('withdraw', walletTransactionAmount(t, 'withdraw'))) return false
     if (!rangeFilter.matches('balance', t.balance)) return false
+    if (dateFrom.value) {
+      const day = localDayKey(t.createdAt)
+      if (day < dateFrom.value || day > (dateTo.value || dateFrom.value)) return false
+    }
     return true
   })
 )
 
 const hasAnyFilter = computed(() =>
-  showOnlyNew.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
+  showOnlyNew.value || !!dateFrom.value || LIST_KEYS.some(k => colFilter.isActive(k)) || RANGE_KEYS.some(k => rangeFilter.isActive(k))
 )
 
 function clearFilters() {
   showOnlyNew.value = false
+  dateFrom.value = ''
+  dateTo.value = ''
   for (const k of LIST_KEYS) colFilter.clearAll(k)
   for (const k of RANGE_KEYS) rangeFilter.clear(k)
 }

@@ -392,14 +392,19 @@ async function generate() {
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
 
-    // 5. Customer POs retain the legacy invoice-folder archive. Stock POs have no
-    // customer invoice, so their downloaded PR remains associated through the PR/PO records.
+    // 5. File the PR so the Payment page can show it: Customer POs under the Sales Order's
+    // supplier folder, Stock POs (no Sales Order) under the PO's own folder.
+    const form = new FormData()
+    form.append('file', new File([blob], fileName, { type: 'application/pdf' }))
     if (props.po?.invoiceId) {
-      const form = new FormData()
-      const file = new File([blob], fileName, { type: 'application/pdf' })
-      form.append('file', file)
       form.append('category', 'dp')
       await $fetch(`${api.baseURL}/documents/proforma-invoice/${props.po.invoiceId}/supplier/${props.po.supplierId}/upload`, {
+        method: 'POST',
+        body: form,
+        headers: { Authorization: `Bearer ${authStore.user?.token}` },
+      })
+    } else if (props.po?.origin === 'Stock') {
+      await $fetch(`${api.baseURL}/purchase-orders/${props.poId}/documents/generated/pr`, {
         method: 'POST',
         body: form,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },

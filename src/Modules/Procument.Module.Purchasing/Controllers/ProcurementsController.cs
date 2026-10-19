@@ -214,8 +214,8 @@ public class ProcurementsController : ControllerBase
         if (procurement == null || item == null || procurement.Status == "Cancelled")
             return BadRequest(new { message = "This purchase item is no longer available for editing." });
 
-        if (!await _service.CanEditPurchaseItemsAsync(id))
-            return BadRequest(new { message = "Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running." });
+        if (!await _service.CanEditPurchaseItemsAsync(id, itemId))
+            return BadRequest(new { message = "Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running, or when the part is Returned / Reopened." });
 
         var approvedItems = await _db.Set<POItem>()
             .Where(poItem => poItem.SourceProcurementItemId == itemId && poItem.POId == null && poItem.ReturnedAt == null)

@@ -300,15 +300,13 @@ public static class PdfDocModelBuilders
         [
             PdfTableColumn.Fixed("#", 18),
             PdfTableColumn.Flex("Part No.", 1.6f, PdfCellAlign.Center),
-            PdfTableColumn.Flex("Description", 1.8f),
+            PdfTableColumn.Flex("Description", 2.4f),
             PdfTableColumn.Fixed("Qty", 24),
             PdfTableColumn.Fixed("CD", 24),
             PdfTableColumn.Fixed("Cert", 46),
             PdfTableColumn.Fixed("Unit Price", 50, PdfCellAlign.Right),
             PdfTableColumn.Fixed("Total", 54, PdfCellAlign.Right),
-            PdfTableColumn.Fixed("Discount", 50, PdfCellAlign.Right),
-            PdfTableColumn.Flex("Track #", 1.1f, PdfCellAlign.Center),
-            PdfTableColumn.Flex("Carrier", 1.1f, PdfCellAlign.Center)
+            PdfTableColumn.Fixed("Discount", 50, PdfCellAlign.Right)
         ];
 
         for (int i = 0; i < items.Count; i++)
@@ -327,13 +325,17 @@ public static class PdfDocModelBuilders
                     new PdfCell(it.Certification),
                     new PdfCell(Money(sym, it.UnitPrice)),
                     new PdfCell(Money(sym, it.TotalPrice), bold: true),
-                    new PdfCell(hasDiscount ? $"-{Money(sym, it.Discount!.Value)}" : "—") { Negative = hasDiscount },
-                    new PdfCell(it.TrackNumber),
-                    new PdfCell(it.Carrier)
+                    new PdfCell(hasDiscount ? $"-{Money(sym, it.Discount!.Value)}" : "—") { Negative = hasDiscount }
                 ]
             });
         }
 
+        if (!string.IsNullOrWhiteSpace(req.ShippingMethod))
+            m.InfoBlocks.Add(new PdfInfoBlock
+            {
+                Title = "Shipping Information",
+                Fields = [new("Shipping Method", req.ShippingMethod)]
+            });
         m.InfoBlocks.Add(BankBlock(req.BeneficiaryName, req.BeneficiaryAddress, req.BankName,
             req.BankAddress, req.BankAccount, req.SwiftCode));
 

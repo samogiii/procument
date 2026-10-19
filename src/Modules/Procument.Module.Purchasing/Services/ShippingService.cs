@@ -24,6 +24,7 @@ public interface IShippingService
     Task<TrackNumberDocumentResponse> UploadTrackDocAsync(long trackId, long userId, IFormFile file);
     Task<TrackNumberDocumentResponse> UploadPartDocAsync(long trackId, long poItemId, long userId, IFormFile file);
     Task<List<TrackNumberDocumentResponse>> GetDocumentsAsync(long trackId);
+    Task<List<PoItemTrackDocumentsResponse>> GetPoItemDocumentsAsync(long poItemId);
     Task<(Stream stream, string fileName, string mimeType)?> DownloadDocAsync(long docId);
     Task<bool> DeleteDocAsync(long docId, long userId);
 
@@ -32,6 +33,11 @@ public interface IShippingService
 
     // Bulk receipt — accept a whole track in one action, no per-part review
     Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null);
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> unless the track's part has at least one
+    /// part document and its shipment (same track number + warehouse) has a shipment document.
+    /// </summary>
+    Task EnsureReceiveAllDocumentsAsync(long trackId);
 
     // Ready for SN
     Task<List<ReadyForSnItemResponse>> GetReadyForSnAsync(long? warehouseId = null, IReadOnlySet<int>? allowedBases = null);
@@ -331,6 +337,45 @@ public class ShippingService : IShippingService
         return docs.Select(d => MapDocResponse(d, d.UploadedBy?.Name)).ToList();
     }
 
+    /// <summary>
+    /// Every track of a PO line, each with its shipment documents (from any track of the same track
+    /// number + warehouse — the same rule Receive All checks) and the line's own part documents.
+    /// </summary>
+    public async Task<List<PoItemTrackDocumentsResponse>> GetPoItemDocumentsAsync(long poItemId)
+    {
+        var tracks = await _db.Set<POItemTrackNumber>().AsNoTracking()
+            .Where(t => t.POItemId == poItemId)
+            .OrderBy(t => t.CreatedAt)
+            .Select(t => new { t.Id, t.TrackNumber, t.Carrier, t.WarehouseId, WarehouseName = t.Warehouse != null ? t.Warehouse.Name : null, t.Status })
+            .ToListAsync();
+        if (tracks.Count == 0) return new();
+
+        var trackIds = tracks.Select(t => t.Id).ToList();
+        var trackNumbers = tracks.Select(t => t.TrackNumber).Distinct().ToList();
+        var docs = await _db.Set<TrackNumberDocument>().AsNoTracking()
+            .Include(d => d.UploadedBy)
+            .Include(d => d.TrackNumber)
+            .Where(d => (d.POItemId == null && trackNumbers.Contains(d.TrackNumber.TrackNumber))
+                     || (d.POItemId == poItemId && trackIds.Contains(d.TrackNumberId)))
+            .OrderBy(d => d.UploadedAt)
+            .ToListAsync();
+
+        return tracks.Select(t => new PoItemTrackDocumentsResponse
+        {
+            TrackId = t.Id,
+            TrackNumber = t.TrackNumber,
+            Carrier = t.Carrier,
+            WarehouseName = t.WarehouseName,
+            Status = t.Status,
+            ShipmentDocuments = docs
+                .Where(d => d.POItemId == null && d.TrackNumber.TrackNumber == t.TrackNumber && d.TrackNumber.WarehouseId == t.WarehouseId)
+                .Select(d => MapDocResponse(d, d.UploadedBy?.Name)).ToList(),
+            PartDocuments = docs
+                .Where(d => d.POItemId == poItemId && d.TrackNumberId == t.Id)
+                .Select(d => MapDocResponse(d, d.UploadedBy?.Name)).ToList(),
+        }).ToList();
+    }
+
     public async Task<(Stream stream, string fileName, string mimeType)?> DownloadDocAsync(long docId)
     {
         var doc = await _db.Set<TrackNumberDocument>().AsNoTracking().FirstOrDefaultAsync(d => d.Id == docId);
@@ -423,6 +468,28 @@ public class ShippingService : IShippingService
     /// </summary>
     public Task<ShippingTrackResponse?> ReceiveAndAcceptAllAsync(long trackId, long reviewerId, string? note = null)
         => WithStockReceiptAsync(trackId, reviewerId, () => ReceiveAndAcceptAllCoreAsync(trackId, reviewerId, note));
+
+    public async Task EnsureReceiveAllDocumentsAsync(long trackId)
+    {
+        var track = await _db.Set<POItemTrackNumber>().AsNoTracking()
+            .Where(t => t.Id == trackId)
+            .Select(t => new { t.Id, t.TrackNumber, t.WarehouseId, t.POItemId })
+            .FirstOrDefaultAsync();
+        if (track == null) return; // the receive call reports NotFound
+
+        var docs = _db.Set<TrackNumberDocument>().AsNoTracking();
+
+        // Shipment documents are shared by every track grouped under the same track number + warehouse.
+        var hasShipmentDoc = await docs.AnyAsync(d => d.POItemId == null
+            && d.TrackNumber.TrackNumber == track.TrackNumber
+            && d.TrackNumber.WarehouseId == track.WarehouseId);
+        if (!hasShipmentDoc)
+            throw new InvalidOperationException("Upload at least one Shipment Document before receiving all parts.");
+
+        var hasPartDoc = await docs.AnyAsync(d => d.TrackNumberId == track.Id && d.POItemId == track.POItemId);
+        if (!hasPartDoc)
+            throw new InvalidOperationException("Upload at least one document for every part before receiving all parts.");
+    }
 
     private async Task<ShippingTrackResponse?> ReceiveAndAcceptAllCoreAsync(long trackId, long reviewerId, string? note)
     {
@@ -567,7 +634,11 @@ public class ShippingService : IShippingService
             poItem.TrackNumbers.SelectMany(track => track.Items).All(trackItem => trackItem.Status == "Accepted"));
         if (!allApproved) return;
 
-        await PurchaseOrderStatusFlow.ApplyAsync(_db, po, PurchaseOrderStatusFlow.Completed);
+        // Lines already handed to the customer stay "Delivered to Customer"; if every line is, so is the PO.
+        var undelivered = po.POItems.Where(i => i.Status != PurchaseOrderStatusFlow.DeliveredToCustomer).ToList();
+        foreach (var line in undelivered) line.Status = PurchaseOrderStatusFlow.Completed;
+        await PurchaseOrderStatusFlow.SyncPiItemsAsync(_db, undelivered, PurchaseOrderStatusFlow.Completed);
+        po.Status = undelivered.Count == 0 ? PurchaseOrderStatusFlow.DeliveredToCustomer : PurchaseOrderStatusFlow.Completed;
         await _db.SaveChangesAsync();
     }
 

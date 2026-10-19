@@ -70,6 +70,13 @@ public class RecentSupplierQuoteDto
     public string? ShippingPoint { get; set; }
     public string? Note { get; set; }
     public string? MyNotes { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? TraceTo { get; set; }
+    public string? TagType { get; set; }
+    public string? PriceType { get; set; }
+    public string? TaggedBy { get; set; }
+    public string? MoQ { get; set; }
+    public string? Warranty { get; set; }
     public long RFQId { get; set; }
     public string RFQName { get; set; } = string.Empty;
 }

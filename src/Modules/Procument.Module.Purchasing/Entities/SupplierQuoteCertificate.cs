@@ -14,6 +14,8 @@ public class SupplierQuoteCertificate : BaseEntity
     public long FileSizeBytes { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
     public long UploadedByUserId { get; set; }
+    /// <summary>Set when copied from an email quote's cert PDF, so re-applying it doesn't duplicate the file.</summary>
+    public long? SourcePendingCertificateId { get; set; }
 
     public ProcumentRecord SupplierQuote { get; set; } = null!;
     public User UploadedBy { get; set; } = null!;

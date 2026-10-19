@@ -17,7 +17,7 @@ public interface IProcurementService
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);
     Task<bool> UserCanAccessAsync(long procurementId, long userId, bool isAdmin);
     Task<bool> UserCanAccessItemAsync(long procurementId, long itemId, long userId, bool isAdmin);
-    Task<bool> CanEditPurchaseItemsAsync(long procurementId);
+    Task<bool> CanEditPurchaseItemsAsync(long procurementId, long? itemId = null);
 
     Task<bool> UpdateItemAsync(long procurementId, long itemId, UpdateProcurementItemRequest request);
 

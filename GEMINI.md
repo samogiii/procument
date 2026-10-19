@@ -251,6 +251,16 @@ For **every** user request, follow this loop:
 > **Follow-ups:** open questions / TODOs.
 > ```
 
+### 2026-10-04 — Merged Packing List: editable Bill To / Ship To
+**Files:** `client/app/components/MergedPackingListDialog.vue`
+**Summary:** Added a "4 · Bill To / Ship To" section to the Merge Packing Lists dialog (shipping renumbered to 5), mirroring `FinalInvoicePdfGenerator.vue`: Bill To name/address/contact/email/phone, Ship To name/address/contact/email/phone/account, a customer contact-person picker (parsed from `customerContacts` JSON already returned by `POST /final-invoices/packing-list-data`), "Same as Bill To" and "Reset from customer" buttons. Fields prefill from the primary invoice's customer snapshot only when the customer changes (adding/removing invoices of the same customer keeps edits). The PDF payload now sends the edited values; cleared fields are omitted (backend still falls back to `CustomerName` for empty Bill/Ship To names). Frontend-only, no backend change.
+**Follow-ups:** none.
+
+### 2026-10-04 — Merged Packing List filename matches Final Invoice naming
+**Files:** `client/app/components/MergedPackingListDialog.vue`
+**Summary:** The merged packing list download (from `/final-invoices` → "Merge Packing Lists") used to be named `PackingList-Merged-<CustomerCode>.pdf`. It now follows the single Final Invoice packing list prefix: `PackingList-<numbers>.pdf`, where `<numbers>` is every source invoice's display number (B1 number, falling back to the internal number) joined with `+`. Per user request, **no customer name or code** is included in the filename. Only invoices that have at least one selected part are included. Example: `PackingList-I101-60701-10+I101-60701-11.pdf`.
+**Follow-ups:** none.
+
 ### 2026-06-18 — ILS Enhancements: Cert Multi-line & PDF Layout/Title Fix
 **Files:** `client/app/pages/ils/items/[id].vue`, `client/app/components/IlsQuotePdfGenerator.vue`, `src/Procument.API/Controllers/PdfController.cs`
 **Summary:** Converted the ILS Serial "Cert Text" field from a single-line input to a multi-line auto-growing `v-textarea` and updated the item table to support `white-space: pre-wrap`. Refactored the `IlsQuotePdfGenerator.vue` modal layout from a stacked top-bottom view into a side-by-side view (controls on the left, live PDF preview on the right) to match the main application's standard. Finally, fixed a bug where ILS Proforma Invoices always generated PDFs titled "QUOTATION"; added `DocTitle` to `QuotePdfRequest` on the backend, allowing the frontend to dynamically pass "PROFORMA INVOICE" and automatically adjust the footer text context.

@@ -57,11 +57,13 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
         [FromQuery] List<int>? bases = null,
         [FromQuery] string? pnSearch = null,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] DateTime? poDateFrom = null,
+        [FromQuery] DateTime? poDateTo = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize, Search = search };
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, subjects, bases, assignedUsers);
+        var result = await _invoiceService.GetAllAsync(pq, userId, isAdmin, status, customer, sortBy, sortDesc, customerCodes, statuses, invoiceNumbers, isSuperAdmin, userBases, pnSearch, createdFrom, createdTo, subjects, bases, assignedUsers, poDateFrom, poDateTo);
         return Ok(result);
     }
 
@@ -164,6 +166,9 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
     [Auditable("Invoice", "RemoveItem")]
     public async Task<ActionResult<RemoveInvoiceItemResponse>> RemoveItem(long id, long itemId)
     {
+        if (await _db.Set<FinalInvoiceItem>().AnyAsync(f => f.InvoiceItemId == itemId))
+            return BadRequest(new { message = "This part is on a Final Invoice. Use \"Unlock parts\" to remove it from the Final Invoice first." });
+
         var (userId, isAdmin, _, _) = GetUserContext();
         var result = await _invoiceService.RemoveItemAsync(id, itemId, userId, isAdmin);
         return result == null ? Forbid() : Ok(result);
@@ -238,8 +243,8 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
     [Auditable("Invoice", "Cancel")]
     public async Task<IActionResult> Cancel(long id)
     {
-        if (await _lockGuard.IsInvoiceLocked(id))
-            return BadRequest(new { message = "This Proforma Invoice is locked because a Final Invoice has been created." });
+        if (await _lockGuard.HasAnyFinalInvoice(id))
+            return BadRequest(new { message = "This Sales Order cannot be cancelled because some of its parts are on a Final Invoice. Use \"Unlock parts\" to remove them first." });
 
         var success = await _invoiceService.CancelAsync(id);
         return success ? Ok() : NotFound();
@@ -406,7 +411,9 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
         [FromQuery] List<string>? assignedUsers = null,
         [FromQuery] List<int>? bases = null,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] DateTime? poDateFrom = null,
+        [FromQuery] DateTime? poDateTo = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
 
@@ -545,6 +552,12 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
 
             if (createdTo.HasValue)
                 q = q.Where(i => i.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+            if (poDateFrom.HasValue)
+                q = q.Where(i => i.CustomerPODate >= poDateFrom.Value);
+
+            if (poDateTo.HasValue)
+                q = q.Where(i => i.CustomerPODate <= poDateTo.Value.AddDays(1).AddTicks(-1));
 
             return q;
         }

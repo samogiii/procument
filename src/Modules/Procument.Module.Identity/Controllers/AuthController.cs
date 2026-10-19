@@ -331,6 +331,16 @@ public class MenuPermissionsController : ControllerBase
         "supplierRequests", "capList", "ils", "shippingMenu",
         "customerMenu", "totalPnMenu", "isAmir", "newRFQ", "ilsUsers", "isPDFSelection",
         "actionCenter", "taskManager", "ourInventoryMenu", "supplierCredits",
+        // Procument page: review supplier quotes MailFlow extracted from email.
+        "pendingSupplierQuotes",
+        // Email RFQs page: review customer RFQs MailFlow extracted from email (PendingRfqsController).
+        "pendingRfqs",
+        // Quote page: send the quote to the customer through the SMTP email dialog.
+        "sendQuoteEmail",
+        // Customer Follow Ups page (CustomerFollowUpsController in Sales).
+        "customerFollowUps",
+        // Procurement Plus page (ProcurementPlusController in Purchasing).
+        "procurementPlus",
         // Shipping: the customer bases each user sees (ShippingBaseAccess in Purchasing).
         "shippingBase1", "shippingBase2", "shippingBase3", "shippingBase4", "shippingBase5"
     ];

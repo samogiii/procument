@@ -116,7 +116,7 @@ public class PurchaseOrdersController : ControllerBase
     {
         var po = await _db.Set<PurchaseOrder>().AsNoTracking().FirstAsync(p => p.Id == result.Id);
         result.ChangeCompanyBlockedReason = await _lockGuard.IsPurchaseOrderLocked(result.Id)
-            ? "This PO is locked because a Final Invoice has been created."
+            ? "This PO is locked because all its parts are on a Final Invoice. Use \"Unlock parts\" to remove parts from the Final Invoice."
             : await _companyService.GetChangeBlockedReasonAsync(po);
         result.CanChangeCompany = result.ChangeCompanyBlockedReason == null;
     }
@@ -133,7 +133,7 @@ public class PurchaseOrdersController : ControllerBase
         var (userId, isAdmin, isSuperAdmin, userBases) = GetCurrentUser();
         if (!await CanAccessAsync(id, userId, isAdmin, isSuperAdmin, userBases)) return Forbid();
         if (await _lockGuard.IsPurchaseOrderLocked(id))
-            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This PO is locked because all its parts are on a Final Invoice. Use \"Unlock parts\" to remove parts from the Final Invoice." });
 
         try
         {
@@ -296,7 +296,7 @@ public class PurchaseOrdersController : ControllerBase
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdatePOStatusRequest request)
     {
         if (await _lockGuard.IsPurchaseOrderLocked(id))
-            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This PO is locked because all its parts are on a Final Invoice. Use \"Unlock parts\" to remove parts from the Final Invoice." });
 
         bool isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         bool isSuperAdmin = User.IsInRole("SuperAdmin");
@@ -356,11 +356,14 @@ public class PurchaseOrdersController : ControllerBase
     [Auditable("PurchaseOrder", "Return", CaptureBody = true)]
     public async Task<ActionResult<ReturnPOResponse>> ReturnPO(long id, [FromBody] ReturnPORequest request)
     {
-        if (await _lockGuard.IsPurchaseOrderLocked(id))
-            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
-
         if (request == null || string.IsNullOrWhiteSpace(request.Reason))
             return BadRequest(new { message = "A return reason is required." });
+
+        // Only the lines being returned matter (none picked = the whole PO); parts on a Final Invoice must be unlocked first.
+        var returnedLineIds = (request.ItemQtys ?? new()).Where(kv => kv.Value > 0).Select(kv => kv.Key)
+            .Concat(request.ItemIds ?? new()).Distinct().ToList();
+        if (await _lockGuard.HasAnyFinalInvoicedPart(id, returnedLineIds))
+            return BadRequest(new { message = "Some of the parts being returned are on a Final Invoice. Use \"Unlock parts\" to remove them from the Final Invoice first." });
 
         var (userId, _, _, _) = GetCurrentUser();
         var result = await _poService.ReturnAsync(id, request, userId);
@@ -443,6 +446,23 @@ public class PurchaseOrdersController : ControllerBase
             InShopRemainingDays = PurchaseOrderStatusFlow.RemainingInShopDays(item),
             DisplayStatus = PurchaseOrderStatusFlow.DisplayStatus(item),
         });
+    }
+
+    /// <summary>
+    /// Set the part note from the PO page's Part Statuses (same field as the Total P/N note).
+    /// Stored as "" when cleared, so a blank note stays blank instead of falling back to the quote note.
+    /// </summary>
+    [HttpPatch("items/{id:long}/note")]
+    [Auditable("POItem", "SetNote", CaptureBody = true)]
+    public async Task<IActionResult> SetItemNote(long id, [FromBody] UpdatePOItemNoteRequest request)
+    {
+        var note = request.Note?.Trim() ?? "";
+        if (note.Length > 2000) return BadRequest(new { message = "Note must be 2000 characters or less." });
+        var item = await _db.Set<POItem>().FirstOrDefaultAsync(i => i.Id == id && i.ReturnedAt == null);
+        if (item == null) return NotFound();
+        item.Note = note;
+        await _db.SaveChangesAsync();
+        return Ok(new { item.Id, Note = note });
     }
 
     /// <summary>Delete a purchase order.</summary>
@@ -529,7 +549,7 @@ public class PurchaseOrdersController : ControllerBase
             unitPrice = (double)i.UnitPrice,
             totalPrice = (double)i.TotalPrice,
             shippingCost = i.ProcumentRecord?.ShippingCost,
-            note = i.ProcumentRecord?.Note ?? "",
+            note = PurchaseOrderStatusFlow.PartNote(i) ?? "",
         }).ToList();
 
         // Company preset chosen when the PO was created (via its payment wallet) — the PDF
@@ -604,7 +624,7 @@ public class PurchaseOrdersController : ControllerBase
         var (uid, isA, isSA, bases) = GetCurrentUser();
         if (!await CanAccessAsync(id, uid, isA, isSA, bases)) return Forbid();
         if (await _lockGuard.IsPurchaseOrderLocked(id))
-            return BadRequest(new { message = "This PO is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This PO is locked because all its parts are on a Final Invoice. Use \"Unlock parts\" to remove parts from the Final Invoice." });
 
         var po = await _db.Set<PurchaseOrder>().FindAsync(id);
         if (po == null) return NotFound();

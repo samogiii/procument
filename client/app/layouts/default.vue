@@ -386,10 +386,15 @@ watch(mobile, (isMobile) => {
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
   { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', totalPnMenu: true, adminOnly: false, ilsOnly: false },
-  { title: 'Action Center', icon: 'mdi-alert-circle-outline', to: '/attention', actionCenter: true, adminOnly: false, ilsOnly: false },
+  { title: 'Customer Follow Ups', icon: 'mdi-account-clock-outline', to: '/customer-follow-ups', customerFollowUps: true },
+  // Action Center hidden from the menu for now (route /attention and its Menu Access grant still exist).
+  // { title: 'Action Center', icon: 'mdi-alert-circle-outline', to: '/attention', actionCenter: true, adminOnly: false, ilsOnly: false },
   { title: 'RFQs', icon: 'mdi-file-document-outline', to: '/rfqs', adminOnly: false, ilsOnly: false },
   // { title: 'RFQ Items', icon: 'mdi-format-list-checks', to: '/rfq-items', adminOnly: false },
   { title: 'RFQ Items', icon: 'mdi-truck-cargo-container', to: '/procument', adminOnly: false, ilsOnly: false },
+  { title: 'Email Quotes', icon: 'mdi-email-arrow-left-outline', to: '/email-quotes', pendingSupplierQuotes: true, ilsOnly: false },
+  { title: 'Email RFQs', icon: 'mdi-email-arrow-right-outline', to: '/email-rfqs', pendingRfqs: true, ilsOnly: false },
+  { title: 'Procurement Plus', icon: 'mdi-store-search-outline', to: '/procurement-plus', procurementPlus: true, ilsOnly: false },
   { title: 'Quotes', icon: 'mdi-currency-usd', to: '/quotes', adminOnly: false, ilsOnly: false },
   { title: 'Sales Order', icon: 'mdi-receipt-text-outline', to: '/invoices', adminOnly: true, ilsOnly: false },
   { title: 'Checking Purchase Items', icon: 'mdi-clipboard-edit-outline', to: '/procurements', adminOnly: false, ilsOnly: false },
@@ -520,6 +525,14 @@ const navItems = computed(() => {
     if (item.ourInventoryMenu) return authStore.ourInventoryMenu && (!item.adminOnly || authStore.isAdmin)
     // Granted per user in Menu Access (the getter also checks the role the API allows).
     if (item.supplierCredits) return authStore.supplierCredits
+    // Supplier quotes read from email — granted per user in Menu Access, whatever the role.
+    if (item.pendingSupplierQuotes) return authStore.pendingSupplierQuotes
+    // Customer RFQs read from email — granted per user in Menu Access, whatever the role.
+    if (item.pendingRfqs) return authStore.pendingRfqs
+    // Customer Follow Ups — granted per user in Menu Access, whatever the role.
+    if (item.customerFollowUps) return authStore.customerFollowUps
+    // Procurement Plus — granted per user in Menu Access, whatever the role.
+    if (item.procurementPlus) return authStore.procurementPlus
 
     // ── Hardcoded per-username whitelist — overrides everything else ────────
     // Users in RESTRICTED_USER_NAV see ONLY their allowed routes.

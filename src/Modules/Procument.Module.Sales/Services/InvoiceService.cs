@@ -33,7 +33,7 @@ public class InvoiceService : IInvoiceService
         _b1Service = b1Service;
     }
 
-    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null, List<string>? assignedUsers = null)
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, string? status = null, string? customer = null, string? sortBy = null, bool sortDesc = false, List<string>? customerCodes = null, List<string>? statuses = null, List<string>? invoiceNumbers = null, bool isSuperAdmin = true, int[]? userBases = null, string? pnSearch = null, DateTime? createdFrom = null, DateTime? createdTo = null, List<string>? subjects = null, List<int>? bases = null, List<string>? assignedUsers = null, DateTime? poDateFrom = null, DateTime? poDateTo = null)
     {
         IQueryable<Invoice> query = _db.Set<Invoice>()
             .AsNoTracking()
@@ -217,6 +217,13 @@ public class InvoiceService : IInvoiceService
 
         if (createdTo.HasValue)
             query = query.Where(i => i.CreatedAt <= createdTo.Value.AddDays(1).AddTicks(-1));
+
+        // Customer PO date range — `poDateTo` is inclusive of the whole day.
+        if (poDateFrom.HasValue)
+            query = query.Where(i => i.CustomerPODate >= poDateFrom.Value);
+
+        if (poDateTo.HasValue)
+            query = query.Where(i => i.CustomerPODate <= poDateTo.Value.AddDays(1).AddTicks(-1));
 
         query = sortBy switch
         {
@@ -559,11 +566,13 @@ public class InvoiceService : IInvoiceService
             finalItem.Condition = sourceItem.Condition ?? sourceItem.QuoteItem?.Condition;
         }
 
+        // A Sales Order can have several Final Invoices, each covering only its own parts.
         var finalInvoices = await _db.Set<FinalInvoice>()
+            .Include(finalInvoice => finalInvoice.Items)
             .Where(finalInvoice => finalInvoice.ProformaInvoiceId == id)
             .ToListAsync();
         foreach (var finalInvoice in finalInvoices)
-            finalInvoice.TotalAmount = newTotal;
+            finalInvoice.TotalAmount = finalInvoice.Items.Sum(item => item.TotalPrice);
 
         await _db.SaveChangesAsync();
         return true;
@@ -670,10 +679,13 @@ public class InvoiceService : IInvoiceService
         invoice.TotalAmount = invoice.InvoiceItems.Where(invoiceItem => invoiceItem.Id != itemId).Sum(invoiceItem => invoiceItem.TotalPrice);
 
         var finalInvoices = await _db.Set<FinalInvoice>()
+            .Include(finalInvoice => finalInvoice.Items)
             .Where(finalInvoice => finalInvoice.ProformaInvoiceId == id)
             .ToListAsync();
         foreach (var finalInvoice in finalInvoices)
-            finalInvoice.TotalAmount = invoice.TotalAmount;
+            finalInvoice.TotalAmount = finalInvoice.Items
+                .Where(finalItem => finalItem.InvoiceItemId != itemId)
+                .Sum(finalItem => finalItem.TotalPrice);
 
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
@@ -846,7 +858,7 @@ public class InvoiceService : IInvoiceService
             invoiceItem.Status = "Cancelled";
 
         // ── 1. Cancel all POs linked to this invoice (skip already-terminal ones) ──
-        var terminalPOStatuses = new[] { "Completed", "Returned", "Cancelled" };
+        var terminalPOStatuses = new[] { "Completed", "Delivered to Customer", "Returned", "Cancelled" };
         var linkedPOs = await _db.Set<PurchaseOrder>()
             .Where(po => po.InvoiceId == id && !terminalPOStatuses.Contains(po.Status))
             .ToListAsync();

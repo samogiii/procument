@@ -671,15 +671,13 @@ function buildPreviewModel(): PdfPreviewModel {
     columns: [
       { header: '#', width: 18 },
       { header: 'Part No.', relative: 1.6 },
-      { header: 'Description', relative: 1.8, align: 'left' },
+      { header: 'Description', relative: 2.4, align: 'left' },
       { header: 'Qty', width: 24 },
       { header: 'CD', width: 24 },
       { header: 'Cert', width: 46 },
       { header: 'Unit Price', width: 50, align: 'right' },
       { header: 'Total', width: 54, align: 'right' },
       { header: 'Discount', width: 50, align: 'right' },
-      { header: 'Track #', relative: 1.1 },
-      { header: 'Carrier', relative: 1.1 },
     ],
     rows: items.map((it: any, i: number) => ({
       cells: [
@@ -699,21 +697,25 @@ function buildPreviewModel(): PdfPreviewModel {
         it.discount > 0
           ? { text: `-${money(Number(it.discount) * rate)}`, negative: true }
           : { text: '—' },
-        { text: it.trackNumber },
-        { text: it.carrier },
       ],
     })),
-    infoBlocks: [{
-      title: 'Bank Information',
-      fields: [
-        { label: 'Beneficiary Name', value: beneficiaryName.value },
-        { label: 'Beneficiary Address', value: beneficiaryAddress.value },
-        { label: 'Bank Name', value: bankName.value },
-        { label: 'Bank Address', value: bankAddress.value },
-        { label: 'Account Number', value: bankAccount.value },
-        { label: 'SWIFT Code', value: swiftCode.value },
-      ],
-    }],
+    infoBlocks: [
+      ...(d.shippingMethod ? [{
+        title: 'Shipping Information',
+        fields: [{ label: 'Shipping Method', value: d.shippingMethod }],
+      }] : []),
+      {
+        title: 'Bank Information',
+        fields: [
+          { label: 'Beneficiary Name', value: beneficiaryName.value },
+          { label: 'Beneficiary Address', value: beneficiaryAddress.value },
+          { label: 'Bank Name', value: bankName.value },
+          { label: 'Bank Address', value: bankAddress.value },
+          { label: 'Account Number', value: bankAccount.value },
+          { label: 'SWIFT Code', value: swiftCode.value },
+        ],
+      },
+    ],
     totals: [
       { label: 'Subtotal', amount: money(subtotal) },
       ...(totalDiscount > 0 ? [{ label: 'Discount', amount: money(totalDiscount), isNegative: true }] : []),
@@ -768,8 +770,6 @@ const renderedHtml = computed(() => {
       <td style="padding:9px 10px; font-size:11px; text-align:right; color:#1a2744; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
       <td style="padding:9px 10px; font-size:11px; text-align:right; font-weight:700; color:#1a2744; border-bottom:1px solid #eef0f3;">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
       ${discountCell}
-      <td style="padding:9px 10px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.trackNumber || ''}</td>
-      <td style="padding:9px 10px; font-size:10.5px; color:#6b7280; border-bottom:1px solid #eef0f3;">${it.carrier || ''}</td>
     </tr>`
   }).join('')
 
@@ -837,8 +837,6 @@ const renderedHtml = computed(() => {
               <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
               <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Discount</th>
-              <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Track #</th>
-              <th style="padding:10px 10px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Carrier</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -979,8 +977,6 @@ async function downloadPdf() {
           unitPrice: (Number(it.unitPrice) || 0) * curr.rate,
           totalPrice: (Number(it.totalPrice) || 0) * curr.rate,
           discount: it.discount > 0 ? Number(it.discount) * curr.rate : null,
-          trackNumber: it.trackNumber || null,
-          carrier: it.carrier || null,
         })),
         subtotal: subtotalBase.value * curr.rate,
         tax: (taxAmount.value || 0) * curr.rate,

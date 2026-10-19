@@ -99,6 +99,20 @@ public class TrackNumberDocumentResponse
     public string? UploadedByName { get; set; }
 }
 
+/// <summary>One track of a PO line with its documents — for the Shipping Control documents column.</summary>
+public class PoItemTrackDocumentsResponse
+{
+    public long TrackId { get; set; }
+    public string TrackNumber { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? WarehouseName { get; set; }
+    public string Status { get; set; } = string.Empty;
+    /// <summary>Shared by every track with the same track number + warehouse (one physical shipment).</summary>
+    public List<TrackNumberDocumentResponse> ShipmentDocuments { get; set; } = new();
+    /// <summary>This PO line's own documents on this track.</summary>
+    public List<TrackNumberDocumentResponse> PartDocuments { get; set; } = new();
+}
+
 // ── Shipping page track summary ────────────────────────
 public class ShippingTrackResponse
 {
@@ -287,6 +301,8 @@ public class ShipmentNoteDocumentResponse
 {
     public long Id { get; set; }
     public long ShipmentNoteId { get; set; }
+    /// <summary>null = shared by the whole note; set = that part's own document.</summary>
+    public long? POItemId { get; set; }
     public string OriginalFileName { get; set; } = string.Empty;
     public string? MimeType { get; set; }
     public long FileSizeBytes { get; set; }

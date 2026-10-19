@@ -476,7 +476,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po == null) return false;
 
         // Already in a terminal state — no further transitions allowed
-        if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return false;
+        if (PurchaseOrderStatusFlow.TerminalStatuses.Contains(po.Status)) return false;
 
         if (!PurchaseOrderStatusFlow.AllowedStatuses.Contains(newStatus)) return false;
 
@@ -585,7 +585,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po == null) return null;
 
         // Guard terminal states
-        if (po.Status == "Completed" || po.Status == "Cancelled" || po.Status == "Returned") return null;
+        if (PurchaseOrderStatusFlow.TerminalStatuses.Contains(po.Status)) return null;
 
         // Live items on this PO (exclude anything already returned)
         var liveItems = po.POItems.Where(i => i.ReturnedAt == null).ToList();
@@ -972,6 +972,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 InShopStartedAt = i.InShopStartedAt,
                 InShopRemainingDays = PurchaseOrderStatusFlow.RemainingInShopDays(i),
                 DisplayStatus = PurchaseOrderStatusFlow.DisplayStatus(i),
+                Note = PurchaseOrderStatusFlow.PartNote(i),
                 TrackNumbers = (i.TrackNumbers ?? new List<POItemTrackNumber>()).Select(t => new TrackNumberResponse
                 {
                     Id = t.Id,

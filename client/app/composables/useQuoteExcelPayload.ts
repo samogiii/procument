@@ -32,7 +32,7 @@ function buildQuoteWorksheetData(quote: any, companyName: string): any[][] {
       it.alt || '',
       it.qty,
       it.condition || '—',
-      it.leadTime || '—',
+      it.sellLeadTime || '—', // customer sees the sell lead time
       Number(it.unitPrice || 0),
       Number(it.totalPrice || 0),
       (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', '),

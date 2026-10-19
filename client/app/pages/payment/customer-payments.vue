@@ -407,9 +407,14 @@ const filteredCustomers = computed(() => {
     .filter((x): x is CustomerGroup => x !== null)
 })
 
+/** Base 1 customers stay hidden until the user picks "1" in the Base filter. */
+const HIDDEN_BY_DEFAULT_BASE = '1'
+const showDefaultHiddenBase = computed(() => !!balanceFilters.selected.balanceBase?.has(HIDDEN_BY_DEFAULT_BASE))
+
 const filteredInvoices = computed(() => {
   const q = search.value.trim().toLowerCase()
   return balanceTabInvoices.value.filter(invoice => {
+    if (!showDefaultHiddenBase.value && baseLabel(invoice.customerBase) === HIDDEN_BY_DEFAULT_BASE) return false
     const matchesSearch = !q || [invoice.customerName, baseLabel(invoice.customerBase), invoice.invoiceNumber, invoice.paymentTerm]
       .some(value => value?.toLowerCase().includes(q))
     return matchesSearch

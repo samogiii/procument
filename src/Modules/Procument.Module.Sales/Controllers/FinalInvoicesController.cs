@@ -10,6 +10,7 @@ using Procument.Module.Sales.DTOs;
 using Procument.Module.Sales.Services;
 
 using Procument.Shared.Services;
+using Procument.Shared.Audit;
 using System.Security.Claims;
 
 
@@ -179,7 +180,49 @@ public class FinalInvoicesController : ControllerBase, IAsyncActionFilter
 
 
 
-    /// <summary>Create a Final Invoice from a Proforma Invoice.</summary>
+    /// <summary>
+    /// Every live line of a Sales Order for the part picker: selectable ones (finished shipping track,
+    /// not invoiced yet) plus the rest with the reason they can't be picked yet.
+    /// </summary>
+    [HttpGet("candidates/{proformaInvoiceId:long}")]
+    public async Task<IActionResult> GetCandidates(long proformaInvoiceId)
+    {
+        var result = await _service.GetCandidatesAsync(proformaInvoiceId);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+
+
+    /// <summary>Parts on a Final Invoice, for a Sales Order (proformaInvoiceId) or a PO's live lines (poId).</summary>
+    [HttpGet("invoiced-parts")]
+    public async Task<IActionResult> GetInvoicedParts([FromQuery] long? proformaInvoiceId = null, [FromQuery] long? poId = null)
+    {
+        return Ok(await _service.GetInvoicedPartsAsync(proformaInvoiceId, poId));
+    }
+
+
+
+    /// <summary>
+    /// Take parts off their Final Invoice (unlocks the Sales Order / PO). A Final Invoice left with no
+    /// parts is deleted.
+    /// </summary>
+    [HttpPost("release-parts")]
+    [Auditable("FinalInvoice", "ReleaseParts", CaptureBody = true)]
+    public async Task<IActionResult> ReleaseParts([FromBody] ReleaseFinalInvoicePartsRequest request)
+    {
+        try
+        {
+            return Ok(await _service.ReleasePartsAsync(request.InvoiceItemIds));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+
+
+    /// <summary>Create a Final Invoice for the selected parts of a Sales Order (Proforma Invoice).</summary>
 
     [HttpPost]
 
@@ -191,15 +234,8 @@ public class FinalInvoicesController : ControllerBase, IAsyncActionFilter
 
         {
 
-            var canCreate = await _service.CanCreateFinalInvoice(request.ProformaInvoiceId);
-
-            if (!canCreate)
-
-                return BadRequest(new { message = "Cannot create final invoice. Either not all POs are completed, or a final invoice already exists." });
-
-
-
-            var result = await _service.CreateFromProformaAsync(request.ProformaInvoiceId);
+            // Part-level eligibility is validated inside the service, under a lock on the Sales Order.
+            var result = await _service.CreateFromProformaAsync(request.ProformaInvoiceId, request.InvoiceItemIds);
 
             return Ok(result);
 
@@ -290,7 +326,8 @@ public class FinalInvoicesController : ControllerBase, IAsyncActionFilter
 
             totalAmount = fi.TotalAmount,
 
-            shippingMethod = fi.ShippingMethod,
+            // DDP / CPT / Pick Up from the shipment notes — not the free-text field on the invoice.
+            shippingMethod = await _service.GetShippingMethodAsync(id),
 
             shippingCost = fi.ShippingCost,
 

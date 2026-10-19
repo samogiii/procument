@@ -1273,6 +1273,7 @@ const statusOptions = [
   'Ship to Warehouse',
   'Waiting for Expert Approval Shipment',
   'Completed',
+  'Delivered to Customer',
   'Returned',
   'Cancelled',
 ]
@@ -1297,7 +1298,7 @@ function openMissingPo(row: any) {
 
 async function openSupplierEditor(row: any) {
   if (!canOpenSupplierEditor(row)) {
-    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running.', 'warning')
+    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running, or when the part is Returned / Reopened.', 'warning')
     return
   }
   try {
@@ -1367,7 +1368,7 @@ function addSupplierQuote() {
 
 function hasOpenPurchaseOrder() {
   const status = supplierEditor.row?.purchaseOrderStatus
-  return !!supplierEditor.row?.purchaseOrderId && !['Completed', 'Cancelled', 'Returned'].includes(status)
+  return !!supplierEditor.row?.purchaseOrderId && !['Completed', 'Delivered to Customer', 'Cancelled', 'Returned'].includes(status)
 }
 
 function supplierQuoteState() {
@@ -1385,7 +1386,7 @@ function supplierQuoteState() {
 
 async function saveSupplierChanges() {
   if (!canEditSupplier(supplierEditor.row)) {
-    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running.', 'warning')
+    showSnack('Purchase items can be edited only while the Proforma Invoice is Waiting For Prepayment or Running, or when the part is Returned / Reopened.', 'warning')
     return
   }
   if (supplierQuoteState() === supplierEditor.originalState) {
@@ -1497,10 +1498,15 @@ function canEditSupplier(row: any) {
   return canOpenSupplierEditor(row) && !!row?.procurementId && !!row?.procurementItemId
 }
 
+/** A part that came back (PO returned / procurement reopened) stays editable whatever the Sales Order status. */
+function isReturnedOrReopened(row: any) {
+  return row?.status === 'Returned' || row?.procurementStatus === 'Reopened'
+}
+
 function canOpenSupplierEditor(row: any) {
   const invoiceStatus = row?.proformaInvoiceStatus ?? row?.paymentTerm
   return !!row?.invoiceId &&
-    ['Waiting For Prepayment', 'Running'].includes(invoiceStatus)
+    (['Waiting For Prepayment', 'Running'].includes(invoiceStatus) || isReturnedOrReopened(row))
 }
 
 async function onSupplierDialogChange(isOpen: boolean) {
@@ -1548,6 +1554,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Ship to Warehouse': '0, 150, 136',
   'Waiting for Expert Approval Shipment': '255, 213, 0',
   'Completed': '76, 175, 80',
+  'Delivered to Customer': '27, 94, 32',
   'Returned': '96, 125, 139',
   'Cancelled': '33, 33, 33',
 }
@@ -1907,9 +1914,12 @@ onMounted(async () => {
   box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 
-/* A selected Excel-style filter makes its whole header easy to spot. */
+/* A selected Excel-style filter makes its whole header easy to spot. The tint is layered
+   over the solid surface so the sticky header stays opaque while rows scroll beneath it. */
 .tpn-table thead th:has(.tpn-filter-active) {
-  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  background:
+    linear-gradient(rgba(var(--v-theme-primary), 0.14), rgba(var(--v-theme-primary), 0.14)),
+    rgb(var(--v-theme-surface)) !important;
   color: rgb(var(--v-theme-primary));
   box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
@@ -1942,7 +1952,7 @@ onMounted(async () => {
 
 .qty-progress-complete { color: rgb(var(--v-theme-success)); }
 .qty-progress-partial { color: rgb(var(--v-theme-warning)); }
-.qty-progress-none { color: rgb(var(--v-theme-on-surface) / 0.48); }
+.qty-progress-none { color: rgba(var(--v-theme-on-surface), 0.48); }
 
 .tpn-table tbody td.cell-wrap {
   width: 180px;

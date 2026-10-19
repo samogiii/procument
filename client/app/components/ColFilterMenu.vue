@@ -175,7 +175,7 @@ const filteredOpts = computed(() => {
 
 /* Highlight the complete table header, not just the filter icon, while this column filters rows. */
 :global(th:has(.cf-th-inner--filtered)) {
-  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  background: linear-gradient(rgba(var(--v-theme-primary), 0.14), rgba(var(--v-theme-primary), 0.14)), rgb(var(--v-theme-surface)) !important;
   box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 </style>

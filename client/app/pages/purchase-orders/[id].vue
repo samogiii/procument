@@ -77,13 +77,13 @@
         :to="`/our-inventory/purchase-orders/new?id=${route.params.id}`">
         Edit draft
       </v-btn>
-      <v-menu :disabled="isLocked">
+      <v-menu :disabled="isLocked || po.status === DELIVERED_TO_CUSTOMER">
         <template #activator="{ props: menuProps }">
           <v-chip
             :color="poStatusColor"
             v-bind="menuProps"
             class="cursor-pointer"
-            :append-icon="isLocked ? 'mdi-lock' : 'mdi-chevron-down'"
+            :append-icon="isLocked || po.status === DELIVERED_TO_CUSTOMER ? 'mdi-lock' : 'mdi-chevron-down'"
             size="default"
           >
             {{ po.status || '—' }}
@@ -119,6 +119,13 @@
       >
         Return
       </v-btn>
+      <!-- Take parts off their Final Invoice to unlock this PO (and allow returning them) -->
+      <FinalInvoiceUnlockParts
+        v-if="!isStock && isAdmin && po.id"
+        :po-id="po.id"
+        @released="onFinalPartsReleased"
+        @error="(msg) => showSnack(msg, 'error')"
+      />
       <v-btn
         prepend-icon="mdi-cancel"
         size="small"
@@ -180,7 +187,7 @@
       </v-card-title>
       <v-card-text>
         <v-table density="compact">
-          <thead><tr><th>Part</th><th>Status</th><th v-if="hasInShopParts">In Shop lead time</th></tr></thead>
+          <thead><tr><th>Part</th><th>Status</th><th v-if="hasInShopParts">In Shop lead time</th><th style="min-width: 260px;">Note <span class="text-caption text-medium-emphasis">(printed on the PO PDF)</span></th></tr></thead>
           <tbody>
             <tr v-for="item in (po.items || [])" :key="item.id">
               <td class="font-weight-medium">{{ item.partNumberName || '—' }}</td>
@@ -190,6 +197,21 @@
                   density="compact" variant="outlined" hide-details style="max-width:150px" :loading="savingLeadTimeId === item.id"
                   @change="saveInShopLeadTime(item)" />
                 <span v-else class="text-medium-emphasis">—</span>
+              </td>
+              <td class="py-1">
+                <v-text-field
+                  v-model="item.note"
+                  placeholder="Add a note for this part..."
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  clearable
+                  prepend-inner-icon="mdi-note-edit-outline"
+                  :loading="savingNoteId === item.id"
+                  @blur="saveItemNote(item)"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  @click:clear="clearItemNote(item)"
+                />
               </td>
             </tr>
           </tbody>
@@ -1130,7 +1152,12 @@ const allPoStatuses = [
 ]
 const poStatuses = computed(() => isStock.value ? allPoStatuses.filter(s => !STOCK_HIDDEN_STATUSES.has(s.value)) : allPoStatuses)
 
+// Set automatically once the parts reach the customer (finished SN# or PickUp), so it is shown
+// but never offered in the Change Status menu.
+const DELIVERED_TO_CUSTOMER = 'Delivered to Customer'
+
 function statusColorForPart(status: string) {
+  if ((status || '').toLowerCase() === DELIVERED_TO_CUSTOMER.toLowerCase()) return 'green'
   return allPoStatuses.find(s => s.value.toLowerCase() === (status || '').toLowerCase())?.color || 'grey'
 }
 
@@ -1150,13 +1177,41 @@ async function saveInShopLeadTime(item: any) {
   finally { savingLeadTimeId.value = null }
 }
 
+// ── Part note (Part Statuses) — same field as the Total P/N note, printed on the PO PDF ──
+const savingNoteId = ref<number | null>(null)
+const savedNotes = new Map<number, string>() // last saved value per POItem, to skip no-op saves
+// Re-snapshot whenever the PO is (re)loaded — not deep, so typing in a note doesn't trigger it.
+watch(() => po.value?.items, (items) => {
+  savedNotes.clear()
+  for (const it of items || []) savedNotes.set(it.id, (it.note ?? '').trim())
+}, { immediate: true })
+
+function clearItemNote(item: any) {
+  item.note = ''
+  saveItemNote(item)
+}
+
+async function saveItemNote(item: any) {
+  const note = (item.note ?? '').trim()
+  const previous = savedNotes.has(item.id) ? savedNotes.get(item.id)! : null
+  if (previous === note) return
+  savingNoteId.value = item.id
+  try {
+    await api.patch(`/purchase-orders/items/${item.id}/note`, { note })
+    item.note = note
+    savedNotes.set(item.id, note)
+    showSnack(`Note saved for ${item.partNumberName || 'part'}`, 'success')
+  } catch (e: any) { showSnack(e?.data?.message || 'Failed to save note', 'error') }
+  finally { savingNoteId.value = null }
+}
+
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => authStore.isSuperAdmin)
 const showPdf = ref(false)
 const showPrDialog = ref(false)
 
 const isTerminalState = computed(() =>
-  ['Completed', 'Cancelled', 'Returned'].includes(po.value.status)
+  ['Completed', DELIVERED_TO_CUSTOMER, 'Cancelled', 'Returned'].includes(po.value.status)
 )
 
 // ── Price override (SuperAdmin only) ──
@@ -1225,6 +1280,12 @@ const returnForm = ref({
 const hasAnyReturnQty = computed(() =>
   Object.values(returnForm.value.itemQtys).some(q => q > 0)
 )
+
+async function onFinalPartsReleased(result: any) {
+  const deleted = result?.deletedFinalInvoices?.length ? ` Deleted: ${result.deletedFinalInvoices.join(', ')}.` : ''
+  showSnack(`${result?.releasedCount ?? 0} part(s) removed from the Final Invoice.${deleted}`, 'success')
+  await Promise.all([checkLock(), loadPo()])
+}
 
 function openReturnDialog() {
   const qtys: Record<number, number> = {}
@@ -1371,6 +1432,7 @@ const entityId = computed(() => String(route.params.id))
 const { isLocked, checkLock } = useFinalInvoiceLock('po', entityId)
 
 const poStatusColor = computed(() => {
+  if (po.value.status === DELIVERED_TO_CUSTOMER) return 'green'
   const found = allPoStatuses.find(s => s.value === po.value.status)
   return found?.color || 'grey'
 })

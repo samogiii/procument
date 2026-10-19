@@ -104,26 +104,6 @@
                 closable-chips
                 style="min-width:160px;max-width:260px;"
               />
-              <v-text-field
-                v-model="poDateFrom"
-                label="Created From"
-                type="date"
-                variant="outlined"
-                density="compact"
-                hide-details
-                clearable
-                style="min-width:155px;max-width:195px;"
-              />
-              <v-text-field
-                v-model="poDateTo"
-                label="Created To"
-                type="date"
-                variant="outlined"
-                density="compact"
-                hide-details
-                clearable
-                style="min-width:155px;max-width:195px;"
-              />
               <v-chip
                 v-if="poActiveFilterCount > 0"
                 size="small"
@@ -238,7 +218,15 @@
                           @update:search="(v) => poFilterSearch['assignedUsers'] = v"
                         />
                     </th>
-                    <th style="width: 140px;">Created</th>
+                    <th style="width: 140px;">
+                      <ColDateRangeMenu
+                        label="Created"
+                        :from="poDateFrom"
+                        :to="poDateTo"
+                        :sortable="false"
+                        @update="(f, t) => { poDateFrom = f; poDateTo = t }"
+                      />
+                    </th>
                     <th style="width: 80px;"></th>
                   </tr>
                 </thead>
@@ -252,9 +240,9 @@
                     <td class="text-right cell-price">${{ formatPrice(po.totalAmount) }}</td>
                     <td @click.stop>
                       <div class="d-flex flex-column gap-1">
-                        <v-menu :disabled="po._locked">
+                        <v-menu :disabled="po._locked || po.status === DELIVERED_TO_CUSTOMER">
                           <template #activator="{ props: menuProps }">
-                            <v-chip :color="poStatusColor(po.status)" size="x-small" variant="tonal" v-bind="menuProps" class="cursor-pointer" :append-icon="po._locked ? 'mdi-lock' : 'mdi-chevron-down'">
+                            <v-chip :color="poStatusColor(po.status)" size="x-small" variant="tonal" v-bind="menuProps" class="cursor-pointer" :append-icon="po._locked || po.status === DELIVERED_TO_CUSTOMER ? 'mdi-lock' : 'mdi-chevron-down'">
                               {{ po.status }}
                             </v-chip>
                           </template>
@@ -741,9 +729,12 @@ const poStatusColorMap: Record<string, string> = {
   'Ship to Warehouse': 'indigo',
   'Waiting for Expert Approval Shipment': 'deep-purple',
   'Completed': 'teal',
+  'Delivered to Customer': 'green',
   'Cancelled': 'grey',
   'Returned': 'error',
 }
+// Set automatically once the parts reach the customer (finished SN# or PickUp) — never picked by hand.
+const DELIVERED_TO_CUSTOMER = 'Delivered to Customer'
 function poStatusColor(status: string) {
   return poStatusColorMap[status] || 'grey'
 }
@@ -1079,7 +1070,6 @@ const poActiveFilterCount = computed(() => {
   if (poPnSearch.value.trim()) count++
   if (poSupplierFilter.value.length) count++
   if (poDateFrom.value) count++
-  if (poDateTo.value) count++
   return count
 })
 
@@ -1119,15 +1109,15 @@ function applyPoFilters(source: any[], exclude?: string) {
   if (poSupplierFilter.value.length) {
     rows = rows.filter(r => poSupplierFilter.value.includes(r.supplierName))
   }
-  // Date range on createdAt
+  // Date range on createdAt (ColDateRangeMenu: `YYYY-MM-DD`, both ends inclusive, local days)
   if (poDateFrom.value) {
-    const from = new Date(poDateFrom.value)
-    rows = rows.filter(r => r.createdAt && new Date(r.createdAt) >= from)
-  }
-  if (poDateTo.value) {
-    const to = new Date(poDateTo.value)
-    to.setHours(23, 59, 59, 999)
-    rows = rows.filter(r => r.createdAt && new Date(r.createdAt) <= to)
+    const from = new Date(`${poDateFrom.value}T00:00:00`)
+    const to = new Date(`${poDateTo.value || poDateFrom.value}T23:59:59.999`)
+    rows = rows.filter(r => {
+      if (!r.createdAt) return false
+      const d = new Date(r.createdAt)
+      return d >= from && d <= to
+    })
   }
   // Apply column filters (status, supplier, etc.)
   for (const col of PO_FILTER_COLS) {

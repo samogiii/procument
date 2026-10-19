@@ -21,6 +21,7 @@ public static class SalesModule
         services.AddScoped<IPaymentLedgerService>(sp => sp.GetRequiredService<PaymentBoxService>());
         services.AddScoped<IWalletTransferService, WalletTransferService>();
         services.AddScoped<ISupplierCreditService, SupplierCreditService>();
+        services.AddScoped<ICustomerFollowUpService, CustomerFollowUpService>();
         return services;
     }
 }

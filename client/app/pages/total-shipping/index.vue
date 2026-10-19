@@ -1035,6 +1035,7 @@
                       </v-menu>
                     </div>
                   </th>
+                  <th class="to-docs-col"><span class="to-th-label">Documents</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -1072,6 +1073,20 @@
                     <td class="font-weight-medium">{{ (baseUsesTidSo(row.customerBase) && row.tId) || '—' }}</td>
                   </template>
                   <td>{{ row.awbNumber || '—' }}</td>
+                  <!-- View the shipment / part documents of this line's tracks and add more, at any status -->
+                  <td class="to-docs-col">
+                    <v-btn
+                      size="x-small"
+                      :variant="row.documentCount ? 'tonal' : 'outlined'"
+                      :color="row.documentCount ? 'primary' : undefined"
+                      prepend-icon="mdi-paperclip"
+                      :disabled="!row.trackNumbers"
+                      :title="row.trackNumbers ? 'View / add shipping documents' : 'No track number yet'"
+                      @click="openRowDocs(row)"
+                    >
+                      {{ row.documentCount || 0 }}
+                    </v-btn>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -2014,6 +2029,14 @@
 
     <v-snackbar v-model="snack" :color="snackColor" timeout="3000" location="top right">{{ snackMsg }}</v-snackbar>
 
+    <PoItemShippingDocumentsDialog
+      v-model="rowDocsDialog"
+      :po-item-id="rowDocsRow?.id ?? null"
+      :title="rowDocsRow ? [rowDocsRow.partNumber, rowDocsRow.poNumber].filter(Boolean).join(' · ') : ''"
+      @changed="(n) => { if (rowDocsRow) rowDocsRow.documentCount = n }"
+      @notify="(msg, color) => notify(msg, color)"
+    />
+
     <DocPreviewModal
       :open="docPreview.open.value"
       :blob-url="docPreview.blobUrl.value"
@@ -2917,6 +2940,14 @@ async function loadTotalOrder() {
   }
 }
 
+// Documents column: one PO line's shipment + part documents, viewable and addable at any status.
+const rowDocsDialog = ref(false)
+const rowDocsRow = ref<any | null>(null)
+function openRowDocs(row: any) {
+  rowDocsRow.value = row
+  rowDocsDialog.value = true
+}
+
 // ── Tab 5 — Warehouse Transfers ─────────────────────────────────────────────
 
 const transfers = ref<any[]>([])
@@ -3108,5 +3139,9 @@ onMounted(async () => {
 .to-table tbody td {
   padding: 7px 10px;
   vertical-align: middle;
+}
+.to-docs-col {
+  text-align: center;
+  white-space: nowrap;
 }
 </style>

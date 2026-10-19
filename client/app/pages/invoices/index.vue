@@ -36,26 +36,6 @@
         variant="outlined"
         style="min-width: 140px; max-width: 260px;"
       />
-      <v-text-field
-        v-model="createdFrom"
-        label="Created From"
-        type="date"
-        hide-details
-        clearable
-        density="compact"
-        variant="outlined"
-        style="min-width: 160px; max-width: 200px;"
-      />
-      <v-text-field
-        v-model="createdTo"
-        label="Created To"
-        type="date"
-        hide-details
-        clearable
-        density="compact"
-        variant="outlined"
-        style="min-width: 160px; max-width: 200px;"
-      />
       <v-btn
         v-if="hasActiveFilters"
         variant="tonal"
@@ -144,6 +124,30 @@
     </template>
 
     <!-- Column filter: Subject -->
+    <template #header.customerPODate="{ column, toggleSort, isSorted, sortBy }">
+      <ColDateRangeMenu
+        :label="column.title"
+        :from="poDateFrom"
+        :to="poDateTo"
+        :is-sorted="isSorted(column)"
+        :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+        @update="(f, t) => { poDateFrom = f; poDateTo = t }"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
+    <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
+      <ColDateRangeMenu
+        :label="column.title"
+        :from="createdFrom"
+        :to="createdTo"
+        :is-sorted="isSorted(column)"
+        :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+        @update="(f, t) => { createdFrom = f; createdTo = t }"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
     <template #header.subject="{ column, toggleSort }">
       <ColFilterMenu
         col-key="subject"
@@ -225,10 +229,6 @@
 
     <template #item.createdAt="{ item }">
       {{ item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '-' }}
-    </template>
-
-    <template #item.deadlineDate="{ item }">
-      {{ item.deadlineDate ? new Date(item.deadlineDate).toLocaleDateString() : '-' }}
     </template>
 
     <template #item.actions="{ item }">
@@ -330,11 +330,15 @@ const { filters: pf, clearFilters: clearPageFilters, hasActiveFilters: hasPageFi
   pnSearch: '',
   createdFrom: '',
   createdTo: '',
+  poDateFrom: '',
+  poDateTo: '',
 })
 const customerCodesDropdown = pf.customerCodesDropdown
 const pnSearch = pf.pnSearch
 const createdFrom = pf.createdFrom
 const createdTo = pf.createdTo
+const poDateFrom = pf.poDateFrom
+const poDateTo = pf.poDateTo
 
 // ── Column filters ──
 const colFilter = useColFilterPersisted('invoices')
@@ -363,6 +367,8 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (pnSearch.value?.trim()) p.pnSearch = pnSearch.value.trim()
   if (createdFrom.value) p.createdFrom = createdFrom.value
   if (createdTo.value) p.createdTo = createdTo.value
+  if (poDateFrom.value) p.poDateFrom = poDateFrom.value
+  if (poDateTo.value) p.poDateTo = poDateTo.value
   if (colFilter.isActive('status')) p.statuses = colFilter.getSelected('status')
   if (colFilter.isActive('invoiceNumber')) p.invoiceNumbers = colFilter.getSelected('invoiceNumber')
   if (colFilter.isActive('subject')) p.subjects = colFilter.getSelected('subject')
@@ -387,6 +393,8 @@ const cfOptions = useCascadingOptions<InvoiceOptions>(
       if (pnSearch.value?.trim()) params.set('pnSearch', pnSearch.value.trim())
       if (createdFrom.value) params.set('createdFrom', createdFrom.value)
       if (createdTo.value) params.set('createdTo', createdTo.value)
+      if (poDateFrom.value) params.set('poDateFrom', poDateFrom.value)
+      if (poDateTo.value) params.set('poDateTo', poDateTo.value)
       const statuses = [...new Set([...(dlp.status.value || []), ...colFilter.getSelected('status')])]
       statuses.forEach(s => params.append('statuses', s))
       const codes = [...new Set([...(customerCodesDropdown.value || []), ...colFilter.getSelected('customerCode')])]
@@ -474,7 +482,6 @@ const headers = [
   { title: 'Assigned Users', key: 'assignedUsers', sortable: false, width: '210px' },
   { title: 'PO Date', key: 'customerPODate' },
   { title: 'Created At', key: 'createdAt' },
-  { title: 'Deadline', key: 'deadlineDate' },
   { title: 'Total', key: 'totalAmount' },
   { title: 'Status', key: 'status' },
   { title: '', key: 'actions', sortable: false, width: '60px' },

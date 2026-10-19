@@ -97,7 +97,7 @@ function toNum(v: string | number | null): number | null {
 .cf-th-inner:hover .cf-sort-hint { opacity: 0.6; }
 
 :global(th:has(.cf-th-inner--filtered)) {
-  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  background: linear-gradient(rgba(var(--v-theme-primary), 0.14), rgba(var(--v-theme-primary), 0.14)), rgb(var(--v-theme-surface)) !important;
   box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 </style>

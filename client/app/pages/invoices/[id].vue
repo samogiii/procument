@@ -157,9 +157,22 @@
           size="small"
           color="success"
           variant="flat"
-          :loading="creatingFinal"
-          @click="createFinalInvoice"
+          @click="showCreateFinal = true"
         >Create Final Invoice</v-btn>
+        <!-- Pick which ready parts (finished shipping track) go on the Final Invoice -->
+        <CreateFinalInvoiceDialog
+          v-model="showCreateFinal"
+          :proforma-id="Number(route.params.id)"
+          @created="onFinalInvoiceCreated"
+          @error="(msg) => showSnack(msg, 'error')"
+        />
+        <!-- Take parts off their Final Invoice to unlock this Sales Order / its POs -->
+        <FinalInvoiceUnlockParts
+          v-if="isAdmin"
+          :proforma-id="Number(route.params.id)"
+          @released="onFinalPartsReleased"
+          @error="(msg) => showSnack(msg, 'error')"
+        />
       </div>
     </div>
 
@@ -671,7 +684,7 @@ const canEditItems = computed(() => {
 })
 const showPdf = ref(false)
 const canCreateFinal = ref(false)
-const creatingFinal = ref(false)
+const showCreateFinal = ref(false)
 
 const assignmentUsers = ref<any[]>([])
 const piAssignedUserIds = ref<number[]>([])
@@ -823,7 +836,7 @@ async function saveItemEdits(): Promise<boolean> {
 
 async function removeInvoiceItem(item: any) {
   const warning = `Remove ${item.alt || item.partNumberName || 'this item'} from the Proforma Invoice?\n\n`
-    + 'It will also be removed from any Final Invoice. If it belongs to a Purchase Order, that PO will be cancelled.'
+    + 'If it belongs to a Purchase Order, that PO will be cancelled. Parts already on a Final Invoice cannot be removed.'
   if (!confirm(warning)) return
 
   if (itemsDirty.value && !await saveItemEdits()) return
@@ -834,7 +847,7 @@ async function removeInvoiceItem(item: any) {
     const cancelled = result?.cancelledPurchaseOrders || []
     showSnack(cancelled.length
       ? `Item removed. Cancelled PO: ${cancelled.join(', ')}`
-      : 'Item removed from the Proforma and Final Invoice', 'success')
+      : 'Item removed from the Proforma', 'success')
     await loadInvoice()
     await checkFinalEligibility()
   } catch (e: any) {
@@ -1058,17 +1071,15 @@ async function checkFinalEligibility() {
   }
 }
 
-async function createFinalInvoice() {
-  creatingFinal.value = true
-  try {
-    const result = await api.post<any>('/final-invoices', { proformaInvoiceId: Number(route.params.id) })
-    showSnack(`Final Invoice ${result.invoiceNumber} created!`, 'success')
-    navigateTo(`/final-invoices/${result.id}`)
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Failed to create final invoice', 'error')
-  } finally {
-    creatingFinal.value = false
-  }
+function onFinalInvoiceCreated(result: any) {
+  showSnack(`Final Invoice ${result.invoiceNumber} created!`, 'success')
+  navigateTo(`/final-invoices/${result.id}`)
+}
+
+async function onFinalPartsReleased(result: any) {
+  const deleted = result?.deletedFinalInvoices?.length ? ` Deleted: ${result.deletedFinalInvoices.join(', ')}.` : ''
+  showSnack(`${result?.releasedCount ?? 0} part(s) removed from the Final Invoice.${deleted}`, 'success')
+  await Promise.all([loadInvoice(), checkFinalEligibility(), checkLock()])
 }
 
 function onStatusSelect(newStatus: string) {

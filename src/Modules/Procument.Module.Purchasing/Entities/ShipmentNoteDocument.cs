@@ -8,6 +8,12 @@ public class ShipmentNoteDocument : BaseEntity
 {
     public long ShipmentNoteId { get; set; }
 
+    /// <summary>
+    /// null = shared by the whole note (e.g. the papers uploaded when the pickup was created).
+    /// Set = belongs to that one part on the note.
+    /// </summary>
+    public long? POItemId { get; set; }
+
     /// <summary>File name as stored on disk under Documents/ShipmentNotes/{ShipmentNoteId}.</summary>
     public string FileName { get; set; } = string.Empty;
 
@@ -19,5 +25,6 @@ public class ShipmentNoteDocument : BaseEntity
 
     // Navigation
     public ShipmentNote ShipmentNote { get; set; } = null!;
+    public POItem? POItem { get; set; }
     public User UploadedBy { get; set; } = null!;
 }

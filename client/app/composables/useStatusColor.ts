@@ -20,6 +20,7 @@ const STATUS_COLORS: Record<string, string> = {
     // Purchase Order
     Received: 'success',
     'Received in Warehouse': 'orange',
+    'Delivered to Customer': 'green',
 
     // RFQ
     Open: 'light-blue',

@@ -68,6 +68,78 @@ public class FinalInvoiceItemResponse
 public class CreateFinalInvoiceRequest
 {
     public long ProformaInvoiceId { get; set; }
+    /// <summary>
+    /// Sales Order lines to put on this Final Invoice. Each must have a finished shipping track
+    /// ("Delivered to Customer") and not be on another Final Invoice yet.
+    /// </summary>
+    public List<long> InvoiceItemIds { get; set; } = new();
+}
+
+/// <summary>One Sales Order line as offered in the Create Final Invoice part picker.</summary>
+public class FinalInvoiceCandidateItem
+{
+    public long InvoiceItemId { get; set; }
+    public string PartNumber { get; set; } = "";
+    public string? Alt { get; set; }
+    public string? Description { get; set; }
+    public int Qty { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal TotalPrice { get; set; }
+    public string? Condition { get; set; }
+    /// <summary>Sales Order line status (mirrors the PO line).</summary>
+    public string Status { get; set; } = "";
+    /// <summary>Finished ("Delivered to Customer") track numbers of the live PO line.</summary>
+    public List<string> FinishedTrackNumbers { get; set; } = new();
+    /// <summary>Tracks still on the way — shown so the user knows why a part is not selectable yet.</summary>
+    public List<string> OpenTrackNumbers { get; set; } = new();
+    /// <summary>Final Invoice already holding this line, if any.</summary>
+    public long? FinalInvoiceId { get; set; }
+    public string? FinalInvoiceNumber { get; set; }
+    public bool Eligible { get; set; }
+    /// <summary>Why the line can't be selected; null when <see cref="Eligible"/>.</summary>
+    public string? Reason { get; set; }
+}
+
+/// <summary>A Sales Order line that sits on a Final Invoice — offered in the Unlock parts dialog.</summary>
+public class InvoicedPartResponse
+{
+    public long InvoiceItemId { get; set; }
+    public long FinalInvoiceItemId { get; set; }
+    public string PartNumber { get; set; } = "";
+    public int Qty { get; set; }
+    public decimal TotalPrice { get; set; }
+    public string? TrackNumber { get; set; }
+    public long FinalInvoiceId { get; set; }
+    public string FinalInvoiceNumber { get; set; } = "";
+    public string? B1FinalInvoiceNumber { get; set; }
+    public string FinalInvoiceStatus { get; set; } = "";
+    /// <summary>How many parts the Final Invoice holds in total, so the UI can warn when removing the last ones deletes it.</summary>
+    public int FinalInvoiceItemCount { get; set; }
+}
+
+public class ReleaseFinalInvoicePartsRequest
+{
+    /// <summary>Sales Order lines to take off their Final Invoice.</summary>
+    public List<long> InvoiceItemIds { get; set; } = new();
+}
+
+public class ReleaseFinalInvoicePartsResponse
+{
+    public int ReleasedCount { get; set; }
+    /// <summary>Final Invoices that kept other parts (total recalculated).</summary>
+    public List<string> UpdatedFinalInvoices { get; set; } = new();
+    /// <summary>Final Invoices deleted because no part was left on them.</summary>
+    public List<string> DeletedFinalInvoices { get; set; } = new();
+}
+
+public class FinalInvoiceCandidatesResponse
+{
+    public long ProformaInvoiceId { get; set; }
+    public string InvoiceNumber { get; set; } = "";
+    public string? B1ProformaInvoiceNumber { get; set; }
+    public string CustomerName { get; set; } = "";
+    public string? CustomerCode { get; set; }
+    public List<FinalInvoiceCandidateItem> Items { get; set; } = new();
 }
 
 public class UpdateFinalInvoiceStatusRequest
@@ -92,6 +164,12 @@ public class EligibleProformaResponse
     public string CustomerName { get; set; } = "";
     public string? CustomerCode { get; set; }
     public decimal TotalAmount { get; set; }
+    /// <summary>Lines that can go on a Final Invoice right now (finished track, not invoiced yet).</summary>
+    public int EligibleItemCount { get; set; }
+    /// <summary>Lines already on a Final Invoice.</summary>
+    public int InvoicedItemCount { get; set; }
+    /// <summary>All live (non-cancelled) lines.</summary>
+    public int TotalItemCount { get; set; }
 }
 
 /// <summary>

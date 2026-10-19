@@ -145,28 +145,6 @@
             </template>
           </v-autocomplete>
 
-          <v-text-field
-            v-model="createdFrom"
-            label="Created From"
-            type="date"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            class="mx-2"
-            style="min-width: 160px; max-width: 200px;"
-          />
-          <v-text-field
-            v-model="createdTo"
-            label="Created To"
-            type="date"
-            hide-details
-            clearable
-            density="compact"
-            variant="outlined"
-            style="min-width: 160px; max-width: 200px;"
-          />
-
           <v-btn
             :color="showNoQuote ? 'warning' : 'default'"
             :variant="showNoQuote ? 'tonal' : 'outlined'"
@@ -317,6 +295,19 @@
             />
           </template>
 
+          <!-- Column filter: Created At — one range picker, both ends inclusive -->
+          <template #header.createdAt="{ column, toggleSort, sortBy }">
+            <ColDateRangeMenu
+              :label="column.title"
+              :from="createdFrom"
+              :to="createdTo"
+              :is-sorted="sortBy?.some((s: any) => s.key === 'createdAt')"
+              :sort-desc="sortBy?.find((s: any) => s.key === 'createdAt')?.order === 'desc'"
+              @update="(f, t) => { createdFrom = f; createdTo = t }"
+              @sort-click="toggleSort(column)"
+            />
+          </template>
+
           <template #item.id="{ item }">
             <div class="d-flex align-center gap-1">
               <v-icon v-if="item.isUnread" icon="mdi-circle" size="10" color="blue" />
@@ -334,6 +325,9 @@
           </template>
           <template #item.receivedDate="{ item }">
             {{ item.receivedDate && new Date(item.receivedDate).getFullYear() > 2000 ? new Date(item.receivedDate).toLocaleDateString() : '—' }}
+          </template>
+          <template #item.createdAt="{ item }">
+            {{ item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—' }}
           </template>
           <template #item.leadTime="{ item }">
             <span :class="{ 'text-error font-weight-bold': (item.status == 'Open' || item.status == 'In Progress') && isLeadTimeExpired(item.leadTime) }">
@@ -1284,7 +1278,7 @@ const statusFilter = pf.status
 const userFilter = pf.user
 const pnSearch = pf.pnSearch
 const customerFilter = pf.customer
-// Created-at range — both bounds inclusive; the backend covers the whole `createdTo` day.
+// Created-at range (Created At column header picker) — both bounds inclusive; the backend covers the whole `createdTo` day.
 const createdFrom = pf.createdFrom
 const createdTo = pf.createdTo
 
@@ -1418,6 +1412,7 @@ const headers = [
   { title: 'Days', key: 'daysRemaining', sortable: true, width: '110px' },
   { title: 'Parts', key: 'itemCount', sortable: false },
   { title: 'Received Date', key: 'receivedDate' },
+  { title: 'Created At', key: 'createdAt' },
 ]
 
 const lastServerOpts = ref<any>({ page: pf.page.value, itemsPerPage: pf.itemsPerPage.value })

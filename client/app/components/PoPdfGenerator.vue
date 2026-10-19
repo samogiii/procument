@@ -79,7 +79,7 @@
                 <v-select
                   v-model="selectedSupplierContact"
                   :items="supplierContacts"
-                  item-title="name"
+                  item-title="label"
                   item-value="email"
                   label="Select Contact Person"
                   variant="outlined"
@@ -345,7 +345,7 @@ const purchaseFromPhone = ref('')
 const purchaseFromEmail = ref('')
 
 // Supplier contact persons (parsed from supplier.contacts JSON)
-const supplierContacts = ref<{name: string, email: string, phone?: string, title?: string}[]>([])
+const supplierContacts = ref<{name: string, email: string, label: string, phone?: string, title?: string}[]>([])
 const selectedSupplierContact = ref<string | null>(null)
 const supplierId = ref<number | null>(null)
 const savingSupplier = ref(false)
@@ -498,7 +498,16 @@ watch(model, async (open) => {
         supplierContacts.value = []
         selectedSupplierContact.value = null
         if (supplier.contacts) {
-          try { supplierContacts.value = JSON.parse(supplier.contacts) } catch {}
+          // One option per email — a contact person may have several (`emails`), `email` is the first.
+          try {
+            const parsed = JSON.parse(supplier.contacts)
+            supplierContacts.value = (Array.isArray(parsed) ? parsed : []).flatMap((c: any) => {
+              const emails = [...new Set([c?.email, ...(Array.isArray(c?.emails) ? c.emails : [])].filter(Boolean))] as string[]
+              return (emails.length ? emails : ['']).map(e => ({
+                ...c, email: e, label: emails.length > 1 ? `${c.name} <${e}>` : c.name,
+              }))
+            })
+          } catch {}
         }
 
         // Initialize Vendor

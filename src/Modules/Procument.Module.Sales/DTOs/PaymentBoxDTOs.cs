@@ -5,6 +5,14 @@ public record CurrencyBreakdown(string Currency, string Symbol, decimal TotalDep
 /// <summary>Lightweight wallet entry used in wallet selection dropdowns (PO creation, payment acceptance).</summary>
 public record WalletSelectionResponse(long Id, string Name, string CompanyName, string Currency);
 
+// Upcoming withdraws — USD reminders only, never applied to any wallet.
+public record UpcomingWithdrawResponse(long Id, decimal Price, string Description, DateTime CreatedAt);
+public record CreateUpcomingWithdrawRequest(decimal Price, string Description);
+
+// Global wallet switches (Wallets page).
+public record WalletSettingsResponse(bool AutoImport);
+public record UpdateWalletSettingsRequest(bool AutoImport);
+
 public record PaymentBoxSummaryResponse(
     long Id,
     long CompanyPresetId,

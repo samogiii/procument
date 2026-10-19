@@ -22,6 +22,12 @@ public static class PurchasingModule
         services.AddScoped<IShippingService, ShippingService>();
         services.AddScoped<IWarehouseTransferService, WarehouseTransferService>();
         services.AddScoped<IShipmentNoteService, ShipmentNoteService>();
+        services.AddScoped<IPendingSupplierQuoteService, PendingSupplierQuoteService>();
+        services.AddScoped<Procument.Shared.Services.IRfqItemsCreatedHandler, PendingSupplierQuoteService>();
+        services.AddScoped<IProcurementPlusService, ProcurementPlusService>();
+        services.AddScoped<IPendingRfqService, PendingRfqService>();
+        // Every 3 min: ask MailFlow for new quote + RFQ emails (MailFlow:AutoFetchSeconds, 0 = off).
+        services.AddHostedService<MailFlowAutoFetchService>();
         return services;
     }
 }

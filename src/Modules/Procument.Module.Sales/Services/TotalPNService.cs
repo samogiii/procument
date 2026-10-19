@@ -275,8 +275,16 @@ public class TotalPNService : ITotalPNService
             baseQuery = baseQuery.Where(x => paymentTerms.Contains(x.ii.Invoice.Status));
 
         if (poStatuses?.Count > 0)
+        {
+            // Mirror the status the row displays: the PO line's status, or — for lines with no
+            // PO yet — the invoice line's status. A blank status displays as "Not Started".
+            var wantsNotStarted = poStatuses.Contains(PurchaseOrderStatusFlow.NotStarted);
             baseQuery = baseQuery.Where(x =>
-                x.poi != null && x.poi.Status != null && poStatuses.Contains(x.poi.Status));
+                (x.poi != null && (poStatuses.Contains(x.poi.Status)
+                    || (wantsNotStarted && (x.poi.Status == null || x.poi.Status == "")))) ||
+                (x.poi == null && (poStatuses.Contains(x.ii.Status)
+                    || (wantsNotStarted && (x.ii.Status == null || x.ii.Status == "")))));
+        }
 
         if (shippingStatuses?.Count > 0)
             baseQuery = baseQuery.Where(x =>
@@ -302,7 +310,7 @@ public class TotalPNService : ITotalPNService
             "remainingQty" => sortDesc
                 ? baseQuery.OrderByDescending(x => x.poi == null ? 0 : x.poi.Qty - (_db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0))
                 : baseQuery.OrderBy(x => x.poi == null ? 0 : x.poi.Qty - (_db.Set<TrackNumberItem>().Where(item => item.POItemId == x.poi.Id && item.Status == "Accepted" && item.TrackNumber.Origin != "Transfer").Sum(item => item.ActualQty) ?? 0)),
-            "status"     => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Status : "") : baseQuery.OrderBy(x => x.poi != null ? x.poi.Status : ""),
+            "status"     => sortDesc ? baseQuery.OrderByDescending(x => x.poi != null ? x.poi.Status : x.ii.Status) : baseQuery.OrderBy(x => x.poi != null ? x.poi.Status : x.ii.Status),
             "invDate"    => sortDesc ? baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt)            : baseQuery.OrderBy(x => x.ii.Invoice.CreatedAt),
             _            => baseQuery.OrderByDescending(x => x.ii.Invoice.CreatedAt).ThenBy(x => x.ii.Id),
         };
@@ -324,15 +332,23 @@ public class TotalPNService : ITotalPNService
                 .ToDictionaryAsync(supplier => supplier.Id, supplier => supplier.Name)
             : new Dictionary<long, string>();
         var qtyProgress = await LoadQtyProgressAsync(pageItems.Where(x => x.poi != null).Select(x => x.poi!.Id).Distinct().ToList());
+        var procurementIdsInPage = pageItems.Where(x => x.pi != null).Select(x => x.pi!.ProcurementId).Distinct().ToList();
+        var procurementStatuses = procurementIdsInPage.Count > 0
+            ? await _db.Set<Procurement>().AsNoTracking()
+                .Where(p => procurementIdsInPage.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Status)
+            : new Dictionary<long, string>();
 
         // ── Final Invoices ──
         var invoiceIds = pageItems.Select(x => x.ii.InvoiceId).Distinct().ToList();
-        var finalInvoiceMap = invoiceIds.Count > 0
-            ? await _db.Set<FinalInvoice>()
-                .Where(fi => invoiceIds.Contains(fi.ProformaInvoiceId))
-                .GroupBy(fi => fi.ProformaInvoiceId)
-                .Select(g => g.OrderByDescending(x => x.Id).First())
-                .ToDictionaryAsync(fi => fi.ProformaInvoiceId)
+        // A Sales Order is final-invoiced part by part, so each row takes the Final Invoice holding its own line.
+        var finalInvoiceMap = invoiceItemIdsInPage.Count > 0
+            ? (await _db.Set<FinalInvoiceItem>()
+                .Where(fii => fii.InvoiceItemId != null && invoiceItemIdsInPage.Contains(fii.InvoiceItemId.Value))
+                .Select(fii => new { InvoiceItemId = fii.InvoiceItemId!.Value, fii.FinalInvoice })
+                .ToListAsync())
+                .GroupBy(x => x.InvoiceItemId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.FinalInvoice.Id).First().FinalInvoice)
             : new Dictionary<long, FinalInvoice>();
 
         // ── Customer Payments ──
@@ -411,7 +427,7 @@ public class TotalPNService : ITotalPNService
                 : ii.Status ?? PurchaseOrderStatusFlow.NotStarted;
 
             // Payment / Invoice meta
-            FinalInvoice? fi = finalInvoiceMap.TryGetValue(invoice.Id, out var fiv) ? fiv : null;
+            FinalInvoice? fi = finalInvoiceMap.TryGetValue(ii.Id, out var fiv) ? fiv : null;
             decimal? recvTotal = paymentAgg.TryGetValue(invoice.Id, out var agg) ? agg.Total : null;
             DateTime? recvDate = paymentAgg.TryGetValue(invoice.Id, out var agg2) ? agg2.LastDate : null;
             var progress = poi != null ? qtyProgress.GetValueOrDefault(poi.Id) ?? QtyProgress.Empty : null;
@@ -423,6 +439,7 @@ public class TotalPNService : ITotalPNService
                 PurchaseOrderStatus = po?.Status,
                 ProcurementId = pi?.ProcurementId,
                 ProcurementItemId = pi?.Id,
+                ProcurementStatus = pi != null && procurementStatuses.TryGetValue(pi.ProcurementId, out var procStatus) ? procStatus : null,
                 PONumber = po?.PONumber,
                 PORef = poi?.PORef,
                 Experts = experts,
@@ -602,6 +619,7 @@ public class TotalPNService : ITotalPNService
             .ApplyPaging(page)
             .ToListAsync();
         var qtyProgress = await LoadQtyProgressAsync(pageItems.Select(x => x.poi.Id).Distinct().ToList());
+        var documentCounts = await LoadShippingDocumentCountsAsync(pageItems.Select(x => x.poi).DistinctBy(p => p.Id).ToList());
 
         var rows = pageItems.Select(x =>
         {
@@ -663,6 +681,7 @@ public class TotalPNService : ITotalPNService
                 TId = sns.Select(sn => sn.TId).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
                 SONumber = sns.Select(sn => sn.SONumber).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
                 AwbNumber = sns.Select(sn => sn.AWBNumber).FirstOrDefault(s => !string.IsNullOrEmpty(s)),
+                DocumentCount = documentCounts.GetValueOrDefault(poi.Id),
             };
         }).Where(r => !string.IsNullOrWhiteSpace(r.PartNumber) && r.PartNumber != "-").ToList();
 
@@ -673,6 +692,41 @@ public class TotalPNService : ITotalPNService
             Page = page.Page,
             PageSize = page.PageSize,
         };
+    }
+
+    /// <summary>
+    /// Shipping documents per PO line: its part documents plus the shipment documents of every
+    /// shipment it travels on (shared by all tracks with the same track number + warehouse).
+    /// Two batched queries for the whole page.
+    /// </summary>
+    private async Task<Dictionary<long, int>> LoadShippingDocumentCountsAsync(List<POItem> poItems)
+    {
+        var result = new Dictionary<long, int>();
+        if (poItems.Count == 0) return result;
+
+        var poItemIds = poItems.Select(p => p.Id).ToList();
+        var partCounts = await _db.Set<TrackNumberDocument>().AsNoTracking()
+            .Where(d => d.POItemId != null && poItemIds.Contains(d.POItemId.Value))
+            .GroupBy(d => d.POItemId!.Value)
+            .Select(g => new { POItemId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.POItemId, x => x.Count);
+
+        var trackNumbers = poItems.SelectMany(p => p.TrackNumbers).Select(t => t.TrackNumber).Distinct().ToList();
+        var shipmentDocs = trackNumbers.Count == 0
+            ? new List<(string TrackNumber, long? WarehouseId)>()
+            : (await _db.Set<TrackNumberDocument>().AsNoTracking()
+                .Where(d => d.POItemId == null && trackNumbers.Contains(d.TrackNumber.TrackNumber))
+                .Select(d => new { d.TrackNumber.TrackNumber, d.TrackNumber.WarehouseId })
+                .ToListAsync())
+                .Select(d => (d.TrackNumber, d.WarehouseId)).ToList();
+        var shipmentCounts = shipmentDocs.GroupBy(d => d).ToDictionary(g => g.Key, g => g.Count());
+
+        foreach (var poi in poItems)
+        {
+            var shipments = poi.TrackNumbers.Select(t => (t.TrackNumber, t.WarehouseId)).Distinct();
+            result[poi.Id] = partCounts.GetValueOrDefault(poi.Id) + shipments.Sum(s => shipmentCounts.GetValueOrDefault(s));
+        }
+        return result;
     }
 
     /// <summary>
@@ -804,7 +858,8 @@ public class TotalPNService : ITotalPNService
             PoNumber = x.poi?.PurchaseOrder?.PONumber,
             Supplier = x.poi?.PurchaseOrder?.Supplier?.Name ?? x.pi?.SupplierName,
             PaymentTerm = x.ii.Invoice.Status,
-            Status = x.poi?.Status,
+            // Same source as the row's displayed status (see GetAsync).
+            Status = (x.poi != null ? x.poi.Status : x.ii.Status) is { Length: > 0 } st ? st : PurchaseOrderStatusFlow.NotStarted,
             ShippingStatuses = x.poi == null
                 ? []
                 : x.poi.TrackNumbers

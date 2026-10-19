@@ -9,6 +9,8 @@ using Procument.Module.RFQ.DTOs;
 using Procument.Module.RFQ.Entities;
 using Procument.Shared.DTOs;
 using Procument.Shared.Entities;
+using Procument.Shared.Services;
+using Microsoft.Extensions.Logging;
 
 namespace Procument.Module.RFQ.Services;
 
@@ -34,11 +36,38 @@ public class RFQService : IRFQService
 {
     private readonly DbContext _db;
     private readonly IPermissionService _permissionService;
+    private readonly IEnumerable<IRfqItemsCreatedHandler> _itemsCreatedHandlers;
+    private readonly ILogger<RFQService> _logger;
 
-    public RFQService(DbContext db, IPermissionService permissionService)
+    public RFQService(DbContext db, IPermissionService permissionService,
+        IEnumerable<IRfqItemsCreatedHandler> itemsCreatedHandlers, ILogger<RFQService> logger)
     {
         _db = db;
         _permissionService = permissionService;
+        _itemsCreatedHandlers = itemsCreatedHandlers;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Lets other modules react to new RFQ items (e.g. Purchasing applies recently accepted email
+    /// supplier quotes). Runs after the RFQ is saved; a failure is logged and never undoes the RFQ.
+    /// </summary>
+    private async Task NotifyItemsCreatedAsync(IReadOnlyCollection<long> rfqItemIds, long? userId)
+    {
+        if (rfqItemIds.Count == 0) return;
+        foreach (var handler in _itemsCreatedHandlers)
+        {
+            try
+            {
+                await handler.OnRfqItemsCreatedAsync(rfqItemIds, userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RFQ items-created handler {Handler} failed for items {Items}",
+                    handler.GetType().Name, string.Join(",", rfqItemIds));
+                _db.ChangeTracker.Clear(); // drop whatever the handler left half-written
+            }
+        }
     }
 
     public async Task<string?> GetLastRfqNameAsync(string customerName)
@@ -107,6 +136,7 @@ public class RFQService : IRFQService
         await _db.SaveChangesAsync();
 
         // ── 4. Create RFQ Items (one per part number) ──
+        var newItems = new List<RFQItem>();
         foreach (var pn in partNumberEntities)
         {
             var item = new RFQItem
@@ -117,9 +147,11 @@ public class RFQService : IRFQService
                 
             };
             _db.Set<RFQItem>().Add(item);
+            newItems.Add(item);
         }
 
         await _db.SaveChangesAsync();
+        await NotifyItemsCreatedAsync(newItems.Select(i => i.Id).ToList(), request.UserId);
 
         return await GetByIdAsync(rfq.Id, request.UserId, true, []) ?? throw new Exception("Failed to load created RFQ.");
     }
@@ -315,6 +347,7 @@ public class RFQService : IRFQService
             "status"       => sortDesc ? query.OrderByDescending(r => r.Status)        : query.OrderBy(r => r.Status),
             "leadTime"     => sortDesc ? query.OrderByDescending(r => r.LeadTime)      : query.OrderBy(r => r.LeadTime),
             "receivedDate" => sortDesc ? query.OrderByDescending(r => r.ReceivedDate)  : query.OrderBy(r => r.ReceivedDate),
+            "createdAt"    => sortDesc ? query.OrderByDescending(r => r.CreatedAt)     : query.OrderBy(r => r.CreatedAt),
             "itemCount"    => sortDesc ? query.OrderByDescending(r => r.RFQItems.Count()) : query.OrderBy(r => r.RFQItems.Count()),
             _              => query.OrderByDescending(r => r.Id),
         };
@@ -505,6 +538,7 @@ public class RFQService : IRFQService
         };
         _db.Set<RFQItem>().Add(item);
         await _db.SaveChangesAsync();
+        await NotifyItemsCreatedAsync(new[] { item.Id }, null);
 
         // Reload alternatives
         await _db.Entry(partNumber).Collection(p => p.Alternatives).LoadAsync();
@@ -673,12 +707,21 @@ public class RFQService : IRFQService
     /// </summary>
     public async Task<BulkImportRFQResponse> BulkImportAsync(BulkImportRFQRequest request, long callerUserId)
     {
-        var customerCode = (request.CustomerCode ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(customerCode))
-            throw new Exception("Customer Code is required.");
+        Customer customer;
+        if (request.CustomerId is > 0)
+        {
+            customer = await _db.Set<Customer>().FirstOrDefaultAsync(c => c.Id == request.CustomerId)
+                ?? throw new Exception($"Customer #{request.CustomerId} does not exist.");
+        }
+        else
+        {
+            var customerCode = (request.CustomerCode ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(customerCode))
+                throw new Exception("Customer Code is required.");
 
-        var customer = await _db.Set<Customer>().FirstOrDefaultAsync(c => c.CustomerCode == customerCode)
-            ?? throw new Exception($"Customer with code '{customerCode}' does not exist. If you want to add a new Customer, please go to the Customers Page.");
+            customer = await _db.Set<Customer>().FirstOrDefaultAsync(c => c.CustomerCode == customerCode)
+                ?? throw new Exception($"Customer with code '{customerCode}' does not exist. If you want to add a new Customer, please go to the Customers Page.");
+        }
 
         var ownerId = request.UserId > 0 ? request.UserId : callerUserId;
         var customerId = customer.Id;
@@ -753,7 +796,8 @@ public class RFQService : IRFQService
         // attempt would otherwise be inserted twice.
         var strategy = _db.Database.CreateExecutionStrategy();
 
-        return await strategy.ExecuteAsync(async () =>
+        List<long> createdItemIds = new();
+        var importResponse = await strategy.ExecuteAsync(async () =>
         {
             _db.ChangeTracker.Clear();
 
@@ -875,9 +919,13 @@ public class RFQService : IRFQService
                 response.Results.Add(result);
             }
             response.CreatedCount = created.Count;
+            createdItemIds = created.SelectMany(c => c.Rfq.RFQItems.Select(i => i.Id)).ToList();
 
             return response;
         });
+        // Outside the execution strategy: a handler problem must not retry the import.
+        await NotifyItemsCreatedAsync(createdItemIds, callerUserId);
+        return importResponse;
     }
 
     /// <summary>One RFQ as it is being planned: still mutable, not yet an entity.</summary>

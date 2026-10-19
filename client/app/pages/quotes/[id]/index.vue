@@ -443,7 +443,8 @@
                             <th style="width: 90px;">Tag Date</th>
                             <th style="width: 110px;">Shipping Point</th>
                             <th style="width: 100px;">Shipping Cost</th>
-                            <th style="width: 90px;">Lead Time</th>
+                            <th style="width: 100px;">Buy Lead Time</th>
+                            <th style="width: 100px;">Sell Lead Time</th>
                             <th style="width: 140px;">Note</th>
                             <th style="width: 100px;">Buy Price</th>
                             <th style="width: 110px;">Total Buy Price</th>
@@ -510,6 +511,7 @@
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.shippingPoint || '—' }}</td>
                             <td class="mono-cell text-right pr-2">{{ rec.shippingCost ? '$' + formatPrice(rec.shippingCost) : '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px;">{{ rec.leadTime || '—' }}</td>
+                            <td style="padding-left: 8px; font-size: 12px;">{{ rec.sellLeadTime || '—' }}</td>
                             <td style="padding-left: 8px; font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="rec.note">{{ rec.note || '—' }}</td>
                             <td style="font-family: monospace; text-align: right; padding-right: 10px; font-size: 13px;" class="text-medium-emphasis">
                               ${{ formatPrice(rec.price) }}
@@ -706,12 +708,9 @@ const showPdf = ref(false)
 const showSendEmailDialog = ref(false)
 const activeSmtpPreset = ref<any>(null)
 const documentsRef = ref<{ loadDocuments: () => Promise<void> } | null>(null)
-// Only these named users go through the SMTP send-email flow when marking a quote Sent;
-// everyone else just gets the normal instant status change.
-const canSendQuoteEmail = computed(() => {
-  const name = authStore.user?.name
-  return name === 'AMJ' || name === 'System Admin'
-})
+// Users granted "Send Quote by Email" in Menu Access go through the SMTP send-email flow when
+// marking a quote Sent; everyone else just gets the normal instant status change.
+const canSendQuoteEmail = computed(() => authStore.sendQuoteEmail)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
@@ -1232,7 +1231,7 @@ async function exportToExcel() {
         
         it.qty,
         it.condition || '—',
-        it.leadTime || '—',
+        it.sellLeadTime || '—', // customer sees the sell lead time
         Number(it.unitPrice || 0),
         Number(it.totalPrice || 0)
       ])

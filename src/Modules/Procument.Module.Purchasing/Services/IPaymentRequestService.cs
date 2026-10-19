@@ -24,6 +24,8 @@ public class PaymentRequestResponse
     public string? Origin { get; set; }
     public string? POType { get; set; }
     public string? POLink { get; set; }
+    /// <summary>The PO's customer PI — its supplier folder holds the saved PR PDF. Null for Stock POs.</summary>
+    public long? InvoiceId { get; set; }
     public string? SupplierPIRef { get; set; }
     public long? SupplierId { get; set; }
     public string? SupplierName { get; set; }

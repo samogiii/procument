@@ -102,14 +102,17 @@ public class ShipmentNotesController : ControllerBase
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
     }
 
-    /// <summary>Attach more documents to a shipment note (e.g. a paper missed at pickup).</summary>
+    /// <summary>
+    /// Attach more documents to a shipment note (e.g. a paper missed at pickup).
+    /// poItemId (form field) files them under that one part; omitted = shared by the whole note.
+    /// </summary>
     [HttpPost("{id:long}/documents")]
     [Authorize(Roles = "Admin,SuperAdmin,Expert")]
-    public async Task<ActionResult<ShipmentNoteResponse>> AddDocuments(long id, [FromForm] List<IFormFile> files)
+    public async Task<ActionResult<ShipmentNoteResponse>> AddDocuments(long id, [FromForm] List<IFormFile> files, [FromForm] long? poItemId)
     {
         try
         {
-            var result = await _service.AddDocumentsAsync(id, GetUserId(), files.Where(f => f.Length > 0).ToList());
+            var result = await _service.AddDocumentsAsync(id, GetUserId(), files.Where(f => f.Length > 0).ToList(), poItemId);
             return result == null ? NotFound() : Ok(result);
         }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }

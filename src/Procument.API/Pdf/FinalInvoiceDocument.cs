@@ -7,7 +7,7 @@ namespace Procument.API.Pdf;
 /// <summary>
 /// Final Invoice PDF.
 /// Colors come from the selected Company Preset (PrimaryColor / AccentColor).
-/// Signature section: Track # + Carrier columns; Proforma Ref in meta row.
+/// Proforma Ref in meta row; Shipping Method (DDP / CPT / Pick Up) above the bank details.
 /// </summary>
 public static class FinalInvoiceDocument
 {
@@ -172,9 +172,20 @@ public static class FinalInvoiceDocument
                     var totalDiscount = (req.Items ?? []).Where(i => i.Discount.HasValue).Sum(i => i.Discount!.Value);
                     col.Item().PaddingBottom(10).Row(sRow =>
                     {
-                        // Bank details (left side)
+                        // Shipping method + bank details (left side)
                         sRow.RelativeItem().Column(left =>
                         {
+                            if (!string.IsNullOrWhiteSpace(req.ShippingMethod))
+                            {
+                                left.Item().Element(c => PdfHelpers.DrawSectionLabel(c, "Shipping Information", accent));
+                                left.Item().PaddingTop(6).PaddingBottom(8).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
+                                    .Padding(10).Text(t =>
+                                    {
+                                        t.Span("Shipping Method: ").Bold().FontSize(9).FontColor(primary);
+                                        t.Span(req.ShippingMethod).FontSize(9).FontColor(Colors.Grey.Darken1);
+                                    });
+                            }
+
                             var hasBank = !string.IsNullOrWhiteSpace(req.BeneficiaryName)
                                        || !string.IsNullOrWhiteSpace(req.BankName)
                                        || !string.IsNullOrWhiteSpace(req.BankAccount)
@@ -233,12 +244,11 @@ public static class FinalInvoiceDocument
 
         container.Column(outer =>
         {
-            // Header — 10 columns; narrower to fit Track # and Carrier
             outer.Item().Row(hr =>
             {
-                string[] headers = ["#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount", "Track #", "Carrier"];
-                float[] widths   = [18,  0,           0,             24,    24,   46,    50,           54,      50,        0,         0];
-                float[] rels     = [0,   1.6f,        1.8f,          0,     0,    0,     0,            0,       0,         1.1f,      1.1f];
+                string[] headers = ["#", "Part No.", "Description", "Qty", "CD", "Cert", "Unit Price", "Total", "Discount"];
+                float[] widths   = [18,  0,           0,             24,    24,   46,    50,           54,      50];
+                float[] rels     = [0,   1.6f,        2.4f,          0,     0,    0,     0,            0,       0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -283,15 +293,13 @@ public static class FinalInvoiceDocument
                                 c.Item().Text(t => t.Span($"(Alt to: {it.PartNumber})")
                                     .FontSize(6.5f).FontColor(Colors.Grey.Medium));
                         });
-                    Cell(r.RelativeItem(1.8f), it.Description ?? "—", Colors.Grey.Darken1);
+                    Cell(r.RelativeItem(2.4f), it.Description ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(24), it.Qty.ToString(), primary, bold: true);
                     Cell(r.ConstantItem(24), it.Condition ?? "—", primary);
                     Cell(r.ConstantItem(46), it.Certification ?? "—", Colors.Grey.Darken1);
                     Cell(r.ConstantItem(50), $"{sym}{PdfHelpers.FormatPrice(it.UnitPrice)}", primary);
                     Cell(r.ConstantItem(54), $"{sym}{PdfHelpers.FormatPrice(it.TotalPrice)}", primary, bold: true);
                     Cell(r.ConstantItem(50), it.Discount.HasValue ? $"-{sym}{PdfHelpers.FormatPrice(it.Discount.Value)}" : "—", it.Discount.HasValue ? "#e53935" : Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(1.1f), it.TrackNumber ?? "—", Colors.Grey.Darken1);
-                    Cell(r.RelativeItem(1.1f), it.Carrier ?? "—", Colors.Grey.Darken1);
                 });
             }
         });

@@ -246,6 +246,8 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 Amount = amount, TxCurrency = "USD", ExchangeRate = rate,
                 Type = "Withdraw", FromType = "MotherWallet", ToType = "Supplier", ToSupplierId = po.SupplierId,
                 IsAuto = true, PopUploadId = uploadId, PopFileName = savedName, PopInvoiceNumber = invoiceNumber,
+                // Off: still the PO's payment record, just not counted in the wallet.
+                InWallet = await WalletImport.IsOnAsync(db),
                 Notes = $"POP for PR-{pr.PRId} / {po.PONumber}",
             };
             db.Set<PaymentTransaction>().Add(payment);
@@ -292,6 +294,7 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                     PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
                     Amount = bankFee, TxCurrency = wallet.Currency,
                     Type = "Withdraw", FromType = "MotherWallet", ToType = "BankFee", IsAuto = true,
+                    InWallet = payment.InWallet,   // the fee lives wherever its POP lives
                     Notes = $"Bank Fee and Others for PR-{pr.PRId} / {po.PONumber}", CreatedAt = DateTime.UtcNow,
                 });
             }

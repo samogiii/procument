@@ -567,7 +567,7 @@
                         color="primary"
                         variant="flat"
                         prepend-icon="mdi-plus"
-                        @click.stop="addQuoteRow(item)"
+                        @click.stop="openNewQuote(item)"
                       >
                         Add Supplier
                       </v-btn>
@@ -695,39 +695,44 @@
                   </div>
 
                   <div v-if="getEditableQuotes(item.rfqItemId).length > 0" style="overflow-x: auto;">
+                    <!-- Read-only grid: every field is edited in SupplierQuoteEditDialog (pencil or double-click) -->
                     <table class="quote-grid" style="width: 100%; border-collapse: collapse; min-width: 1100px;">
                       <thead>
                         <tr>
-                          <th>Supplier</th>
+                          <th style="min-width: 200px;">Supplier</th>
                           <th>Cond</th>
                           <th>Alt P/N</th>
                           <th>Qty</th>
-                          <th>Unit</th>
+                          <th v-if="allQuoteColumns">Unit</th>
                           <th>Cost Price ($)</th>
                           <th>Cert Type</th>
-                          <th>Tag Date</th>
-                          <th>Shipping Cost</th>
-                          <th>Shipping Point</th>
-                          <th>LeadTime</th>
-                          <th>Note</th>
-                          <th>My Notes</th>
-                          <th style="width: 40px" class="text-center">Cert</th>
-                          <th style="min-width: 150px">Cert Reference</th>
-                          <th style="width: 90px;"></th>
+                          <th v-if="allQuoteColumns">Tag Date</th>
+                          <th v-if="allQuoteColumns">Shipping Cost</th>
+                          <th v-if="allQuoteColumns">Shipping Point</th>
+                          <th>Tagged By</th>
+                          <th>Buy LeadTime</th>
+                          <th v-if="allQuoteColumns">Sell LeadTime</th>
+                          <template v-if="allQuoteColumns"><th v-for="f in OTHER_QUOTE_DETAIL_FIELDS" :key="f.key" style="min-width: 100px;">{{ f.label }}</th></template>
+                          <th v-if="allQuoteColumns" style="min-width: 130px;">Our Company</th>
+                          <th v-if="isSuperAdmin" style="min-width: 110px;">Expert</th>
+                          <th v-if="allQuoteColumns" style="min-width: 150px;">Note</th>
+                          <th v-if="allQuoteColumns" style="min-width: 150px;">My Notes</th>
+                          <th v-if="allQuoteColumns" style="width: 40px" class="text-center">Cert</th>
+                          <th v-if="allQuoteColumns" style="min-width: 180px">Cert Reference</th>
+                          <th style="width: 120px;" class="text-right"><v-btn size="x-small" variant="text" density="comfortable" :icon="allQuoteColumns ? 'mdi-table-column-remove' : 'mdi-table-column-plus-after'" :title="allQuoteColumns ? 'Show the main columns only' : 'Show all columns'" @click.stop="allQuoteColumns = !allQuoteColumns" /></th>
                         </tr>
                       </thead>
                       <tbody>
                         <template v-for="(quote, qIdx) in getEditableQuotes(item.rfqItemId)" :key="qIdx">
-                        <tr class="quote-row">
+                        <tr class="quote-row quote-row--readonly" title="Double-click to edit" @click.stop @dblclick.stop="openEditQuote(item, quote)">
                           <td>
-                            <input
-                              type="text"
-                              class="quote-input"
-                              placeholder="Supplier name..."
-                              v-model="quote.supplierName"
-                              @input="searchSupplier(quote.supplierName)"
-                              list="supplier-suggestions"
-                            />
+                            <div class="quote-cell quote-cell--supplier">
+                              <span class="font-weight-medium">{{ quote.supplierName || '—' }}</span>
+                              <v-chip v-if="!quote.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit or save it">Unsaved</v-chip>
+                            </div>
+                            <div v-if="quote.supplierEmail" class="quote-cell-email" :title="quote.supplierEmail">
+                              <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ quote.supplierEmail }}
+                            </div>
                             <div
                               v-if="quote.supplierStatus === 'Pending'"
                               style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
@@ -742,132 +747,74 @@
                               ❌ Rejected — click to correct &amp; resubmit
                             </div>
                           </td>
+                          <td><span class="quote-cell">{{ cellText(quote.condition) }}</span></td>
+                          <td><span class="quote-cell">{{ quote.alt || 'Same P/N' }}</span></td>
+                          <td><span class="quote-cell text-center">{{ cellText(quote.qty) }}</span></td>
+                          <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(quote.unit) }}</span></td>
                           <td>
-                            <select class="quote-input quote-select" v-model="quote.condition">
-                              <option value="">—</option>
-                              <option value="NE">NE</option>
-                              <option value="OH">OH</option>
-                              <option value="SV">SV</option>
-                              <option value="AR">AR</option>
-                              <option value="RP">RP</option>
-                              <option value="NS">NS</option>
-                              <option value="FN">FN</option>
-                              <option value="IN">IN</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input type="text" class="quote-input" placeholder="Same P/N" v-model="quote.alt" />
-                          </td>
-                          <td>
-                            <input type="number" class="quote-input text-center" v-model.number="quote.qty" min="1" />
-                          </td>
-                          <td>
-                            <select class="quote-input quote-select" v-model="quote.unit">
-                              <option value="">—</option>
-                              <option value="EA">EA</option>
-                              <option value="Meter">METER</option>
-                              <option value="Kg">KG</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              v-if="focusedField === `price-${qIdx}-${item.rfqItemId}`"
-                              :data-focus-key="`price-${qIdx}-${item.rfqItemId}`"
-                              type="number"
-                              class="quote-input price-input"
-                              placeholder="0.00"
-                              v-model.number="quote.price"
-                              step="0.01"
-                              min="0"
-                              @blur="focusedField = ''"
-                            />
-                            <span
-                              v-else
-                              class="quote-input price-display"
-                              tabindex="0"
-                              @click.stop="focusField(`price-${qIdx}-${item.rfqItemId}`)"
-                              @focus="focusField(`price-${qIdx}-${item.rfqItemId}`)"
-                            >
-                              {{ quote.price ? '$' + formatPrice(quote.price) : '' }}
+                            <span class="quote-cell price-text">
+                              <template v-if="quote.price">{{ '$' + formatPrice(quote.price) }}</template>
+                              <span v-else-if="quote.priceHidden" style="color:#ef5350; font-size:10px;" title="Price expired (older than 14 days)">Expired</span>
+                              <template v-else>—</template>
                             </span>
                           </td>
-                          <td>
-                            <select class="quote-input quote-select" v-model="quote.certName">
-                              <option value="">—</option>
-                              <option value="FAA">FAA</option>
-                              <option value="EASA">EASA</option>
-                              <option value="CAAC">CAAC</option>
-                              <option value="Dual">Dual</option>
-                              <option value="MFG COC">MFG COC</option>
-                              <option value="Vendor COC">Vendor COC</option>
-                              <option value="No Cert">No Cert</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input type="date" class="quote-input" v-model="quote.tagDate" :max="today" />
-                          </td>
-                          <td>
-                            <input
-                              v-if="focusedField === `ship-${qIdx}-${item.rfqItemId}`"
-                              :data-focus-key="`ship-${qIdx}-${item.rfqItemId}`"
-                              type="number"
-                              class="quote-input price-input"
-                              placeholder="0.00"
-                              v-model.number="quote.shippingCost"
-                              step="0.01"
-                              min="0"
-                              @blur="focusedField = ''"
-                            />
-                            <span
-                              v-else
-                              class="quote-input price-display"
-                              tabindex="0"
-                              @click.stop="focusField(`ship-${qIdx}-${item.rfqItemId}`)"
-                              @focus="focusField(`ship-${qIdx}-${item.rfqItemId}`)"
-                            >
-                              {{ quote.shippingCost ? '$' + formatPrice(quote.shippingCost) : '' }}
+                          <td><span class="quote-cell">{{ cellText(quote.certName) }}</span></td>
+                          <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(quote.tagDate) }}</span></td>
+                          <td v-if="allQuoteColumns"><span class="quote-cell price-text">{{ quote.shippingCost ? '$' + formatPrice(quote.shippingCost) : '—' }}</span></td>
+                          <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(quote.shippingPoint) }}</span></td>
+                          <td><span class="quote-cell">{{ cellText(quote.taggedBy) }}</span></td>
+                          <td><span class="quote-cell">{{ cellText(quote.leadTime) }}</span></td>
+                          <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(quote.sellLeadTime) }}</span></td>
+                          <template v-if="allQuoteColumns"><td v-for="f in OTHER_QUOTE_DETAIL_FIELDS" :key="f.key"><span class="quote-cell">{{ cellText(quote[f.key]) }}</span></td></template>
+                          <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(presetName(quote)) }}</span></td>
+                          <td v-if="isSuperAdmin">
+                            <span class="expert-cell" :title="quote.expertName ? `Imported by ${quote.expertName}` : 'Set when the quote is saved'">
+                              <v-icon icon="mdi-account-tie-outline" size="13" class="mr-1" />{{ quote.expertName || '—' }}
                             </span>
                           </td>
-                          <td>
-                            <input type="text" class="quote-input" placeholder="City / Hub" v-model="quote.shippingPoint" />
-                          </td>
-                          <td>
-                            <input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="quote.leadTime" />
-                          </td>
-                          <td>
-                            <VTextarea
-                              type="text"
-                              rows="2"
-                              placeholder="Note..."
-                              v-model="quote.note"
-                              hide-details
-                              density="compact"
-                              variant="plain"
-                            />
-                          </td>
-                          <td>
-                            <VTextarea
-                              type="text"
-                              rows="2"
-                              placeholder="My Notes..."
-                              v-model="quote.myNotes"
-                              hide-details
-                              density="compact"
-                              variant="plain"
-                            />
-                          </td>
-                          <td class="text-center">
-                            <v-checkbox
+                          <td v-if="allQuoteColumns"><div class="quote-cell quote-cell--text">{{ cellText(quote.note) }}</div></td>
+                          <td v-if="allQuoteColumns"><div class="quote-cell quote-cell--text">{{ cellText(quote.myNotes) }}</div></td>
+                          <td v-if="allQuoteColumns" class="text-center">
+                            <v-icon
                               v-if="quote.supplierDependency === 'Certificated'"
-                              v-model="quote.isCertificated"
-                              density="compact"
-                              hide-details
-                              class="ma-0 pa-0 d-inline-block"
-                              @change="saveQuote(item, quote)"
+                              :icon="quote.isCertificated ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline'"
+                              :color="quote.isCertificated ? 'success' : 'grey'"
+                              size="18"
                             />
                           </td>
-                          <td class="text-caption">{{ formatCertReferences(quote.certReferences) }}</td>
+                          <td v-if="allQuoteColumns" class="cert-ref-cell">
+                            <div class="d-flex flex-wrap align-center gap-1">
+                              <v-chip
+                                v-for="reference in quote.certReferences || []"
+                                :key="'pdf-' + reference"
+                                size="x-small"
+                                color="error"
+                                variant="tonal"
+                                prepend-icon="mdi-file-pdf-box"
+                                closable
+                                class="chip-close-left"
+                                title="From an uploaded cert PDF — X deletes the PDF"
+                                @click:close="askDeleteCertificate(item, quote, reference)"
+                              >REF#{{ reference }}</v-chip>
+                              <v-chip
+                                v-for="(reference, rIdx) in quote.customCertReferences || []"
+                                :key="'txt-' + rIdx"
+                                size="x-small"
+                                color="primary"
+                                variant="tonal"
+                              >{{ reference }}</v-chip>
+                              <span v-if="!(quote.certReferences || []).length && !(quote.customCertReferences || []).length" class="quote-cell">—</span>
+                            </div>
+                          </td>
                           <td class="text-center" style="white-space: nowrap;">
+                            <v-btn
+                              icon="mdi-pencil"
+                              size="x-small"
+                              variant="text"
+                              color="primary"
+                              title="Edit"
+                              @click.stop="openEditQuote(item, quote)"
+                            />
                             <v-btn
                               icon="mdi-file-pdf-box"
                               size="x-small"
@@ -889,13 +836,14 @@
                               :title="'Shops (' + (quote.shopRecords || []).length + ')'"
                             />
                             <v-btn
+                              v-if="!quote.id"
                               icon="mdi-content-save"
                               size="x-small"
                               variant="text"
                               color="success"
                               :loading="quote._saving"
                               @click.stop="saveQuote(item, quote)"
-                              title="Save"
+                              title="Save as it is"
                             />
                             <v-btn
                               icon="mdi-close"
@@ -909,7 +857,7 @@
                         </tr>
                         <!-- Shop Records sub-table (collapsible, for AR condition) -->
                         <tr v-if="quote.condition === 'AR' && isShopExpanded(quote.id, item.rfqItemId)">
-                          <td :colspan="16" class="pa-0">
+                          <td :colspan="quoteGridColspan" class="pa-0">
                             <div class="shop-panel">
                               <div class="d-flex align-center justify-space-between mb-2">
                                 <div class="d-flex align-center gap-2">
@@ -918,7 +866,9 @@
                                     color="warning"
                                     variant="flat"
                                     prepend-icon="mdi-plus"
-                                    @click.stop="addShopRow(item, quote)"
+                                    :disabled="!quote.id"
+                                    :title="quote.id ? 'Add a repair shop' : 'Save this AR quote first'"
+                                    @click.stop="openNewShop(item, quote)"
                                   >
                                     Add Shop
                                   </v-btn>
@@ -949,32 +899,34 @@
                                     <th>Alt P/N</th>
                                     <th>Condition</th>
                                     <th>Qty</th>
-                                    <th>Unit</th>
+                                    <th v-if="allQuoteColumns">Unit</th>
                                     <th>Cost Price ($)</th>
                                     <th style="color: #ff9800;">Repair Cost ($)</th>
                                     <th>Cert Type</th>
-                                    <th>Tag Date</th>
-                                    <th>Shipping Cost</th>
-                                    <th>Shipping Point</th>
-                                    <th>LeadTime</th>
-                                    <th>Note</th>
-                                    <th>My Notes</th>
-                                    <th style="width: 40px" class="text-center">Cert</th>
-                                    <th style="min-width: 150px">Cert Reference</th>
-                                    <th style="width: 70px;"></th>
+                                    <th v-if="allQuoteColumns">Tag Date</th>
+                                    <th v-if="allQuoteColumns">Shipping Cost</th>
+                                    <th v-if="allQuoteColumns">Shipping Point</th>
+                                    <th>Tagged By</th>
+                                    <th>Buy LeadTime</th>
+                                    <th v-if="allQuoteColumns">Sell LeadTime</th>
+                                    <template v-if="allQuoteColumns"><th v-for="f in OTHER_QUOTE_DETAIL_FIELDS" :key="f.key">{{ f.label }}</th></template>
+                                    <th v-if="allQuoteColumns">Note</th>
+                                    <th v-if="allQuoteColumns">My Notes</th>
+                                    <th v-if="allQuoteColumns" style="width: 40px" class="text-center">Cert</th>
+                                    <th v-if="allQuoteColumns" style="min-width: 180px">Cert Reference</th>
+                                    <th style="width: 110px;" class="text-right"><v-btn size="x-small" variant="text" density="comfortable" :icon="allQuoteColumns ? 'mdi-table-column-remove' : 'mdi-table-column-plus-after'" :title="allQuoteColumns ? 'Show the main columns only' : 'Show all columns'" @click.stop="allQuoteColumns = !allQuoteColumns" /></th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  <tr v-for="(shop, sIdx) in quote.shopRecords" :key="'shop-' + sIdx" class="shop-row">
+                                  <tr v-for="(shop, sIdx) in quote.shopRecords" :key="'shop-' + sIdx" class="shop-row quote-row--readonly" title="Double-click to edit" @click.stop @dblclick.stop="openEditShop(item, quote, shop)">
                                     <td>
-                                      <input
-                                        type="text"
-                                        class="quote-input"
-                                        placeholder="Shop name..."
-                                        v-model="shop.supplierName"
-                                        @input="searchSupplier(shop.supplierName)"
-                                        list="supplier-suggestions"
-                                      />
+                                      <div class="quote-cell quote-cell--supplier">
+                                        <span class="font-weight-medium">{{ shop.supplierName || '—' }}</span>
+                                        <v-chip v-if="!shop.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit or save it">Unsaved</v-chip>
+                                      </div>
+                                      <div v-if="shop.supplierEmail" class="quote-cell-email" :title="shop.supplierEmail">
+                                        <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ shop.supplierEmail }}
+                                      </div>
                                       <div
                                         v-if="shop.supplierStatus === 'Pending'"
                                         style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
@@ -989,128 +941,55 @@
                                         ❌ Rejected — click to correct &amp; resubmit
                                       </div>
                                     </td>
-                                    <td>
-                                      <input type="text" class="quote-input" placeholder="Same P/N" v-model="shop.alt" />
-                                    </td>
-                                    <td>
-                                      <select class="quote-input quote-select" v-model="shop.condition">
-                                        <option value="">—</option>
-                                        <option value="IN">IN</option>
-                                        <option value="RP">RP</option>
-                                        <option value="OH">OH</option>
-                                      </select>
-                                    </td>
-                                    <td>
-                                      <input type="number" class="quote-input text-center" v-model.number="shop.qty" min="1" />
-                                    </td>
-                                    <td>
-                                      <select class="quote-input quote-select" v-model="shop.unit">
-                                        <option value="">—</option>
-                                        <option value="EA">EA</option>
-                                        <option value="Meter">METER</option>
-                                        <option value="Kg">KG</option>
-                                      </select>
-                                    </td>
-                                    <td>
-                                      <input
-                                        v-if="focusedField === `shop-price-${sIdx}-${quote.id}`"
-                                        :data-focus-key="`shop-price-${sIdx}-${quote.id}`"
-                                        type="number"
-                                        class="quote-input price-input"
-                                        placeholder="0.00"
-                                        v-model.number="shop.price"
-                                        step="0.01"
-                                        min="0"
-                                        @blur="focusedField = ''"
+                                    <td><span class="quote-cell">{{ shop.alt || 'Same P/N' }}</span></td>
+                                    <td><span class="quote-cell">{{ cellText(shop.condition) }}</span></td>
+                                    <td><span class="quote-cell text-center">{{ cellText(shop.qty) }}</span></td>
+                                    <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(shop.unit) }}</span></td>
+                                    <td><span class="quote-cell price-text">{{ shop.price ? '$' + formatPrice(shop.price) : '—' }}</span></td>
+                                    <td><span class="quote-cell price-text" style="color: #ff9800;">{{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '—' }}</span></td>
+                                    <td><span class="quote-cell">{{ cellText(shop.certName) }}</span></td>
+                                    <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(shop.tagDate) }}</span></td>
+                                    <td v-if="allQuoteColumns"><span class="quote-cell price-text">{{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '—' }}</span></td>
+                                    <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(shop.shippingPoint) }}</span></td>
+                                    <td><span class="quote-cell">{{ cellText(shop.taggedBy) }}</span></td>
+                                    <td><span class="quote-cell">{{ cellText(shop.leadTime) }}</span></td>
+                                    <td v-if="allQuoteColumns"><span class="quote-cell">{{ cellText(shop.sellLeadTime) }}</span></td>
+                                    <template v-if="allQuoteColumns"><td v-for="f in OTHER_QUOTE_DETAIL_FIELDS" :key="f.key"><span class="quote-cell">{{ cellText(shop[f.key]) }}</span></td></template>
+                                    <td v-if="allQuoteColumns"><div class="quote-cell quote-cell--text">{{ cellText(shop.note) }}</div></td>
+                                    <td v-if="allQuoteColumns"><div class="quote-cell quote-cell--text">{{ cellText(shop.myNotes) }}</div></td>
+                                    <td v-if="allQuoteColumns" class="text-center">
+                                      <v-icon
+                                        :icon="shop.isCertificated ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline'"
+                                        :color="shop.isCertificated ? 'success' : 'grey'"
+                                        size="18"
                                       />
-                                      <span
-                                        v-else
-                                        class="quote-input price-display"
-                                        tabindex="0"
-                                        @click.stop="focusField(`shop-price-${sIdx}-${quote.id}`)"
-                                        @focus="focusField(`shop-price-${sIdx}-${quote.id}`)"
-                                      >
-                                        {{ shop.price ? '$' + formatPrice(shop.price) : '' }}
-                                      </span>
                                     </td>
-                                    <td>
-                                      <input
-                                        v-if="focusedField === `shop-fix-${sIdx}-${quote.id}`"
-                                        :data-focus-key="`shop-fix-${sIdx}-${quote.id}`"
-                                        type="number"
-                                        class="quote-input price-input"
-                                        style="color: #ff9800;"
-                                        placeholder="0.00"
-                                        v-model.number="shop.fixPrice"
-                                        step="0.01"
-                                        min="0"
-                                        @blur="focusedField = ''"
-                                      />
-                                      <span
-                                        v-else
-                                        class="quote-input price-display"
-                                        style="color: #ff9800;"
-                                        tabindex="0"
-                                        @click.stop="focusField(`shop-fix-${sIdx}-${quote.id}`)"
-                                        @focus="focusField(`shop-fix-${sIdx}-${quote.id}`)"
-                                      >
-                                        {{ shop.fixPrice ? '$' + formatPrice(shop.fixPrice) : '' }}
-                                      </span>
+                                    <td v-if="allQuoteColumns" class="cert-ref-cell">
+                                      <div class="d-flex flex-wrap align-center gap-1">
+                                        <v-chip
+                                          v-for="reference in shop.certReferences || []"
+                                          :key="'pdf-' + reference"
+                                          size="x-small"
+                                          color="error"
+                                          variant="tonal"
+                                          prepend-icon="mdi-file-pdf-box"
+                                          closable
+                                          class="chip-close-left"
+                                          title="From an uploaded cert PDF — X deletes the PDF"
+                                          @click:close="askDeleteCertificate(item, shop, reference)"
+                                        >REF#{{ reference }}</v-chip>
+                                        <v-chip
+                                          v-for="(reference, rIdx) in shop.customCertReferences || []"
+                                          :key="'txt-' + rIdx"
+                                          size="x-small"
+                                          color="primary"
+                                          variant="tonal"
+                                        >{{ reference }}</v-chip>
+                                        <span v-if="!(shop.certReferences || []).length && !(shop.customCertReferences || []).length" class="quote-cell">—</span>
+                                      </div>
                                     </td>
-                                    <td>
-                                      <select class="quote-input quote-select" v-model="shop.certName">
-                                        <option value="">—</option>
-                                        <option value="FAA">FAA</option>
-                                        <option value="EASA">EASA</option>
-                                        <option value="CAAC">CAAC</option>
-                                        <option value="Dual">Dual</option>
-                                        <option value="MFG COC">MFG COC</option>
-                                        <option value="Vendor COC">Vendor COC</option>
-                                        <option value="No Cert">No Cert</option>
-                                      </select>
-                                    </td>
-                                    <td>
-                                      <input type="date" class="quote-input" v-model="shop.tagDate" :max="today" />
-                                    </td>
-                                    <td>
-                                      <input
-                                        v-if="focusedField === `shop-ship-${sIdx}-${quote.id}`"
-                                        :data-focus-key="`shop-ship-${sIdx}-${quote.id}`"
-                                        type="number"
-                                        class="quote-input price-input"
-                                        placeholder="0.00"
-                                        v-model.number="shop.shippingCost"
-                                        step="0.01"
-                                        min="0"
-                                        @blur="focusedField = ''"
-                                      />
-                                      <span
-                                        v-else
-                                        class="quote-input price-display"
-                                        tabindex="0"
-                                        @click.stop="focusField(`shop-ship-${sIdx}-${quote.id}`)"
-                                        @focus="focusField(`shop-ship-${sIdx}-${quote.id}`)"
-                                      >
-                                        {{ shop.shippingCost ? '$' + formatPrice(shop.shippingCost) : '' }}
-                                      </span>
-                                    </td>
-                                    <td>
-                                      <input type="text" class="quote-input" placeholder="City / Hub" v-model="shop.shippingPoint" />
-                                    </td>
-                                    <td>
-                                      <input type="text" class="quote-input" placeholder="e.g. 5 days" v-model="shop.leadTime" />
-                                    </td>
-                                    <td>
-                                      <VTextarea rows="2" placeholder="Note..." v-model="shop.note" hide-details density="compact" variant="plain" />
-                                    </td>
-                                    <td>
-                                      <VTextarea rows="2" placeholder="My Notes..." v-model="shop.myNotes" hide-details density="compact" variant="plain" />
-                                    </td>
-                                    <td class="text-center">
-                                      <v-checkbox v-model="shop.isCertificated" density="compact" hide-details class="ma-0 pa-0 d-inline-block" />
-                                    </td>
-                                    <td class="text-caption">{{ formatCertReferences(shop.certReferences) }}</td>
                                     <td class="text-center" style="white-space: nowrap;">
+                                      <v-btn icon="mdi-pencil" size="x-small" variant="text" color="primary" title="Edit" @click.stop="openEditShop(item, quote, shop)" />
                                       <v-btn
                                         icon="mdi-file-pdf-box"
                                         size="x-small"
@@ -1123,13 +1002,14 @@
                                         {{ shop.certificateCount || shop.certReferences?.length }}
                                       </span>
                                       <v-btn
+                                        v-if="!shop.id"
                                         icon="mdi-content-save"
                                         size="x-small"
                                         variant="text"
                                         color="success"
                                         :loading="shop._saving"
                                         @click.stop="saveShopQuote(item, quote, shop)"
-                                        title="Save Shop"
+                                        title="Save as it is"
                                       />
                                       <v-btn
                                         icon="mdi-close"
@@ -1166,12 +1046,16 @@
       </v-card-text>
     </v-card>
 
-    <!-- Shared datalist for supplier name autocomplete -->
-    <datalist id="supplier-suggestions">
-      <option v-for="s in supplierSuggestions" :key="s.id" :value="s.name">
-        {{ s.status === 'Pending' ? '(Pending Approval)' : '' }}
-      </option>
-    </datalist>
+    <!-- Add / edit one supplier quote or shop record — the grids above are read-only -->
+    <SupplierQuoteEditDialog
+      v-model="quoteEditor.open"
+      :quote="quoteEditor.quote"
+      :shop="quoteEditor.shop"
+      :part-number="quoteEditor.item?.partNumberName"
+      :customer-base="quoteEditor.item?.customerBase"
+      :company-preset-options="companyPresetOptions"
+      :save="saveQuoteFromEditor"
+    />
 
     <!-- Resubmit Supplier Dialog -->
     <v-dialog v-model="resubmitDialog" max-width="440">
@@ -1240,6 +1124,7 @@
               </v-list-item-subtitle>
               <template #append>
                 <v-btn icon="mdi-download-outline" size="small" variant="text" @click="downloadCertificate(certificate)" />
+                <v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" title="Delete this PDF" @click="certificateTarget && askDeleteCertificate(certificateTarget.item, certificateTarget.quote, certificate.reference, certificate)" />
               </template>
             </v-list-item>
           </v-list>
@@ -1268,14 +1153,20 @@
       @confirm="doRemoveShop"
     />
 
+    <ConfirmDialog
+      v-model="showConfirmCertificate"
+      title="Delete Certificate PDF?"
+      :message="`REF#${certificateDeleteTarget?.reference} and its PDF file will be permanently deleted.`"
+      confirm-text="Delete"
+      confirm-color="error"
+      @confirm="doDeleteCertificate"
+    />
+
     <PartHistoryDialog v-model="showPartHistory" :part-number-id="historyPartNumberId" />
   </div>
 </template>
 
 <script setup lang="ts">
-function formatCertReferences(references?: string[]) {
-  return references?.length ? references.map(reference => `REF#${reference}`).join(', ') : '—'
-}
 import { downloadExcel } from '~/utils/exportExcel'
 
 const api = useApi()
@@ -1483,8 +1374,6 @@ function clearAllProcFilters() {
 }
 const editableQuotes = ref<Record<number, any[]>>({})
 const expandedArray = ref<any[]>([])
-const focusedField = ref('')
-const supplierSuggestions = ref<{ id: number; name: string; status: string }[]>([])
 const itemSuggestions = ref<Record<number, { knownSuppliers: any[]; recentQuotes: any[]; loading: boolean }>>({})
 const partAvailability = ref<Record<number, any>>({})
 
@@ -1550,9 +1439,47 @@ async function uploadCertificates(files: File[], onProgress: (done: number) => v
   }
 }
 
-function syncCertificateSummary(quote: any) {
-  quote.certificateCount = certificates.value.length
-  quote.certReferences = certificates.value.map(certificate => certificate.reference)
+function syncCertificateSummary(quote: any, list: Certificate[] = certificates.value) {
+  quote.certificateCount = list.length
+  // Server orders references oldest-first; the dialog list is newest-first.
+  quote.certReferences = [...list]
+    .sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime())
+    .map(certificate => certificate.reference)
+}
+
+const showConfirmCertificate = ref(false)
+const certificateDeleteTarget = ref<{ item: any; quote: any; reference: string; certificate?: Certificate } | null>(null)
+
+function askDeleteCertificate(item: any, quote: any, reference: string, certificate?: Certificate) {
+  if (!quote?.id) return
+  certificateDeleteTarget.value = { item, quote, reference, certificate }
+  showConfirmCertificate.value = true
+}
+
+async function doDeleteCertificate() {
+  const target = certificateDeleteTarget.value
+  showConfirmCertificate.value = false
+  if (!target) return
+  const base = `/rfqs/${target.item.rfqId}/supplier-quotes/${target.quote.id}/certificates`
+  try {
+    // Chips only know the reference — look up the certificate id when not opened from the dialog.
+    const list = await api.get<Certificate[]>(base)
+    const certificate = target.certificate ?? list.find(c => c.reference === target.reference)
+    if (!certificate) {
+      showSnack('Certificate not found — it may already be deleted', 'warning')
+      syncCertificateSummary(target.quote, list)
+      return
+    }
+    await api.del(`${base}/${certificate.id}`)
+    const remaining = list.filter(c => c.id !== certificate.id)
+    syncCertificateSummary(target.quote, remaining)
+    if (certificateTarget.value?.quote === target.quote) certificates.value = remaining
+    showSnack(`REF#${certificate.reference} deleted`, 'success')
+  } catch (error: any) {
+    showSnack(error?.data?.message || error?.data || 'Could not delete certificate PDF', 'error')
+  } finally {
+    certificateDeleteTarget.value = null
+  }
 }
 
 async function downloadCertificate(certificate: Certificate) {
@@ -1919,6 +1846,7 @@ watch(showNoQuote, () => loadServerPage({ ...lastProcumentOpts.value, page: 1 })
 
 onMounted(() => {
   loadData()
+  loadCompanyPresetOptions()
   loadAllFilterOptions()   // always fetch full DB options for col filter dropdowns
   loadFilterOptions()      // cascading options for toolbar selects
 })
@@ -2007,8 +1935,10 @@ function applySuggestion(item: any, suggestion: any) {
     shippingPoint: suggestion.shippingPoint || '',
     unit: suggestion.unit || 'EA',
     leadTime: suggestion.leadTime || '',
+    sellLeadTime: toSellLeadTime(suggestion.leadTime, item.customerBase) || suggestion.sellLeadTime || '',
     note: suggestion.note || '',
     myNotes: suggestion.myNotes || '',
+    ...quoteDetailsOf(suggestion, ''),
     _saving: false,
   })
   if (!expandedArray.value.includes(item.rfqItemId)) {
@@ -2057,8 +1987,10 @@ function applyAvailability(item: any, rec: any, skipPrice = false) {
     shippingPoint: '',
     unit: 'EA',
     leadTime: rec.leadTime || '',
+    sellLeadTime: toSellLeadTime(rec.leadTime, item.customerBase),
     note: '',
     myNotes: '',
+    ...emptyQuoteDetails(),
     _saving: false,
     shopRecords: [],
   })
@@ -2070,35 +2002,6 @@ function getEditableQuotes(rfqItemId: number) {
 }
 
 // ── Supplier Quote Management ──
-function addQuoteRow(item: any) {
-  const key = item.rfqItemId
-  if (!editableQuotes.value[key]) {
-    editableQuotes.value[key] = []
-  }
-  editableQuotes.value[key]!.unshift({
-    id: null,
-    rfqItemId: item.rfqItemId,
-    supplierName: '',
-    qty: item.qty || 1,
-    price: 0,
-    condition: 'NE',
-    alt: '',
-    certName: '',
-    tagDate: '',
-    shippingCost: null,
-    shippingPoint: '',
-    unit: 'EA',
-    leadTime: '',
-    note: '',
-    myNotes: '',
-    _saving: false,
-  })
-  // Ensure expanded
-  if (!expandedArray.value.includes(item.rfqItemId)) {
-    expandedArray.value.push(item.rfqItemId)
-  }
-}
-
 async function saveQuote(item: any, quote: any) {
   if (!quote.supplierName?.trim()) {
     showSnack('Supplier name is required', 'error')
@@ -2107,30 +2010,17 @@ async function saveQuote(item: any, quote: any) {
 
   quote._saving = true
   try {
-    const payload = {
-      id: quote.id || null,
-      rfqItemId: item.rfqItemId,
-      supplierName: quote.supplierName,
-      qty: quote.qty,
-      price: quote.price,
-      condition: quote.condition,
-      alt: quote.alt,
-      certName: quote.certName || null,
-      tagDate: quote.tagDate || null,
-      shippingCost: quote.shippingCost ?? null,
-      shippingPoint: quote.shippingPoint || null,
-      unit: quote.unit || null,
-      leadTime: quote.leadTime || null,
-      note: quote.note || null,
-      myNotes: quote.myNotes || null,
-      isCertificated: quote.isCertificated || false,
-      type: quote.type || 'Procument',
-    }
+    const payload = toSupplierQuotePayload({ ...quote, rfqItemId: item.rfqItemId })
 
     const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)
     // Update the quote with the returned ID
     if (result && (result as any).id) {
       quote.id = (result as any).id
+      quote.supplierId = (result as any).supplierId
+      quote.supplierStatus = (result as any).supplierStatus
+      quote.supplierDependency = (result as any).supplierDependency
+      quote.companyPresetName = (result as any).companyPresetName
+      if (isSuperAdmin.value) quote.expertName = (result as any).expertName
     }
     // If RFQ was Rejected, backend resets it to In Progress - update local state
     if (item.rfqStatus === 'Rejected') {
@@ -2177,31 +2067,120 @@ async function removeQuote(item: any, qIdx: number) {
   quotes.splice(qIdx, 1)
 }
 
-// ── Supplier Autocomplete ──
-let supplierSearchDebounce: any = null
-function searchSupplier(val: string) {
-  clearTimeout(supplierSearchDebounce)
-  if (!val || val.length < 1) {
-    supplierSuggestions.value = []
-    return
-  }
-  supplierSearchDebounce = setTimeout(async () => {
-    try {
-      supplierSuggestions.value = await api.get<{ id: number; name: string; status: string; dependency: string }[]>(`/suppliers/search?q=${encodeURIComponent(val)}`)
-    } catch {
-      supplierSuggestions.value = []
-    }
-  }, 300)
+// ── Supplier quote add / edit modal (the grids are read-only) ──
+const quoteEditor = ref({
+  open: false,
+  quote: null as any,
+  item: null as any,
+  /** The grid row being edited; null when adding. */
+  row: null as any,
+  /** Parent AR quote of a shop record. */
+  parent: null as any,
+  shop: false,
+})
+
+function presetName(quote: any) {
+  if (!quote.companyPresetId) return ''
+  return companyPresetOptions.value.find(p => p.id === quote.companyPresetId)?.name || quote.companyPresetName || ''
 }
 
-// ── Focus Field (for formatted price inputs) ──
-function focusField(key: string) {
-  focusedField.value = key
-  nextTick(() => {
-    const input = document.querySelector(`[data-focus-key="${key}"]`) as HTMLInputElement
-    input?.focus()
-  })
+function blankQuote(item: any) {
+  return {
+    id: null,
+    rfqItemId: item.rfqItemId,
+    supplierName: '',
+    supplierId: null,
+    supplierEmail: null,
+    qty: item.qty || 1,
+    price: 0,
+    condition: 'NE',
+    alt: '',
+    certName: '',
+    tagDate: '',
+    shippingCost: null,
+    shippingPoint: '',
+    unit: 'EA',
+    leadTime: '',
+    sellLeadTime: '',
+    note: '',
+    myNotes: '',
+    companyPresetId: null,
+    customCertReferences: [],
+    ...emptyQuoteDetails(),
+  }
 }
+
+function openNewQuote(item: any) {
+  quoteEditor.value = { open: true, quote: { ...blankQuote(item), shopRecords: [] }, item, row: null, parent: null, shop: false }
+}
+
+function openEditQuote(item: any, quote: any) {
+  quoteEditor.value = { open: true, quote, item, row: quote, parent: null, shop: false }
+}
+
+function openNewShop(item: any, parent: any) {
+  const shop = {
+    ...blankQuote(item),
+    qty: parent.qty || item.qty || 1,
+    price: parent.price || 0,
+    fixPrice: null,
+    condition: 'IN',
+    alt: parent.alt || '',
+    type: 'Shop',
+    parentProcumentId: parent.id,
+  }
+  quoteEditor.value = { open: true, quote: shop, item, row: null, parent, shop: true }
+}
+
+function openEditShop(item: any, parent: any, shop: any) {
+  quoteEditor.value = { open: true, quote: shop, item, row: shop, parent, shop: true }
+}
+
+/** Saves the modal's copy straight away, then patches (or adds) the grid row. Throws keep the modal open. */
+async function saveQuoteFromEditor(form: any) {
+  const { item, row, parent, shop } = quoteEditor.value
+  if (shop && !parent?.id) throw new Error('Save the parent AR quote first')
+  const saved = await api.post<any>(
+    `/rfqs/${item.rfqId}/supplier-quotes`,
+    toSupplierQuotePayload({ ...form, rfqItemId: item.rfqItemId }, { shop, parentProcumentId: parent?.id }),
+  )
+  const merged = {
+    ...form,
+    ...saved,
+    customCertReferences: saved?.customCertReferences ?? form.customCertReferences ?? [],
+    shopRecords: shop ? [] : (row?.shopRecords ?? []),
+    _saving: false,
+  }
+  if (row) {
+    Object.assign(row, merged)
+  } else if (shop) {
+    ;(parent.shopRecords ||= []).unshift(merged)
+    const key = `${parent.id}-${item.rfqItemId}`
+    expandedShops.value.add(key)
+    expandedShops.value = new Set(expandedShops.value)
+  } else {
+    ;(editableQuotes.value[item.rfqItemId] ||= []).unshift(merged)
+    if (!expandedArray.value.includes(item.rfqItemId)) expandedArray.value.push(item.rfqItemId)
+  }
+  // The backend re-opens a Rejected RFQ when a quote is saved.
+  if (item.rfqStatus === 'Rejected') item.rfqStatus = 'In Progress'
+  showSnack(shop ? 'Shop record saved' : 'Supplier quote saved', 'success')
+}
+
+// ── Our Company (company presets) + Expert column ──
+const isSuperAdmin = computed(() => authStore.isSuperAdmin)
+const companyPresetOptions = ref<{ id: number; name: string }[]>([])
+async function loadCompanyPresetOptions() {
+  try {
+    companyPresetOptions.value = await api.get<{ id: number; name: string }[]>('/companypresets/options') || []
+  } catch {
+    companyPresetOptions.value = []
+  }
+}
+// Supplier grid columns: 25, plus the SuperAdmin-only Expert column.
+// Main columns only unless "all columns" is on (see composables/useQuoteGridColumns).
+const { allQuoteColumns, OTHER_QUOTE_DETAIL_FIELDS } = useQuoteGridColumns()
+const quoteGridColspan = computed(() => allQuoteColumns.value ? (isSuperAdmin.value ? 27 : 26) : (isSuperAdmin.value ? 10 : 9))
 
 // ── Shop Records (AR condition) ──
 const expandedShops = ref<Set<string>>(new Set())
@@ -2245,36 +2224,6 @@ function isShopExpanded(quoteId: number, rfqItemId: number) {
   return expandedShops.value.has(`${quoteId}-${rfqItemId}`)
 }
 
-function addShopRow(item: any, parentQuote: any) {
-  if (!parentQuote.shopRecords) parentQuote.shopRecords = []
-  // Prepend so the new row appears at the top — user doesn't have to scroll down to it.
-  parentQuote.shopRecords.unshift({
-    id: null,
-    rfqItemId: item.rfqItemId,
-    supplierName: '',
-    qty: parentQuote.qty || item.qty || 1,
-    price: parentQuote.price || 0,
-    fixPrice: null,
-    condition: 'IN',
-    alt: parentQuote.alt || '',
-    certName: '',
-    tagDate: '',
-    shippingCost: null,
-    shippingPoint: '',
-    unit: 'EA',
-    leadTime: '',
-    note: '',
-    myNotes: '',
-    type: 'Shop',
-    parentProcumentId: parentQuote.id,
-    _saving: false,
-  })
-  // Auto-expand shop section
-  const key = `${parentQuote.id}-${item.rfqItemId}`
-  expandedShops.value.add(key)
-  expandedShops.value = new Set(expandedShops.value)
-}
-
 async function saveShopQuote(item: any, parentQuote: any, shop: any) {
   if (!shop.supplierName?.trim()) {
     showSnack('Supplier name is required', 'error')
@@ -2287,27 +2236,7 @@ async function saveShopQuote(item: any, parentQuote: any, shop: any) {
 
   shop._saving = true
   try {
-    const payload = {
-      id: shop.id || null,
-      rfqItemId: item.rfqItemId,
-      supplierName: shop.supplierName,
-      qty: shop.qty,
-      price: shop.price,
-      fixPrice: shop.fixPrice,
-      condition: shop.condition || 'IN',
-      alt: shop.alt,
-      certName: shop.certName || null,
-      tagDate: shop.tagDate || null,
-      shippingCost: shop.shippingCost ?? null,
-      shippingPoint: shop.shippingPoint || null,
-      unit: shop.unit || null,
-      leadTime: shop.leadTime || null,
-      note: shop.note || null,
-      myNotes: shop.myNotes || null,
-      isCertificated: shop.isCertificated || false,
-      type: 'Shop',
-      parentProcumentId: parentQuote.id,
-    }
+    const payload = toSupplierQuotePayload({ ...shop, rfqItemId: item.rfqItemId }, { shop: true, parentProcumentId: parentQuote.id })
     const result = await api.post(`/rfqs/${item.rfqId}/supplier-quotes`, payload)
     if (result && (result as any).id) shop.id = (result as any).id
     showSnack('Shop record saved', 'success')
@@ -2347,6 +2276,16 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 </script>
 
 <style scoped>
+/* Put the chip's close (X) button on the left side */
+.v-chip.chip-close-left :deep(.v-chip__close) {
+  order: -1;
+  margin-inline-start: -4px;
+  margin-inline-end: 4px;
+}
+.cert-ref-input {
+  flex: 1 1 90px;
+  min-width: 90px;
+}
 :deep(.fixed-header-table .v-table__wrapper) {
   max-height: none !important;
   overflow-y: auto !important;
@@ -2376,7 +2315,7 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 .proc-filter-btn:hover, .proc-filter-btn.v-btn--active { opacity: 1; }
 
 :deep(th:has(.proc-th-inner--filtered)) {
-  background-color: rgb(var(--v-theme-primary) / 0.14) !important;
+  background: linear-gradient(rgba(var(--v-theme-primary), 0.14), rgba(var(--v-theme-primary), 0.14)), rgb(var(--v-theme-surface)) !important;
   box-shadow: inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 
@@ -2470,6 +2409,56 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
 .quote-select {
   cursor: pointer;
   appearance: auto;
+}
+.expert-cell {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+/* Read-only supplier quote cells (edited in SupplierQuoteEditDialog) */
+.quote-row--readonly {
+  cursor: default;
+}
+.quote-cell {
+  display: block;
+  min-height: 28px;
+  line-height: 28px;
+  padding: 0 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.quote-cell--text {
+  line-height: 1.4;
+  padding: 4px 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 4.4em;
+  overflow-y: auto;
+  min-width: 140px;
+}
+.quote-cell--supplier {
+  display: flex;
+  align-items: center;
+  max-width: none;
+}
+.quote-cell-email {
+  font-size: 10px;
+  color: #22c55e;
+  padding: 0 6px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.price-text {
+  color: #4ade80;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
 }
 .price-input {
   color: #4ade80;

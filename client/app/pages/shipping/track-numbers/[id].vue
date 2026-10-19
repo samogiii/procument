@@ -23,17 +23,25 @@
         >
           {{ t.status }}
         </v-chip>
-        <v-btn
-          v-if="canReceiveAll"
-          size="small"
-          variant="flat"
-          color="success"
-          prepend-icon="mdi-check-all"
-          :loading="receivingAll"
-          @click="receiveAll"
-        >
-          Receive All
-        </v-btn>
+        <!-- Disabled buttons don't fire hover events, so the tooltip hangs on a wrapper span. -->
+        <v-tooltip v-if="canReceiveAll" :disabled="!receiveAllBlockReason" location="bottom" max-width="320">
+          <template #activator="{ props: tipProps }">
+            <span v-bind="tipProps" class="d-inline-block">
+              <v-btn
+                size="small"
+                variant="flat"
+                color="success"
+                prepend-icon="mdi-check-all"
+                :loading="receivingAll"
+                :disabled="!!receiveAllBlockReason"
+                @click="receiveAll"
+              >
+                Receive All
+              </v-btn>
+            </span>
+          </template>
+          <div style="white-space: pre-line">{{ receiveAllBlockReason }}</div>
+        </v-tooltip>
       </div>
     </div>
 
@@ -494,6 +502,21 @@ const canReceiveAll = computed(() =>
   authStore.isAdmin || authStore.isExpert || authStore.user?.name === 'SYD')
 
 const receivingAll = ref(false)
+
+/**
+ * Receive All needs at least one Shipment Document and one document per part
+ * (the backend enforces the same rule). Returns the hover message, or '' when ready.
+ */
+const receiveAllBlockReason = computed(() => {
+  const hasShipmentDoc = groupTracks.value.some(t => (t.documents || []).some((d: any) => d.poItemId == null))
+  const partsMissing = groupTracks.value
+    .filter(t => partDocs(t).length === 0)
+    .map(t => t.partNumberName || `Part #${t.poItemId}`)
+  const reasons: string[] = []
+  if (!hasShipmentDoc) reasons.push('• Upload at least one Shipment Document.')
+  if (partsMissing.length) reasons.push(`• Upload at least one file for each part — missing: ${[...new Set(partsMissing)].join(', ')}.`)
+  return reasons.length ? `You must add files before receiving all:\n${reasons.join('\n')}` : ''
+})
 
 /**
  * Marks every part on this shipment as arrived in full and accepted, which is what

@@ -159,6 +159,50 @@ public sealed class PurchaseOrderDocumentsController(DbContext db, IDocumentStor
         return NoContent();
     }
 
+    // ── Generated PDFs: the PO PDF (saved by PdfController.GeneratePo) and the PR PDF (uploaded by
+    // the PR dialog). They live in the Stock PO's folder, so the Payment page can show them. ──
+
+    private static readonly (string Key, string Folder)[] GeneratedFolders = [("po", "PO"), ("dp", "DP")];
+
+    [HttpGet("generated")]
+    public async Task<ActionResult<IEnumerable<DocumentFileInfo>>> ListGenerated(long poId)
+    {
+        var po = await LoadStockPoAsync(poId);
+        if (po is null) return NotFound();
+        return Ok(storage.ListFilesInSupplierCategories(po.PONumber, po.Supplier.Name, GeneratedFolders)
+            .OrderByDescending(f => f.ModifiedAt));
+    }
+
+    [HttpGet("generated/{category}/download")]
+    public async Task<IActionResult> DownloadGenerated(long poId, string category, [FromQuery] string fileName)
+    {
+        var folder = GeneratedFolders.FirstOrDefault(f => string.Equals(f.Key, category, StringComparison.OrdinalIgnoreCase)).Folder;
+        if (folder is null || string.IsNullOrWhiteSpace(fileName)) return NotFound();
+        var po = await LoadStockPoAsync(poId);
+        if (po is null) return NotFound();
+        var result = storage.OpenFileInSupplierCategory(po.PONumber, po.Supplier.Name, folder, Path.GetFileName(fileName));
+        if (result is null) return NotFound();
+        return File(result.Value.Stream, GetContentType(result.Value.AbsolutePath), Path.GetFileName(fileName));
+    }
+
+    /// <summary>The PR dialog files the PR PDF it just generated (Customer POs file it under the Sales Order).</summary>
+    [HttpPost("generated/pr")]
+    [RequestSizeLimit(30_000_000)]
+    [Auditable("PurchaseOrderDocument", "UploadPaymentRequest", CaptureBody = false)]
+    public async Task<IActionResult> UploadPaymentRequest(long poId, [FromForm] IFormFile file)
+    {
+        if (file is null || file.Length == 0) return BadRequest(new { message = "No file uploaded." });
+        var po = await LoadStockPoAsync(poId);
+        if (po is null) return NotFound();
+        await using var stream = file.OpenReadStream();
+        var storedName = storage.SaveFileInSupplierCategory(po.PONumber, po.Supplier.Name, "DP", Path.GetFileName(file.FileName), stream);
+        return Ok(new { fileName = storedName });
+    }
+
+    private Task<PurchaseOrder?> LoadStockPoAsync(long poId) => db.Set<PurchaseOrder>().AsNoTracking()
+        .Include(p => p.Supplier)
+        .FirstOrDefaultAsync(p => p.Id == poId && p.Origin == "Stock");
+
     private Task<bool> IsStockPoAsync(long poId) => db.Set<PurchaseOrder>()
         .AnyAsync(p => p.Id == poId && p.Origin == "Stock");
 

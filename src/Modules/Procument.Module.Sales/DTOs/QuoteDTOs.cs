@@ -101,7 +101,10 @@ public class QuoteItemResponse
     public decimal TotalPrice { get; set; }
     public string? Condition { get; set; }
     public int? LeadTimeDays { get; set; }
+    /// <summary>Buy lead time (supplier's).</summary>
     public string? LeadTime { get; set; }
+    /// <summary>Lead time quoted to the customer — what quote PDFs/Excel show under "Lead Time".</summary>
+    public string? SellLeadTime { get; set; }
     public string? Note { get; set; }
     public string? RFQReference { get; set; }
     public string? TagDate { get; set; }

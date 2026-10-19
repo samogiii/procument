@@ -198,7 +198,60 @@
                 </v-col>
               </v-row>
 
-              <div class="section-label mt-4">4 · Shipping Details</div>
+              <!-- 4 · Bill To / Ship To (editable, prefilled from the customer) -->
+              <div class="d-flex align-center mt-4 mb-2">
+                <span class="section-label mb-0">4 · Bill To / Ship To</span>
+                <v-spacer />
+                <v-btn size="x-small" variant="tonal" prepend-icon="mdi-restore" @click="resetAddresses">
+                  Reset from customer
+                </v-btn>
+              </div>
+              <v-row dense align="start">
+                <v-col v-if="customerContacts.length" cols="12">
+                  <v-select
+                    v-model="selectedCustomerContact"
+                    :items="customerContacts"
+                    item-title="name"
+                    item-value="email"
+                    label="Select Contact Person"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    clearable
+                    prepend-inner-icon="mdi-account-outline"
+                    @update:model-value="applyCustomerContact"
+                  />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <div class="text-caption font-weight-bold text-medium-emphasis mb-1" style="line-height:28px;">Bill To</div>
+                  <v-row dense>
+                    <v-col cols="12"><v-text-field v-model="billToName" label="Bill To Name" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="12"><v-textarea v-model="billTo" label="Bill To Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+                    <v-col cols="12"><v-text-field v-model="billToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="6"><v-text-field v-model="billToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="6"><v-text-field v-model="billToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+                  </v-row>
+                </v-col>
+                <v-col cols="12" md="6">
+                  <div class="d-flex align-center mb-1">
+                    <span class="text-caption font-weight-bold text-medium-emphasis">Ship To</span>
+                    <v-spacer />
+                    <v-btn size="x-small" variant="text" prepend-icon="mdi-content-copy" @click="copyBillToShip">
+                      Same as Bill To
+                    </v-btn>
+                  </div>
+                  <v-row dense>
+                    <v-col cols="12"><v-text-field v-model="shipToName" label="Ship To Name" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="12"><v-textarea v-model="shipTo" label="Ship To Address" variant="outlined" density="compact" hide-details rows="2" auto-grow /></v-col>
+                    <v-col cols="12"><v-text-field v-model="shipToContactPerson" label="Contact Person" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="6"><v-text-field v-model="shipToEmail" label="Email" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="6"><v-text-field v-model="shipToPhone" label="Phone" variant="outlined" density="compact" hide-details /></v-col>
+                    <v-col cols="12"><v-text-field v-model="shipToAccount" label="Ship To Account" variant="outlined" density="compact" hide-details /></v-col>
+                  </v-row>
+                </v-col>
+              </v-row>
+
+              <div class="section-label mt-4">5 · Shipping Details</div>
               <p class="text-caption text-medium-emphasis mb-2">
                 One shipment covering every selected part. Leave blank to omit the section.
               </p>
@@ -284,6 +337,63 @@ const selectedPreset = ref<string>('')
 const companyPresetOptions = computed(() => apiPresets.value.map((p: any) => p.name))
 const activePreset = computed(() => apiPresets.value.find((p: any) => p.name === selectedPreset.value))
 
+// ── Bill To / Ship To (editable; prefilled from the customer, same as Final Invoice PDF) ──
+const billToName = ref('')
+const billTo = ref('')
+const billToContactPerson = ref('')
+const billToEmail = ref('')
+const billToPhone = ref('')
+const shipToName = ref('')
+const shipTo = ref('')
+const shipToContactPerson = ref('')
+const shipToEmail = ref('')
+const shipToPhone = ref('')
+const shipToAccount = ref('')
+const customerContacts = ref<{ name: string; email: string; phone?: string; title?: string }[]>([])
+const selectedCustomerContact = ref<string | null>(null)
+/** Customer the address fields were last prefilled for. */
+let addressesCustomerId: number | null = null
+
+function resetAddresses() {
+  const d = mergedData.value
+  addressesCustomerId = d?.customerId ?? null
+  customerContacts.value = []
+  selectedCustomerContact.value = null
+  if (d?.customerContacts) {
+    try { customerContacts.value = JSON.parse(d.customerContacts) || [] } catch { customerContacts.value = [] }
+  }
+  billToName.value = d?.customerName || ''
+  billTo.value = d?.customerBillTo || ''
+  billToContactPerson.value = d?.customerBillToContactPerson || d?.customerContactPerson || ''
+  billToEmail.value = d?.customerBillToEmail || ''
+  billToPhone.value = d?.customerBillToPhone || ''
+  shipToName.value = d?.customerName || ''
+  shipTo.value = d?.customerShipTo || d?.customerBillTo || ''
+  shipToContactPerson.value = d?.customerShipToContactPerson || d?.customerContactPerson || ''
+  shipToEmail.value = d?.customerShipToEmail || ''
+  shipToPhone.value = d?.customerShipToPhone || ''
+  shipToAccount.value = d?.customerShipToAccount || ''
+}
+
+function applyCustomerContact(email: string | null) {
+  if (!email) return
+  const c = customerContacts.value.find(x => x.email === email)
+  if (!c) return
+  billToContactPerson.value = c.name
+  shipToContactPerson.value = c.name
+  billToEmail.value = c.email
+  shipToEmail.value = c.email
+  if (c.phone) { billToPhone.value = c.phone; shipToPhone.value = c.phone }
+}
+
+function copyBillToShip() {
+  shipToName.value = billToName.value
+  shipTo.value = billTo.value
+  shipToContactPerson.value = billToContactPerson.value
+  shipToEmail.value = billToEmail.value
+  shipToPhone.value = billToPhone.value
+}
+
 watch(model, (open) => {
   if (!open) return
   pickedIds.value = []
@@ -293,6 +403,7 @@ watch(model, (open) => {
   packages.value = [{ weight: '', dimensions: '' }]
   packingDate.value = new Date().toISOString().slice(0, 10)
   selectedPreset.value = ''
+  resetAddresses()
   loadInvoices()
   loadPresets()
 })
@@ -378,6 +489,9 @@ watch(pickedIds, async (ids) => {
     const data = await api.post<any>('/final-invoices/packing-list-data', { invoiceIds: [...ids] })
     if (token !== loadToken) return
     mergedData.value = data
+    // Only prefill when the customer changes — adding/removing another invoice of the
+    // same customer must not wipe what the user already typed into Bill To / Ship To.
+    if (addressesCustomerId !== data.customerId) resetAddresses()
     selectCustomerBasePreset(data.customerBase)
     selectAllParts()
   } catch (e: any) {
@@ -464,18 +578,20 @@ async function downloadMerged() {
       proformaRef: joinDistinct(mergedInvoices.value.map(
         (i: any) => i.b1ProformaInvoiceNumber || i.proformaInvoiceNumber)),
       customerName: d.customerName || '—',
-      customerBillToName: d.customerName || null,
-      customerShipToName: d.customerName || null,
-      customerContactPerson: d.customerContactPerson || null,
-      customerBillTo: d.customerBillTo || null,
-      customerBillToEmail: d.customerBillToEmail || null,
-      customerBillToPhone: d.customerBillToPhone || null,
-      customerBillToContactPerson: d.customerBillToContactPerson || d.customerContactPerson || null,
-      customerShipTo: d.customerShipTo || d.customerBillTo || null,
-      customerShipToContactPerson: d.customerShipToContactPerson || d.customerContactPerson || null,
-      customerShipToEmail: d.customerShipToEmail || null,
-      customerShipToPhone: d.customerShipToPhone || null,
-      customerShipToAccount: d.customerShipToAccount || null,
+      // Bill To / Ship To come from the editable fields (prefilled from the customer).
+      // A field the user cleared is left out of the PDF on purpose.
+      customerBillToName: billToName.value || null,
+      customerShipToName: shipToName.value || null,
+      customerContactPerson: billToContactPerson.value || null,
+      customerBillTo: billTo.value || null,
+      customerBillToEmail: billToEmail.value || null,
+      customerBillToPhone: billToPhone.value || null,
+      customerBillToContactPerson: billToContactPerson.value || null,
+      customerShipTo: shipTo.value || null,
+      customerShipToContactPerson: shipToContactPerson.value || null,
+      customerShipToEmail: shipToEmail.value || null,
+      customerShipToPhone: shipToPhone.value || null,
+      customerShipToAccount: shipToAccount.value || null,
       items: mergedItems.value,
       packages: packages.value
         .filter(p => p.weight || p.dimensions)
@@ -494,7 +610,16 @@ async function downloadMerged() {
     const link = document.createElement('a')
     link.href = url
     const safe = (s: string) => (s || '').replace(/[/\\:*?"<>|]/g, '-').trim()
-    link.setAttribute('download', `PackingList-Merged-${safe(d.customerCode || d.customerName || 'Customer')}.pdf`)
+    // Same pattern as the single Final Invoice packing list
+    // (PackingList-<docNumber>-<Customer_Name>.pdf), with every source invoice
+    // number joined by "+" — only invoices that contributed at least one part.
+    const invoiceNumbers = [...new Set(
+      mergedInvoices.value
+        .filter((inv: any) => pickedCountFor(inv) > 0)
+        .map((inv: any) => safe(inv.displayNumber || `#${inv.id}`))
+        .filter(Boolean),
+    )].join('+')
+    link.setAttribute('download', `PackingList-${invoiceNumbers || 'Invoice'}.pdf`)
     document.body.appendChild(link)
     link.click()
     link.parentNode?.removeChild(link)

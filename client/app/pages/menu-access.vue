@@ -110,6 +110,11 @@ const FEATURE_LABELS: Record<string, string> = {
   totalPnMenu:     'Total Project Menu',
   ourInventoryMenu:'Our Inventory',
   supplierCredits: 'Supplier Credits',
+  pendingSupplierQuotes: 'Email Quotes (supplier quotes from email)',
+  pendingRfqs: 'Email RFQs (customer RFQs from email)',
+  sendQuoteEmail: 'Send Quote by Email',
+  customerFollowUps: 'Customer Follow Ups',
+  procurementPlus: 'Procurement Plus',
   shippingBase1:   'Shipping — Base 1 (T-ID / SO#)',
   shippingBase2:   'Shipping — Base 2 (PickUp)',
   shippingBase3:   'Shipping — Base 3 (PickUp)',
@@ -136,6 +141,11 @@ const FEATURE_ICONS: Record<string, string> = {
   totalPnMenu:     'mdi-table-large',
   ourInventoryMenu:'mdi-warehouse',
   supplierCredits: 'mdi-cash-refund',
+  pendingSupplierQuotes: 'mdi-email-arrow-left-outline',
+  pendingRfqs: 'mdi-email-arrow-right-outline',
+  sendQuoteEmail: 'mdi-email-send-outline',
+  customerFollowUps: 'mdi-account-clock-outline',
+  procurementPlus: 'mdi-store-search-outline',
   shippingBase1:   'mdi-truck-delivery-outline',
   shippingBase2:   'mdi-numeric-2-box-outline',
   shippingBase3:   'mdi-numeric-3-box-outline',
@@ -144,7 +154,7 @@ const FEATURE_ICONS: Record<string, string> = {
 }
 
 // Features SuperAdmin does not bypass — nobody has them until granted here.
-const NO_BYPASS_FEATURES = new Set(SHIPPING_BASE_FEATURES)
+const NO_BYPASS_FEATURES = new Set([...SHIPPING_BASE_FEATURES, 'pendingSupplierQuotes', 'pendingRfqs'])
 
 function featureLabel(f: string) { return FEATURE_LABELS[f] ?? f }
 function featureIcon(f: string)  { return FEATURE_ICONS[f] ?? 'mdi-menu' }

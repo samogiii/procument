@@ -21,6 +21,11 @@ public class PaymentTransaction
     public string? PopInvoiceNumber { get; set; }
     public string? Notes { get; set; }
     public bool IsAuto { get; set; }                 // true = system-created
+    /// <summary>
+    /// False = an automatic row written while Wallets "Auto Import" was off. It still counts for
+    /// PI/PO paid totals and supplier credits, but no wallet balance or ledger includes it.
+    /// </summary>
+    public bool InWallet { get; set; } = true;
     /// <summary>Wallet-side tag, "B1".."B7". Unrelated to Customer.Base access control.</summary>
     public string? Base { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -9,6 +9,7 @@
     :extra-params="extraParams"
     page-key="quotes"
     :show-total-sum="true"
+    :show-row-count="true"
     :hide-clear-button="true"
   >
     <template #actions>
@@ -73,28 +74,6 @@
         variant="outlined"
         class="mx-2"
         style="min-width: 140px; max-width: 260px;"
-      />
-      <v-text-field
-        v-model="createdFrom"
-        label="Created From"
-        type="date"
-        hide-details
-        clearable
-        density="compact"
-        variant="outlined"
-        class="mx-2"
-        style="min-width: 160px; max-width: 200px;"
-      />
-      <v-text-field
-        v-model="createdTo"
-        label="Created To"
-        type="date"
-        hide-details
-        clearable
-        density="compact"
-        variant="outlined"
-        class="mx-2"
-        style="min-width: 160px; max-width: 200px;"
       />
       <v-btn
         :color="showRejected ? 'error' : 'default'"
@@ -231,6 +210,31 @@
         @clear-all="() => setColFilter(userFilter, [])"
         @update:search="(v) => colSearch.user = v"
         @sort-click="() => {}"
+      />
+    </template>
+
+    <!-- Date columns filter by range (one picker, both ends inclusive) instead of option lists. -->
+    <template #header.sentAt="{ column, toggleSort, isSorted, sortBy }">
+      <ColDateRangeMenu
+        :label="column.title"
+        :from="sentFrom"
+        :to="sentTo"
+        :is-sorted="isSorted(column)"
+        :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+        @update="(f, t) => { sentFrom = f; sentTo = t }"
+        @sort-click="toggleSort(column)"
+      />
+    </template>
+
+    <template #header.createdAt="{ column, toggleSort, isSorted, sortBy }">
+      <ColDateRangeMenu
+        :label="column.title"
+        :from="createdFrom"
+        :to="createdTo"
+        :is-sorted="isSorted(column)"
+        :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
+        @update="(f, t) => { createdFrom = f; createdTo = t }"
+        @sort-click="toggleSort(column)"
       />
     </template>
 
@@ -501,6 +505,8 @@ const { filters: pf, clearFilters, hasActiveFilters } = usePageFilters('quotes',
   quoteNumber: [] as string[],
   createdFrom: '',
   createdTo: '',
+  sentFrom: '',
+  sentTo: '',
 })
 const userFilter = pf.user
 const customerFilter = pf.customer
@@ -508,9 +514,12 @@ const baseFilter = pf.base
 const statusFilter = pf.status
 const rfqFilter = pf.rfq
 const quoteNumberFilter = pf.quoteNumber
-// Created-at range — both bounds inclusive; the backend covers the whole `createdTo` day.
+// Created-at / Sent-at ranges (column header pickers) — both bounds inclusive; the backend
+// covers the whole `…To` day.
 const createdFrom = pf.createdFrom
 const createdTo = pf.createdTo
+const sentFrom = pf.sentFrom
+const sentTo = pf.sentTo
 
 // P/N Search — passed as server-side filter param
 const pnSearch = pf.pnSearch
@@ -544,6 +553,8 @@ const cfOptions = useCascadingOptions<QuoteOptions>(
       if (showRejected.value) params.set('includeRejected', 'true')
       if (createdFrom.value) params.set('createdFrom', createdFrom.value)
       if (createdTo.value) params.set('createdTo', createdTo.value)
+      if (sentFrom.value) params.set('sentFrom', sentFrom.value)
+      if (sentTo.value) params.set('sentTo', sentTo.value)
       ;(statusFilter.value || []).forEach(s => params.append('status', s))
       ;(customerFilter.value || []).forEach(c => params.append('customerNames', c))
       ;(baseFilter.value || []).forEach(b => params.append('bases', b))
@@ -590,7 +601,7 @@ onMounted(() => cfOptions.init())
 
 watch(
   [statusFilter, customerFilter, baseFilter, userFilter, rfqFilter, quoteNumberFilter, pnSearch, showRejected,
-   createdFrom, createdTo, () => pf.search.value],
+   createdFrom, createdTo, sentFrom, sentTo, () => pf.search.value],
   () => cfOptions.refreshDebounced(),
   { deep: true },
 )
@@ -606,6 +617,8 @@ const extraParams = computed<Record<string, string | string[]>>(() => {
   if (showRejected.value) p.includeRejected = 'true'
   if (createdFrom.value) p.createdFrom = createdFrom.value
   if (createdTo.value) p.createdTo = createdTo.value
+  if (sentFrom.value) p.sentFrom = sentFrom.value
+  if (sentTo.value) p.sentTo = sentTo.value
   return p
 })
 

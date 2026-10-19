@@ -59,10 +59,12 @@ public class QuotesController : ControllerBase
         [FromQuery] bool includeRejected = false,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null,
-        [FromQuery] List<int>? bases = null)
+        [FromQuery] List<int>? bases = null,
+        [FromQuery] DateTime? sentFrom = null,
+        [FromQuery] DateTime? sentTo = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected, createdFrom, createdTo, bases);
+        var result = await _quoteService.GetAllAsync(page, pageSize, userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, sortBy, sortDesc, quoteNumbers, includeRejected, createdFrom, createdTo, bases, sentFrom, sentTo);
         return Ok(result);
     }
 
@@ -83,10 +85,12 @@ public class QuotesController : ControllerBase
         [FromQuery] bool includeRejected = false,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null,
-        [FromQuery] List<int>? bases = null)
+        [FromQuery] List<int>? bases = null,
+        [FromQuery] DateTime? sentFrom = null,
+        [FromQuery] DateTime? sentTo = null)
     {
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
-        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected, createdFrom, createdTo, bases);
+        var result = await _quoteService.GetFilterOptionsAsync(userId, isSuperAdmin, userBases, status, search, pnSearch, assignedUserNames, customerNames, rfqNames, quoteNumbers, includeRejected, createdFrom, createdTo, bases, sentFrom, sentTo);
         return Ok(result);
     }
 
@@ -133,7 +137,7 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> UpdateStatus(long id, [FromBody] UpdateQuoteStatusRequest request)
     {
         if (await _lockGuard.IsQuoteLocked(id))
-            return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This Quote is locked because its Sales Order is fully final-invoiced. Use \"Unlock parts\" on the Sales Order to reopen it." });
 
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
         // Get quote info before update for notification
@@ -174,6 +178,15 @@ public class QuotesController : ControllerBase
         return Ok();
     }
 
+    /// <summary>Granted per user in Menu Access ("sendQuoteEmail"); SuperAdmin always passes.</summary>
+    private async Task<bool> CanSendQuoteEmailAsync(bool isSuperAdmin)
+    {
+        if (isSuperAdmin) return true;
+        var userName = User.Identity?.Name;
+        return !string.IsNullOrEmpty(userName) && await _db.Set<MenuPermission>()
+            .AnyAsync(p => p.Feature == "sendQuoteEmail" && p.UserName == userName);
+    }
+
     /// <summary>Send the quote via the matched CompanyPreset's SMTP config, then mark it Sent.</summary>
     [HttpPost("{id:long}/send-email")]
     [Auditable("Quote", "SendEmail", CaptureBody = false)]
@@ -181,9 +194,12 @@ public class QuotesController : ControllerBase
     public async Task<IActionResult> SendEmail(long id, [FromForm] SendQuoteEmailRequest request, IFormFile? attachment, IFormFile? attachmentExcel, [FromForm] List<IFormFile>? extraAttachments)
     {
         if (await _lockGuard.IsQuoteLocked(id))
-            return BadRequest(new { message = "This Quote is locked because a Final Invoice has been created." });
+            return BadRequest(new { message = "This Quote is locked because its Sales Order is fully final-invoiced. Use \"Unlock parts\" on the Sales Order to reopen it." });
 
         var (userId, isAdmin, isSuperAdmin, userBases) = GetUserContext();
+        if (!await CanSendQuoteEmailAsync(isSuperAdmin))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have permission to send quotes by email (Menu Access: Send Quote by Email)." });
+
         var quote = await _quoteService.GetByIdAsync(id, userId, isAdmin);
         if (quote == null) return NotFound();
 

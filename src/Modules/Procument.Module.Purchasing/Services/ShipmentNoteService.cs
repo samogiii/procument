@@ -18,7 +18,7 @@ public interface IShipmentNoteService
     /// note (Type "PickUp", Status "Confirmed") with the customer's documents attached.
     /// </summary>
     Task<ShipmentNoteResponse> CreatePickupAsync(long createdByUserId, CreatePickupRequest request, IReadOnlyList<IFormFile> files, IReadOnlySet<int>? allowedBases);
-    Task<ShipmentNoteResponse?> AddDocumentsAsync(long id, long userId, IReadOnlyList<IFormFile> files);
+    Task<ShipmentNoteResponse?> AddDocumentsAsync(long id, long userId, IReadOnlyList<IFormFile> files, long? poItemId);
     Task<(Stream stream, string fileName, string mimeType)?> DownloadDocumentAsync(long id, long docId);
     Task<ShipmentNoteResponse?> UpdateAsync(long id, UpdateShipmentNoteRequest request);
     Task<ShipmentNoteResponse?> UploadPdfAsync(long id, IFormFile file);
@@ -236,7 +236,7 @@ public class ShipmentNoteService : IShipmentNoteService
 
         // The parts left with the customer — the end of the shipping road.
         foreach (var track in items.Select(i => i.TrackNumber).DistinctBy(t => t.Id))
-            track.Status = "Delivered to Customer";
+            track.Status = PurchaseOrderStatusFlow.DeliveredToCustomer;
 
         // Files are written to a staging folder first so the note, its links and its documents
         // are saved in one SaveChanges; they move under the note's own folder once it has an id.
@@ -259,17 +259,22 @@ public class ShipmentNoteService : IShipmentNoteService
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
         }
 
+        await PurchaseOrderStatusFlow.PromoteDeliveredAsync(_db, items.Select(i => i.TrackNumber.POItemId));
         return (await GetByIdAsync(note.Id))!;
     }
 
-    public async Task<ShipmentNoteResponse?> AddDocumentsAsync(long id, long userId, IReadOnlyList<IFormFile> files)
+    public async Task<ShipmentNoteResponse?> AddDocumentsAsync(long id, long userId, IReadOnlyList<IFormFile> files, long? poItemId)
     {
         if (files.Count == 0) throw new InvalidOperationException("Choose at least one file.");
         if (!await _db.Set<ShipmentNote>().AnyAsync(s => s.Id == id)) return null;
+        if (poItemId != null && !await _db.Set<ShipmentNoteTrackNumber>()
+                .AnyAsync(s => s.ShipmentNoteId == id && s.TrackNumber.POItemId == poItemId))
+            throw new InvalidOperationException("That part is not on this shipment note.");
 
         foreach (var doc in await SaveDocumentsAsync(Path.Combine(PdfRoot, id.ToString()), userId, files))
         {
             doc.ShipmentNoteId = id;
+            doc.POItemId = poItemId;
             _db.Set<ShipmentNoteDocument>().Add(doc);
         }
         await _db.SaveChangesAsync();
@@ -540,7 +545,9 @@ public class ShipmentNoteService : IShipmentNoteService
         note.CustomsFileName = storedName;
         note.CustomsOriginalFileName = originalName;
         note.CustomsUploadedAt = uploadedAt;
-        note.Status = note.Type == "CPT" ? "Delivered to Customer" : "Clearing Customs";
+        note.Status = note.Type == "CPT" ? PurchaseOrderStatusFlow.DeliveredToCustomer : "Clearing Customs";
+        var deliveredNoteIds = new List<long>();
+        if (note.Type == "CPT") deliveredNoteIds.Add(id);
 
         // Propagate to all sibling SN#s sharing the same T-ID (only those still at "Ship To USA")
         if (!string.IsNullOrWhiteSpace(note.TId))
@@ -556,11 +563,13 @@ public class ShipmentNoteService : IShipmentNoteService
                 sibling.CustomsFileName = sibName;
                 sibling.CustomsOriginalFileName = originalName;
                 sibling.CustomsUploadedAt = uploadedAt;
-                sibling.Status = sibling.Type == "CPT" ? "Delivered to Customer" : "Clearing Customs";
+                sibling.Status = sibling.Type == "CPT" ? PurchaseOrderStatusFlow.DeliveredToCustomer : "Clearing Customs";
+                if (sibling.Type == "CPT") deliveredNoteIds.Add(sibling.Id);
             }
         }
 
         await _db.SaveChangesAsync();
+        await DeliverNoteTracksAsync(deliveredNoteIds);
         return await GetByIdAsync(id);
     }
 
@@ -634,7 +643,28 @@ public class ShipmentNoteService : IShipmentNoteService
         }
 
         await _db.SaveChangesAsync();
+        if (status == PurchaseOrderStatusFlow.DeliveredToCustomer)
+            await DeliverNoteTracksAsync([id]);
         return await GetByIdAsync(id);
+    }
+
+    /// <summary>
+    /// A finished SN# hands its parts to the customer: its tracks become "Delivered to Customer",
+    /// then their PO lines (and POs) follow once nothing of them is left in a warehouse.
+    /// </summary>
+    private async Task DeliverNoteTracksAsync(IReadOnlyCollection<long> noteIds)
+    {
+        if (noteIds.Count == 0) return;
+        var tracks = await _db.Set<POItemTrackNumber>()
+            .Where(t => t.ShipmentNotes.Any(s => noteIds.Contains(s.ShipmentNoteId)))
+            .ToListAsync();
+        if (tracks.Count == 0) return;
+
+        foreach (var track in tracks)
+            track.Status = PurchaseOrderStatusFlow.DeliveredToCustomer;
+        await _db.SaveChangesAsync();
+
+        await PurchaseOrderStatusFlow.PromoteDeliveredAsync(_db, tracks.Select(t => t.POItemId));
     }
 
     // ── Query builder ──────────────────────────────────────────────────────
@@ -734,6 +764,7 @@ public class ShipmentNoteService : IShipmentNoteService
         {
             Id = d.Id,
             ShipmentNoteId = d.ShipmentNoteId,
+            POItemId = d.POItemId,
             OriginalFileName = d.OriginalFileName,
             MimeType = d.MimeType,
             FileSizeBytes = d.FileSizeBytes,

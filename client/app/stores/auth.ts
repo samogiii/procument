@@ -38,6 +38,11 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     totalPnMenu:     [],
     ourInventoryMenu:[],
     supplierCredits: [],
+    pendingSupplierQuotes: [],
+    pendingRfqs: [],
+    sendQuoteEmail: [],
+    customerFollowUps: [],
+    procurementPlus: [],
     // Shipping — the customer bases each user sees (see composables/useShippingBases.ts)
     shippingBase1:   [],
     shippingBase2:   [],
@@ -139,6 +144,24 @@ export const useAuthStore = defineStore('auth', {
         totalPnMenu():       boolean { return (this as any).isSuperAdmin || this.can('totalPnMenu') },
         /** Our Inventory module — our own stock, Stock POs and receiving. */
         ourInventoryMenu(): boolean { return (this as any).isSuperAdmin || this.can('ourInventoryMenu') },
+        /**
+         * Email Quotes page (supplier quotes MailFlow read from email). Only users granted in
+         * Menu Access — SuperAdmin does NOT bypass.
+         */
+        pendingSupplierQuotes: (state): boolean =>
+            !!state.user?.name && (state.featurePermissions.pendingSupplierQuotes ?? []).includes(state.user.name),
+        /**
+         * Email RFQs page (customer RFQs MailFlow read from email → new RFQs). Only users granted in
+         * Menu Access — SuperAdmin does NOT bypass (same rule as Email Quotes).
+         */
+        pendingRfqs: (state): boolean =>
+            !!state.user?.name && (state.featurePermissions.pendingRfqs ?? []).includes(state.user.name),
+        /** Quote page: marking a quote Sent opens the SMTP email dialog instead of a plain status change. */
+        sendQuoteEmail(): boolean { return (this as any).isSuperAdmin || this.can('sendQuoteEmail') },
+        /** Customer Follow Ups page — granted per user in Menu Access, whatever the role. */
+        customerFollowUps(): boolean { return (this as any).isSuperAdmin || this.can('customerFollowUps') },
+        /** Procurement Plus page — granted per user in Menu Access, whatever the role. */
+        procurementPlus(): boolean { return (this as any).isSuperAdmin || this.can('procurementPlus') },
         /**
          * Supplier Credits — granted per user in Menu Access, but only for the roles the API
          * serves (/api/supplier-credits: SuperAdmin, Admin, Payment, AHM).
