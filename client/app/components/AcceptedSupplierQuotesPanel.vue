@@ -86,6 +86,17 @@
             View email
           </v-btn>
           <v-btn
+            size="small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-sync"
+            :loading="busyKey === `reapply-${group.key}`"
+            title="Write these lines as they are now to their RFQs — rewrites the quotes they added and adds them to open RFQs that don't have them yet"
+            @click="reapply(group.rows, `reapply-${group.key}`)"
+          >
+            Re-apply to RFQs
+          </v-btn>
+          <v-btn
             v-if="group.rows.some(isAutoFillOn)"
             size="small"
             color="warning"
@@ -123,6 +134,7 @@
                 <th style="min-width: 90px;">Price ($)</th>
                 <th style="min-width: 60px;">Qty</th>
                 <th style="min-width: 60px;">Cond</th>
+                <th style="min-width: 90px;">S/N</th>
                 <th style="min-width: 90px;">Cert</th>
                 <th style="min-width: 95px;">Tag Date</th>
                 <th style="min-width: 90px;">Lead Time</th>
@@ -130,7 +142,7 @@
                 <th style="min-width: 140px;">Accepted at</th>
                 <th style="min-width: 90px;" title="RFQ items the quote was written to — on accept, plus new RFQs that picked it up within 7 days">Added to</th>
                 <th style="min-width: 150px;" title="New RFQs for this part get the quote automatically for 7 days after accepting — switch it off when the supplier no longer has it">Auto-fill new RFQs</th>
-                <th style="width: 40px;"></th>
+                <th style="width: 72px;"></th>
               </tr>
             </thead>
             <tbody>
@@ -143,6 +155,7 @@
                 <td>{{ row.price != null ? '$' + formatPrice(row.price) : '—' }}</td>
                 <td>{{ row.qty ?? '—' }}</td>
                 <td>{{ row.condition || '—' }}</td>
+                <td>{{ row.serialNumber || '—' }}</td>
                 <td>{{ row.certName || '—' }}</td>
                 <td :title="row.tagDateRaw ? `In the email: ${row.tagDateRaw}` : ''">
                   {{ row.tagDate ? formatTagDate(row.tagDate) : (row.tagDateRaw || '—') }}
@@ -178,13 +191,22 @@
                     <span v-if="!row.autoApplyDisabled" class="text-caption text-medium-emphasis ml-1">until {{ formatDay(row.autoApplyUntil) }}</span>
                   </template>
                 </td>
-                <td>
+                <td style="white-space: nowrap;">
                   <v-btn
                     icon="mdi-pencil-outline"
                     size="x-small"
                     variant="text"
-                    title="Edit — applies to new RFQs only"
+                    title="Edit — reaches new RFQs; press Re-apply to update RFQs that already have it"
                     @click="openEdit(row)"
+                  />
+                  <v-btn
+                    icon="mdi-sync"
+                    size="x-small"
+                    variant="text"
+                    color="primary"
+                    :loading="busyKey === `reapply-row-${row.id}`"
+                    title="Re-apply — write this line as it is now to its RFQs (rewrite the quote it added, or add it where missing)"
+                    @click="reapply([row], `reapply-row-${row.id}`)"
                   />
                 </td>
               </tr>
@@ -231,6 +253,7 @@ type AcceptedRow = {
   price: number | null
   qty: number | null
   condition?: string
+  serialNumber?: string
   certName?: string
   tagDate?: string | null
   tagDateRaw?: string
@@ -389,6 +412,28 @@ async function setAutoFill(targets: AcceptedRow[], enabled: boolean, key: string
   }
 }
 
+// ── Re-apply: write edited lines to the RFQs again (rewrite the quotes they added, add where missing) ──
+async function reapply(targets: AcceptedRow[], key: string) {
+  if (!targets.length) return
+  busyKey.value = key
+  try {
+    const res = await api.post<{ lines: number; quotesUpdated: number; quotesAdded: number; failed: { partNumber: string; reason: string }[] }>(
+      '/pending-supplier-quotes/reapply', { ids: targets.map(r => r.id) })
+    const parts = [
+      res.quotesUpdated ? `${res.quotesUpdated} RFQ quote${res.quotesUpdated === 1 ? '' : 's'} updated` : '',
+      res.quotesAdded ? `${res.quotesAdded} added` : '',
+    ].filter(Boolean)
+    if (res.failed.length)
+      showSnack(`${parts.length ? parts.join(', ') + ' · ' : ''}${res.failed.map(f => `${f.partNumber}: ${f.reason}`).join(' · ')}`, parts.length ? 'warning' : 'error')
+    else showSnack(parts.length ? parts.join(', ') : 'Nothing to write')
+    if (res.lines) load() // refresh "Added to"
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not re-apply to RFQs', 'error')
+  } finally {
+    busyKey.value = ''
+  }
+}
+
 // ── Excel export: every line the filters select, all pages ──
 const exporting = ref(false)
 async function exportExcel() {
@@ -437,7 +482,7 @@ async function exportExcel() {
   }
 }
 
-// ── Edit (new RFQs only) ──
+// ── Edit (new RFQs; Re-apply pushes it to the RFQs that have it) ──
 const showEdit = ref(false)
 const editRow = ref<AcceptedRow | null>(null)
 function openEdit(row: AcceptedRow) {

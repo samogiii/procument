@@ -75,7 +75,14 @@ public class PendingRfqItemResponse
     public string? ReviewedByName { get; set; }
     public long? RfqId { get; set; }
     public string? CreatedRfqName { get; set; }
-    /// <summary>Pending: an RFQ with this name already exists, so Accept would skip it until it is renamed.</summary>
+    /// <summary>
+    /// Pending: the RFQ this line will land in — the RFQ name, split ABA(1), ABA(2)... in deadline order when
+    /// the email's lines with that name carry different deadlines (same rule as the RFQ bulk import).
+    /// </summary>
+    public string? PlannedRfqName { get; set; }
+    /// <summary>Pending: the deadline the RFQ gets — the line's own, or 3 days after the email arrived.</summary>
+    public DateTime? PlannedDeadline { get; set; }
+    /// <summary>Pending: an RFQ named PlannedRfqName already exists, so Accept would skip it until it is renamed.</summary>
     public bool RfqNameTaken { get; set; }
 }
 

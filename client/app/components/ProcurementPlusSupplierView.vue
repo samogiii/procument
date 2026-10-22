@@ -103,6 +103,7 @@
       suppliers-url="/procurement-plus/suppliers"
       @updated="patchLine"
     />
+    <ProcurementPlusDoneCheck ref="doneCheck" />
     <v-snackbar v-model="snack" :color="snackColor" :timeout="5000">{{ snackText }}</v-snackbar>
   </div>
 </template>
@@ -148,11 +149,14 @@ watch(page, load)
 /** Pending lines that can go on RFQs now: priced and pointing at a catalog supplier. */
 const readyLines = (g: PpSupplierGroup) => g.lines.filter(l => l.status !== 'Accepted' && l.line.price != null && l.line.supplierId)
 
+const doneCheck = ref<{ confirm: (ids: number[]) => Promise<boolean> } | null>(null)
 const finishing = ref<string | null>(null)
 async function finish(g: PpSupplierGroup) {
   finishing.value = g.key
   try {
-    const res = await api.post<any>('/procurement-plus/quotes/done', { ids: readyLines(g).map(l => l.line.id) })
+    const ids = readyLines(g).map(l => l.line.id)
+    if (!(await doneCheck.value?.confirm(ids) ?? true)) return
+    const res = await api.post<any>('/procurement-plus/quotes/done', { ids })
     const s = res.summary
     toast(s.failed.length
       ? `${s.accepted} done · ${s.failed.map((f: any) => `${f.partNumber}: ${f.reason}`).join(' · ')}`

@@ -100,6 +100,19 @@ public class PendingRfqsController : ControllerBase
         return Ok(await _service.GetMailboxesAsync());
     }
 
+    /// <summary>Pending + accepted lines of emails sent in [from, to) — the page builds the CSV from them.</summary>
+    [HttpGet("export")]
+    public async Task<ActionResult<List<PendingRfqItemResponse>>> Export(
+        [FromQuery] DateTime from, [FromQuery] DateTime to, [FromQuery] string? mailbox = null)
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        // The model binder turns "…Z" into server-local time; the email dates are stored in UTC.
+        var start = from.ToUniversalTime();
+        var end = to.ToUniversalTime();
+        if (end <= start) return BadRequest(new { message = "The 'to' date must be after the 'from' date." });
+        return Ok(await _service.GetExportAsync(start, end, mailbox));
+    }
+
     [HttpGet("accepted")]
     public async Task<ActionResult<PendingRfqPageResponse>> GetAccepted(
         [FromQuery] int? days, [FromQuery] long? userId, [FromQuery] string? search,

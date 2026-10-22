@@ -178,7 +178,7 @@ export function renderClassicPreview(m: PdfPreviewModel): string {
       return `<td style="padding:4px;font-size:10px;vertical-align:middle;text-align:${c.align || 'center'};${colStyle(c)}${br}${bb}">${inner}</td>`
     }).join('')
     const noteRow = row.note
-      ? `<tr><td colspan="${m.columns.length}" style="padding:0 5px 4px 5px;font-size:9.5px;font-style:italic;${isLast ? '' : `border-bottom:${R};`}">${esc(row.note)}</td></tr>`
+      ? `<tr><td colspan="${m.columns.length}" style="padding:0 5px 4px 5px;font-size:9.5px;font-style:italic;white-space:pre-line;${isLast ? '' : `border-bottom:${R};`}">${esc(row.note)}</td></tr>`
       : ''
     return `<tr>${cells}</tr>${noteRow}`
   }).join('')
@@ -351,7 +351,7 @@ export function renderStandardPreview(m: PdfPreviewModel): string {
       return `<td style="padding:7px 5px;font-size:10.5px;vertical-align:middle;text-align:${c.align || 'center'};${colStyle(c)}${br}${bb}">${inner}</td>`
     }).join('')
     const noteRow = row.note
-      ? `<tr><td colspan="${m.columns.length}" style="padding:0 6px 5px 6px;font-size:10px;color:${MUTED};${isLast ? '' : `border-bottom:${R};`}">${esc(row.note)}</td></tr>`
+      ? `<tr><td colspan="${m.columns.length}" style="padding:0 6px 5px 6px;font-size:10px;color:${MUTED};white-space:pre-line;${isLast ? '' : `border-bottom:${R};`}">${esc(row.note)}</td></tr>`
       : ''
     return `<tr>${cells}</tr>${noteRow}`
   }).join('')

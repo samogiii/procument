@@ -101,6 +101,20 @@ public static class PreferredSupplierMethods
     /// <summary>A known method (case-insensitive), else Email.</summary>
     public static string Normalize(string? method) =>
         All.FirstOrDefault(m => string.Equals(m, method?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Email;
+
+    /// <summary>
+    /// Every method a supplier line is searched by (a line can be on ILS, emailed and searched at once):
+    /// the known ones, comma-joined in a fixed order ("ILS,Email,Search"); none = null.
+    /// </summary>
+    public static string? Join(IEnumerable<string?>? methods)
+    {
+        var picked = (methods ?? [])
+            .SelectMany(m => (m ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            .Select(m => All.FirstOrDefault(a => string.Equals(a, m, StringComparison.OrdinalIgnoreCase)))
+            .OfType<string>()
+            .ToHashSet();
+        return picked.Count == 0 ? null : string.Join(",", new[] { Ils, Email, Search }.Where(picked.Contains));
+    }
 }
 
 /// <summary>

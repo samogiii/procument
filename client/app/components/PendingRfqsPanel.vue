@@ -109,22 +109,42 @@
             @change="(e: Event) => saveGroup(group, { rfqName: (e.target as HTMLInputElement).value })"
           />
           <v-text-field
-            :model-value="toDateInput(group.deadline)"
+            :model-value="group.sameDeadline"
             type="date"
-            label="Deadline"
+            :label="group.sameDeadline ? 'Deadline' : 'Deadline (all parts)'"
             density="compact"
             variant="outlined"
             hide-details
-            style="max-width: 180px;"
-            :title="group.deadlineRaw ? `In the email: ${group.deadlineRaw}` : 'Not in the email — 3 days after it arrived'"
+            style="max-width: 190px;"
+            :title="group.sameDeadline
+              ? (group.deadlineRaw ? `In the email: ${group.deadlineRaw}` : 'Not in the email — 3 days after it arrived')
+              : 'The parts have different deadlines — setting one here gives every part this deadline'"
             @change="(e: Event) => saveGroup(group, { deadline: (e.target as HTMLInputElement).value || null })"
           />
-          <v-chip v-if="group.rfqNameTaken" size="small" color="error" variant="tonal" prepend-icon="mdi-alert-circle-outline">
-            An RFQ named "{{ group.rfqName }}" already exists — rename it
-          </v-chip>
           <span v-if="group.mixedNames" class="text-caption text-medium-emphasis">
             Lines carry different RFQ names — each name becomes its own RFQ.
           </span>
+        </div>
+
+        <!-- One RFQ per name + deadline: ABA(1), ABA(2)... in deadline order, like the RFQ bulk import -->
+        <div v-if="group.rfqs.length > 1 || group.rfqNameTaken" class="d-flex align-center flex-wrap gap-1 mb-2">
+          <span class="text-caption text-medium-emphasis mr-1">
+            {{ group.rfqs.length > 1 ? `Parts have different deadlines — creates ${group.rfqs.length} RFQs:` : 'Creates:' }}
+          </span>
+          <v-chip
+            v-for="rfq in group.rfqs"
+            :key="rfq.name"
+            size="small"
+            variant="tonal"
+            :color="rfq.taken ? 'error' : 'primary'"
+            :prepend-icon="rfq.taken ? 'mdi-alert-circle-outline' : 'mdi-file-document-outline'"
+            :title="rfq.taken ? `An RFQ named ${rfq.name} already exists — rename it` : undefined"
+          >
+            <strong>{{ rfq.name }}</strong>&nbsp;· {{ fmtDate(rfq.deadline) }} · {{ rfq.count }} part{{ rfq.count === 1 ? '' : 's' }}
+          </v-chip>
+          <v-chip v-if="group.rfqNameTaken" size="small" color="error" variant="text">
+            Name already exists — rename it
+          </v-chip>
         </div>
 
         <!-- Files attached to the email — click to read next to the email -->
@@ -162,7 +182,8 @@
                 <th style="min-width: 60px;">Cond</th>
                 <th style="min-width: 80px;">Priority</th>
                 <th style="min-width: 160px;">Remark</th>
-                <th v-if="group.mixedNames" style="min-width: 140px;">RFQ name</th>
+                <th style="width: 130px;">Deadline</th>
+                <th v-if="group.mixedNames || group.rfqs.length > 1" style="min-width: 140px;">RFQ</th>
                 <th style="width: 80px;"></th>
               </tr>
             </thead>
@@ -183,7 +204,18 @@
                 <td>{{ row.condition || '—' }}</td>
                 <td>{{ row.priority || '—' }}</td>
                 <td class="text-caption">{{ row.remark || '—' }}</td>
-                <td v-if="group.mixedNames" class="text-caption">{{ row.rfqName }}</td>
+                <td>
+                  <input
+                    type="date"
+                    class="row-date"
+                    :value="toDateInput(row.plannedDeadline)"
+                    :title="row.deadline ? (row.deadlineRaw ? `In the email: ${row.deadlineRaw}` : '') : 'Not in the email — 3 days after it arrived'"
+                    @change="(e: Event) => saveRowDeadline(row, (e.target as HTMLInputElement).value)"
+                  >
+                </td>
+                <td v-if="group.mixedNames || group.rfqs.length > 1" class="text-caption" :class="{ 'text-error': row.rfqNameTaken }">
+                  {{ row.plannedRfqName || row.rfqName }}
+                </td>
                 <td class="text-right" style="white-space: nowrap;">
                   <v-btn icon="mdi-pencil-outline" size="x-small" variant="text" title="Edit" @click="openEdit(row)" />
                   <v-btn icon="mdi-close" size="x-small" variant="text" color="error" title="Remove" @click="askRemove([row.id])" />
@@ -227,9 +259,15 @@
     <QuoteEmailViewerDialog
       v-model="showEmail"
       api-base="/pending-rfqs"
+      edit-title="RFQ lines"
       :email-id="emailViewId"
       :initial-attachment="emailViewAttachment"
-    />
+      :rows="emailViewRows"
+    >
+      <template #edit="{ row }">
+        <EmailRfqEditForm :row="row" @updated="onViewerRowUpdated" />
+      </template>
+    </QuoteEmailViewerDialog>
 
     <ConfirmDialog
       v-model="showConfirmRemove"
@@ -269,6 +307,10 @@ type PendingRfqRow = {
   remark?: string
   emailId?: number | null
   attachmentNames: string[]
+  /** RFQ this line lands in — ABA(1), ABA(2)... when the email's parts carry different deadlines. */
+  plannedRfqName?: string | null
+  /** The line's deadline, or 3 days after the email arrived. */
+  plannedDeadline?: string | null
   rfqNameTaken: boolean
 }
 type CustomerOption = { id: number; name: string; customerCode?: string | null; email?: string | null }
@@ -376,8 +418,20 @@ const groups = computed(() => {
     map.get(key).rows.push(r)
   }
   for (const g of map.values()) {
-    g.mixedNames = new Set(g.rows.map((r: PendingRfqRow) => r.rfqName)).size > 1
-    g.rfqNameTaken = g.rows.some((r: PendingRfqRow) => r.rfqNameTaken)
+    const rows = g.rows as PendingRfqRow[]
+    g.mixedNames = new Set(rows.map(r => r.rfqName)).size > 1
+    g.rfqNameTaken = rows.some(r => r.rfqNameTaken)
+    const deadlines = new Set(rows.map(r => toDateInput(r.plannedDeadline)))
+    g.sameDeadline = deadlines.size === 1 ? [...deadlines][0] : ''
+    // The RFQs Create RFQ makes, in deadline order (the server names them).
+    const rfqs = new Map<string, { name: string; deadline: string; count: number; taken: boolean }>()
+    for (const r of rows) {
+      const name = r.plannedRfqName || r.rfqName
+      const rfq = rfqs.get(name) ?? { name, deadline: toDateInput(r.plannedDeadline), count: 0, taken: r.rfqNameTaken }
+      rfq.count++
+      rfqs.set(name, rfq)
+    }
+    g.rfqs = [...rfqs.values()].sort((a, b) => a.deadline.localeCompare(b.deadline) || a.name.localeCompare(b.name))
   }
   return [...map.values()]
 })
@@ -385,6 +439,11 @@ const groups = computed(() => {
 /** "yyyy-MM-dd" for a date input, from the API's ISO date (no timezone shift). */
 function toDateInput(iso?: string | null) {
   return iso ? iso.slice(0, 10) : ''
+}
+/** "yyyy-MM-dd" → "MM/DD/YYYY" without a timezone shift. */
+function fmtDate(ymd: string) {
+  const [y, m, d] = ymd.split('-')
+  return y && m && d ? `${m}/${d}/${y}` : '—'
 }
 
 // ── Selection: tick lines to create the RFQ from some of them only ──
@@ -474,6 +533,17 @@ async function saveGroup(group: any, change: { rfqName?: string; deadline?: stri
   }
 }
 
+// One part's deadline — re-splits the email's RFQs, so the list reloads for the new names.
+async function saveRowDeadline(row: PendingRfqRow, value: string) {
+  if (!value || value === toDateInput(row.plannedDeadline)) return
+  try {
+    await api.post('/pending-rfqs/email', { ids: [row.id], deadline: value })
+    await load()
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not save the deadline', 'error')
+  }
+}
+
 // ── Edit one line ──
 const showEdit = ref(false)
 const savingEdit = ref(false)
@@ -497,14 +567,13 @@ async function saveEdit() {
   const f = editForm.value
   savingEdit.value = true
   try {
-    const updated = await api.put<PendingRfqRow>(`/pending-rfqs/${f.id}`, {
+    await api.put<PendingRfqRow>(`/pending-rfqs/${f.id}`, {
       ...f,
       qty: f.qty === '' || f.qty == null ? null : Number(f.qty),
       deadline: f.deadline || null,
     })
-    const row = rows.value.find(r => r.id === updated.id)
-    if (row) Object.assign(row, updated)
     showEdit.value = false
+    await load() // a new name or deadline can re-number the email's ABA(1), ABA(2)...
   } catch (e: any) {
     showSnack(e?.data?.message || 'Could not save the line', 'error')
   } finally {
@@ -542,11 +611,30 @@ async function accept(ids: number[], key: string) {
 const showEmail = ref(false)
 const emailViewId = ref<number | null>(null)
 const emailViewAttachment = ref<string | null>(null)
-function openEmail(group: { emailId: number }, attachmentName: string | null = null) {
+// The viewer edits this email's lines in its side panel; looked up by group key so a reload keeps it in sync.
+const emailViewKey = ref<string | null>(null)
+const emailViewRows = computed(() => groups.value.find(g => g.key === emailViewKey.value)?.rows ?? [])
+function openEmail(group: { key: string; emailId: number }, attachmentName: string | null = null) {
+  emailViewKey.value = group.key
   emailViewId.value = group.emailId
   emailViewAttachment.value = attachmentName
   showEmail.value = true
 }
+
+/** Autosaved line from the viewer: patch it in place; reload on close, since a new name / deadline can re-number ABA(1), ABA(2)... */
+let viewerEdited = false
+function onViewerRowUpdated(updated: PendingRfqRow) {
+  const row = rows.value.find(r => r.id === updated?.id)
+  if (row) Object.assign(row, updated)
+  if (showEmail.value) viewerEdited = true
+  else load() // the last save landed after the viewer closed
+}
+watch(showEmail, (open) => {
+  if (!open && viewerEdited) {
+    viewerEdited = false
+    load()
+  }
+})
 
 // ── Remove ──
 const showConfirmRemove = ref(false)
@@ -599,5 +687,14 @@ async function doRemove() {
   padding: 4px 8px;
   border-bottom: 1px solid var(--card-border);
   vertical-align: middle;
+}
+.row-date {
+  font: inherit;
+  color: inherit;
+  padding: 2px 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  background: transparent;
+  color-scheme: light dark;
 }
 </style>

@@ -54,6 +54,7 @@ public class ImportPendingQuoteItem
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
 }
 
 public class ImportPendingQuotesResponse
@@ -113,6 +114,7 @@ public class PendingSupplierQuoteResponse
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
     public List<string> CustomCertReferences { get; set; } = new();
     public List<PendingQuoteCertificateResponse> Certificates { get; set; } = new();
     public DateTime CreatedAt { get; set; }
@@ -207,6 +209,7 @@ public class UpdatePendingSupplierQuoteRequest
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
 }
 
 public class PendingQuoteIdsRequest
@@ -235,6 +238,9 @@ public record QuoteReviewerOption(long Id, string Name);
 /// <summary>A MailFlow mailbox lines came in through (dropdown); Mailbox "-" = not known (older lines).</summary>
 public record MailboxOption(string Mailbox, string Label, int Lines);
 
+/// <summary>Email Quotes: All = SuperAdmin (every mailbox), else only these (set on the Users page).</summary>
+public record MyMailboxesResponse(bool All, List<string> Mailboxes);
+
 /// <summary>Supplier picked for a whole email's pending lines (null clears it).</summary>
 public class SetPendingSupplierRequest
 {
@@ -245,14 +251,6 @@ public class SetPendingSupplierRequest
 public class SetPendingSupplierResponse
 {
     public int Updated { get; set; }
-    /// <summary>The sender's address that was added to the supplier's catalog contacts.</summary>
-    public string? EmailAdded { get; set; }
-    /// <summary>Where it went, e.g. "Contact: sales".</summary>
-    public string? EmailTarget { get; set; }
-    /// <summary>Other pending lines from the same address that got this supplier too.</summary>
-    public int OtherLinesLinked { get; set; }
-    /// <summary>The address already belongs to this other catalog supplier, so it was not added.</summary>
-    public string? EmailOnOtherSupplier { get; set; }
 }
 
 public class AcceptPendingQuotesResponse
@@ -260,7 +258,22 @@ public class AcceptPendingQuotesResponse
     public int Accepted { get; set; }
     /// <summary>Supplier quotes written to RFQ items (new + updated).</summary>
     public int QuotesWritten { get; set; }
+    /// <summary>Sender addresses added to their supplier's catalog contacts (only users allowed to).</summary>
+    public List<string> EmailsAdded { get; set; } = new();
+    /// <summary>"address (Other supplier)": already a contact of another catalog supplier, so not added.</summary>
+    public List<string> EmailsOnOtherSupplier { get; set; } = new();
     /// <summary>Ids that could not be accepted, with the reason.</summary>
+    public List<PendingQuoteFailure> Failed { get; set; } = new();
+}
+
+public class ReapplyPendingQuotesResponse
+{
+    /// <summary>Accepted lines written to their RFQs again.</summary>
+    public int Lines { get; set; }
+    /// <summary>RFQ supplier quotes rewritten with the line's current values.</summary>
+    public int QuotesUpdated { get; set; }
+    /// <summary>RFQ items that did not have the quote yet and got it now.</summary>
+    public int QuotesAdded { get; set; }
     public List<PendingQuoteFailure> Failed { get; set; } = new();
 }
 

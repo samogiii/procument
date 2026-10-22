@@ -149,26 +149,56 @@
         <aside v-if="hasEdit && modelValue" class="ev-edit-col">
           <div class="ev-edit-head">
             <v-icon icon="mdi-pencil-box-multiple-outline" color="primary" size="20" />
-            <span class="ev-edit-title">Quote details</span>
+            <span class="ev-edit-title">{{ editTitle || 'Quote details' }}</span>
             <v-spacer />
             <v-chip size="x-small" variant="tonal">{{ rows!.length }} line{{ rows!.length === 1 ? '' : 's' }}</v-chip>
           </div>
-          <div v-if="rows!.length > 1" class="ev-line-tabs">
-            <button
-              v-for="r in rows"
-              :key="r.id"
-              type="button"
-              class="ev-line-tab"
-              :class="{ active: r.id === activeRow?.id }"
-              @click="activeRowId = r.id"
+          <!-- Emails can carry 100+ lines: pick one by typing its P/N, or step through with the arrows -->
+          <div v-if="rows!.length > 1" class="ev-line-picker">
+            <v-btn
+              icon="mdi-chevron-left"
+              size="small"
+              variant="text"
+              title="Previous line"
+              :disabled="activeIndex <= 0"
+              @click="stepLine(-1)"
+            />
+            <v-autocomplete
+              :model-value="activeRow?.id"
+              :items="lineItems"
+              item-title="title"
+              item-value="id"
+              label="Line — type a part number"
+              density="compact"
+              variant="outlined"
+              prepend-inner-icon="mdi-magnify"
+              hide-details
+              auto-select-first
+              class="ev-line-select"
+              @update:model-value="(id: number | null) => { if (id != null) activeRowId = id }"
             >
-              <span class="ev-line-pn">{{ r.partNumber || '—' }}</span>
-              <span v-if="r.alt" class="ev-line-alt">alt {{ r.alt }}</span>
-            </button>
+              <template #item="{ props: itemProps, item }">
+                <v-list-item v-bind="itemProps" :title="item.raw.partNumber" density="compact">
+                  <template #prepend><span class="ev-line-no">{{ item.raw.no }}</span></template>
+                  <template v-if="item.raw.detail" #subtitle><span class="ev-line-alt">{{ item.raw.detail }}</span></template>
+                </v-list-item>
+              </template>
+            </v-autocomplete>
+            <span class="ev-line-count">{{ activeIndex + 1 }} / {{ rows!.length }}</span>
+            <v-btn
+              icon="mdi-chevron-right"
+              size="small"
+              variant="text"
+              title="Next line"
+              :disabled="activeIndex >= rows!.length - 1"
+              @click="stepLine(1)"
+            />
           </div>
           <div class="ev-edit-body">
+            <!-- Email RFQs puts its own line form here; Email Quotes uses the quote form below. -->
+            <slot v-if="$slots.edit && activeRow" name="edit" :row="activeRow" />
             <EmailQuoteEditForm
-              v-if="activeRow"
+              v-else-if="activeRow"
               :row="activeRow"
               :accepted="accepted"
               compact
@@ -212,6 +242,8 @@ const props = defineProps<{
   accepted?: boolean
   /** API the email and its attachments are read from — Email RFQs passes '/pending-rfqs'. */
   apiBase?: string
+  /** Heading of the edit panel (default "Quote details"). */
+  editTitle?: string
 }>()
 const emailApi = computed(() => props.apiBase || '/pending-supplier-quotes')
 const emit = defineEmits<{
@@ -224,6 +256,22 @@ const emit = defineEmits<{
 const hasEdit = computed(() => !!props.rows?.length)
 const activeRowId = ref<number | null>(null)
 const activeRow = computed(() => props.rows?.find(r => r.id === activeRowId.value) ?? props.rows?.[0] ?? null)
+const activeIndex = computed(() => props.rows?.findIndex(r => r.id === activeRow.value?.id) ?? -1)
+/** Line picker entries; the title holds alt / S/N too so typing any of them finds the line. */
+const lineItems = computed(() => (props.rows ?? []).map((r, i) => {
+  const detail = [
+    r.alt ? `alt ${r.alt}` : '',
+    r.alternatives?.length ? `alt ${r.alternatives.join(', ')}` : '',
+    r.serialNumber ? `S/N ${r.serialNumber}` : '',
+    r.condition || '',
+  ].filter(Boolean).join(' · ')
+  const partNumber = r.partNumber || '—'
+  return { id: r.id, no: i + 1, partNumber, detail, title: detail ? `${partNumber} · ${detail}` : partNumber }
+}))
+function stepLine(delta: number) {
+  const next = props.rows?.[activeIndex.value + delta]
+  if (next) activeRowId.value = next.id
+}
 
 const api = useApi()
 const email = ref<Email | null>(null)
@@ -544,32 +592,16 @@ onBeforeUnmount(closePreview)
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 .ev-edit-title { font-weight: 600; }
-.ev-line-tabs {
+.ev-line-picker {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 16px 0;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 10px 0;
 }
-.ev-line-tab {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  line-height: 1.25;
-  transition: background 0.15s, border-color 0.15s;
-}
-.ev-line-tab:hover { background: rgba(var(--v-theme-primary), 0.06); }
-.ev-line-tab.active {
-  border-color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.12);
-}
-.ev-line-pn { font-size: 12px; font-weight: 600; }
-.ev-line-alt { font-size: 10px; color: #f59e0b; }
+.ev-line-select { flex: 1; min-width: 0; }
+.ev-line-count { font-size: 12px; opacity: 0.7; white-space: nowrap; padding: 0 2px; }
+.ev-line-no { font-size: 11px; opacity: 0.6; min-width: 26px; }
+.ev-line-alt { font-size: 11px; color: #f59e0b; }
 .ev-edit-body {
   flex: 1;
   min-height: 0;

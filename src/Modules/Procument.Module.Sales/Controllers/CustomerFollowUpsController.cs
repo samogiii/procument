@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -46,12 +47,85 @@ public class CustomerFollowUpsController : ControllerBase
         return Ok(await _service.GetAllAsync(CurrentUserName));
     }
 
-    /// <summary>Dropdown values: catalog customer codes, user names and the status defaults, plus every value already used on a row.</summary>
+    [HttpGet("{id:long}")]
+    public async Task<ActionResult<CustomerFollowUpResponse>> GetById(long id)
+    {
+        if (!await HasAccessAsync()) return Forbid();
+        var row = await _service.GetByIdAsync(id, CurrentUserName);
+        return row == null ? NotFound() : Ok(row);
+    }
+
+    /// <summary>
+    /// Dropdown values: catalog customer codes, user names, categories and the status defaults, plus every
+    /// value already used on a row — and whether the current user is a procurement user.
+    /// </summary>
     [HttpGet("options")]
     public async Task<ActionResult<CustomerFollowUpOptionsResponse>> GetOptions()
     {
         if (!await HasAccessAsync()) return Forbid();
-        return Ok(await _service.GetOptionsAsync());
+        return Ok(await _service.GetOptionsAsync(CurrentUserName));
+    }
+
+    // ── RFQ Ref# and Other Refs ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Lazy picker pages, newest first. type = Rfq (never "No Quote") | PurchaseOrder | Quote | Invoice | FinalInvoice.
+    /// </summary>
+    [HttpGet("ref-options")]
+    public async Task<ActionResult<CustomerFollowUpRefOptionsPage>> SearchRefs(
+        [FromQuery] string type, [FromQuery] string? search, [FromQuery] int skip = 0, [FromQuery] int take = 30)
+    {
+        if (!await HasAccessAsync()) return Forbid();
+        try
+        {
+            return Ok(await _service.SearchRefsAsync(type, search, skip, take));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Catalog customers for the new-RFQ form.</summary>
+    [HttpGet("rfq-customers")]
+    public async Task<ActionResult<List<CustomerFollowUpCustomerOption>>> GetRfqCustomers()
+    {
+        if (!await HasAccessAsync()) return Forbid();
+        return Ok(await _service.GetRfqCustomersAsync());
+    }
+
+    [HttpPut("{id:long}/rfq")]
+    [Auditable("CustomerFollowUp", "SetRfq", CaptureBody = true)]
+    public Task<ActionResult<CustomerFollowUpResponse>> SetRfq(long id, [FromBody] SetCustomerFollowUpRfqRequest request) =>
+        RowActionAsync(() => _service.SetRfqAsync(id, request.RfqId, CurrentUserName));
+
+    /// <summary>Creates a new RFQ (owner = current user) and links it to the row.</summary>
+    [HttpPost("{id:long}/rfq")]
+    [Auditable("CustomerFollowUp", "CreateRfq", CaptureBody = true)]
+    public Task<ActionResult<CustomerFollowUpResponse>> CreateRfq(long id, [FromBody] CreateCustomerFollowUpRfqRequest request) =>
+        RowActionAsync(() => _service.CreateRfqAsync(id, request, CurrentUserName, CurrentUserId));
+
+    /// <summary>Replaces the row's Other Refs with the given set.</summary>
+    [HttpPut("{id:long}/refs")]
+    [Auditable("CustomerFollowUp", "SetRefs", CaptureBody = true)]
+    public Task<ActionResult<CustomerFollowUpResponse>> SetRefs(long id, [FromBody] SetCustomerFollowUpRefsRequest request) =>
+        RowActionAsync(() => _service.SetRefsAsync(id, request.Refs, CurrentUserName));
+
+    private long CurrentUserId =>
+        long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+
+    private async Task<ActionResult<CustomerFollowUpResponse>> RowActionAsync(Func<Task<CustomerFollowUpResponse?>> action)
+    {
+        if (!await HasAccessAsync()) return Forbid();
+        try
+        {
+            var row = await action();
+            return row == null ? NotFound() : Ok(row);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost]

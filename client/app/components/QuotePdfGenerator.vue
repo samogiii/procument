@@ -334,12 +334,13 @@ function buildPreviewModel(): PdfPreviewModel {
       { header: 'Cert Reference', width: 68 },
     ],
     rows: items.map((it: any, i: number) => {
+      // Same sub-row as the server: the spec strip (Cert … Warranty), then the note on its own line.
       const details: string[] = []
-      if (it.certName) details.push(`Cert: ${it.certName}`)
-      if (it.tagDate) details.push(`Tag Date: ${new Date(it.tagDate).getFullYear()}`)
-      if (it.note) details.push(`Note: ${it.note}`)
+      const specs = quoteItemSpecs(it)
+      if (specs.length) details.push(specs.map(s => `${s.label}: ${s.value}`).join('   ·   '))
+      if (it.note?.trim()) details.push(`Note: ${it.note.trim()}`)
       return {
-        note: details.length ? details.join('   ') : null,
+        note: details.length ? details.join('\n') : null,
         cells: [
           { text: String(i + 1) },
           { text: it.rfqReference },
@@ -476,13 +477,20 @@ const renderedHtml = computed(() => {
     const mainPNNote = isAlt
       ? `<div style="font-size:9px;color:#9ca3af;margin-top:1px;">(Req: ${it.partNumberName})</div>`
       : ''
-    const details: string[] = []
-    if (it.certName) details.push(`<span style="margin-right:16px;"><strong>Cert:</strong> ${it.certName}</span>`)
-    if (it.tagDate) details.push(`<span style="margin-right:16px;"><strong>Tag Date:</strong> ${new Date(it.tagDate).getFullYear()}</span>`)
-    if (it.note) details.push(`<span><strong>Note:</strong> ${it.note}</span>`)
+    // Detail sub-row: a quiet spec strip (small caps label + value, thin dividers), the note on its own line.
+    const label = (text: string) =>
+      `<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;margin-right:5px;">${text}</span>`
+    const specs = quoteItemSpecs(it)
+    const specLine = specs
+      .map(s => `<span style="white-space:nowrap;">${label(s.label)}<span style="color:#374151;">${s.value}</span></span>`)
+      .join('<span style="color:#d1d5db;margin:0 10px;">|</span>')
+    const noteLine = it.note?.trim()
+      ? `<div style="margin-top:${specs.length ? 3 : 0}px;">${label('Note')}<span style="font-style:italic;color:#6b7280;">${it.note.trim()}</span></div>`
+      : ''
+    const details = specLine || noteLine ? [specLine, noteLine] : []
     const detailRow = details.length > 0 ? `
     <tr style="background:${bg};">
-      <td colspan="10" style="padding:2px 12px 8px 44px; font-size:10px; color:#6b7280; border-bottom:1px solid #e5e7eb;">${details.join('')}</td>
+      <td colspan="10" style="padding:1px 12px 8px 44px; font-size:10px; line-height:1.6; border-bottom:1px solid #e5e7eb;">${specLine ? `<div>${specLine}</div>` : ''}${noteLine}</td>
     </tr>` : ''
     return `
     <tr style="background:${bg};">
@@ -680,6 +688,10 @@ async function downloadPdf() {
           certName: it.certName || null,
           certReferences: it.certReferences || [],
           tagDate: it.tagDate || null,
+          traceTo: it.traceTo || null,
+          priceType: it.priceType || null,
+          warranty: it.warranty || null,
+          cr: it.cr || null,
           note: it.note || null,
         })),
         subtotal: (Number(q.totalAmount) || 0),

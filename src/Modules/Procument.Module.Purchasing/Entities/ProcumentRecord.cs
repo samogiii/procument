@@ -47,6 +47,10 @@ public class ProcumentRecord : BaseEntity
     public long? CompanyPresetId { get; set; }
     /// <summary>The supplier email the user talks to for this RFQ item (set from the RFQ / procument grid).</summary>
     public string? SupplierEmail { get; set; }
+    /// <summary>Sender address of the Email Quotes line this row was accepted from (null = typed on the RFQ / procument page).</summary>
+    public string? SourceEmail { get; set; }
+    /// <summary>Email Quotes line (PendingSupplierQuote) that last wrote this row — "Re-apply" rewrites it after an edit.</summary>
+    public long? SourcePendingQuoteId { get; set; }
 
     // Quote details (all optional, free text — see QuoteDetailFields for lengths).
     public string? SerialNumber { get; set; }
@@ -57,6 +61,7 @@ public class ProcumentRecord : BaseEntity
     /// <summary>Minimum order quantity as the supplier wrote it ("5 EA", "$500").</summary>
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
 
     // Foreign keys
     public long RFQItemId { get; set; }

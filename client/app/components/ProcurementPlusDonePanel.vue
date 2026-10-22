@@ -48,11 +48,12 @@
 
     <div v-for="g in groups" :key="g.key" class="done-group mb-4">
       <div class="done-group__head">
-        <v-avatar :color="methodMeta(g.method).color" variant="tonal" size="28" class="mr-2">
-          <v-icon :icon="methodMeta(g.method).icon" size="16" />
+        <!-- A line can be searched several ways ("ILS,Email"): the first one's icon, every title -->
+        <v-avatar :color="methodMeta(lineMethods(g.method)[0]?.value ?? g.method).color" variant="tonal" size="28" class="mr-2">
+          <v-icon :icon="methodMeta(lineMethods(g.method)[0]?.value ?? g.method).icon" size="16" />
         </v-avatar>
         <span class="font-weight-bold">{{ g.supplierName }}</span>
-        <span class="text-caption text-medium-emphasis ml-2">{{ methodMeta(g.method).title }}</span>
+        <span class="text-caption text-medium-emphasis ml-2">{{ lineMethods(g.method).map(m => m.title).join(' · ') || methodMeta(g.method).title }}</span>
         <v-spacer />
         <v-btn
           v-if="g.lines.some(isAutoFillOn)"

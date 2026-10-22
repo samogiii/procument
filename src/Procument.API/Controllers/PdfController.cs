@@ -491,7 +491,9 @@ public class PdfController : ControllerBase
                 var isAlt = !string.IsNullOrEmpty(it.Alt);
                 var displayPN = isAlt ? it.Alt! : (it.PartNumberName ?? "—");
                 var pnColor = isAlt ? accent : primary;
-                var hasDetails = !string.IsNullOrEmpty(it.CertName) || !string.IsNullOrEmpty(it.TagDate) || !string.IsNullOrEmpty(it.Note);
+                var specs = it.Specs();
+                var hasNote = !string.IsNullOrWhiteSpace(it.Note);
+                var hasDetails = specs.Count > 0 || hasNote;
 
                 outer.Item().ShowEntire().Column(group =>
                 {
@@ -532,30 +534,33 @@ public class PdfController : ControllerBase
                         Cell(r.ConstantItem(68), FormatCertReferences(it.CertReferences), Colors.Grey.Darken1);
                     });
 
-                    // Detail sub-row: Cert, Tag Date, Note
+                    // Detail sub-row, indented under Part No.: a quiet spec strip
+                    // (CERT FAA | TAG DATE 2024 | TRACE TO … | PRICE TYPE … | WARRANTY …), then the note on its own line.
                     if (hasDetails)
                     {
                         group.Item().Background(bg)
                             .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
-                            .PaddingVertical(2).PaddingBottom(6)
-                            .Text(t =>
+                            .PaddingLeft(52 + 5).PaddingRight(8).PaddingTop(1).PaddingBottom(6)
+                            .Column(details =>
                             {
-                                if (!string.IsNullOrEmpty(it.CertName))
-                                {
-                                    t.Span("Cert: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
-                                    t.Span(it.CertName + "   ").FontSize(8).FontColor(Colors.Grey.Darken1);
-                                }
-                                if (!string.IsNullOrEmpty(it.TagDate))
-                                {
-                                    t.Span("Tag Date: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
-                                    var tagYear = it.TagDate.Length >= 4 ? it.TagDate[..4] : it.TagDate;
-                                    t.Span(tagYear + "   ").FontSize(8).FontColor(Colors.Grey.Darken1);
-                                }
-                                if (!string.IsNullOrEmpty(it.Note))
-                                {
-                                    t.Span("Note: ").Bold().FontSize(8).FontColor(Colors.Grey.Darken1);
-                                    t.Span(it.Note).FontSize(8).FontColor(Colors.Grey.Darken1);
-                                }
+                                details.Spacing(2);
+                                if (specs.Count > 0)
+                                    details.Item().Text(t =>
+                                    {
+                                        for (var s = 0; s < specs.Count; s++)
+                                        {
+                                            if (s > 0) t.Span("   |   ").FontSize(7).FontColor(Colors.Grey.Lighten1);
+                                            t.Span(specs[s].Label.ToUpperInvariant() + "  ").FontSize(6.5f).SemiBold()
+                                                .LetterSpacing(0.06f).FontColor(Colors.Grey.Medium);
+                                            t.Span(specs[s].Value).FontSize(8).FontColor(Colors.Grey.Darken3);
+                                        }
+                                    });
+                                if (hasNote)
+                                    details.Item().Text(t =>
+                                    {
+                                        t.Span("NOTE  ").FontSize(6.5f).SemiBold().LetterSpacing(0.06f).FontColor(Colors.Grey.Medium);
+                                        t.Span(it.Note!.Trim()).FontSize(8).Italic().FontColor(Colors.Grey.Darken1);
+                                    });
                             });
                     }
                 });
@@ -688,5 +693,29 @@ public class QuotePdfItem
     public string? CertName { get; set; }
     public List<string> CertReferences { get; set; } = new();
     public string? TagDate { get; set; }
+    public string? TraceTo { get; set; }
+    public string? PriceType { get; set; }
+    public string? Warranty { get; set; }
+    public string? CR { get; set; }
     public string? Note { get; set; }
+
+    /// <summary>
+    /// The small label/value pairs printed under the item (empty ones left out), in reading order:
+    /// what the part is (cert, tag year, trace), then how it is sold (price type, warranty).
+    /// </summary>
+    public List<(string Label, string Value)> Specs()
+    {
+        var specs = new List<(string, string)>();
+        void Add(string label, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) specs.Add((label, value.Trim()));
+        }
+        Add("Cert", CertName);
+        Add("Tag Date", string.IsNullOrWhiteSpace(TagDate) ? null : TagDate.Length >= 4 ? TagDate[..4] : TagDate);
+        Add("Trace To", TraceTo);
+        Add("Price Type", PriceType);
+        Add("Warranty", Warranty);
+        Add("CR", CR);
+        return specs;
+    }
 }

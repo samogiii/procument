@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +20,8 @@ namespace Procument.Module.Purchasing.Services;
 ///
 /// Runs cover mail received since a day before the last successful start (the first run: the last
 /// AutoFetchFirstDays days), all mail not just unread — someone may have opened it in Outlook already.
-/// One run per mailbox set to that export, one after another (multiple mailboxes); a run still going when
+/// Quote and RFQ exports run in separate loops. One run per mailbox set to that export, one after another
+/// (multiple mailboxes); a run still going when
 /// the next tick comes (e.g. one a user started) is simply left to finish.
 /// Config: MailFlow:AutoFetchSeconds (default 180 = 3 min, 0 = off), MailFlow:BaseUrl, MailFlow:ApiKey.
 /// </summary>
@@ -31,8 +33,9 @@ public class MailFlowAutoFetchService : BackgroundService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly ILogger<MailFlowAutoFetchService> _logger;
-    private readonly Dictionary<string, DateTime> _lastStarted = new();
-    private readonly Dictionary<string, string> _lastProblem = new();
+    // Both export loops write these (different keys) — hence concurrent dictionaries.
+    private readonly ConcurrentDictionary<string, DateTime> _lastStarted = new();
+    private readonly ConcurrentDictionary<string, string> _lastProblem = new();
 
     public MailFlowAutoFetchService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<MailFlowAutoFetchService> logger)
     {
@@ -51,11 +54,27 @@ public class MailFlowAutoFetchService : BackgroundService
         }
 
         await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken); // let the API finish starting
-        while (!stoppingToken.IsCancellationRequested)
+        // One loop per export: quote runs (5 mailboxes, each waited on up to 15 min) must never hold back
+        // the RFQ runs — in one shared loop RFQs were only asked for once every quote mailbox was done.
+        await Task.WhenAll(
+            LoopAsync("quote-export", "quote", seconds, stoppingToken),
+            LoopAsync("csv-export", "rfq", seconds, stoppingToken));
+    }
+
+    private async Task LoopAsync(string export, string kind, int seconds, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
         {
-            await FetchAsync("quote-export", "quote", stoppingToken);
-            await FetchAsync("csv-export", "rfq", stoppingToken);
-            await Task.Delay(TimeSpan.FromSeconds(seconds), stoppingToken);
+            try
+            {
+                await FetchAsync(export, kind, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // One bad tick must not stop this export's loop (or the other one).
+                Report(export, $"auto-fetch failed ({ex.Message})");
+            }
+            await Task.Delay(TimeSpan.FromSeconds(seconds), ct);
         }
     }
 
@@ -130,7 +149,7 @@ public class MailFlowAutoFetchService : BackgroundService
         var now = DateTime.UtcNow;
         var since = _lastStarted.TryGetValue(key, out var last)
             ? last.AddDays(-OverlapDays)
-            : now.AddHours(-AutoFetchFirstDays);
+            : now.AddDays(-AutoFetchFirstDays);
         var body = JsonSerializer.Serialize(new
         {
             accountId,
@@ -177,7 +196,7 @@ public class MailFlowAutoFetchService : BackgroundService
 
     private void Clear(string export)
     {
-        if (_lastProblem.Remove(export))
+        if (_lastProblem.TryRemove(export, out _))
             _logger.LogInformation("MailFlow auto-fetch ({Export}) is working again.", export);
     }
 }

@@ -25,7 +25,7 @@
     </div>
 
     <v-alert v-if="accepted" type="info" variant="tonal" density="compact" class="mb-3">
-      Already accepted — changes apply only to new RFQs that pick this quote up. RFQs it was already added to keep their values.
+      Already accepted — changes reach new RFQs that pick this quote up. To update RFQs it was already added to, press <strong>Re-apply</strong> on the Accepted tab.
     </v-alert>
 
     <v-autocomplete

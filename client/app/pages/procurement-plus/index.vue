@@ -43,7 +43,7 @@
     <div class="pp-stats mb-4">
       <div class="pp-stat pp-stat--click" @click="tab = 'parts'">
         <v-icon icon="mdi-airplane-search" color="deep-purple" />
-        <div><div class="pp-stat__value">{{ ilsParts.length }}</div><div class="pp-stat__label">ILS parts (from files)</div></div>
+        <div><div class="pp-stat__value">{{ boardCounts.All }}</div><div class="pp-stat__label">Parts (every tab + your RFQs)</div></div>
       </div>
       <div class="pp-stat pp-stat--click" @click="!allMode && availability?.uploads.length && openAvailability()">
         <v-icon icon="mdi-star" color="amber" />
@@ -65,7 +65,7 @@
     <!-- Work tabs -->
     <v-tabs v-model="tab" color="primary" class="mb-3" show-arrows>
       <v-tab value="parts" prepend-icon="mdi-airplane-search">
-        ILS Parts <v-chip size="x-small" class="ml-2" variant="tonal">{{ ilsParts.length }}</v-chip>
+        Parts <v-chip size="x-small" class="ml-2" variant="tonal">{{ boardCounts.All }}</v-chip>
       </v-tab>
       <v-tab value="project" prepend-icon="mdi-briefcase-search-outline">
         Project <v-chip v-if="boardCounts.Project" size="x-small" class="ml-2" color="teal" variant="flat">{{ boardCounts.Project }}</v-chip>
@@ -165,7 +165,7 @@
       :show-owner="allMode"
       :has-files="!!availability?.uploads.length"
       @loaded="(n: number) => (boardCounts[b.track] = n)"
-      @changed="onBoardChanged"
+      @changed="onBoardChanged(b.track)"
       @add-part="openAddParts(b.track)"
       @edit-part="editPart"
       @move="openMove"
@@ -180,12 +180,14 @@
       ref="rfqView"
       :show-owner="allMode"
       @changed="onRfqChanged"
+      @mine-changed="boards.All?.load(); loadAvailability()"
       @edit-part="editPart"
       @move="openMove"
       @hide="(ids: number[]) => hideParts(ids, true)"
       @show="(ids: number[]) => hideParts(ids, false)"
       @delete="deleteParts"
     />
+
 
     <!-- ── Done ── -->
     <v-card v-if="tab === 'done'" class="glass-card">
@@ -207,13 +209,13 @@
       :data="availability"
       :loading="availabilityLoading"
       :initial-tab="availabilityTab"
-      @source="sourceOpen = true"
+      @source="openSource"
       @resolve="resolveOpen = true"
       @reload="loadAvailability"
       @hide-part="(id: number) => hideParts([id], true)"
       @move="openMove"
     />
-    <ProcurementPlusSourceDialog v-model="sourceOpen" :rows="availability?.preferred ?? []" @started="onSourcingStarted" />
+    <ProcurementPlusSourceDialog v-model="sourceOpen" :rows="sourceRows" @started="onSourcingStarted" @reload="loadAvailability" />
     <ProcurementPlusMoveDialog v-model="move.open" :track="move.track" :parts="move.parts" @moved="onMoved" />
 
     <!-- Edit a preferred part (kept in Preferreds — the catalog is not changed) -->
@@ -305,7 +307,7 @@ watch(tab, (t) => {
 })
 
 const TAB_HELP: Record<string, { icon: string; text: string }> = {
-  parts: { icon: 'mdi-airplane-search', text: 'Parts sourced from ILS / Excel availability files: upload the files, open Suppliers available, Source, then fill the prices under each part.' },
+  parts: { icon: 'mdi-airplane-search', text: 'Every part you work on — Parts, Project, WeChat and the items of your RFQs (By RFQ), tinted by the tab it comes from. Copy all P/Ns, search them on ILS, upload the files: the suppliers they list show under each part on every tab.' },
   project: { icon: 'mdi-briefcase-search-outline', text: 'Parts nobody lists — worked on as a project: add your own suppliers, keep the tracing timeline, aim for the target price.' },
   wechat: { icon: 'mdi-wechat', text: 'Parts sourced over WeChat: copy the request text, add the suppliers who answer, fill their prices.' },
   rfq: { icon: 'mdi-file-search-outline', text: 'Load an RFQ to see which of its parts already have suppliers and which do not — then add and fill the missing ones.' },
@@ -313,7 +315,7 @@ const TAB_HELP: Record<string, { icon: string; text: string }> = {
 }
 
 const BOARDS = [
-  { tab: 'parts', track: 'ILS' },
+  { tab: 'parts', track: 'All' },
   { tab: 'project', track: 'Project' },
   { tab: 'wechat', track: 'WeChat' },
 ] as const
@@ -355,7 +357,6 @@ const allParts = ref<PpPart[]>([])
 const partsLoading = ref(false)
 
 const trackParts = (track: string) => allParts.value.filter(p => p.track === track && !p.hidden)
-const ilsParts = computed(() => trackParts('ILS'))
 
 async function loadParts() {
   partsLoading.value = true
@@ -509,7 +510,7 @@ async function upload(files: File[]) {
       toast(`${res.uploads.length} file${res.uploads.length === 1 ? '' : 's'} read · ${rows} rows · ${matched} for your parts`)
       freshResults.value = true
     }
-    await Promise.all([loadAvailability(), loadParts()])
+    await Promise.all([loadAvailability(), loadParts(), reloadBoards(), rfqView.value?.load()])
   } catch (e: any) {
     toast(e?.data?.message || 'Upload failed', 'error')
   } finally {
@@ -519,23 +520,34 @@ async function upload(files: File[]) {
 
 async function deleteUpload(id: number) {
   await api.del(`/procurement-plus/uploads/${id}`)
-  await Promise.all([loadAvailability(), loadParts()])
+  await Promise.all([loadAvailability(), loadParts(), reloadBoards(), rfqView.value?.load()])
 }
 
 function clearFiles() {
   ask('Clear files?', 'Remove every current file? Suppliers being sourced and prices already set are kept.', async () => {
     await api.del('/procurement-plus/uploads')
-    await Promise.all([loadAvailability(), loadParts()])
+    await Promise.all([loadAvailability(), loadParts(), reloadBoards(), rfqView.value?.load()])
   })
 }
 
 const sourceOpen = ref(false)
+/** Rows picked on the Others tab (offer ids); null = every preferred row. Kept as ids so a reload refreshes them. */
+const sourceOfferIds = ref<Set<number> | null>(null)
+const sourceRows = computed(() => {
+  const ids = sourceOfferIds.value
+  if (!ids) return availability.value?.preferred ?? []
+  return [...(availability.value?.preferred ?? []), ...(availability.value?.others ?? [])].filter(r => ids.has(r.offerId))
+})
+function openSource(offerIds?: number[]) {
+  sourceOfferIds.value = offerIds?.length ? new Set(offerIds) : null
+  sourceOpen.value = true
+}
 const resolveOpen = ref(false)
 const preferredOpen = ref(false)
 
 // ── Boards ──
 const boards = reactive<Record<string, { load: () => Promise<void> } | null>>({})
-const boardCounts = reactive<Record<string, number>>({ ILS: 0, Project: 0, WeChat: 0 })
+const boardCounts = reactive<Record<string, number>>({ All: 0, Project: 0, WeChat: 0 })
 const doneKey = ref(0)
 
 function reloadBoards() {
@@ -546,7 +558,7 @@ async function onSourcingStarted(_lineIds: number[], message: string) {
   toast(message)
   availabilityOpen.value = false
   tab.value = 'parts'
-  await Promise.all([reloadBoards(), loadAvailability(), loadParts()])
+  await Promise.all([reloadBoards(), loadAvailability(), loadParts(), rfqView.value?.load()])
 }
 
 const rfqView = ref<{ load: () => Promise<void> } | null>(null)
@@ -556,9 +568,14 @@ async function onRfqChanged() {
   await Promise.all([reloadBoards(), onBoardChanged()])
 }
 
-async function onBoardChanged() {
+/** A board changed (it reloaded itself) — the Parts tab and the track boards show the same parts. */
+async function onBoardChanged(from?: string) {
   doneKey.value++
-  await Promise.all([loadParts(), loadAvailability()])
+  await Promise.all([
+    loadParts(),
+    loadAvailability(),
+    ...(from ? Object.entries(boards).filter(([t]) => t !== from).map(([, b]) => b?.load()) : []),
+  ])
 }
 
 function reloadAll() {

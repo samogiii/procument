@@ -28,7 +28,7 @@
         >
           {{ item }}
         </div>
-        <div v-if="!shownItems.length && !canAdd" class="sheet-combo-empty">Type to add a value</div>
+        <div v-if="!shownItems.length && !canAdd" class="sheet-combo-empty">{{ strict ? 'No match' : 'Type to add a value' }}</div>
       </div>
     </Teleport>
   </div>
@@ -39,11 +39,13 @@
  * Dropdown with free entry for one sheet cell: pick an item, or type a value that is not
  * in the list. Picking commits at once; Enter / Tab / leaving the cell commits the typed text;
  * Escape cancels. The list is teleported to <body> so the table's scroll box does not clip it.
+ * `strict`: only listed items — typed text commits the matching item (or the only one left), otherwise cancels.
  */
 const props = defineProps<{
   modelValue: string | null
   items: readonly string[]
   placeholder?: string
+  strict?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -72,7 +74,7 @@ const shownItems = computed(() => {
 
 const canAdd = computed(() => {
   const value = text.value.trim().toLowerCase()
-  return typed.value && !!value && !props.items.some(item => item.toLowerCase() === value)
+  return !props.strict && typed.value && !!value && !props.items.some(item => item.toLowerCase() === value)
 })
 
 function place() {
@@ -93,6 +95,16 @@ let done = false
 function finish(value: string, move: 0 | 1 | -1) {
   if (done) return
   done = true
+  if (props.strict) {
+    const wanted = value.trim().toLowerCase()
+    const match = props.items.find(item => item.toLowerCase() === wanted)
+      ?? (shownItems.value.length === 1 ? shownItems.value[0] : undefined)
+    if (match === undefined) {
+      emit('cancel')
+      return
+    }
+    value = match
+  }
   emit('commit', value, move)
 }
 

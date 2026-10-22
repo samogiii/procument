@@ -14,6 +14,7 @@ internal static class QuoteDetailFields
     public const int TaggedByLength = 300;
     public const int MoQLength = 100;
     public const int WarrantyLength = 200;
+    public const int CRLength = 200;
 
     /// <summary>Trimmed, truncated to the column, null when blank.</summary>
     public static string? Clean(string? value, int maxLength)

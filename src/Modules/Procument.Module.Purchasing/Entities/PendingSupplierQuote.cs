@@ -59,6 +59,7 @@ public class PendingSupplierQuote : BaseEntity
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
 
     /// <summary>Pending | Accepted | Removed</summary>
     public string Status { get; set; } = "Pending";
@@ -91,6 +92,11 @@ public class PendingSupplierQuote : BaseEntity
     public long? PreferredId { get; set; }
     /// <summary>Procurement Plus: the user's preferred part (Preferreds) this line prices — lines are shown under it.</summary>
     public long? PreferredPartId { get; set; }
+    /// <summary>
+    /// Procurement Plus: the user's own RFQ supplier quote (SupplierPartQuote, last two weeks) this line was copied from.
+    /// Accept skips that quote's own RFQ item, so the original quote and its cert PDFs stay as they are.
+    /// </summary>
+    public long? SourceSupplierQuoteId { get; set; }
 
     public const string SourceProcurementPlus = "ProcurementPlus";
 

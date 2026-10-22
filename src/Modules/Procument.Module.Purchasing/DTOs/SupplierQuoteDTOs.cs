@@ -44,6 +44,7 @@ public class SaveSupplierQuoteRequest
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -89,6 +90,10 @@ public class SupplierQuoteResponse
     public long? CompanyPresetId { get; set; }
     public string? CompanyPresetName { get; set; }
     public string? SupplierEmail { get; set; }
+    /// <summary>Sender address of the accepted Email Quotes line this row came from.</summary>
+    public string? SourceEmail { get; set; }
+    /// <summary>The catalog supplier's main email.</summary>
+    public string? SupplierMainEmail { get; set; }
     public string? SerialNumber { get; set; }
     public string? TraceTo { get; set; }
     public string? TagType { get; set; }
@@ -96,6 +101,7 @@ public class SupplierQuoteResponse
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
     /// <summary>The expert who imported this quote. Only filled for SuperAdmin requests.</summary>
     public long? ExpertUserId { get; set; }
     public string? ExpertName { get; set; }

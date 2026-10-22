@@ -19,7 +19,7 @@
         style="max-width: 280px; min-width: 200px;"
       />
       <v-btn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="load">Refresh</v-btn>
-      <v-btn
+      <!-- <v-btn
         size="small"
         color="error"
         variant="tonal"
@@ -29,7 +29,7 @@
         @click="askRemoveAll"
       >
         Remove all
-      </v-btn>
+      </v-btn> -->
       <v-btn
         size="small"
         variant="text"
@@ -132,7 +132,7 @@
                   <th style="min-width: 90px;">Lead Time</th>
                   <th style="min-width: 90px;" title="Blank = derived per RFQ customer on accept">Sell LT</th>
                   <th style="min-width: 110px;">Shipping</th>
-                  <th style="min-width: 160px;" title="Serial Number, Trace To, Tag Type, Price Type, Tagged By, MoQ, Warranty">Details</th>
+                  <th style="min-width: 160px;" title="Serial Number, Trace To, Tag Type, Price Type, Tagged By, MoQ, Warranty, CR">Details</th>
                   <th style="min-width: 140px;">Note</th>
                   <th style="min-width: 120px;">My Notes</th>
                   <th style="min-width: 120px;">Certs</th>
@@ -463,22 +463,11 @@ function supplierOptionsFor(group: any): SupplierOption[] {
   return [...current, ...supplierOptions.value.filter(s => s.id !== group.supplierId)]
 }
 
-// One call for the whole email: the server also puts the sender's address on the supplier's
-// catalog contacts (when missing) and links other pending emails from the same address.
+// One call for the whole email. Only the lines' value — the sender's address reaches the catalog
+// supplier when a user allowed to (Menu Access) accepts.
 async function setGroupSupplier(group: any, supplierId: number | null) {
   try {
-    const res = await api.post<{
-      emailAdded?: string | null
-      emailTarget?: string | null
-      otherLinesLinked: number
-      emailOnOtherSupplier?: string | null
-    }>('/pending-supplier-quotes/supplier', { ids: group.rows.map((r: PendingRow) => r.id), supplierId })
-    if (res.emailOnOtherSupplier) {
-      showSnack(`${group.supplierEmail} is already a contact of "${res.emailOnOtherSupplier}" — not added here`, 'warning')
-    } else if (res.emailAdded) {
-      const more = res.otherLinesLinked ? ` · ${res.otherLinesLinked} more line(s) from this address linked` : ''
-      showSnack(`${res.emailAdded} added to the supplier's contacts (${res.emailTarget})${more}`)
-    }
+    await api.post('/pending-supplier-quotes/supplier', { ids: group.rows.map((r: PendingRow) => r.id), supplierId })
     await load()
   } catch (e: any) {
     showSnack(e?.data?.message || 'Could not set supplier', 'error')
@@ -506,8 +495,12 @@ async function accept(ids: number[], key: string) {
   try {
     const res = await api.post<any>('/pending-supplier-quotes/accept', { ids })
     if (res.accepted) {
-      showSnack(`${res.accepted} line(s) accepted — ${res.quotesWritten} supplier quote(s) added/updated on RFQs`)
+      const added = res.emailsAdded?.length ? ` · ${res.emailsAdded.join(', ')} added to the supplier's contacts` : ''
+      showSnack(`${res.accepted} line(s) accepted — ${res.quotesWritten} supplier quote(s) added/updated on RFQs${added}`)
       emit('accepted')
+    }
+    if (res.emailsOnOtherSupplier?.length) {
+      showSnack(`Already a contact of another supplier, not added: ${res.emailsOnOtherSupplier.join(', ')}`, 'warning')
     }
     if (res.failed?.length) {
       showSnack(res.failed.map((f: any) => `${f.partNumber}: ${f.reason}`).join(' · '), res.accepted ? 'warning' : 'error')

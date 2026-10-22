@@ -10,9 +10,10 @@
     >
       <template v-if="editingKey === key">
         <SheetComboInput
-          v-if="COLUMN[key].type === 'combo'"
+          v-if="COLUMN[key].type === 'combo' || COLUMN[key].type === 'select'"
           :model-value="row[key] as string | null"
           :items="options[key] ?? []"
+          :strict="COLUMN[key].type === 'select'"
           @commit="(value, move) => commit(key, value, move)"
           @cancel="emit('cancel')"
         />
@@ -52,7 +53,31 @@
         </span>
         <v-icon v-else icon="mdi-chat-plus-outline" size="14" class="cfu-empty-icon" title="Start a conversation" />
       </template>
-      <template v-else-if="key === 'responseStatus' || key === 'issueStatus'">
+      <template v-else-if="COLUMN[key].type === 'rfq'">
+        <span v-if="row.rfq" class="cfu-rfq">
+          <NuxtLink :to="rfqPath(row.rfq.id)" target="_blank" class="cfu-link" :title="`Open RFQ ${row.rfq.name} (${row.rfq.status ?? 'Open'})`" @click.stop>
+            <v-icon icon="mdi-file-search-outline" size="14" />{{ row.rfq.name }}
+          </NuxtLink>
+          <span v-if="row.rfq.status && row.rfq.status !== 'Open'" class="cfu-rfq-status">{{ row.rfq.status }}</span>
+        </span>
+        <v-icon v-else icon="mdi-link-variant-plus" size="14" class="cfu-empty-icon" :class="{ 'cfu-rfq-wanted': isRfqCategory }" :title="isRfqCategory ? 'Select or create the RFQ' : 'Link an RFQ (optional)'" />
+      </template>
+      <template v-else-if="COLUMN[key].type === 'refs'">
+        <span v-if="row.refs.length" class="cfu-refs">
+          <NuxtLink
+            v-for="ref in row.refs"
+            :key="`${ref.type}:${ref.id}`"
+            :to="FOLLOW_UP_REF_TYPE[ref.type].path(ref.id)"
+            target="_blank"
+            class="cfu-ref-chip"
+            :class="{ 'cfu-ref-missing': ref.missing }"
+            :title="ref.missing ? 'This document no longer exists' : `Open ${FOLLOW_UP_REF_TYPE[ref.type].tab.replace(/s$/, '')} ${ref.label}`"
+            @click.stop
+          >{{ followUpRefText(ref) }}</NuxtLink>
+        </span>
+        <v-icon v-else icon="mdi-link-variant-plus" size="14" class="cfu-empty-icon" title="Add purchase orders, quotes, invoices…" />
+      </template>
+      <template v-else-if="key === 'procurementStatus' || key === 'salesStatus' || key === 'issueStatus'">
         <span v-if="row[key]" class="cfu-status" :class="`bg-${followUpStatusColor(row[key])}`">{{ row[key] }}</span>
       </template>
       <template v-else-if="COLUMN[key].type === 'date'">
@@ -73,8 +98,11 @@
 import type { ComponentPublicInstance } from 'vue'
 import {
   FOLLOW_UP_COLUMN_BY_KEY as COLUMN,
+  FOLLOW_UP_REF_TYPE,
   documentCountText,
+  followUpRefText,
   followUpStatusColor,
+  rfqPath,
   isClosedFollowUp,
   type EditableFollowUpKey,
   type FollowUpKey,
@@ -110,6 +138,10 @@ const emit = defineEmits<{
   documents: []
   /** The Messages cell was clicked. */
   messages: []
+  /** The RFQ Ref# cell was clicked (not its link). */
+  rfq: []
+  /** The Other Refs cell was clicked (not one of its links). */
+  refs: []
 }>()
 
 /** Editors mount only in the cell whose key equals `editingKey`, which is always an editable column. */
@@ -119,10 +151,15 @@ function commit(key: FollowUpKey, value: string, move: 0 | 1 | -1) {
 
 function onCellClick(key: FollowUpKey) {
   if (key === 'id' || props.editingKey === key) return
-  if (COLUMN[key].type === 'docs') emit('documents')
-  else if (COLUMN[key].type === 'chat') emit('messages')
+  const type = COLUMN[key].type
+  if (type === 'docs') emit('documents')
+  else if (type === 'chat') emit('messages')
+  else if (type === 'rfq') emit('rfq')
+  else if (type === 'refs') emit('refs')
   else emit('edit', key)
 }
+
+const isRfqCategory = computed(() => (props.row.category ?? '').trim().toLowerCase() === 'rfq')
 
 /**
  * The text being typed into a text / date editor. Kept here rather than bound to `row[key]`,

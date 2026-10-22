@@ -177,6 +177,7 @@
                           <th @click="toggleSort('condition')" style="width: 80px; cursor:pointer; user-select:none; white-space:nowrap;">Condition <v-icon :icon="sortIcon('condition')" size="13" :color="sortColor('condition')" /></th>
                           <th @click="toggleSort('qty')" style="width: 70px; cursor:pointer; user-select:none; white-space:nowrap;">Qty <v-icon :icon="sortIcon('qty')" size="13" :color="sortColor('qty')" /></th>
                           <th @click="toggleSort('certName')" style="width: 100px; cursor:pointer; user-select:none; white-space:nowrap;">Cert <v-icon :icon="sortIcon('certName')" size="13" :color="sortColor('certName')" /></th>
+                          <th @click="toggleSort('certRefs')" style="width: 160px; cursor:pointer; user-select:none; white-space:nowrap;">Cert Ref <v-icon :icon="sortIcon('certRefs')" size="13" :color="sortColor('certRefs')" /></th>
                           <th @click="toggleSort('tagDate')" style="width: 100px; cursor:pointer; user-select:none; white-space:nowrap;">Tag Date <v-icon :icon="sortIcon('tagDate')" size="13" :color="sortColor('tagDate')" /></th>
                           <th @click="toggleSort('shippingPoint')" style="width: 120px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Point <v-icon :icon="sortIcon('shippingPoint')" size="13" :color="sortColor('shippingPoint')" /></th>
                           <th @click="toggleSort('shippingCost')" style="width: 110px; cursor:pointer; user-select:none; white-space:nowrap;">Shipping Cost <v-icon :icon="sortIcon('shippingCost')" size="13" :color="sortColor('shippingCost')" /></th>
@@ -252,6 +253,27 @@
                           </td>
                           <td style="padding-left: 8px; font-size: 12px;">
                             {{ record.certName || '—' }}
+                          </td>
+                          <!-- Read-only: cert PDFs (REF#) and typed references are managed on the RFQ page -->
+                          <td style="padding-left: 8px;">
+                            <div class="d-flex flex-wrap align-center gap-1">
+                              <v-chip
+                                v-for="reference in record.certReferences || []"
+                                :key="'pdf-' + reference"
+                                size="x-small"
+                                color="error"
+                                variant="tonal"
+                                prepend-icon="mdi-file-pdf-box"
+                              >REF#{{ reference }}</v-chip>
+                              <v-chip
+                                v-for="(reference, rIdx) in record.customCertReferences || []"
+                                :key="'txt-' + rIdx"
+                                size="x-small"
+                                color="primary"
+                                variant="tonal"
+                              >{{ reference }}</v-chip>
+                              <span v-if="!certRefsText(record)" class="text-medium-emphasis" style="font-size: 12px;">—</span>
+                            </div>
                           </td>
                           <td style="padding-left: 8px; font-size: 12px;">
                             {{ record.tagDate ? new Date(record.tagDate).toLocaleDateString() : '—' }}
@@ -777,6 +799,9 @@ function sortRecords(records: any[]): any[] {
     } else if (sortKey.value === 'totalPrice') {
       av = calcTotalPrice(a)
       bv = calcTotalPrice(b)
+    } else if (sortKey.value === 'certRefs') {
+      av = certRefsText(a)
+      bv = certRefsText(b)
     } else {
       av = a[sortKey.value]
       bv = b[sortKey.value]
@@ -788,6 +813,11 @@ function sortRecords(records: any[]): any[] {
     const cmp = String(av).localeCompare(String(bv))
     return sortDir.value === 'asc' ? cmp : -cmp
   })
+}
+
+/** Cert PDF refs (REF#…) then typed refs, as one string — for sorting and the empty check. */
+function certRefsText(record: any): string {
+  return [...(record.certReferences || []).map((r: string) => `REF#${r}`), ...(record.customCertReferences || [])].join(', ')
 }
 
 function getItemRecords(itemId: number) {

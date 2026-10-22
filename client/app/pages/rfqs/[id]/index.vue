@@ -886,9 +886,7 @@
                                 <span class="font-weight-medium">{{ quote.supplierName || '—' }}</span>
                                 <v-chip v-if="!quote.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit it or use Save All">Unsaved</v-chip>
                               </div>
-                              <div v-if="quote.supplierEmail" class="quote-cell-email" :title="quote.supplierEmail">
-                                <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ quote.supplierEmail }}
-                              </div>
+                              <QuoteSupplierEmails :quote="quote" />
                               <div
                                 v-if="quote.supplierStatus === 'Pending'"
                                 style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
@@ -1072,9 +1070,7 @@
                                           <span class="font-weight-medium">{{ shop.supplierName || '—' }}</span>
                                           <v-chip v-if="!shop.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit it or use Save All">Unsaved</v-chip>
                                         </div>
-                                        <div v-if="shop.supplierEmail" class="quote-cell-email" :title="shop.supplierEmail">
-                                          <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ shop.supplierEmail }}
-                                        </div>
+                                        <QuoteSupplierEmails :quote="shop" />
                                       </td>
                                       <td><span class="quote-cell">{{ shop.alt || 'Same P/N' }}</span></td>
                                       <td><span class="quote-cell">{{ cellText(shop.condition) }}</span></td>
@@ -1183,7 +1179,9 @@
       :part-number="quoteEditor.partNumber"
       :customer-base="rfq.customerBase"
       :company-preset-options="companyPresetOptions"
+      :rfq-id="route.params.id as string"
       :save="saveQuoteFromEditor"
+      @certificates="list => quoteEditor.row && syncCertificateRefs(quoteEditor.row, list)"
     />
 
     <!-- ═══════════ Add Item Dialog ═══════════ -->
@@ -1948,10 +1946,10 @@ async function loadCompanyPresetOptions() {
     companyPresetOptions.value = []
   }
 }
-// Supplier grid columns: 26, plus the SuperAdmin-only Expert column.
+// Supplier grid columns: 27, plus the SuperAdmin-only Expert column.
 // Main columns only unless "all columns" is on (see composables/useQuoteGridColumns).
 const { allQuoteColumns, OTHER_QUOTE_DETAIL_FIELDS } = useQuoteGridColumns()
-const quoteGridColspan = computed(() => allQuoteColumns.value ? (isSuperAdmin.value ? 28 : 27) : (isSuperAdmin.value ? 10 : 9))
+const quoteGridColspan = computed(() => allQuoteColumns.value ? (isSuperAdmin.value ? 29 : 28) : (isSuperAdmin.value ? 10 : 9))
 
 // ──── Supplier quote add / edit modal (the grids are read-only) ────
 const quoteEditor = ref({
@@ -2054,9 +2052,13 @@ async function saveQuoteFromEditor(form: any) {
   } else {
     supplierQuotes.value.push(merged)
   }
+  // The modal now edits the grid's (reactive) row: a second Save or a cert upload patches it.
+  const gridRow = row ?? (shop ? parent.shopRecords[0] : supplierQuotes.value[supplierQuotes.value.length - 1])
+  quoteEditor.value.row = gridRow
   // The backend re-opens a Rejected RFQ when a quote is saved.
   if (rfq.value.status === 'Rejected') rfq.value.status = 'In Progress'
   showSnack(shop ? 'Shop record saved' : 'Supplier quote saved', 'success')
+  return gridRow
 }
 
 const entityId = computed(() => String(route.params.id))
@@ -3489,15 +3491,6 @@ function showSnack(text: string, color: string) {
   display: flex;
   align-items: center;
   max-width: none;
-}
-.quote-cell-email {
-  font-size: 10px;
-  color: #22c55e;
-  padding: 0 6px 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
 }
 .price-text {
   color: #4ade80;

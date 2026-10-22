@@ -17,7 +17,8 @@ namespace Procument.Module.Purchasing.Controllers;
 /// Supplier quotes extracted from email by MailFlow, reviewed on the Procument page.
 /// Import is for MailFlow — authenticated by the permanent X-Api-Key header (MailFlow:ApiKey in
 /// appsettings), or an Admin/SuperAdmin login token. Review is limited to users granted the
-/// "pendingSupplierQuotes" feature in Menu Access — SuperAdmin does NOT bypass (Sam's rule).
+/// "pendingSupplierQuotes" feature in Menu Access — SuperAdmin does NOT bypass (Sam's rule). Reviewers
+/// only see lines from the mailboxes set on their user (Users page); SuperAdmin sees every mailbox.
 /// </summary>
 [ApiController]
 [Route("api/pending-supplier-quotes")]
@@ -25,6 +26,11 @@ namespace Procument.Module.Purchasing.Controllers;
 public class PendingSupplierQuotesController : ControllerBase
 {
     public const string Feature = "pendingSupplierQuotes";
+    /// <summary>
+    /// Accepting also adds the sender's address to the picked catalog supplier (Sam: only AMJ and GHS). Everyone
+    /// else's accept just writes the supplier onto the RFQs. No SuperAdmin bypass.
+    /// </summary>
+    public const string SupplierEmailsFeature = "emailQuotesSupplierEmails";
 
     private readonly IPendingSupplierQuoteService _service;
     private readonly DbContext _db;
@@ -46,11 +52,13 @@ public class PendingSupplierQuotesController : ControllerBase
         return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided));
     }
 
-    private async Task<bool> CanReviewAsync()
+    private Task<bool> CanReviewAsync() => HasFeatureAsync(Feature);
+
+    private async Task<bool> HasFeatureAsync(string feature)
     {
         var userName = User.Identity?.Name;
         return !string.IsNullOrEmpty(userName) && await _db.Set<MenuPermission>()
-            .AnyAsync(p => p.Feature == Feature && p.UserName == userName);
+            .AnyAsync(p => p.Feature == feature && p.UserName == userName);
     }
 
     private ObjectResult Forbidden() =>
@@ -58,6 +66,28 @@ public class PendingSupplierQuotesController : ControllerBase
 
     private long GetUserId() =>
         long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+
+    private List<string>? _allowedMailboxes;
+    private bool _allowedMailboxesLoaded;
+
+    /// <summary>
+    /// The mailboxes this user may see (Users page → Email mailboxes). null = every mailbox: SuperAdmin
+    /// sees all mail (Sam). Anyone else with no mailboxes set sees nothing.
+    /// </summary>
+    private async Task<List<string>?> AllowedMailboxesAsync()
+    {
+        if (_allowedMailboxesLoaded) return _allowedMailboxes;
+        _allowedMailboxesLoaded = true;
+        if (User.IsInRole(UserRoles.SuperAdmin)) return _allowedMailboxes = null;
+        var userId = GetUserId();
+        return _allowedMailboxes = await _db.Set<UserMailbox>().AsNoTracking()
+            .Where(m => m.UserId == userId).Select(m => m.Mailbox).ToListAsync();
+    }
+
+    private async Task<List<long>> VisibleIdsAsync(IEnumerable<long> ids) =>
+        await _service.VisibleIdsAsync(ids, await AllowedMailboxesAsync());
+
+    private async Task<bool> LineVisibleAsync(long id) => (await VisibleIdsAsync([id])).Count > 0;
 
     /// <summary>MailFlow posts one quote email at a time; an already-imported Message-ID is skipped.</summary>
     private bool IsMailFlow() => HasMailFlowApiKey() || User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
@@ -90,7 +120,7 @@ public class PendingSupplierQuotesController : ControllerBase
         [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? mailbox = null)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetPendingPageAsync(search, page, pageSize, mailbox));
+        return Ok(await _service.GetPendingPageAsync(search, page, pageSize, mailbox, await AllowedMailboxesAsync()));
     }
 
     /// <summary>The MailFlow mailboxes lines came in through (mailbox dropdown; "-" = unknown).</summary>
@@ -98,7 +128,16 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<List<MailboxOption>>> Mailboxes()
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetMailboxesAsync());
+        return Ok(await _service.GetMailboxesAsync(await AllowedMailboxesAsync()));
+    }
+
+    /// <summary>Which mailboxes the current user sees: all = SuperAdmin, else the ones set on the Users page.</summary>
+    [HttpGet("my-mailboxes")]
+    public async Task<ActionResult<MyMailboxesResponse>> MyMailboxes()
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        var allowed = await AllowedMailboxesAsync();
+        return Ok(new MyMailboxesResponse(allowed == null, allowed ?? []));
     }
 
     /// <summary>Accepted lines with who accepted them; ?days=30, ?userId=, ?search= to narrow; paged by email.</summary>
@@ -108,7 +147,7 @@ public class PendingSupplierQuotesController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? mailbox = null)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetAcceptedPageAsync(days, userId, search, page, pageSize, mailbox));
+        return Ok(await _service.GetAcceptedPageAsync(days, userId, search, page, pageSize, mailbox, await AllowedMailboxesAsync()));
     }
 
     /// <summary>Every accepted line the filters select, not paged — the Accepted tab's Excel export.</summary>
@@ -117,7 +156,7 @@ public class PendingSupplierQuotesController : ControllerBase
         [FromQuery] int? days, [FromQuery] long? userId, [FromQuery] string? search, [FromQuery] string? mailbox = null)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetAcceptedExportAsync(days, userId, search, mailbox));
+        return Ok(await _service.GetAcceptedExportAsync(days, userId, search, mailbox, await AllowedMailboxesAsync()));
     }
 
     [HttpPut("{id:long}")]
@@ -125,6 +164,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<PendingSupplierQuoteResponse>> Update(long id, [FromBody] UpdatePendingSupplierQuoteRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await LineVisibleAsync(id)) return NotFound();
         try
         {
             var result = await _service.UpdateAsync(id, request);
@@ -137,8 +177,8 @@ public class PendingSupplierQuotesController : ControllerBase
     }
 
     /// <summary>
-    /// Supplier for a whole email's pending lines. Also puts the sender's address on that supplier's
-    /// catalog contacts (if missing) and links other pending lines from the same address.
+    /// Supplier for a whole email's pending lines — the value only; the sender's address goes on the
+    /// catalog supplier when a user with "emailQuotesSupplierEmails" accepts.
     /// </summary>
     [HttpPost("supplier")]
     [Auditable("PendingSupplierQuote", "SetSupplier", CaptureBody = true)]
@@ -147,7 +187,7 @@ public class PendingSupplierQuotesController : ControllerBase
         if (!await CanReviewAsync()) return Forbidden();
         try
         {
-            return Ok(await _service.SetSupplierAsync(request.Ids, request.SupplierId));
+            return Ok(await _service.SetSupplierAsync(await VisibleIdsAsync(request.Ids), request.SupplierId));
         }
         catch (InvalidOperationException ex)
         {
@@ -161,6 +201,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<List<PendingQuoteCertificateResponse>>> UploadCertificates(long id, [FromForm] List<IFormFile> files)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await LineVisibleAsync(id)) return NotFound();
         try
         {
             var result = await _service.UploadCertificatesAsync(id, GetUserId(), files);
@@ -176,6 +217,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> GetCertificate(long id, long certificateId)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await LineVisibleAsync(id)) return NotFound();
         var file = await _service.GetCertificateAsync(id, certificateId);
         if (file == null) return NotFound();
         var (stream, fileName) = file.Value;
@@ -187,6 +229,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> DeleteCertificate(long id, long certificateId)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await LineVisibleAsync(id)) return NotFound();
         return await _service.DeleteCertificateAsync(id, certificateId) ? Ok() : NotFound();
     }
 
@@ -196,6 +239,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> SetAutoApply(long id, [FromBody] SetAutoApplyRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await LineVisibleAsync(id)) return NotFound();
         return await _service.SetAutoApplyAsync(id, request.Enabled) ? Ok() : NotFound();
     }
 
@@ -204,7 +248,17 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<AcceptPendingQuotesResponse>> Accept([FromBody] PendingQuoteIdsRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.AcceptAsync(request.Ids, GetUserId()));
+        return Ok(await _service.AcceptAsync(await VisibleIdsAsync(request.Ids), GetUserId(),
+            addSenderEmails: await HasFeatureAsync(SupplierEmailsFeature)));
+    }
+
+    /// <summary>Accepted lines: write their current values to their RFQs again (rewrite or add).</summary>
+    [HttpPost("reapply")]
+    [Auditable("PendingSupplierQuote", "Reapply", CaptureBody = true)]
+    public async Task<ActionResult<ReapplyPendingQuotesResponse>> Reapply([FromBody] PendingQuoteIdsRequest request)
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        return Ok(await _service.ReapplyAsync(await VisibleIdsAsync(request.Ids), GetUserId()));
     }
 
     [HttpPost("remove")]
@@ -212,7 +266,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> Remove([FromBody] PendingQuoteIdsRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(new { removed = await _service.RemoveAsync(request.Ids, GetUserId()) });
+        return Ok(new { removed = await _service.RemoveAsync(await VisibleIdsAsync(request.Ids), GetUserId()) });
     }
 
     /// <summary>Every pending line on every page (header "Remove all").</summary>
@@ -221,7 +275,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> RemoveAll()
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(new { removed = await _service.RemoveAllPendingAsync(GetUserId()) });
+        return Ok(new { removed = await _service.RemoveAllPendingAsync(GetUserId(), await AllowedMailboxesAsync()) });
     }
 
     /// <summary>Removed lines with who removed them; ?days=30, ?userId=, ?search= to narrow; paged by email.</summary>
@@ -231,7 +285,7 @@ public class PendingSupplierQuotesController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? mailbox = null)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetRemovedPageAsync(days, userId, search, page, pageSize, mailbox));
+        return Ok(await _service.GetRemovedPageAsync(days, userId, search, page, pageSize, mailbox, await AllowedMailboxesAsync()));
     }
 
     /// <summary>Put removed lines back into Pending so they can be accepted after all.</summary>
@@ -240,7 +294,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> Restore([FromBody] PendingQuoteIdsRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(new { restored = await _service.RestoreAsync(request.Ids) });
+        return Ok(new { restored = await _service.RestoreAsync(await VisibleIdsAsync(request.Ids)) });
     }
 
     /// <summary>The source email: headers, body and attachment list.</summary>
@@ -248,6 +302,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<PendingQuoteEmailResponse>> GetEmail(long emailId)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await _service.EmailVisibleAsync(emailId, await AllowedMailboxesAsync())) return NotFound();
         var email = await _service.GetEmailAsync(emailId);
         return email == null ? NotFound() : Ok(email);
     }
@@ -257,6 +312,7 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<IActionResult> GetAttachment(long emailId, long attachmentId)
     {
         if (!await CanReviewAsync()) return Forbidden();
+        if (!await _service.EmailVisibleAsync(emailId, await AllowedMailboxesAsync())) return NotFound();
         var file = await _service.GetAttachmentAsync(emailId, attachmentId);
         if (file == null) return NotFound();
         var (stream, fileName, contentType) = file.Value;

@@ -133,14 +133,23 @@ public class ProcurementPlusController : ControllerBase
         Run(async () => new { updated = await _service.SetTrackAsync(ViewUserId(), UserId, request) });
 
     /// <summary>
-    /// ILS Parts / Project / WeChat board, one page: parts with their supplier lines, price stats and timeline.
+    /// Parts (track=All: every track + saved-RFQ items not on the list) / ILS / Project / WeChat board, one page: parts with
+    /// their supplier lines, file rows, price stats and timeline. ?origin=parts|project|wechat|rfq (Parts tab),
     /// ?status=all|none|sourcing|ready|done|nofiles, ?sort=added|pn|deadline|suppliers, ?search=, ?page=, ?pageSize= (max 100).
     /// </summary>
     [HttpGet("board")]
     public Task<ActionResult> Board(
         [FromQuery] string track = "ILS", [FromQuery] bool includeHidden = false, [FromQuery] string? search = null,
-        [FromQuery] string? status = null, [FromQuery] string? sort = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 25) =>
-        Run(() => _service.GetBoardAsync(ViewUserId(), track, includeHidden, search, status, sort, page, pageSize));
+        [FromQuery] string? status = null, [FromQuery] string? origin = null, [FromQuery] string? sort = null,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 25) =>
+        Run(() => _service.GetBoardAsync(ViewUserId(), track, includeHidden, search, status, origin, sort, page, pageSize));
+
+    /// <summary>Every part number on the board with these filters, not paged — "Copy all" on the Parts tab (track=All).</summary>
+    [HttpGet("board/part-numbers")]
+    public Task<ActionResult> BoardPartNumbers(
+        [FromQuery] string track = "All", [FromQuery] bool includeHidden = false, [FromQuery] string? search = null,
+        [FromQuery] string? status = null, [FromQuery] string? origin = null, [FromQuery] string? sort = null) =>
+        Run(() => _service.GetBoardPartNumbersAsync(ViewUserId(), track, includeHidden, search, status, origin, sort));
 
     /// <summary>"By supplier": suppliers with lines on this board's parts, paged.</summary>
     [HttpGet("board/suppliers")]
@@ -173,6 +182,15 @@ public class ProcurementPlusController : ControllerBase
         if (!await HasAccessAsync()) return Forbidden();
         var coverage = await _service.GetRfqCoverageAsync(Scope(), ViewUserId(), rfqId);
         return coverage == null ? NotFound() : Ok(coverage);
+    }
+
+    /// <summary>A part's history (clock button): supplier quotes for it on RFQs + its timeline. Negative id = a saved-RFQ item not on the list.</summary>
+    [HttpGet("parts/{id:long}/history")]
+    public async Task<ActionResult> PartHistory(long id)
+    {
+        if (!await HasAccessAsync()) return Forbidden();
+        var history = await _service.GetPartHistoryAsync(ViewUserId(), id);
+        return history == null ? NotFound() : Ok(history);
     }
 
     /// <summary>Add a supplier under a part (preferred, catalog or a typed name).</summary>
@@ -322,10 +340,32 @@ public class ProcurementPlusController : ControllerBase
         }
     }
 
+    /// <summary>How the line is searched: ILS / Email / Search (one or more).</summary>
+    [HttpPut("quotes/{id:long}/methods")]
+    [Auditable("ProcurementPlus", "LineMethods", CaptureBody = true)]
+    public async Task<ActionResult> SetLineMethods(long id, [FromBody] PpLineMethodsRequest request)
+    {
+        if (!await HasAccessAsync()) return Forbidden();
+        try
+        {
+            var line = await _service.SetLineMethodsAsync(id, request.Methods);
+            return line == null ? NotFound() : Ok(line);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("quotes/remove")]
     [Auditable("ProcurementPlus", "RemoveLines", CaptureBody = true)]
     public Task<ActionResult> RemoveLines([FromBody] PpIdsRequest request) =>
         Run(async () => new { removed = await _service.RemoveLinesAsync(UserId, request.Ids) });
+
+    /// <summary>Before Done: part numbers of these lines that are not in the database (custom parts) — the page warns.</summary>
+    [HttpPost("quotes/done-check")]
+    public Task<ActionResult> DoneCheck([FromBody] PpIdsRequest request) =>
+        Run(async () => new { missing = await _service.PartsNotInDatabaseAsync(request.Ids) });
 
     /// <summary>Done: the priced lines go onto RFQs (deadline at most a week ago) and auto-fill new RFQs for a week.</summary>
     [HttpPost("quotes/done")]

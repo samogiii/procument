@@ -73,6 +73,14 @@ public class AddUserCustomerRequest
     public long CustomerId { get; set; }
 }
 
+public class SetUserMailboxesRequest
+{
+    public List<string?> Mailboxes { get; set; } = new();
+}
+
+/// <summary>A MailFlow mailbox seen on imported email lines (Users page suggestions).</summary>
+public record MailboxSuggestion(string Mailbox, string? Label);
+
 // ── Menu Permissions ──────────────────────────────────────────────────────────
 
 /// <summary>One gated menu/feature with its currently allowed user names.</summary>

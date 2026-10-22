@@ -1,7 +1,10 @@
 /** Customer Follow Ups sheet — column definitions and display helpers shared by the page and its rows. */
 
-/** 'docs' and 'chat' cells are not edited in place — clicking one opens the row's documents / messages dialog. */
-export type FollowUpColumnType = 'id' | 'text' | 'date' | 'combo' | 'docs' | 'chat'
+/**
+ * 'docs', 'chat', 'rfq' and 'refs' cells are not edited in place — clicking one opens the row's
+ * documents / messages / RFQ / Other Refs dialog. 'select' is a dropdown without free entry.
+ */
+export type FollowUpColumnType = 'id' | 'text' | 'date' | 'combo' | 'select' | 'docs' | 'chat' | 'rfq' | 'refs'
 
 export interface FollowUpColumn {
     key: FollowUpKey
@@ -11,16 +14,41 @@ export interface FollowUpColumn {
     width: number
 }
 
+export interface FollowUpRfqRef {
+    id: number
+    name: string
+    status: string | null
+    customerCode: string | null
+}
+
+export type FollowUpRefType = 'PurchaseOrder' | 'Quote' | 'Invoice' | 'FinalInvoice'
+
+export interface FollowUpRef {
+    type: FollowUpRefType
+    id: number
+    /** The document number ("#id" when it was deleted since). */
+    label: string
+    missing: boolean
+}
+
 export interface FollowUpRow {
     id: number
     customerCode: string | null
+    category: string | null
+    /** The linked RFQ (RFQ Ref#), or null. */
+    rfq: FollowUpRfqRef | null
+    /** Other Refs: purchase orders, quotes, invoices, final invoices. */
+    refs: FollowUpRef[]
     partNumber: string | null
     requestedItem: string | null
     /** Dates are kept as yyyy-MM-dd strings (the server returns date-only values). */
     dateOfRequest: string | null
     deadline: string | null
     assign: string | null
-    responseStatus: string | null
+    /** Open | In Progress | Done. */
+    procurementStatus: string
+    /** Open | In Progress | Done. */
+    salesStatus: string
     issueStatus: string | null
     dateOfReply: string | null
     ourResponse: string | null
@@ -38,14 +66,18 @@ export interface FollowUpRow {
 }
 
 export type FollowUpKey =
-    | 'id' | 'customerCode' | 'partNumber' | 'requestedItem' | 'dateOfRequest' | 'deadline' | 'assign'
-    | 'documentCount' | 'messageCount' | 'responseStatus' | 'issueStatus' | 'dateOfReply' | 'ourResponse' | 'feedback'
+    | 'id' | 'customerCode' | 'category' | 'rfq' | 'refs' | 'partNumber' | 'requestedItem' | 'dateOfRequest' | 'deadline'
+    | 'assign' | 'documentCount' | 'messageCount' | 'procurementStatus' | 'salesStatus' | 'issueStatus' | 'dateOfReply'
+    | 'ourResponse' | 'feedback'
 
-export type EditableFollowUpKey = Exclude<FollowUpKey, 'id' | 'documentCount' | 'messageCount'>
+export type EditableFollowUpKey = Exclude<FollowUpKey, 'id' | 'documentCount' | 'messageCount' | 'rfq' | 'refs'>
 
 export const FOLLOW_UP_COLUMNS: FollowUpColumn[] = [
     { key: 'id', label: 'Row Id', type: 'id', width: 70 },
     { key: 'customerCode', label: 'Customer Code', type: 'combo', width: 130 },
+    { key: 'category', label: 'Category', type: 'combo', width: 110 },
+    { key: 'rfq', label: 'RFQ Ref#', type: 'rfq', width: 150 },
+    { key: 'refs', label: 'Other Refs', type: 'refs', width: 190 },
     { key: 'partNumber', label: 'Partnumber', type: 'text', width: 150 },
     { key: 'requestedItem', label: 'Requested - To Do Item', type: 'text', width: 260 },
     { key: 'dateOfRequest', label: 'Date Of Request', type: 'date', width: 125 },
@@ -53,7 +85,8 @@ export const FOLLOW_UP_COLUMNS: FollowUpColumn[] = [
     { key: 'assign', label: 'Assign', type: 'combo', width: 120 },
     { key: 'documentCount', label: 'Documents', type: 'docs', width: 110 },
     { key: 'messageCount', label: 'Messages', type: 'chat', width: 110 },
-    { key: 'responseStatus', label: 'Response Status', type: 'combo', width: 130 },
+    { key: 'procurementStatus', label: 'Procurement Status', type: 'select', width: 135 },
+    { key: 'salesStatus', label: 'Sales Status', type: 'select', width: 120 },
     { key: 'issueStatus', label: 'Issue Status', type: 'combo', width: 160 },
     { key: 'dateOfReply', label: 'Date Of Reply', type: 'date', width: 125 },
     { key: 'ourResponse', label: 'Our Response', type: 'text', width: 240 },
@@ -62,6 +95,24 @@ export const FOLLOW_UP_COLUMNS: FollowUpColumn[] = [
 
 export const FOLLOW_UP_COLUMN_BY_KEY = Object.fromEntries(
     FOLLOW_UP_COLUMNS.map(column => [column.key, column])) as Record<FollowUpKey, FollowUpColumn>
+
+/** Cells that open a dialog instead of an in-place editor. */
+export const DIALOG_COLUMN_TYPES = new Set<FollowUpColumnType>(['docs', 'chat', 'rfq', 'refs'])
+
+/** Other Refs types: picker tab, chip prefix and the page each one opens. */
+export const FOLLOW_UP_REF_TYPES: { type: FollowUpRefType; tab: string; short: string; icon: string; path: (id: number) => string }[] = [
+    { type: 'PurchaseOrder', tab: 'Purchase Orders', short: 'PO', icon: 'mdi-cart-outline', path: id => `/purchase-orders/${id}` },
+    { type: 'Quote', tab: 'Quotes', short: 'Quote', icon: 'mdi-file-document-outline', path: id => `/quotes/${id}` },
+    { type: 'Invoice', tab: 'Invoices', short: 'PI', icon: 'mdi-receipt-text-outline', path: id => `/invoices/${id}` },
+    { type: 'FinalInvoice', tab: 'Final Invoices', short: 'FI', icon: 'mdi-file-certificate-outline', path: id => `/final-invoices/${id}` },
+]
+
+export const FOLLOW_UP_REF_TYPE = Object.fromEntries(
+    FOLLOW_UP_REF_TYPES.map(meta => [meta.type, meta])) as Record<FollowUpRefType, (typeof FOLLOW_UP_REF_TYPES)[number]>
+
+export function rfqPath(id: number): string {
+    return `/rfqs/${id}`
+}
 
 const DATE_KEYS = new Set<FollowUpKey>(['dateOfRequest', 'deadline', 'dateOfReply'])
 
@@ -75,6 +126,10 @@ export function normalizeFollowUpRow(raw: any): FollowUpRow {
     row.documentCount = Number(raw?.documentCount) || 0
     row.messageCount = Number(raw?.messageCount) || 0
     row.hasUnreadMessages = !!raw?.hasUnreadMessages
+    row.rfq = raw?.rfq ?? null
+    row.refs = Array.isArray(raw?.refs) ? raw.refs : []
+    row.procurementStatus = raw?.procurementStatus || 'Open'
+    row.salesStatus = raw?.salesStatus || 'Open'
     return row
 }
 
@@ -91,9 +146,16 @@ export const BLANK_FILTER_VALUE = '(Blank)'
 export function followUpCellText(row: FollowUpRow, key: FollowUpKey): string {
     if (key === 'documentCount') return documentCountText(row.documentCount)
     if (key === 'messageCount') return messageCountText(row.messageCount)
+    if (key === 'rfq') return row.rfq?.name ?? ''
+    if (key === 'refs') return row.refs.map(followUpRefText).join(', ')
     const value = row[key]
     if (value === null || value === undefined || value === '') return ''
     return String(value)
+}
+
+/** "PO 12-345", "PI P101-…" — the chip text of one Other Ref. */
+export function followUpRefText(ref: FollowUpRef): string {
+    return `${FOLLOW_UP_REF_TYPE[ref.type]?.short ?? ref.type} ${ref.label}`
 }
 
 export function documentCountText(count: number): string {
@@ -107,6 +169,8 @@ const STATUS_COLORS: Record<string, string> = {
     'closed': 'grey',
     'waiting': 'warning',
     'open': 'info',
+    'in progress': 'orange-darken-1',
+    'done': 'success',
     '1st follow up': 'amber-darken-2',
     '2nd follow up': 'orange-darken-2',
     '3rd follow up': 'deep-orange',
@@ -117,9 +181,10 @@ export function followUpStatusColor(status: string | null | undefined): string {
     return STATUS_COLORS[(status ?? '').trim().toLowerCase()] ?? 'blue-grey'
 }
 
+/** Greyed out and never overdue: Issue Status Closed or Sales Status Done. */
 export function isClosedFollowUp(row: FollowUpRow): boolean {
     return (row.issueStatus ?? '').trim().toLowerCase() === 'closed'
-        || (row.responseStatus ?? '').trim().toLowerCase() === 'closed'
+        || row.salesStatus.trim().toLowerCase() === 'done'
 }
 
 export function messageCountText(count: number): string {

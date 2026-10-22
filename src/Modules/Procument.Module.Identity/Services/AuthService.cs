@@ -30,6 +30,8 @@ public interface IAuthService
     Task<List<long>> GetUserCustomerIdsAsync(long userId);
     Task AddUserCustomerAsync(long userId, long customerId);
     Task RemoveUserCustomerAsync(long userId, long customerId);
+    Task<List<string>> GetUserMailboxesAsync(long userId);
+    Task<List<string>> SetUserMailboxesAsync(long userId, IEnumerable<string?> mailboxes);
 }
 
 public class AuthService : IAuthService
@@ -433,6 +435,36 @@ public class AuthService : IAuthService
         if (entry == null) return;
         _db.Set<UserCustomer>().Remove(entry);
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>The MailFlow mailboxes the user sees on the Email Quotes page (SuperAdmin sees all).</summary>
+    public async Task<List<string>> GetUserMailboxesAsync(long userId)
+    {
+        return await _db.Set<UserMailbox>()
+            .Where(um => um.UserId == userId)
+            .OrderBy(um => um.Mailbox)
+            .Select(um => um.Mailbox)
+            .ToListAsync();
+    }
+
+    /// <summary>Replaces the user's mailboxes with this list (trimmed, lower-case, no duplicates).</summary>
+    public async Task<List<string>> SetUserMailboxesAsync(long userId, IEnumerable<string?> mailboxes)
+    {
+        var wanted = mailboxes
+            .Select(m => m?.Trim().ToLowerInvariant())
+            .Where(m => !string.IsNullOrEmpty(m))
+            .Select(m => m!)
+            .Distinct()
+            .ToList();
+        var bad = wanted.FirstOrDefault(m => m.Length > 320 || !m.Contains('@'));
+        if (bad != null) throw new ArgumentException($"\"{bad}\" is not an email address.");
+
+        var existing = await _db.Set<UserMailbox>().Where(um => um.UserId == userId).ToListAsync();
+        _db.Set<UserMailbox>().RemoveRange(existing.Where(um => !wanted.Contains(um.Mailbox)));
+        foreach (var m in wanted.Where(m => existing.All(um => um.Mailbox != m)))
+            _db.Set<UserMailbox>().Add(new UserMailbox { UserId = userId, Mailbox = m });
+        await _db.SaveChangesAsync();
+        return wanted.Order().ToList();
     }
 
     private static string HashPassword(string password)

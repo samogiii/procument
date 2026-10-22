@@ -110,6 +110,11 @@ public class QuoteItemResponse
     public string? TagDate { get; set; }
     public string? CertName { get; set; }
     public List<string> CertReferences { get; set; } = new();
+    /// <summary>Supplier quote details shown on the customer quote PDF / Excel.</summary>
+    public string? TraceTo { get; set; }
+    public string? PriceType { get; set; }
+    public string? Warranty { get; set; }
+    public string? CR { get; set; }
     public decimal? BuyPrice { get; set; }
     public string? SupplierName { get; set; }
     public double? ShippingCost { get; set; }

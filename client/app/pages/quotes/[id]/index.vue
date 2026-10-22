@@ -1210,8 +1210,23 @@ async function exportToExcel() {
       return 0
     })
 
-    // 3. Build rows — same layout as the PDF quote
+    // 3. Build rows — same layout as the PDF quote. Trace To / Price Type / Warranty sit between the
+    // part columns and the money columns, and only when some item has a value (no empty columns).
     const safeName = (s: string) => s.replace(/[/\\?%*:|"<>]/g, '_')
+    const detailCols = QUOTE_EXCEL_DETAIL_COLUMNS.filter(c => sortedItems.some((it: any) => it[c.key]?.trim?.()))
+    const columns: { header: string; width: number; value: (it: any, idx: number) => any }[] = [
+      { header: '#', width: 5, value: (_, idx) => idx + 1 },
+      { header: 'Ref', width: 8, value: it => it.rfqReference || '—' },
+      { header: 'Part Number', width: 22, value: it => it.partNumberName || '—' },
+      { header: 'Alt Part Number', width: 20, value: it => it.alt || '' },
+      { header: 'Qty', width: 7, value: it => it.qty },
+      { header: 'Cond', width: 7, value: it => it.condition || '—' },
+      { header: 'Lead Time', width: 15, value: it => it.sellLeadTime || '—' }, // customer sees the sell lead time
+      ...detailCols.map(c => ({ header: c.header, width: c.width, value: (it: any) => it[c.key]?.trim() || '' })),
+      { header: 'Unit Price ($)', width: 14, value: it => Number(it.unitPrice || 0) },
+      { header: 'Total Price ($)', width: 15, value: it => Number(it.totalPrice || 0) },
+    ]
+    const headerRow = 6
     const data: any[][] = [
       [companyName],
       ['QUOTATION'],
@@ -1219,27 +1234,23 @@ async function exportToExcel() {
       ['Quote Number:', q.quoteNumber || '—', '', 'Date:', q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '—'],
       ['Customer:', q.customerName || '—', '', 'RFQ:', q.rfqName || '—'],
       [],
-      ['#', 'Ref', 'Part Number', 'Alt Part Number',  'Qty', 'Cond', 'Lead Time', 'Unit Price ($)', 'Total Price ($)']
+      columns.map(c => c.header),
     ]
 
     sortedItems.forEach((it: any, idx: number) => {
-      data.push([
-        idx + 1,
-        it.rfqReference || '—',
-        it.partNumberName || '—',
-        it.alt || '',
-        
-        it.qty,
-        it.condition || '—',
-        it.sellLeadTime || '—', // customer sees the sell lead time
-        Number(it.unitPrice || 0),
-        Number(it.totalPrice || 0)
-      ])
+      data.push(columns.map(c => c.value(it, idx)))
     })
 
+    // Totals: label under Unit Price, amount under Total Price.
+    const totalsRow = (label: string, amount: number) => {
+      const row: any[] = columns.map(() => '')
+      row[columns.length - 2] = label
+      row[columns.length - 1] = amount
+      return row
+    }
     data.push([])
-    data.push(['', '', '', '', '', '', '', '', 'Subtotal:', Number(q.totalAmount || 0)])
-    data.push(['', '', '', '', '', '', '', '', 'Grand Total:', Number(q.totalAmount || 0)])
+    data.push(totalsRow('Subtotal:', Number(q.totalAmount || 0)))
+    data.push(totalsRow('Grand Total:', Number(q.totalAmount || 0)))
 
     if (q.customerTermsAndConditions) {
       data.push([], ['Terms & Conditions:'], [q.customerTermsAndConditions])
@@ -1247,18 +1258,11 @@ async function exportToExcel() {
 
     // 5. Create Workbook
     const ws = XLSX.utils.aoa_to_sheet(data)
-    ws['!cols'] = [
-      { wch: 5 },  // #
-      { wch: 10 }, // Ref
-      { wch: 22 }, // Part Number
-      { wch: 22 }, // Alt Part Number
-      { wch: 22 }, // Supplier
-      { wch: 8 },  // Qty
-      { wch: 8 },  // Cond
-      { wch: 15 }, // Lead Time
-      { wch: 14 }, // Unit Price
-      { wch: 14 }, // Total Price
-    ]
+    ws['!cols'] = columns.map(c => ({ wch: c.width }))
+    // Filter buttons on the item table header.
+    ws['!autofilter'] = {
+      ref: XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: { r: headerRow + sortedItems.length, c: columns.length - 1 } }),
+    }
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Quotation')

@@ -22,6 +22,7 @@ public interface IPendingRfqService
     Task<PendingRfqPageResponse> GetAcceptedPageAsync(int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox = null);
     Task<PendingRfqPageResponse> GetRemovedPageAsync(int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox = null);
     Task<List<MailboxOption>> GetMailboxesAsync();
+    Task<List<PendingRfqItemResponse>> GetExportAsync(DateTime from, DateTime to, string? mailbox = null);
     Task<PendingRfqItemResponse?> UpdateAsync(long id, UpdatePendingRfqItemRequest request);
     Task<int> UpdateEmailAsync(UpdatePendingRfqEmailRequest request);
     Task<SetPendingCustomerResponse> SetCustomerAsync(List<long> ids, long? customerId);
@@ -354,6 +355,21 @@ public class PendingRfqService : IPendingRfqService
     public Task<PendingRfqPageResponse> GetRemovedPageAsync(int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox = null) =>
         GetReviewedPageAsync(Removed, days, reviewedByUserId, search, page, pageSize, mailbox);
 
+    /// <summary>
+    /// CSV export: pending and accepted lines (not removed) of emails sent from <paramref name="from"/> up to
+    /// <paramref name="to"/> (UTC, to exclusive; arrival time when the email had no date), oldest email first.
+    /// </summary>
+    public async Task<List<PendingRfqItemResponse>> GetExportAsync(DateTime from, DateTime to, string? mailbox = null)
+    {
+        var ids = await ForMailbox(_db.Set<PendingRfqItem>().AsNoTracking().Where(p => p.Status != Removed), mailbox, p => p.Mailbox)
+            .Where(p => (p.EmailDate ?? p.CreatedAt) >= from && (p.EmailDate ?? p.CreatedAt) < to)
+            .Select(p => p.Id)
+            .ToListAsync();
+        return (await BuildAsync(ids))
+            .OrderBy(r => r.EmailDate ?? r.CreatedAt).ThenBy(r => r.Id)
+            .ToList();
+    }
+
     /// <summary>The mailboxes RFQ lines came in through, for the page's mailbox dropdown.</summary>
     public async Task<List<MailboxOption>> GetMailboxesAsync() =>
         (await _db.Set<PendingRfqItem>().AsNoTracking()
@@ -437,7 +453,9 @@ public class PendingRfqService : IPendingRfqService
             .Where(u => userIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.Name);
         var attachmentNames = await PendingEmailStore.AttachmentNamesAsync(_db, rows.Select(r => r.EmailId));
-        var pendingNames = rows.Where(r => r.Status == Pending).Select(r => r.RfqName).Distinct().ToList();
+        var pendingRows = rows.Where(r => r.Status == Pending).ToList();
+        var plannedNames = await PlannedNamesAsync(pendingRows);
+        var pendingNames = plannedNames.Values.Distinct().ToList();
         var takenNames = (await _db.Set<RFQHeader>().AsNoTracking()
                 .Where(h => pendingNames.Contains(h.Name))
                 .Select(h => h.Name)
@@ -476,8 +494,49 @@ public class PendingRfqService : IPendingRfqService
             ReviewedByName = r.ReviewedByUserId != null && userNames.TryGetValue(r.ReviewedByUserId.Value, out var n) ? n : null,
             RfqId = r.RfqId,
             CreatedRfqName = r.CreatedRfqName,
-            RfqNameTaken = r.Status == Pending && takenNames.Contains(r.RfqName),
+            PlannedRfqName = plannedNames.GetValueOrDefault(r.Id),
+            PlannedDeadline = r.Status == Pending ? EffectiveDeadline(r) : null,
+            RfqNameTaken = plannedNames.TryGetValue(r.Id, out var planned) && takenNames.Contains(planned),
         }).ToList();
+    }
+
+    // ──── RFQ names per deadline ────
+
+    private static string EmailKey(PendingRfqItem r) => r.MessageId ?? $"{r.CustomerEmail}|{r.EmailSubject}|{r.EmailDate:O}";
+
+    /// <summary>The line's deadline, or 3 days after the email arrived when the email gave none.</summary>
+    private static DateTime EffectiveDeadline(PendingRfqItem r) =>
+        (r.Deadline ?? (r.EmailDate ?? r.CreatedAt).AddDays(DefaultDeadlineDays)).Date;
+
+    /// <summary>
+    /// The RFQ name each line will be created under — the RFQ bulk import rule, per email: lines sharing an
+    /// RFQ name but carrying different deadlines become ABA(1), ABA(2)... in deadline order. Numbering counts
+    /// every pending and accepted line of the email (not just the ones given or ticked), so the names stay the
+    /// same whichever lines are accepted first.
+    /// </summary>
+    private async Task<Dictionary<long, string>> PlannedNamesAsync(IReadOnlyCollection<PendingRfqItem> rows)
+    {
+        var result = new Dictionary<long, string>();
+        if (rows.Count == 0) return result;
+
+        var messageIds = rows.Where(r => r.MessageId != null).Select(r => r.MessageId).Distinct().ToList();
+        var subjects = rows.Where(r => r.MessageId == null).Select(r => r.EmailSubject).Distinct().ToList();
+        var siblings = await _db.Set<PendingRfqItem>().AsNoTracking()
+            .Where(p => p.Status != Removed
+                && (messageIds.Contains(p.MessageId) || (p.MessageId == null && subjects.Contains(p.EmailSubject))))
+            .ToListAsync();
+
+        var wanted = rows.Select(r => r.Id).ToHashSet();
+        var emailKeys = rows.Select(EmailKey).ToHashSet();
+        var lines = siblings.Concat(rows).DistinctBy(r => r.Id).Where(r => emailKeys.Contains(EmailKey(r)));
+        foreach (var byName in lines.GroupBy(r => (Email: EmailKey(r), Name: r.RfqName.Trim().ToLowerInvariant())))
+        {
+            var name = byName.OrderBy(r => r.Id).First().RfqName.Trim(); // one spelling when the case differs
+            var deadlines = byName.Select(EffectiveDeadline).Distinct().Order().ToList();
+            foreach (var r in byName.Where(r => wanted.Contains(r.Id)))
+                result[r.Id] = deadlines.Count == 1 ? name : $"{name}({deadlines.IndexOf(EffectiveDeadline(r)) + 1})";
+        }
+        return result;
     }
 
     // ──── Edit / remove / restore ────
@@ -556,7 +615,8 @@ public class PendingRfqService : IPendingRfqService
     // ──── Accept ────
 
     /// <summary>
-    /// Creates the RFQs: per email (and customer), one RFQ per RFQ name + deadline among the chosen lines,
+    /// Creates the RFQs: per email (and customer), one RFQ per RFQ name + deadline among the chosen lines —
+    /// named ABA(1), ABA(2)... by deadline when the email splits one name (PlannedNamesAsync) —
     /// through RFQService.BulkImportAsync — part numbers, alternatives and descriptions are created on the
     /// fly, the Email Quotes 7-day auto-fill runs on the new items. Owner = the accepting user (Sam).
     /// A name that already exists is skipped by the import: those lines stay Pending with the reason.
@@ -573,15 +633,17 @@ public class PendingRfqService : IPendingRfqService
         foreach (var missing in rows.Where(r => r.CustomerId == null))
             result.Failed.Add(Failure(missing, "Pick a customer first"));
 
+        // Names are worked out over the whole email, so ABA(2) stays ABA(2) even when only its lines are ticked.
+        var plannedNames = await PlannedNamesAsync(rows.Where(r => r.CustomerId != null).ToList());
         var emails = rows.Where(r => r.CustomerId != null)
-            .GroupBy(r => (Email: r.MessageId ?? $"{r.CustomerEmail}|{r.EmailSubject}|{r.EmailDate:O}", Customer: r.CustomerId!.Value));
+            .GroupBy(r => (Email: EmailKey(r), Customer: r.CustomerId!.Value));
         foreach (var email in emails)
         {
             var lines = email.ToList();
             var first = lines[0];
-            var received = first.EmailDate ?? DateTime.UtcNow;
+            var received = first.EmailDate ?? first.CreatedAt;
             var groups = lines
-                .GroupBy(r => (Name: r.RfqName.Trim(), Deadline: (r.Deadline ?? received.AddDays(DefaultDeadlineDays)).Date))
+                .GroupBy(r => (Name: plannedNames.GetValueOrDefault(r.Id) ?? r.RfqName.Trim(), Deadline: EffectiveDeadline(r)))
                 .ToList();
             var request = new BulkImportRFQRequest
             {
@@ -632,7 +694,7 @@ public class PendingRfqService : IPendingRfqService
                 {
                     var reason = created?.Reason == null
                         ? "The RFQ was not created"
-                        : $"{created.Reason} Rename \"{group.Key.Name}\" and accept again.";
+                        : $"{created.Reason} Rename the RFQ \"{group.Key.Name}\" and accept again.";
                     result.Failed.AddRange(group.Select(r => Failure(r, reason)));
                     continue;
                 }

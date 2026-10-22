@@ -6,8 +6,22 @@
 
     <div class="d-flex align-center flex-wrap gap-2 mb-2">
       <MailboxSelect v-model="mailbox" api-base="/pending-supplier-quotes" />
-      <span class="text-caption text-medium-emphasis">Which MailFlow mailbox the emails came in through.</span>
+      <span v-if="myMailboxes && !myMailboxes.all && myMailboxes.mailboxes.length" class="text-caption text-medium-emphasis">
+        You see emails from your mailboxes only: {{ myMailboxes.mailboxes.join(', ') }}
+      </span>
+      <span v-else class="text-caption text-medium-emphasis">Which MailFlow mailbox the emails came in through.</span>
     </div>
+
+    <v-alert
+      v-if="myMailboxes && !myMailboxes.all && !myMailboxes.mailboxes.length"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+    >
+      No mailboxes are set on your user, so no email quotes are shown. Ask a SuperAdmin to add your email
+      addresses on the Users page.
+    </v-alert>
 
     <v-tabs v-model="tab" color="primary" class="mb-3">
       <v-tab value="pending" prepend-icon="mdi-email-alert-outline">
@@ -55,4 +69,13 @@ const pendingCount = ref(0)
 const pendingKey = ref(0)
 /** Mailbox dropdown: null = every mailbox. */
 const mailbox = ref<string | null>(null)
+
+/** The mailboxes this user may see (Users page); all = SuperAdmin. */
+const api = useApi()
+const myMailboxes = ref<{ all: boolean; mailboxes: string[] } | null>(null)
+onMounted(async () => {
+  try {
+    myMailboxes.value = await api.get('/pending-supplier-quotes/my-mailboxes')
+  } catch { /* the panels show their own errors */ }
+})
 </script>

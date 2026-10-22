@@ -868,6 +868,10 @@ public class QuoteService : IQuoteService
                 CertName = qi.ProcumentRecord?.CertName,
                 CertReferences = qi.ProcumentRecord?.Certificates
                     .OrderBy(c => c.UploadedAt).Select(c => c.Reference).ToList() ?? new(),
+                TraceTo = qi.ProcumentRecord?.TraceTo,
+                PriceType = qi.ProcumentRecord?.PriceType,
+                Warranty = qi.ProcumentRecord?.Warranty,
+                CR = qi.ProcumentRecord?.CR,
                 BuyPrice = qi.ProcumentRecord?.Price,
                 SupplierName = qi.ProcumentRecord?.Supplier?.Name,
                 ShippingCost = qi.ProcumentRecord?.ShippingCost,

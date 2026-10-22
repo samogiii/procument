@@ -30,9 +30,12 @@ public interface IProcurementPlusService
     Task<int> DeletePartsAsync(long? userId, List<long> ids);
 
     // Boards (Sourcing / Project / WeChat): part → supplier lines → timeline
-    Task<PpBoardPage> GetBoardAsync(long? userId, string track, bool includeHidden, string? search, string? status, string? sort, int page, int pageSize);
+    // track "All" = the Parts tab (every track + saved-RFQ items not on the list); origin = parts|project|wechat|rfq.
+    Task<PpBoardPage> GetBoardAsync(long? userId, string track, bool includeHidden, string? search, string? status, string? origin, string? sort, int page, int pageSize);
+    Task<List<string>> GetBoardPartNumbersAsync(long? userId, string track, bool includeHidden, string? search, string? status, string? origin, string? sort);
     Task<PpSupplierPage> GetSupplierViewAsync(long? userId, string track, string? search, int page, int pageSize);
     Task<PpRfqCoverage?> GetRfqCoverageAsync(PpUserScope scope, long? userId, long rfqId);
+    Task<PpPartHistory?> GetPartHistoryAsync(long? userId, long id);
     Task<List<PpMyRfq>> GetMyRfqsAsync(PpUserScope scope, long userId);
     Task<bool> SaveMyRfqAsync(PpUserScope scope, long userId, long rfqId);
     Task<bool> RemoveMyRfqAsync(long userId, long rfqId);
@@ -60,7 +63,9 @@ public interface IProcurementPlusService
     Task<List<PpQuoteLineResponse>> GetSourcingAsync(long userId, bool everyone);
     Task<bool> IsLineAsync(long id);
     Task<PpQuoteLineResponse?> UpdateLineAsync(long id, UpdatePendingSupplierQuoteRequest request);
+    Task<PpQuoteLineResponse?> SetLineMethodsAsync(long id, List<string> methods);
     Task<int> RemoveLinesAsync(long userId, List<long> ids);
+    Task<List<string>> PartsNotInDatabaseAsync(List<long> ids);
     Task<PpDoneResponse> DoneAsync(long userId, List<long> ids);
     Task<PpDoneListResponse> GetDoneAsync(int? days, long? byUserId, string? search);
 }
@@ -225,7 +230,7 @@ public class ProcurementPlusService : IProcurementPlusService
                 var i = items.FirstOrDefault(x => x.Id == pick.RfqItemId);
                 if (i == null) continue;
                 wanted.Add(((long?)i.PartNumberId, i.Name, NullIfBlank(pick.Description) ?? i.Description,
-                    new[] { i.NewName, i.Alt }.Concat(i.Alternatives).OfType<string>().ToList(),
+                    new[] { i.NewName, i.Alt }.Concat(i.Alternatives).Concat(pick.Alternatives ?? []).OfType<string>().ToList(),
                     pick.Qty ?? i.Qty, NullIfBlank(pick.Condition) ?? i.Condition, pick.TargetPrice));
             }
         }
@@ -243,7 +248,7 @@ public class ProcurementPlusService : IProcurementPlusService
                 var name = c.PartNumber!.Trim();
                 var match = catalog.FirstOrDefault(x => PnKey(x.Name) == PnKey(name));
                 wanted.Add((match?.Id, Trunc(match?.Name ?? name, 200)!, NullIfBlank(c.Description) ?? match?.Description,
-                    match == null ? new List<string>() : new[] { match.NewName }.OfType<string>().Concat(match.Alternatives).ToList(),
+                    (c.Alternatives ?? []).Concat(match == null ? [] : new[] { match.NewName }.OfType<string>().Concat(match.Alternatives)).ToList(),
                     c.Qty, NullIfBlank(c.Condition), c.TargetPrice));
             }
         }
@@ -258,12 +263,14 @@ public class ProcurementPlusService : IProcurementPlusService
         var mine = await _db.Set<Preferred>().Where(p => p.Kind == PartKind && p.UserId == scope.UserId).ToListAsync();
         var byKey = mine.GroupBy(p => p.NameKey).ToDictionary(g => g.Key, g => g.First());
         var events = new List<(Preferred Part, string Kind, string Text)>();
+        var touched = new List<Preferred>();
         foreach (var w in wanted.GroupBy(w => PnKey(w.Name)).Select(g => g.First()))
         {
             var key = PnKey(w.Name);
             if (key.Length == 0) continue;
             if (byKey.TryGetValue(key, out var existing))
             {
+                touched.Add(existing);
                 if (existing.HiddenAt != null) { existing.HiddenAt = null; result.Restored++; }
                 else result.AlreadyListed++;
                 existing.PartNumberId ??= w.PartNumberId;
@@ -297,12 +304,14 @@ public class ProcurementPlusService : IProcurementPlusService
             };
             _db.Set<Preferred>().Add(part);
             byKey[key] = part;
+            touched.Add(part);
             events.Add((part, "Added", $"Added to {track}{TargetText(w.Target)}"));
             result.Added++;
         }
         await _db.SaveChangesAsync();
         foreach (var (part, kind, text) in events) AddEvent(part.Id, scope.UserId, kind, text);
         await _db.SaveChangesAsync();
+        result.Ids = touched.Select(p => p.Id).ToList();
         return result;
     }
 
@@ -421,15 +430,64 @@ public class ProcurementPlusService : IProcurementPlusService
     /// the page's parts are fully built (open RFQs, price stats, lines, timeline) — fast with hundreds of parts.
     /// </summary>
     public async Task<PpBoardPage> GetBoardAsync(long? userId, string track, bool includeHidden, string? search, string? status,
-        string? sort, int page, int pageSize)
+        string? origin, string? sort, int page, int pageSize)
     {
-        track = PreferredTracks.Normalize(track);
         pageSize = Math.Clamp(pageSize, 1, MaxBoardPageSize);
-        var parts = await LoadPartsAsync(userId, includeHidden, track);
+        var sel = await SelectBoardAsync(userId, track, includeHidden, search, status, origin, sort);
+        var lastPage = Math.Max(1, (sel.Ordered.Count + pageSize - 1) / pageSize);
+        page = Math.Clamp(page, 1, lastPage);
+        var pageParts = sel.Ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        return new PpBoardPage
+        {
+            Items = await BuildBoardPartsAsync(pageParts, userId, sel.Heads, sel.PartOf),
+            Total = sel.Ordered.Count,
+            Page = page,
+            PageSize = pageSize,
+            Counts = sel.Counts,
+        };
+    }
+
+    /// <summary>Every part number on a board with its filters (no paging) — the Parts tab's "Copy all".</summary>
+    public async Task<List<string>> GetBoardPartNumbersAsync(long? userId, string track, bool includeHidden, string? search, string? status,
+        string? origin, string? sort)
+    {
+        var sel = await SelectBoardAsync(userId, track, includeHidden, search, status, origin, sort);
+        return sel.Ordered.Select(p => p.Part.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>The Parts tab: every track at once, plus the items of the user's saved RFQs that are not on the list.</summary>
+    public const string AllTrack = "All";
+    /// <summary>Track of a Parts-tab entry that only stands for a saved-RFQ item (not on the list yet).</summary>
+    public const string RfqTrack = "RFQ";
+
+    private static string BoardTrack(string? track) =>
+        string.Equals(track?.Trim(), AllTrack, StringComparison.OrdinalIgnoreCase) ? AllTrack : PreferredTracks.Normalize(track);
+
+    /// <summary>The tab a Parts-tab entry comes from: parts (ILS) / project / wechat / rfq.</summary>
+    private static string OriginOf(Preferred p) => p.Track switch
+    {
+        PreferredTracks.Project => "project",
+        PreferredTracks.WeChat => "wechat",
+        RfqTrack => "rfq",
+        _ => "parts",
+    };
+
+    private sealed record BoardSelection(List<PartKeys> Ordered, PpBoardCounts Counts, List<LineHead> Heads, Dictionary<long, long> PartOf);
+
+    /// <summary>A board's parts after search, origin and status filters, sorted — with the counts for the filter chips.</summary>
+    private async Task<BoardSelection> SelectBoardAsync(long? userId, string track, bool includeHidden, string? search, string? status,
+        string? origin, string? sort)
+    {
+        track = BoardTrack(track);
+        var parts = await BoardPartsAsync(userId, track, includeHidden);
+        // The user's own RFQ quotes of the last two weeks become supplier lines under their parts first.
+        if (userId != null) await SyncRecentRfqQuotesAsync(userId.Value, parts);
         var heads = await LineHeadsAsync(userId);
-        var partOf = MapLinesToParts(heads, parts.Select(p => p.Part));
+        var partOf = MapLinesToParts(heads, parts.Where(p => p.Part.Id > 0).Select(p => p.Part));
         var linesByPart = heads.Where(h => partOf.ContainsKey(h.Id)).GroupBy(h => partOf[h.Id]).ToDictionary(g => g.Key, g => g.ToList());
-        var inFiles = track == PreferredTracks.Ils ? await PartsWithOffersAsync(userId, parts) : new HashSet<long>();
+        var withFiles = track is PreferredTracks.Ils or AllTrack;
+        var inFiles = withFiles ? await PartsWithOffersAsync(userId, parts) : new HashSet<long>();
 
         var q = search?.Trim();
         var key = PnKey(q);
@@ -440,22 +498,28 @@ public class ProcurementPlusService : IProcurementPlusService
                 || (linesByPart.GetValueOrDefault(p.Part.Id) ?? []).Any(l => (l.SupplierNameRaw ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)))
               .ToList();
 
-        var statusOf = searched.ToDictionary(p => p.Part.Id, p => StatusOf(linesByPart.GetValueOrDefault(p.Part.Id)));
+        var origins = searched.GroupBy(p => OriginOf(p.Part)).ToDictionary(g => g.Key, g => g.Count());
+        var byOrigin = string.IsNullOrEmpty(origin) || origin == "all"
+            ? searched
+            : searched.Where(p => OriginOf(p.Part) == origin).ToList();
+
+        var statusOf = byOrigin.ToDictionary(p => p.Part.Id, p => StatusOf(linesByPart.GetValueOrDefault(p.Part.Id)));
         var counts = new PpBoardCounts
         {
-            All = searched.Count,
+            All = byOrigin.Count,
             NoSupplier = statusOf.Values.Count(v => v == "none"),
             Sourcing = statusOf.Values.Count(v => v == "sourcing"),
             Ready = statusOf.Values.Count(v => v == "ready"),
             Done = statusOf.Values.Count(v => v == "done"),
-            NotInFiles = track == PreferredTracks.Ils ? searched.Count(p => !inFiles.Contains(p.Part.Id)) : 0,
+            NotInFiles = withFiles ? byOrigin.Count(p => !inFiles.Contains(p.Part.Id)) : 0,
+            Origins = origins,
         };
 
         var filtered = (status ?? "all") switch
         {
-            "none" or "sourcing" or "ready" or "done" => searched.Where(p => statusOf[p.Part.Id] == status).ToList(),
-            "nofiles" => searched.Where(p => !inFiles.Contains(p.Part.Id)).ToList(),
-            _ => searched,
+            "none" or "sourcing" or "ready" or "done" => byOrigin.Where(p => statusOf[p.Part.Id] == status).ToList(),
+            "nofiles" => byOrigin.Where(p => !inFiles.Contains(p.Part.Id)).ToList(),
+            _ => byOrigin,
         };
 
         IEnumerable<PartKeys> sorted = sort switch
@@ -465,19 +529,92 @@ public class ProcurementPlusService : IProcurementPlusService
             "deadline" => await SortByDeadlineAsync(filtered),
             _ => filtered.OrderByDescending(p => p.Part.AddedAt).ThenBy(p => p.Part.Name),
         };
-        var ordered = sorted.ToList();
-        var lastPage = Math.Max(1, (ordered.Count + pageSize - 1) / pageSize);
-        page = Math.Clamp(page, 1, lastPage);
-        var pageParts = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return new BoardSelection(sorted.ToList(), counts, heads, partOf);
+    }
 
-        return new PpBoardPage
+    /// <summary>A board's parts: one track, or (Parts tab) every track plus the saved-RFQ items not on the list.</summary>
+    private async Task<List<PartKeys>> BoardPartsAsync(long? userId, string track, bool includeHidden)
+    {
+        if (track != AllTrack) return await LoadPartsAsync(userId, includeHidden, track);
+        var all = await LoadPartsAsync(userId, true);
+        var shown = includeHidden ? all : all.Where(p => p.Part.HiddenAt == null).ToList();
+        return shown.Concat(await MyRfqItemPartsAsync(userId, all)).ToList();
+    }
+
+    /// <summary>
+    /// Items of the user's saved RFQs (By RFQ) whose part is not on their list (shown or removed): one entry per
+    /// part number, as a stand-in part (Id = -RFQ item id, Track = RFQ, never saved) so the Parts tab can list,
+    /// search and match it against the files. Adding a supplier to it puts it on the list first.
+    /// </summary>
+    private async Task<List<PartKeys>> MyRfqItemPartsAsync(long? userId, List<PartKeys> listed)
+    {
+        var saved = await _db.Set<Preferred>().AsNoTracking()
+            .Where(p => p.Kind == PreferredKinds.Rfq && p.RfqId != null && (userId == null || p.UserId == userId))
+            .OrderByDescending(p => p.AddedAt)
+            .Select(p => new { p.UserId, RfqId = p.RfqId!.Value, p.AddedAt })
+            .ToListAsync();
+        if (saved.Count == 0) return new();
+        var rfqIds = saved.Select(s => s.RfqId).Distinct().ToList();
+        var items = await _db.Set<RFQItem>().AsNoTracking()
+            .Include(i => i.RFQ).ThenInclude(r => r.Customer)
+            .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
+            .Where(i => rfqIds.Contains(i.RFQId))
+            .OrderBy(i => i.Id)
+            .ToListAsync();
+
+        var listedKeys = listed.GroupBy(p => p.Part.UserId ?? 0).ToDictionary(g => g.Key, g => g.SelectMany(p => p.Keys).ToHashSet());
+        var result = new List<PartKeys>();
+        var byOwnerKey = new Dictionary<(long, string), PartKeys>();
+        foreach (var s in saved)
         {
-            Items = await BuildBoardPartsAsync(pageParts, userId, heads, partOf),
-            Total = ordered.Count,
-            Page = page,
-            PageSize = pageSize,
-            Counts = counts,
-        };
+            var owner = s.UserId ?? 0;
+            var own = listedKeys.GetValueOrDefault(owner);
+            foreach (var i in items.Where(i => i.RFQId == s.RfqId))
+            {
+                var keys = ItemKeys(i);
+                var nameKey = PnKey(i.PartNumber.Name);
+                if (nameKey.Length == 0 || (own != null && keys.Overlaps(own))) continue;
+                var from = new PpRfqRef
+                {
+                    RfqId = i.RFQId,
+                    RfqName = i.RFQ.Name,
+                    Deadline = i.RFQ.LeadTime,
+                    CustomerCode = i.RFQ.Customer?.CustomerCode,
+                    Qty = i.Qty,
+                };
+                if (byOwnerKey.TryGetValue((owner, nameKey), out var same))
+                {
+                    same.Keys.UnionWith(keys);
+                    same.Names.AddRange(keys.Where(k => !same.Names.Contains(k, StringComparer.OrdinalIgnoreCase)));
+                    if (!same.FromRfqs!.Any(r => r.RfqId == i.RFQId)) same.FromRfqs!.Add(from);
+                    continue;
+                }
+                var alternatives = new[] { i.PartNumber.NewName, i.Alt }.Concat(i.PartNumber.Alternatives.Select(a => a.Name))
+                    .Where(a => !string.IsNullOrWhiteSpace(a) && PnKey(a) != nameKey)
+                    .Select(a => a!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var stand = new Preferred
+                {
+                    Id = -i.Id,
+                    Kind = PartKind,
+                    UserId = s.UserId,
+                    PartNumberId = i.PartNumberId,
+                    Name = i.PartNumber.Name,
+                    NameKey = nameKey,
+                    Description = i.PartNumber.Description,
+                    Qty = i.Qty,
+                    Condition = i.Condition,
+                    Track = RfqTrack,
+                    AddedAt = s.AddedAt,
+                };
+                var names = new[] { i.PartNumber.Name }.Concat(alternatives).Concat(keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var entry = new PartKeys(stand, alternatives, keys, names, new List<PpRfqRef> { from });
+                byOwnerKey[(owner, nameKey)] = entry;
+                result.Add(entry);
+            }
+        }
+        return result;
     }
 
     /// <summary>Soonest open-RFQ deadline first; parts on no open RFQ last.</summary>
@@ -514,7 +651,11 @@ public class ProcurementPlusService : IProcurementPlusService
         var ids = parts.Select(p => p.Part.Id).ToHashSet();
         var lines = await BuildLinesAsync(heads.Where(h => partOf.TryGetValue(h.Id, out var pid) && ids.Contains(pid)).Select(h => h.Id).ToList());
         foreach (var l in lines) l.PreferredPartId ??= partOf.GetValueOrDefault(l.Line.Id);
-        var events = await EventsAsync(ids.ToList());
+        var events = await EventsAsync(ids.Where(id => id > 0).ToList());
+        var offers = (await OfferRowsAsync(parts, userId))
+            .GroupBy(r => r.PartId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Price == null ? 1 : 0).ThenBy(r => r.Price).ToList());
+        var emailOf = await EmailLinesAsync(parts, lines);
         return built.Select(p => new PpBoardPart
         {
             Part = p,
@@ -524,15 +665,139 @@ public class ProcurementPlusService : IProcurementPlusService
                 .ThenBy(l => l.Line.Price)
                 .ToList(),
             Events = events.GetValueOrDefault(p.Id) ?? new(),
+            Offers = offers.GetValueOrDefault(p.Id) ?? new(),
+            EmailLines = emailOf.GetValueOrDefault(p.Id) ?? new(),
         }).ToList();
+    }
+
+    /// <summary>
+    /// Email Quotes lines (MailFlow) for these parts: pending, or accepted in the last AutoApplyDays. A part's
+    /// own line the same supplier quoted by email (same part + condition, EmailQuoteMatch) gets EmailQuote set and
+    /// that email line is not listed again; the rest come back per part id, newest first.
+    /// </summary>
+    private async Task<Dictionary<long, List<PpQuoteLineResponse>>> EmailLinesAsync(List<PartKeys> parts, List<PpQuoteLineResponse> lines)
+    {
+        var names = parts.SelectMany(p => p.Names).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (names.Count == 0) return new();
+        var since = DateTime.UtcNow.AddDays(-PendingSupplierQuoteService.AutoApplyDays);
+        var emails = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+            .Where(q => q.Source == null && (q.Status == Pending || (q.Status == Accepted && q.ReviewedAt >= since))
+                && (names.Contains(q.PartNumber) || (q.Alt != null && names.Contains(q.Alt))))
+            .OrderByDescending(q => q.EmailDate ?? q.CreatedAt)
+            .Take(500)
+            .ToListAsync();
+        if (emails.Count == 0) return new();
+
+        // Own lines answered by an email (being priced ones only — Done lines keep what was written).
+        var ownIds = lines.Where(l => l.Status == Pending).Select(l => l.Line.Id).ToList();
+        var own = await _db.Set<PendingSupplierQuote>().AsNoTracking().Where(q => ownIds.Contains(q.Id)).ToListAsync();
+        var used = new HashSet<long>();
+        foreach (var o in own)
+        {
+            var email = emails.FirstOrDefault(e => EmailQuoteMatch.Matches(o, e));
+            if (email == null) continue;
+            used.Add(email.Id);
+            var l = lines.First(x => x.Line.Id == o.Id);
+            l.EmailQuote = new PpEmailQuoteRef
+            {
+                Id = email.Id,
+                Subject = email.EmailSubject,
+                Date = email.EmailDate ?? email.CreatedAt,
+                SupplierEmail = email.SupplierEmail,
+                Price = email.Price,
+                Status = email.Status,
+            };
+        }
+
+        var rest = emails.Where(e => !used.Contains(e.Id)).ToList();
+        var built = (await BuildLinesAsync(rest.Select(e => e.Id).ToList())).ToDictionary(l => l.Line.Id);
+        var result = new Dictionary<long, List<PpQuoteLineResponse>>();
+        foreach (var p in parts)
+        {
+            var mine = rest.Where(e => EmailQuoteMatch.PartKeys(e).Any(p.Keys.Contains))
+                .Select(e => built.GetValueOrDefault(e.Id))
+                .OfType<PpQuoteLineResponse>()
+                .ToList();
+            if (mine.Count > 0) result[p.Part.Id] = mine;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Rows for these parts in their owner's current files (the last FreshDays) — one row per (file row, part),
+    /// with the preferred supplier the company matched. Feeds Suppliers available and every part card.
+    /// </summary>
+    private async Task<List<PpOfferRow>> OfferRowsAsync(List<PartKeys> parts, long? userId)
+    {
+        var index = IndexByKey(parts);
+        var allKeys = index.Keys.ToList();
+        if (allKeys.Count == 0) return new();
+        var since = DateTime.UtcNow.AddDays(-FreshDays);
+        var offers = await _db.Set<ProcurementPlusOffer>().AsNoTracking()
+            .Include(o => o.Supplier)
+            .Include(o => o.Upload)
+            .Where(o => (userId == null || o.Upload.UserId == userId) && o.Upload.UploadedAt >= since
+                && (allKeys.Contains(o.PartKey) || (o.AltKey != null && allKeys.Contains(o.AltKey))))
+            .OrderBy(o => o.Id)
+            .ToListAsync();
+        if (offers.Count == 0) return new();
+
+        var matcher = await LoadPreferredMatcherAsync();
+        // One company = one preferred supplier: the first of its rows that matches decides.
+        var preferredByCompany = offers.GroupBy(o => o.CompanyKey)
+            .ToDictionary(g => g.Key, g => g.Select(o => matcher.Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
+        var state = userId != null ? await SourcingStateAsync(userId.Value) : new Dictionary<(string, string), string>();
+
+        var rows = new List<PpOfferRow>();
+        foreach (var o in offers)
+        {
+            var pref = preferredByCompany[o.CompanyKey];
+            // Files are per user: only the part owner's files count for it.
+            foreach (var p in PartsFor(index, o.PartKey, o.AltKey).Where(p => p.Part.UserId == o.Upload.UserId))
+            {
+                rows.Add(new PpOfferRow
+                {
+                    OfferId = o.Id,
+                    UploadId = o.UploadId,
+                    PartId = p.Part.Id,
+                    PartNumber = p.Part.Name,
+                    FilePartNo = o.PartNo,
+                    AltPartNo = o.AltPartNo,
+                    SupplierId = o.SupplierId,
+                    SupplierName = o.Supplier?.Name,
+                    SupplierStatus = o.Supplier?.Status,
+                    SupplierEmail = o.Supplier?.Email,
+                    PreferredId = pref?.Id,
+                    PreferredName = pref?.Name,
+                    CompanyRaw = o.CompanyRaw,
+                    CompanyKey = o.CompanyKey,
+                    SupplierComment = o.SupplierComment,
+                    QtyRaw = o.QtyRaw,
+                    Qty = o.Qty,
+                    Condition = o.Condition,
+                    Description = o.Description,
+                    Price = o.Price,
+                    PriceRaw = o.PriceRaw,
+                    Email = o.Email,
+                    Phone = o.Phone,
+                    Distance = o.Distance,
+                    Cage = o.Cage,
+                    FileName = o.Upload.FileName,
+                    UploadedAt = o.Upload.UploadedAt,
+                    SourceMethod = pref != null ? PreferredSupplierMethods.Normalize(pref.SourceMethod) : null,
+                    SourcingState = state.GetValueOrDefault((pref != null ? $"p{pref.Id}" : $"s{o.SupplierId}", p.Part.NameKey)),
+                });
+            }
+        }
+        return rows;
     }
 
     /// <summary>"By supplier": every supplier with lines on this board's parts, and those lines (paged by supplier).</summary>
     public async Task<PpSupplierPage> GetSupplierViewAsync(long? userId, string track, string? search, int page, int pageSize)
     {
-        track = PreferredTracks.Normalize(track);
+        track = BoardTrack(track);
         pageSize = Math.Clamp(pageSize, 1, MaxBoardPageSize);
-        var parts = await LoadPartsAsync(userId, false, track);
+        var parts = await LoadPartsAsync(userId, false, track == AllTrack ? null : track);
         var heads = await LineHeadsAsync(userId);
         var partOf = MapLinesToParts(heads, parts.Select(p => p.Part));
         var partName = parts.ToDictionary(p => p.Part.Id, p => p.Part.Name);
@@ -608,6 +873,12 @@ public class ProcurementPlusService : IProcurementPlusService
                 Deadline = r.LeadTime,
                 CustomerCode = r.Customer.CustomerCode,
                 ItemCount = r.RFQItems.Count,
+                CustomerName = r.Customer.Name,
+                ReceivedDate = r.ReceivedDate,
+                CreatedAt = r.CreatedAt,
+                OwnerName = r.User != null ? r.User.Name : null,
+                SenderMail = r.SenderMail,
+                Notes = r.Notes,
             })
             .FirstOrDefaultAsync();
         if (rfq == null) return null;
@@ -620,11 +891,12 @@ public class ProcurementPlusService : IProcurementPlusService
         var itemIds = items.Select(i => i.Id).ToList();
         var quotes = (await _db.Set<ProcumentRecord>().AsNoTracking()
                 .Where(r => itemIds.Contains(r.RFQItemId) && (r.Type ?? "Procument") != "Shop")
-                .Select(r => new { r.RFQItemId, SupplierName = r.Supplier.Name, r.Price, r.Condition, r.Qty, r.LeadTime, r.Alt, r.CertName, r.TagDate, When = r.UpdatedAt ?? r.CreatedAt })
+                .Select(r => new { r.RFQItemId, r.SupplierId, SupplierName = r.Supplier.Name, r.Price, r.Condition, r.Qty, r.LeadTime, r.Alt, r.CertName, r.TagDate, When = r.UpdatedAt ?? r.CreatedAt })
                 .ToListAsync())
             .GroupBy(r => r.RFQItemId)
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Price).Select(r => new PpRfqQuote
             {
+                SupplierId = r.SupplierId,
                 SupplierName = r.SupplierName,
                 Price = r.Price,
                 Condition = r.Condition,
@@ -645,6 +917,18 @@ public class ProcurementPlusService : IProcurementPlusService
         var partOf = MapLinesToParts(heads, matched.Select(p => p.Part));
         var boards = (await BuildBoardPartsAsync(matched, userId, heads, partOf)).ToDictionary(b => b.Part.Id);
 
+        // Items not on the list: their rows in the files too, through a stand-in part per item.
+        var owner = userId ?? scope.UserId;
+        var standIns = items.Where(i => matchOf[i.Id] == null).Select(i =>
+        {
+            var keys = ItemKeys(i);
+            var stand = new Preferred { Id = -i.Id, Kind = PartKind, UserId = owner, Name = i.PartNumber.Name, NameKey = PnKey(i.PartNumber.Name), Track = RfqTrack };
+            return new PartKeys(stand, new(), keys, keys.ToList());
+        }).ToList();
+        var looseOffers = (await OfferRowsAsync(standIns, userId ?? owner))
+            .GroupBy(r => -r.PartId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Price == null ? 1 : 0).ThenBy(r => r.Price).ToList());
+
         return new PpRfqCoverage
         {
             Rfq = rfq,
@@ -664,6 +948,7 @@ public class ProcurementPlusService : IProcurementPlusService
                     OlderQuotes = older.GetValueOrDefault(i.Id)?.Take(MaxOlderQuotes).ToList() ?? new(),
                     OlderQuoteCount = older.GetValueOrDefault(i.Id)?.Count ?? 0,
                     Board = board,
+                    Offers = board == null ? looseOffers.GetValueOrDefault(i.Id) ?? new() : new(),
                     HasSupplier = rfqQuotes.Count > 0 || (board?.Lines.Count ?? 0) > 0,
                 };
             }).ToList(),
@@ -677,11 +962,20 @@ public class ProcurementPlusService : IProcurementPlusService
     /// Supplier quotes for each item's part on OTHER RFQs — matched by the item's part number, new name,
     /// RFQ-item alt and catalog alternatives — newest first.
     /// </summary>
-    private async Task<Dictionary<long, List<PpRfqQuote>>> OlderQuotesAsync(List<RFQItem> items, long rfqId)
+    private Task<Dictionary<long, List<PpRfqQuote>>> OlderQuotesAsync(List<RFQItem> items, long rfqId) =>
+        QuotesByKeysAsync(
+            items.ToDictionary(i => i.Id, ItemKeys),
+            items.SelectMany(i => new[] { i.PartNumber.Name, i.PartNumber.NewName, i.Alt }.Concat(i.PartNumber.Alternatives.Select(a => a.Name))),
+            rfqId);
+
+    /// <summary>
+    /// Supplier quotes on RFQs (newest first, any RFQ but excludeRfqId) for each entry's part — an entry is a set of
+    /// P/N keys (name, new name, alternatives); the catalog parts answering to them decide which RFQ items count.
+    /// </summary>
+    private async Task<Dictionary<long, List<PpRfqQuote>>> QuotesByKeysAsync(Dictionary<long, HashSet<string>> keysOf,
+        IEnumerable<string?> rawNames, long? excludeRfqId)
     {
-        var keysOf = items.ToDictionary(i => i.Id, ItemKeys);
-        var names = items
-            .SelectMany(i => new[] { i.PartNumber.Name, i.PartNumber.NewName, i.Alt }.Concat(i.PartNumber.Alternatives.Select(a => a.Name)))
+        var names = rawNames
             .OfType<string>().Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim())
             .Concat(keysOf.Values.SelectMany(k => k))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -698,7 +992,8 @@ public class ProcurementPlusService : IProcurementPlusService
         if (catalogIds.Count == 0) return new();
 
         var records = await _db.Set<ProcumentRecord>().AsNoTracking()
-            .Where(r => catalogIds.Contains(r.RFQItem.PartNumberId) && r.RFQItem.RFQId != rfqId && (r.Type ?? "Procument") != "Shop")
+            .Where(r => catalogIds.Contains(r.RFQItem.PartNumberId) && (excludeRfqId == null || r.RFQItem.RFQId != excludeRfqId)
+                && (r.Type ?? "Procument") != "Shop")
             .OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt)
             .Take(5000)
             .Select(r => new
@@ -708,6 +1003,7 @@ public class ProcurementPlusService : IProcurementPlusService
                 RfqName = r.RFQItem.RFQ.Name,
                 r.RFQItem.RFQ.Customer.CustomerCode,
                 PartName = r.RFQItem.PartNumber.Name,
+                r.SupplierId,
                 SupplierName = r.Supplier.Name,
                 r.Price,
                 r.Condition,
@@ -720,15 +1016,16 @@ public class ProcurementPlusService : IProcurementPlusService
             })
             .ToListAsync();
 
-        return items.ToDictionary(i => i.Id, i =>
+        return keysOf.ToDictionary(e => e.Key, e =>
         {
-            var ids = catalog.Where(c => c.Value.Overlaps(keysOf[i.Id])).Select(c => c.Key).ToHashSet();
+            var ids = catalog.Where(c => c.Value.Overlaps(e.Value)).Select(c => c.Key).ToHashSet();
             return records.Where(r => ids.Contains(r.PartNumberId)).Select(r => new PpRfqQuote
             {
                 RfqId = r.RFQId,
                 RfqName = r.RfqName,
                 CustomerCode = r.CustomerCode,
                 PartNumber = r.PartName,
+                SupplierId = r.SupplierId,
                 SupplierName = r.SupplierName,
                 Price = r.Price,
                 Condition = r.Condition,
@@ -740,6 +1037,44 @@ public class ProcurementPlusService : IProcurementPlusService
                 Date = r.When,
             }).ToList();
         });
+    }
+
+    /// <summary>Quotes listed in a part's history (newest first).</summary>
+    public const int MaxHistoryQuotes = 200;
+
+    /// <summary>
+    /// A part's history (the clock button on a part card): supplier quotes for it on every RFQ — by its name,
+    /// alternatives and linked catalog part — and its tracing timeline. id &lt; 0 = a saved-RFQ item not on the list.
+    /// </summary>
+    public async Task<PpPartHistory?> GetPartHistoryAsync(long? userId, long id)
+    {
+        string partNumber;
+        HashSet<string> keys;
+        List<string?> names;
+        if (id > 0)
+        {
+            var part = (await LoadPartsAsync(userId, true)).FirstOrDefault(p => p.Part.Id == id);
+            if (part == null) return null;
+            (partNumber, keys, names) = (part.Part.Name, part.Keys, part.Names.Cast<string?>().ToList());
+        }
+        else
+        {
+            var item = await _db.Set<RFQItem>().AsNoTracking()
+                .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
+                .FirstOrDefaultAsync(i => i.Id == -id);
+            if (item == null) return null;
+            (partNumber, keys) = (item.PartNumber.Name, ItemKeys(item));
+            names = new[] { item.PartNumber.Name, item.PartNumber.NewName, item.Alt }.Concat(item.PartNumber.Alternatives.Select(a => a.Name)).ToList();
+        }
+
+        var quotes = (await QuotesByKeysAsync(new() { [id] = keys }, names, null)).GetValueOrDefault(id) ?? new();
+        return new PpPartHistory
+        {
+            PartNumber = partNumber,
+            Quotes = quotes.Take(MaxHistoryQuotes).ToList(),
+            QuoteCount = quotes.Count,
+            Events = id > 0 ? (await EventsAsync([id])).GetValueOrDefault(id) ?? new() : new(),
+        };
     }
 
     // ──── My RFQs (saved per user, By RFQ tab) ────
@@ -884,35 +1219,78 @@ public class ProcurementPlusService : IProcurementPlusService
             ?? throw new InvalidOperationException("Part not found.");
         Preferred? pref = null;
         Supplier? catalog = null;
+        // A row of the part owner's files: the line takes its company, price, qty, condition and alt.
+        ProcurementPlusOffer? offer = null;
+        if (request.OfferId is > 0)
+            offer = await _db.Set<ProcurementPlusOffer>().AsNoTracking().Include(o => o.Upload)
+                .FirstOrDefaultAsync(o => o.Id == request.OfferId && o.Upload.UserId == part.UserId)
+                ?? throw new InvalidOperationException("File row not found.");
         if (request.PreferredId is > 0)
             pref = await _db.Set<Preferred>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == request.PreferredId && p.Kind == SupplierKind)
                 ?? throw new InvalidOperationException("Preferred supplier not found.");
-        var supplierId = request.SupplierId is > 0 ? request.SupplierId : pref?.SupplierId;
+        else if (offer != null)
+            pref = (await LoadPreferredMatcherAsync()).Match(offer.SupplierId, offer.Email, offer.CompanyKey);
+        var supplierId = request.SupplierId is > 0 ? request.SupplierId : pref?.SupplierId ?? offer?.SupplierId;
         if (supplierId != null)
             catalog = await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == supplierId)
                 ?? throw new InvalidOperationException("Supplier not found.");
-        var name = pref?.Name ?? catalog?.Name ?? SupplierNameNormalizer.Clean(request.SupplierName);
+        var name = pref?.Name ?? catalog?.Name ?? (offer != null ? offer.CompanyRaw : SupplierNameNormalizer.Clean(request.SupplierName));
         if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("Pick or type a supplier.");
+
+        // Listed under one of the part's alternatives: that is what this supplier offers.
+        var alt = offer != null && offer.PartKey != part.NameKey ? Trunc(offer.PartNo, 200) : null;
+        if (offer != null)
+        {
+            // Added already (double click, or added before): hand back that line. Each alternative the
+            // supplier lists is its own line.
+            var condition = CondKey(offer.Condition);
+            var open = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+                .Where(q => q.Source == Pp && q.Status == Pending && q.PreferredPartId == part.Id)
+                .Select(q => new { q.Id, q.SupplierNameRaw, q.Condition, q.Alt })
+                .ToListAsync();
+            var same = open.FirstOrDefault(q => SupplierNameNormalizer.Key(q.SupplierNameRaw ?? "") == SupplierNameNormalizer.Key(name)
+                && CondKey(q.Condition) == condition && PnKey(q.Alt) == PnKey(alt));
+            if (same != null) return (await BuildLinesAsync([same.Id])).First();
+        }
 
         var line = new PendingSupplierQuote
         {
             Source = Pp,
-            SourceMethod = part.Track == PreferredTracks.Ils ? PreferredSupplierMethods.Normalize(pref?.SourceMethod) : part.Track,
+            // The methods picked when adding (ILS / Email / Search, one or more), else the usual default.
+            SourceMethod = PreferredSupplierMethods.Join(request.Methods)
+                ?? (part.Track == PreferredTracks.Ils ? PreferredSupplierMethods.Normalize(pref?.SourceMethod) : part.Track),
             CreatedByUserId = part.UserId,
             PreferredId = pref?.Id,
             PreferredPartId = part.Id,
             SupplierId = catalog?.Id,
             SupplierNameRaw = Trunc(name, 300),
-            SupplierEmail = Trunc((pref != null ? EmailsOf(pref).FirstOrDefault() : null) ?? SupplierEmails.Normalize(catalog?.Email), 320),
-            EmailSubject = Trunc($"Procurement Plus · {part.Track}", 500),
+            SupplierEmail = Trunc(offer?.Email ?? (pref != null ? EmailsOf(pref).FirstOrDefault() : null) ?? SupplierEmails.Normalize(catalog?.Email), 320),
+            EmailSubject = Trunc(offer != null ? $"Procurement Plus · {offer.Upload.FileName}" : $"Procurement Plus · {part.Track}", 500),
             PartNumber = Trunc(part.Name, 200)!,
-            Qty = part.Qty,
-            Condition = Trunc(part.Condition, 100),
+            Alt = alt,
+            Price = offer?.Price,
+            PriceRaw = offer?.PriceRaw,
+            // Name only (added from the part's history): the user fills qty / condition / price.
+            Qty = request.NameOnly ? null : offer?.Qty ?? part.Qty,
+            Condition = request.NameOnly ? null : Trunc(offer?.Condition?.ToUpperInvariant() ?? part.Condition, 100),
             Status = Pending,
             CreatedAt = DateTime.UtcNow,
         };
         _db.Set<PendingSupplierQuote>().Add(line);
-        AddEvent(part.Id, actorId, "Supplier", $"Supplier {name} added");
+        if (offer != null)
+        {
+            // The supplier quoted it by email already: the line takes that price (shown as "quoted by email").
+            var names = new[] { line.PartNumber, line.Alt }.OfType<string>().ToList();
+            var since = DateTime.UtcNow.AddDays(-PendingSupplierQuoteService.AutoApplyDays);
+            var emails = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+                .Where(q => q.Source == null && q.Price != null && (q.Status == Pending || (q.Status == Accepted && q.ReviewedAt >= since))
+                    && (names.Contains(q.PartNumber) || (q.Alt != null && names.Contains(q.Alt))))
+                .OrderByDescending(q => q.EmailDate ?? q.CreatedAt)
+                .ToListAsync();
+            var email = emails.FirstOrDefault(e => EmailQuoteMatch.Matches(line, e));
+            if (email != null) EmailQuoteMatch.CopyInto(line, email);
+        }
+        AddEvent(part.Id, actorId, "Supplier", offer != null ? $"Supplier {name} added from {offer.Upload.FileName}" : $"Supplier {name} added");
         await _db.SaveChangesAsync();
         return (await BuildLinesAsync([line.Id])).First();
     }
@@ -984,7 +1362,8 @@ public class ProcurementPlusService : IProcurementPlusService
     // ──── Parts list ────
 
     /// <summary>A user's preferred part with every key it answers to (name, its alternatives, linked catalog part's names).</summary>
-    private sealed record PartKeys(Preferred Part, List<string> Alternatives, HashSet<string> Keys, List<string> Names);
+    /// <remarks>FromRfqs: a stand-in for saved-RFQ items not on the list (Parts tab) — the RFQs asking for it.</remarks>
+    private sealed record PartKeys(Preferred Part, List<string> Alternatives, HashSet<string> Keys, List<string> Names, List<PpRfqRef>? FromRfqs = null);
 
     /// <summary>Preferred parts of a user (null = every user), optionally of one track (ILS / Project / WeChat).</summary>
     private async Task<List<PartKeys>> LoadPartsAsync(long? userId, bool includeHidden, string? track = null)
@@ -1111,6 +1490,8 @@ public class ProcurementPlusService : IProcurementPlusService
                         && (p.Keys.Contains(PnKey(s.PartNumber)) || (s.Alt != null && p.Keys.Contains(PnKey(s.Alt)))))),
                 LiveQuotes = live.TryGetValue(p.Part.Id, out var l) ? l : new(),
                 PriceStats = priceStats.GetValueOrDefault(p.Part.Id) ?? new(),
+                RfqItemId = p.Part.Id < 0 ? -p.Part.Id : null,
+                FromRfqs = p.FromRfqs ?? new(),
             };
         }).ToList();
     }
@@ -1268,8 +1649,8 @@ public class ProcurementPlusService : IProcurementPlusService
             result.Uploads.Add(new PpUploadResponse { Id = upload.Id, FileName = upload.FileName, UploadedAt = upload.UploadedAt, RowCount = upload.RowCount });
         }
 
-        // Matched rows per file, against the user's shown parts.
-        var keys = (await LoadPartsAsync(userId, false, PreferredTracks.Ils)).SelectMany(p => p.Keys).ToHashSet();
+        // Matched rows per file, against everything on the Parts tab (shown parts of every track + saved-RFQ items).
+        var keys = (await BoardPartsAsync(userId, AllTrack, false)).SelectMany(p => p.Keys).ToHashSet();
         var ids = result.Uploads.Select(u => u.Id).ToList();
         var counts = await _db.Set<ProcurementPlusOffer>().AsNoTracking()
             .Where(o => ids.Contains(o.UploadId))
@@ -1294,19 +1675,22 @@ public class ProcurementPlusService : IProcurementPlusService
         var byEmail = await _quotes.MatchSuppliersByEmailAsync(
             offers.Where(o => !aliases.ContainsKey(o.CompanyKey)).Select(o => o.Email), addDomainContacts: true);
 
-        var names = offers.Select(o => o.CompanyRaw).Distinct().ToList();
+        // Names compare loosely: "AAR Corp." = "AAR CORP" = "A.A.R. Corporation" (punctuation and company
+        // suffixes ignored). Every usable catalog supplier is read once — a name in a file rarely matches exactly.
         var byName = (await _db.Set<Supplier>().AsNoTracking()
-                .Where(s => s.IsActive && s.Status != "Rejected" && s.Dependency != "Disabled" && names.Contains(s.Name))
+                .Where(s => s.IsActive && s.Status != "Rejected" && s.Dependency != "Disabled")
                 .Select(s => new { s.Id, s.Name, s.Status })
                 .ToListAsync())
-            .GroupBy(s => SupplierNameNormalizer.Key(s.Name))
+            .Select(s => (Key: CompanyMatchKey(s.Name), s.Id, s.Status))
+            .Where(s => s.Key.Length >= 2) // "3M" still counts; a single letter is too loose
+            .GroupBy(s => s.Key)
             .ToDictionary(g => g.Key, g => g.OrderBy(s => s.Status == "Approved" ? 0 : 1).ThenBy(s => s.Id).First().Id);
 
         foreach (var o in offers)
         {
             if (aliases.TryGetValue(o.CompanyKey, out var aliased)) o.SupplierId = aliased;
             else if (o.Email != null && byEmail.TryGetValue(o.Email, out var emailed)) o.SupplierId = emailed;
-            else if (byName.TryGetValue(o.CompanyKey, out var named)) o.SupplierId = named;
+            else if (byName.TryGetValue(CompanyMatchKey(o.CompanyRaw), out var named)) o.SupplierId = named;
         }
 
         // One company = one supplier: rows of a company without an email get what its other rows found.
@@ -1316,6 +1700,45 @@ public class ProcurementPlusService : IProcurementPlusService
             if (found == null) continue;
             foreach (var o in company.Where(o => o.SupplierId == null)) o.SupplierId = found;
         }
+    }
+
+    private static readonly Regex NonAlphaNum = new(@"[^A-Z0-9]+", RegexOptions.Compiled);
+    private static readonly HashSet<string> CompanySuffixes = new(StringComparer.Ordinal)
+    {
+        "INC", "INCORPORATED", "LLC", "LTD", "LIMITED", "CORP", "CORPORATION", "CO", "COMPANY", "GMBH", "AG",
+        "SA", "SAS", "SARL", "SRL", "SPA", "BV", "NV", "PLC", "PTE", "PTY", "LLP", "LP", "KG", "OY", "AB", "AS",
+    };
+
+    /// <summary>
+    /// A company name for matching only: upper case, "&amp;" = AND, punctuation dropped, a leading THE and trailing
+    /// company suffixes (INC, LLC, LTD, CORP, GMBH…) removed, spaces squeezed out. "" when nothing is left.
+    /// </summary>
+    private static string CompanyMatchKey(string? name)
+    {
+        var words = NonAlphaNum.Split(SupplierNameNormalizer.Key(name).Replace("&", " AND "))
+            .Where(w => w.Length > 0)
+            .ToList();
+        if (words.Count > 1 && words[0] == "THE") words.RemoveAt(0);
+        while (words.Count > 1 && CompanySuffixes.Contains(words[^1])) words.RemoveAt(words.Count - 1);
+        return string.Concat(words);
+    }
+
+    /// <summary>
+    /// Links the user's current file rows that are still without a catalog supplier, for these parts — so a
+    /// supplier added (or given that email) in the catalog after the upload is picked up without uploading again.
+    /// </summary>
+    private async Task RelinkFreshOffersAsync(long userId, List<PartKeys> parts)
+    {
+        var allKeys = parts.SelectMany(p => p.Keys).Distinct().ToList();
+        if (allKeys.Count == 0) return;
+        var since = DateTime.UtcNow.AddDays(-FreshDays);
+        var unlinked = await _db.Set<ProcurementPlusOffer>()
+            .Where(o => o.SupplierId == null && o.Upload.UserId == userId && o.Upload.UploadedAt >= since
+                && (allKeys.Contains(o.PartKey) || (o.AltKey != null && allKeys.Contains(o.AltKey))))
+            .ToListAsync();
+        if (unlinked.Count == 0) return;
+        await MatchSuppliersAsync(unlinked);
+        if (unlinked.Any(o => o.SupplierId != null)) await _db.SaveChangesAsync();
     }
 
     public async Task<bool> DeleteUploadAsync(long userId, long uploadId) =>
@@ -1384,24 +1807,20 @@ public class ProcurementPlusService : IProcurementPlusService
     {
         var response = new PpAvailabilityResponse { FreshDays = FreshDays };
         var since = DateTime.UtcNow.AddDays(-FreshDays);
-        var parts = await LoadPartsAsync(userId, false, PreferredTracks.Ils);
-        var index = IndexByKey(parts);
-        var allKeys = index.Keys.ToList();
+        // Every track: Project / WeChat parts get their file rows (and can be sourced from them) too — and the items
+        // of the user's saved RFQs not on the list yet (stand-ins, PartId < 0; sourcing one puts it on the list).
+        var listed = await LoadPartsAsync(userId, true);
+        var parts = listed.Where(p => p.Part.HiddenAt == null).Concat(await MyRfqItemPartsAsync(userId, listed)).ToList();
+        await RelinkFreshOffersAsync(userId, parts);
 
         var uploads = await _db.Set<ProcurementPlusUpload>().AsNoTracking()
             .Where(u => u.UserId == userId && u.UploadedAt >= since)
             .OrderByDescending(u => u.UploadedAt)
             .ToListAsync();
-        var uploadIds = uploads.Select(u => u.Id).ToList();
 
-        var offers = allKeys.Count == 0 || uploadIds.Count == 0
-            ? new List<ProcurementPlusOffer>()
-            : await _db.Set<ProcurementPlusOffer>().AsNoTracking()
-                .Include(o => o.Supplier)
-                .Where(o => uploadIds.Contains(o.UploadId)
-                    && (allKeys.Contains(o.PartKey) || (o.AltKey != null && allKeys.Contains(o.AltKey))))
-                .OrderBy(o => o.Id)
-                .ToListAsync();
+        // One row per (file row, part) — a row normally answers one part.
+        var rows = uploads.Count == 0 ? new List<PpOfferRow>() : await OfferRowsAsync(parts, userId);
+        var matcher = await LoadPreferredMatcherAsync();
 
         response.Uploads = uploads.Select(u => new PpUploadResponse
         {
@@ -1409,65 +1828,18 @@ public class ProcurementPlusService : IProcurementPlusService
             FileName = u.FileName,
             UploadedAt = u.UploadedAt,
             RowCount = u.RowCount,
-            MatchedRows = offers.Count(o => o.UploadId == u.Id),
+            MatchedRows = rows.Where(r => r.UploadId == u.Id).Select(r => r.OfferId).Distinct().Count(),
         }).ToList();
-        var uploadById = uploads.ToDictionary(u => u.Id);
-
-        var matcher = await LoadPreferredMatcherAsync();
-        // One company = one preferred supplier: the first of its rows that matches decides.
-        var preferredByCompany = offers.GroupBy(o => o.CompanyKey)
-            .ToDictionary(g => g.Key, g => g.Select(o => matcher.Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
-        var state = await SourcingStateAsync(userId);
-
-        // One row per (file row, part) — a row normally answers one part.
-        var rows = new List<PpOfferRow>();
-        foreach (var o in offers)
-        {
-            var pref = preferredByCompany[o.CompanyKey];
-            foreach (var p in PartsFor(index, o.PartKey, o.AltKey))
-            {
-                var upload = uploadById[o.UploadId];
-                rows.Add(new PpOfferRow
-                {
-                    OfferId = o.Id,
-                    PartId = p.Part.Id,
-                    PartNumber = p.Part.Name,
-                    FilePartNo = o.PartNo,
-                    AltPartNo = o.AltPartNo,
-                    SupplierId = o.SupplierId,
-                    SupplierName = o.Supplier?.Name,
-                    SupplierStatus = o.Supplier?.Status,
-                    SupplierEmail = o.Supplier?.Email,
-                    PreferredId = pref?.Id,
-                    PreferredName = pref?.Name,
-                    CompanyRaw = o.CompanyRaw,
-                    CompanyKey = o.CompanyKey,
-                    SupplierComment = o.SupplierComment,
-                    QtyRaw = o.QtyRaw,
-                    Qty = o.Qty,
-                    Condition = o.Condition,
-                    Description = o.Description,
-                    Price = o.Price,
-                    PriceRaw = o.PriceRaw,
-                    Email = o.Email,
-                    Phone = o.Phone,
-                    Distance = o.Distance,
-                    Cage = o.Cage,
-                    FileName = upload.FileName,
-                    UploadedAt = upload.UploadedAt,
-                    SourceMethod = pref != null ? PreferredSupplierMethods.Normalize(pref.SourceMethod) : null,
-                    SourcingState = state.GetValueOrDefault((pref != null ? $"p{pref.Id}" : $"s{o.SupplierId}", p.Part.NameKey)),
-                });
-            }
-        }
 
         response.Preferred = rows.Where(r => r.PreferredId != null).ToList();
         response.Others = rows.Where(r => r.PreferredId == null).ToList();
 
-        var listed = rows.Select(r => r.PartId).ToHashSet();
-        var openItems = await FindRfqItemsAsync(parts.Where(p => !listed.Contains(p.Part.Id)).SelectMany(p => p.Names),
+        // "No supplier": ILS parts nobody lists (Project / WeChat parts are already worked on by hand).
+        var inFiles = rows.Select(r => r.PartId).ToHashSet();
+        var missing = parts.Where(p => p.Part.Track == PreferredTracks.Ils && !inFiles.Contains(p.Part.Id)).ToList();
+        var openItems = await FindRfqItemsAsync(missing.SelectMany(p => p.Names),
             DateTime.UtcNow.Date.AddDays(-PendingSupplierQuoteService.DeadlineGraceDays));
-        response.Missing = parts.Where(p => !listed.Contains(p.Part.Id)).Select(p => new PpMissingPart
+        response.Missing = missing.Select(p => new PpMissingPart
         {
             PartId = p.Part.Id,
             PartNumber = p.Part.Name,
@@ -1874,10 +2246,8 @@ public class ProcurementPlusService : IProcurementPlusService
     public async Task<PpStartSourcingResponse> StartSourcingAsync(long userId, PpStartSourcingRequest request)
     {
         var response = new PpStartSourcingResponse();
-        var parts = await LoadPartsAsync(userId, false, PreferredTracks.Ils);
-        var index = IndexByKey(parts);
         var since = DateTime.UtcNow.AddDays(-FreshDays);
-        var preferredIds = request.Suppliers.Select(s => s.PreferredId).Distinct().ToList();
+        var preferredIds = request.Suppliers.Select(s => s.PreferredId).OfType<long>().Distinct().ToList();
         var preferreds = await _db.Set<Preferred>()
             .Where(p => p.Kind == SupplierKind && preferredIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
@@ -1888,15 +2258,19 @@ public class ProcurementPlusService : IProcurementPlusService
             .ToListAsync();
         var preferredByCompany = offers.GroupBy(o => o.CompanyKey)
             .ToDictionary(g => g.Key, g => g.Select(o => matcher.Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null)?.Id);
+        // Saved-RFQ items not on the list yet (Suppliers available lists them too): sourcing one puts it on the Parts list first.
+        await AddSourcedRfqItemsAsync(userId, request, offers, preferredByCompany);
+        var parts = await LoadPartsAsync(userId, false);
+        var index = IndexByKey(parts);
         var open = await _db.Set<PendingSupplierQuote>()
             .Where(p => p.Source == Pp && p.Status == Pending && p.CreatedByUserId == userId
                 && p.PreferredId != null && preferredIds.Contains(p.PreferredId.Value))
             .ToListAsync();
         var created = new List<PendingSupplierQuote>();
 
-        foreach (var pick in request.Suppliers.DistinctBy(s => s.PreferredId))
+        foreach (var pick in request.Suppliers.Where(s => s.PreferredId != null).DistinctBy(s => s.PreferredId))
         {
-            if (!preferreds.TryGetValue(pick.PreferredId, out var pref)) continue;
+            if (!preferreds.TryGetValue(pick.PreferredId!.Value, out var pref)) continue;
             var method = PreferredSupplierMethods.Normalize(pick.SourceMethod ?? pref.SourceMethod);
             // The method picked here becomes the supplier's default.
             if (pick.SourceMethod != null) pref.SourceMethod = method;
@@ -1955,9 +2329,95 @@ public class ProcurementPlusService : IProcurementPlusService
                 response.Created++;
             }
         }
+
+        // Non-preferred suppliers: the picked rows, as the catalog supplier they matched or the company in the file
+        // (that one needs a catalog supplier picked on the line before Done).
+        var otherPicks = request.Suppliers.Where(s => s.PreferredId == null && s.OfferIds.Count > 0).ToList();
+        if (otherPicks.Count > 0)
+        {
+            var catalogIds = offers.Select(o => o.SupplierId).OfType<long>().Distinct().ToList();
+            var catalogNames = await _db.Set<Supplier>().AsNoTracking()
+                .Where(s => catalogIds.Contains(s.Id))
+                .ToDictionaryAsync(s => s.Id, s => s.Name);
+            var openOther = await _db.Set<PendingSupplierQuote>()
+                .Where(p => p.Source == Pp && p.Status == Pending && p.CreatedByUserId == userId && p.PreferredId == null)
+                .ToListAsync();
+            string Who(long? supplierId, string? name) => supplierId != null ? $"s{supplierId}" : "n" + SupplierNameNormalizer.Key(name ?? "");
+
+            foreach (var pick in otherPicks)
+            {
+                var method = PreferredSupplierMethods.Normalize(pick.SourceMethod);
+                var lines = offers
+                    .Where(o => pick.OfferIds.Contains(o.Id) && preferredByCompany[o.CompanyKey] == null)
+                    .SelectMany(o => PartsFor(index, o.PartKey, o.AltKey).Select(p => (Part: p.Part, Offer: o)))
+                    .GroupBy(x => (Who(x.Offer.SupplierId, x.Offer.CompanyRaw), x.Part.Id, CondKey(x.Offer.Condition)))
+                    .Select(g => g.OrderByDescending(x => x.Offer.Price != null).ThenByDescending(x => x.Offer.Qty ?? 0).First());
+
+                foreach (var (part, offer) in lines)
+                {
+                    var name = offer.SupplierId != null ? catalogNames.GetValueOrDefault(offer.SupplierId.Value) ?? offer.CompanyRaw : offer.CompanyRaw;
+                    var who = Who(offer.SupplierId, offer.CompanyRaw);
+                    var existing = openOther.FirstOrDefault(l => PnKey(l.PartNumber) == part.NameKey
+                        && CondKey(l.Condition) == CondKey(offer.Condition) && Who(l.SupplierId, l.SupplierNameRaw) == who);
+                    if (existing != null)
+                    {
+                        existing.SourceMethod = method;
+                        existing.PreferredPartId ??= part.Id;
+                        response.Existing++;
+                        response.LineIds.Add(existing.Id);
+                        continue;
+                    }
+                    var line = new PendingSupplierQuote
+                    {
+                        Source = Pp,
+                        SourceMethod = method,
+                        CreatedByUserId = userId,
+                        PreferredPartId = part.Id,
+                        SupplierId = offer.SupplierId,
+                        SupplierEmail = Trunc(offer.Email, 320),
+                        SupplierNameRaw = Trunc(name, 300),
+                        EmailSubject = Trunc($"Procurement Plus · {offer.Upload.FileName}", 500),
+                        PartNumber = part.Name,
+                        Alt = offer.PartKey != part.NameKey ? Trunc(offer.PartNo, 200) : null,
+                        Price = offer.Price,
+                        PriceRaw = offer.PriceRaw,
+                        Qty = offer.Qty,
+                        Condition = Trunc(offer.Condition?.ToUpperInvariant(), 100),
+                        Status = Pending,
+                        CreatedAt = DateTime.UtcNow,
+                    };
+                    _db.Set<PendingSupplierQuote>().Add(line);
+                    openOther.Add(line);
+                    created.Add(line);
+                    AddEvent(part.Id, userId, "Sourcing", $"Sourcing from {name} ({method})");
+                    response.Created++;
+                }
+            }
+        }
+
         await _db.SaveChangesAsync();
         response.LineIds = response.LineIds.Concat(created.Select(l => l.Id)).Distinct().ToList();
         return response;
+    }
+
+    /// <summary>The saved-RFQ items (not on the list) the picked file rows answer → added to the user's Parts list (ILS).</summary>
+    private async Task AddSourcedRfqItemsAsync(long userId, PpStartSourcingRequest request, List<ProcurementPlusOffer> offers,
+        Dictionary<string, long?> preferredOf)
+    {
+        // A preferred pick with no rows listed means every row of that supplier.
+        var everyRow = request.Suppliers.Where(s => s.PreferredId != null && s.OfferIds.Count == 0).Select(s => s.PreferredId!.Value).ToHashSet();
+        var ids = request.Suppliers.SelectMany(s => s.OfferIds).ToHashSet();
+        var picked = offers.Where(o => ids.Contains(o.Id) || (preferredOf[o.CompanyKey] is { } p && everyRow.Contains(p))).ToList();
+        if (picked.Count == 0) return;
+        var standIns = IndexByKey(await MyRfqItemPartsAsync(userId, await LoadPartsAsync(userId, true)));
+        var itemIds = picked.SelectMany(o => PartsFor(standIns, o.PartKey, o.AltKey)).Select(p => -p.Part.Id).Distinct().ToList();
+        if (itemIds.Count == 0) return;
+        // The user saved these RFQs (visibility was checked then).
+        await AddPartsAsync(new PpUserScope(userId, true, []), new PpAddPartsRequest
+        {
+            Track = PreferredTracks.Ils,
+            Items = itemIds.Select(id => new PpAddPartItem { RfqItemId = id }).ToList(),
+        });
     }
 
     public async Task<List<PpQuoteLineResponse>> GetSourcingAsync(long userId, bool everyone)
@@ -1969,14 +2429,26 @@ public class ProcurementPlusService : IProcurementPlusService
         return await BuildLinesAsync(ids);
     }
 
+    /// <summary>A line the part cards can edit: a Procurement Plus line, or an Email Quotes line shown under a part.</summary>
     public Task<bool> IsLineAsync(long id) =>
-        _db.Set<PendingSupplierQuote>().AnyAsync(p => p.Id == id && p.Source == Pp && (p.Status == Pending || p.Status == Accepted));
+        _db.Set<PendingSupplierQuote>().AnyAsync(p => p.Id == id && (p.Source == Pp || p.Source == null) && (p.Status == Pending || p.Status == Accepted));
 
     public async Task<PpQuoteLineResponse?> UpdateLineAsync(long id, UpdatePendingSupplierQuoteRequest request)
     {
         if (!await IsLineAsync(id)) return null;
         var updated = await _quotes.UpdateAsync(id, request);
         return updated == null ? null : (await BuildLinesAsync([id])).FirstOrDefault();
+    }
+
+    /// <summary>How a line being priced is searched (ILS / Email / Search — one or more); shown on the line under its part.</summary>
+    public async Task<PpQuoteLineResponse?> SetLineMethodsAsync(long id, List<string> methods)
+    {
+        var line = await _db.Set<PendingSupplierQuote>().FirstOrDefaultAsync(p => p.Id == id && p.Source == Pp && p.Status == Pending);
+        if (line == null) return null;
+        line.SourceMethod = PreferredSupplierMethods.Join(methods)
+            ?? throw new InvalidOperationException("Pick ILS, Send Email or Search.");
+        await _db.SaveChangesAsync();
+        return (await BuildLinesAsync([id])).FirstOrDefault();
     }
 
     public async Task<int> RemoveLinesAsync(long userId, List<long> ids)
@@ -1995,6 +2467,47 @@ public class ProcurementPlusService : IProcurementPlusService
                 .SetProperty(p => p.Status, Removed)
                 .SetProperty(p => p.ReviewedAt, (DateTime?)now)
                 .SetProperty(p => p.ReviewedByUserId, (long?)userId));
+    }
+
+    /// <summary>
+    /// Before Done: the part numbers of these lines that are not in the database (PartNumbers, by name or new
+    /// name) — custom parts typed by the user. A custom part found there now is linked to it.
+    /// </summary>
+    public async Task<List<string>> PartsNotInDatabaseAsync(List<long> ids)
+    {
+        var lines = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+            .Where(p => ids.Contains(p.Id) && p.Source == Pp && p.Status == Pending)
+            .Select(p => new { p.PartNumber, p.PreferredPartId })
+            .ToListAsync();
+        var partIds = lines.Select(l => l.PreferredPartId).OfType<long>().Distinct().ToList();
+        var parts = await _db.Set<Preferred>().Where(p => p.Kind == PartKind && partIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+
+        // Parts picked from RFQs are linked already; the rest are looked up by their name.
+        var unlinked = lines
+            .Where(l => l.PreferredPartId == null || !parts.TryGetValue(l.PreferredPartId.Value, out var p) || p.PartNumberId == null)
+            .Select(l => (Name: l.PreferredPartId != null && parts.TryGetValue(l.PreferredPartId.Value, out var p) ? p.Name : l.PartNumber, l.PreferredPartId))
+            .ToList();
+        if (unlinked.Count == 0) return new();
+        var names = unlinked.Select(u => u.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var catalog = (await _db.Set<PartNumber>().AsNoTracking()
+                .Where(p => names.Contains(p.Name) || (p.NewName != null && names.Contains(p.NewName)))
+                .Select(p => new { p.Id, p.Name, p.NewName })
+                .ToListAsync())
+            .SelectMany(p => new[] { p.Name, p.NewName }.OfType<string>().Select(n => (Key: PnKey(n), p.Id)))
+            .GroupBy(x => x.Key)
+            .ToDictionary(g => g.Key, g => g.First().Id);
+
+        var missing = new List<string>();
+        foreach (var u in unlinked.DistinctBy(u => PnKey(u.Name)))
+        {
+            if (catalog.TryGetValue(PnKey(u.Name), out var catalogId))
+            {
+                if (u.PreferredPartId != null && parts.TryGetValue(u.PreferredPartId.Value, out var part)) part.PartNumberId ??= catalogId;
+            }
+            else missing.Add(u.Name.Trim());
+        }
+        await _db.SaveChangesAsync();
+        return missing;
     }
 
     public async Task<PpDoneResponse> DoneAsync(long userId, List<long> ids)
@@ -2018,6 +2531,144 @@ public class ProcurementPlusService : IProcurementPlusService
             Summary = new PpDoneSummary { Accepted = accepted.Accepted, QuotesWritten = accepted.QuotesWritten, Failed = accepted.Failed },
             Lines = lines,
         };
+    }
+
+    // ──── The user's own RFQ quotes → supplier lines under their parts ────
+
+    /// <summary>How far back the user's own RFQ supplier quotes come onto their parts (Sam: two weeks).</summary>
+    public const int RecentQuoteDays = 14;
+
+    /// <summary>
+    /// Sam 2026-10-20: every supplier quote this user put on an RFQ in the last RecentQuoteDays days shows as an
+    /// editable supplier line under the matching part (by P/N, its alternatives, or the quote's Alt), so it can be
+    /// edited and Done onto every other RFQ whose deadline is at most a week ago (Accept skips the quote's own item).
+    /// Runs on board load and only adds what is missing — a quote never comes back once it was put on the part
+    /// (even if that line was removed or Done), and copies written by a Done are not taken for new quotes.
+    /// </summary>
+    private async Task SyncRecentRfqQuotesAsync(long userId, List<PartKeys> parts)
+    {
+        var real = parts.Where(p => p.Part.Id > 0 && p.Part.UserId == userId).ToList();
+        if (real.Count == 0) return;
+        var since = DateTime.UtcNow.AddDays(-RecentQuoteDays);
+        var quotes = await _db.Set<ProcumentRecord>().AsNoTracking()
+            .Include(r => r.Supplier)
+            .Include(r => r.Certificates)
+            .Include(r => r.RFQItem).ThenInclude(i => i.PartNumber)
+            .Where(r => r.UserId == userId && r.CreatedAt >= since && (r.Type ?? "Procument") != "Shop")
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(2000)
+            .AsSplitQuery()
+            .ToListAsync();
+        if (quotes.Count == 0) return;
+
+        var partIds = real.Select(p => p.Part.Id).ToList();
+        var existing = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+            .Where(q => q.Source == Pp && q.PreferredPartId != null && partIds.Contains(q.PreferredPartId.Value))
+            .Select(q => new { PartId = q.PreferredPartId!.Value, q.SourceSupplierQuoteId, q.SupplierId, q.Condition, q.Alt, q.Price, q.Status, q.ReviewedAt })
+            .ToListAsync();
+        var byPart = existing.GroupBy(e => e.PartId).ToDictionary(g => g.Key, g => g.ToList());
+        var index = IndexByKey(real);
+        var now = DateTime.UtcNow;
+        var added = new List<(PendingSupplierQuote Line, ProcumentRecord Source)>();
+        var taken = new HashSet<(long, long, string, string)>(); // part, supplier, condition, alt — newest quote wins
+
+        foreach (var r in quotes)
+        {
+            // The part asked for on the RFQ first; else a part the quote's Alt answers to.
+            var part = index.GetValueOrDefault(PnKey(r.RFQItem.PartNumber.Name))?.FirstOrDefault()
+                ?? (string.IsNullOrWhiteSpace(r.Alt) ? null : index.GetValueOrDefault(PnKey(r.Alt))?.FirstOrDefault());
+            if (part == null) continue;
+            var cond = CondKey(r.Condition ?? r.RFQItem.Condition);
+            var alt = PnKey(r.Alt);
+            if (!taken.Add((part.Part.Id, r.SupplierId, cond, alt))) continue;
+
+            var lines = byPart.GetValueOrDefault(part.Part.Id) ?? [];
+            bool Same(long? supplierId, string? condition, string? lineAlt) =>
+                supplierId == r.SupplierId && CondKey(condition) == cond && PnKey(lineAlt) == alt;
+            if (lines.Any(l =>
+                    l.SourceSupplierQuoteId == r.Id                                                  // already brought here
+                    || (l.Status == Pending && Same(l.SupplierId, l.Condition, l.Alt))               // being priced already
+                    || (l.Status == Accepted && l.SupplierId == r.SupplierId && CondKey(l.Condition) == cond
+                        && l.Price == r.Price)                                                       // a copy that Done wrote
+                    || (l.Status == Removed && l.SourceSupplierQuoteId != null && Same(l.SupplierId, l.Condition, l.Alt)
+                        && l.ReviewedAt >= r.CreatedAt)))                                            // removed after this quote
+                continue;
+
+            var line = LineFromRfqQuote(r, userId, now);
+            line.PreferredPartId = part.Part.Id;
+            _db.Set<PendingSupplierQuote>().Add(line);
+            added.Add((line, r));
+        }
+        if (added.Count == 0) return;
+        await _db.SaveChangesAsync();
+        await CopyRfqQuoteCertificatesAsync(added, now);
+    }
+
+    /// <summary>A Procurement Plus line holding every value of the user's RFQ supplier quote.</summary>
+    private static PendingSupplierQuote LineFromRfqQuote(ProcumentRecord src, long userId, DateTime now) => new()
+    {
+        Source = Pp,
+        SourceMethod = RfqTrack,
+        SourceSupplierQuoteId = src.Id,
+        CreatedByUserId = userId,
+        EmailSubject = $"Procurement Plus · {RfqTrack}",
+        EmailDate = src.CreatedAt,
+        SupplierId = src.SupplierId,
+        SupplierNameRaw = src.Supplier.Name,
+        SupplierEmail = src.SupplierEmail,
+        PartNumber = src.RFQItem.PartNumber.Name,
+        Alt = src.Alt,
+        Price = src.Price,
+        Qty = src.Qty,
+        Condition = src.Condition ?? src.RFQItem.Condition,
+        CertName = src.CertName,
+        TagDate = src.TagDate,
+        LeadTime = src.LeadTime,
+        // A sell lead time that only follows the buy lead time is derived again per target customer.
+        SellLeadTime = string.IsNullOrWhiteSpace(src.SellLeadTime) || LeadTimeRules.IsAutoSellLeadTime(src.SellLeadTime, src.LeadTime)
+            ? null : src.SellLeadTime,
+        Remark = src.Note,
+        MyNotes = src.MyNotes,
+        ShippingCost = src.ShippingCost,
+        ShippingPoint = src.ShippingPoint,
+        CustomCertReferences = src.CustomCertReferences,
+        SerialNumber = src.SerialNumber,
+        TraceTo = src.TraceTo,
+        TagType = src.TagType,
+        PriceType = src.PriceType,
+        TaggedBy = src.TaggedBy,
+        MoQ = src.MoQ,
+        Warranty = src.Warranty,
+        CR = src.CR,
+        Status = Pending,
+        CreatedAt = now,
+    };
+
+    /// <summary>The RFQ quote's cert PDFs go along onto the line (editable there); Done copies them onto every quote it writes.</summary>
+    private async Task CopyRfqQuoteCertificatesAsync(List<(PendingSupplierQuote Line, ProcumentRecord Source)> lines, DateTime now)
+    {
+        var any = false;
+        foreach (var (line, src) in lines)
+            foreach (var cert in src.Certificates)
+            {
+                var from = Path.Combine(SupplierQuoteService.CertificateRoot, src.Id.ToString(), cert.FileName);
+                if (!File.Exists(from)) continue;
+                var folder = Path.Combine(PendingSupplierQuoteService.CertificateRoot, line.Id.ToString());
+                Directory.CreateDirectory(folder);
+                var stored = $"{Guid.NewGuid():N}.pdf";
+                File.Copy(from, Path.Combine(folder, stored));
+                _db.Set<PendingSupplierQuoteCertificate>().Add(new PendingSupplierQuoteCertificate
+                {
+                    PendingSupplierQuoteId = line.Id,
+                    FileName = stored,
+                    OriginalFileName = cert.OriginalFileName,
+                    FileSizeBytes = cert.FileSizeBytes,
+                    UploadedAt = now,
+                    UploadedByUserId = cert.UploadedByUserId,
+                });
+                any = true;
+            }
+        if (any) await _db.SaveChangesAsync();
     }
 
     public async Task<PpDoneListResponse> GetDoneAsync(int? days, long? byUserId, string? search)
@@ -2056,12 +2707,29 @@ public class ProcurementPlusService : IProcurementPlusService
         var creators = await UserNamesAsync(raw.Select(r => r.CreatedByUserId));
         var preferredIds = raw.Select(r => r.PreferredId).OfType<long>().Distinct().ToList();
         var preferreds = await _db.Set<Preferred>().AsNoTracking().Where(p => preferredIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+        // Lines copied from the user's own RFQ quote: which RFQ (and when it was quoted there).
+        var sourceIds = raw.Select(r => r.SourceSupplierQuoteId).OfType<long>().Distinct().ToList();
+        var sources = await _db.Set<ProcumentRecord>().AsNoTracking()
+                .Where(q => sourceIds.Contains(q.Id))
+                .Select(q => new
+                {
+                    q.Id,
+                    q.CreatedAt,
+                    q.Price,
+                    q.RFQItem.Qty,
+                    q.RFQItem.RFQId,
+                    RfqName = q.RFQItem.RFQ.Name,
+                    Deadline = q.RFQItem.RFQ.LeadTime,
+                    CustomerCode = q.RFQItem.RFQ.Customer.CustomerCode,
+                })
+                .ToDictionaryAsync(q => q.Id);
         return lines
             .Where(l => rawById.ContainsKey(l.Id))
             .Select(l =>
             {
                 var r = rawById[l.Id];
                 var pref = r.PreferredId != null ? preferreds.GetValueOrDefault(r.PreferredId.Value) : null;
+                var src = r.SourceSupplierQuoteId is long sid ? sources.GetValueOrDefault(sid) : null;
                 return new PpQuoteLineResponse
                 {
                     Line = l,
@@ -2077,10 +2745,34 @@ public class ProcurementPlusService : IProcurementPlusService
                     CreatedByUserId = r.CreatedByUserId,
                     CreatedByName = r.CreatedByUserId != null ? creators.GetValueOrDefault(r.CreatedByUserId.Value) : null,
                     WrittenRfqs = written.GetValueOrDefault(l.Id) ?? new(),
+                    FromFile = r.Source == Pp && IsFileSubject(r.EmailSubject),
+                    IsEmail = r.Source == null,
+                    FromRfq = src == null ? null : new PpRfqRef
+                    {
+                        RfqId = src.RFQId,
+                        RfqName = src.RfqName,
+                        Deadline = src.Deadline,
+                        CustomerCode = src.CustomerCode,
+                        Qty = src.Qty,
+                        Price = src.Price,
+                    },
+                    FromRfqQuotedAt = src?.CreatedAt,
                 };
             })
             .OrderBy(l => l.PreferredName ?? l.Line.SupplierName).ThenBy(l => l.Line.PartNumber)
             .ToList();
+    }
+
+    /// <summary>
+    /// Lines made from a file row carry "Procurement Plus · {file name}" as their subject; lines added by hand
+    /// carry "Procurement Plus · {track}".
+    /// </summary>
+    private static bool IsFileSubject(string? subject)
+    {
+        const string prefix = "Procurement Plus · ";
+        if (subject == null || !subject.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        var rest = subject[prefix.Length..];
+        return rest is not (PreferredTracks.Ils or PreferredTracks.Project or PreferredTracks.WeChat or RfqTrack);
     }
 
     // ──── Matching helpers ────

@@ -730,6 +730,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         if (request.TaggedBy != null) record.TaggedBy = QuoteDetailFields.Clean(request.TaggedBy, QuoteDetailFields.TaggedByLength);
         if (request.MoQ != null) record.MoQ = QuoteDetailFields.Clean(request.MoQ, QuoteDetailFields.MoQLength);
         if (request.Warranty != null) record.Warranty = QuoteDetailFields.Clean(request.Warranty, QuoteDetailFields.WarrantyLength);
+        if (request.CR != null) record.CR = QuoteDetailFields.Clean(request.CR, QuoteDetailFields.CRLength);
     }
 
     private static string? CleanSupplierEmail(string? email)
@@ -783,6 +784,8 @@ public class SupplierQuoteService : ISupplierQuoteService
         CompanyPresetId = r.CompanyPresetId,
         CompanyPresetName = r.CompanyPresetId is long presetId && presetNames.TryGetValue(presetId, out var presetName) ? presetName : null,
         SupplierEmail = r.SupplierEmail,
+        SourceEmail = r.SourceEmail,
+        SupplierMainEmail = r.Supplier.Email,
         SerialNumber = r.SerialNumber,
         TraceTo = r.TraceTo,
         TagType = r.TagType,
@@ -790,6 +793,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         TaggedBy = r.TaggedBy,
         MoQ = r.MoQ,
         Warranty = r.Warranty,
+        CR = r.CR,
         ExpertUserId = r.UserId,
         ExpertName = r.User?.Name,
         ParentProcumentId = r.ParentProcumentId,

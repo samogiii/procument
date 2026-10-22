@@ -77,6 +77,7 @@ public class RecentSupplierQuoteDto
     public string? TaggedBy { get; set; }
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
+    public string? CR { get; set; }
     public long RFQId { get; set; }
     public string RFQName { get; set; } = string.Empty;
 }

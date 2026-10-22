@@ -305,6 +305,54 @@ public class UsersController : ControllerBase
         await _authService.RemoveUserCustomerAsync(id, customerId);
         return Ok(new { message = "Customer removed." });
     }
+
+    /// <summary>Admin: the MailFlow mailboxes this user sees on the Email Quotes page.</summary>
+    [HttpGet("{id:long}/mailboxes")]
+    public async Task<ActionResult<List<string>>> GetUserMailboxes(long id) =>
+        Ok(await _authService.GetUserMailboxesAsync(id));
+
+    /// <summary>Admin: replace the user's mailboxes (empty list = sees no email quotes unless SuperAdmin).</summary>
+    [HttpPut("{id:long}/mailboxes")]
+    public async Task<ActionResult<List<string>>> SetUserMailboxes(long id, [FromBody] SetUserMailboxesRequest request)
+    {
+        if (!await _db.Set<User>().AnyAsync(u => u.Id == id)) return NotFound();
+        try
+        {
+            return Ok(await _authService.SetUserMailboxesAsync(id, request.Mailboxes));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Admin: mailboxes MailFlow has imported email from — suggestions for the user's mailbox list.</summary>
+    [HttpGet("mailbox-options")]
+    public async Task<ActionResult<List<MailboxSuggestion>>> MailboxOptions()
+    {
+        // Raw SQL: the email line tables belong to the Purchasing module.
+        var conn = _db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        if (!wasOpen) await conn.OpenAsync();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"SELECT Mailbox, MAX(MailboxLabel) FROM (
+                    SELECT Mailbox, MailboxLabel FROM PendingSupplierQuotes WHERE Mailbox IS NOT NULL
+                    UNION ALL
+                    SELECT Mailbox, MailboxLabel FROM PendingRfqItems WHERE Mailbox IS NOT NULL) m
+                GROUP BY Mailbox ORDER BY Mailbox";
+            using var reader = await cmd.ExecuteReaderAsync();
+            var results = new List<MailboxSuggestion>();
+            while (await reader.ReadAsync())
+                results.Add(new MailboxSuggestion(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
+            return Ok(results);
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
+    }
 }
 
 /// <summary>
@@ -333,12 +381,16 @@ public class MenuPermissionsController : ControllerBase
         "actionCenter", "taskManager", "ourInventoryMenu", "supplierCredits",
         // Procument page: review supplier quotes MailFlow extracted from email.
         "pendingSupplierQuotes",
+        // Email Quotes: accepting also adds the sender's email to the picked supplier (no SuperAdmin bypass).
+        "emailQuotesSupplierEmails",
         // Email RFQs page: review customer RFQs MailFlow extracted from email (PendingRfqsController).
         "pendingRfqs",
         // Quote page: send the quote to the customer through the SMTP email dialog.
         "sendQuoteEmail",
         // Customer Follow Ups page (CustomerFollowUpsController in Sales).
         "customerFollowUps",
+        // Customer Follow Ups: procurement users (Procurement Status workflow; no SuperAdmin bypass).
+        "followUpProcurement",
         // Procurement Plus page (ProcurementPlusController in Purchasing).
         "procurementPlus",
         // Shipping: the customer bases each user sees (ShippingBaseAccess in Purchasing).

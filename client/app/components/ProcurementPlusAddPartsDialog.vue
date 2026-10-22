@@ -118,8 +118,8 @@
             <div v-if="showPaste" class="mb-4">
               <p class="text-caption text-medium-emphasis mb-2">
                 Copy the rows in Excel (with or without the header row) and paste them below. Columns:
-                <strong>Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition{{ needsTarget ? ' | Target price' : '' }}</strong>
-                — with a header row any order works (P/N, Quantity, Cond… are understood too); one column = just part numbers.
+                <strong>Part Number &nbsp;|&nbsp; Description &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Condition{{ needsTarget ? ' | Target price' : '' }} &nbsp;|&nbsp; Alternatives</strong>
+                (several in one cell: ALT1, ALT2) — with a header row any order works (P/N, Quantity, Cond, Alt… are understood too); one column = just part numbers.
               </p>
               <v-textarea
                 v-model="pasteText"
@@ -155,6 +155,18 @@
                 variant="outlined"
                 hide-details
                 class="custom-row__target"
+              />
+              <v-combobox
+                :model-value="c.alternatives"
+                label="Alternatives"
+                multiple
+                chips
+                closable-chips
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="custom-row__alt"
+                @update:model-value="v => (c.alternatives = splitAlternatives((v as string[]).join(','), c.partNumber))"
               />
               <v-btn icon="mdi-close" size="small" variant="text" color="error" :disabled="custom.length === 1 && !c.partNumber" @click="removeCustom(i)" />
             </div>
@@ -240,7 +252,7 @@ interface ItemOption {
   partNumber: string; description?: string; qty: number; condition?: string; alreadyAdded: boolean
 }
 type Picked = ItemOption & { targetPrice: number | null }
-interface CustomPart { partNumber: string; description: string; qty: number | null; condition: string | null; targetPrice: number | null }
+interface CustomPart { partNumber: string; description: string; qty: number | null; condition: string | null; targetPrice: number | null; alternatives: string[] }
 
 const props = defineProps<{ modelValue: boolean; initialTrack?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [v: boolean]; added: [message: string, track: string] }>()
@@ -326,7 +338,7 @@ function toggleAll(items: ItemOption[], on: boolean) {
 }
 
 // ── Custom parts ──
-const blankCustom = (): CustomPart => ({ partNumber: '', description: '', qty: null, condition: null, targetPrice: null })
+const blankCustom = (): CustomPart => ({ partNumber: '', description: '', qty: null, condition: null, targetPrice: null, alternatives: [] })
 const custom = ref<CustomPart[]>([blankCustom()])
 const customFilled = computed(() => custom.value.filter(c => c.partNumber.trim()))
 const customValid = computed(() => !needsTarget.value || customFilled.value.every(c => Number(c.targetPrice) > 0))
@@ -340,7 +352,7 @@ const showPaste = ref(false)
 const pasteText = ref('')
 const importNote = ref<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null)
 function importPaste() {
-  const { parts, skipped } = readPartsFromText(pasteText.value)
+  const { parts, skipped } = readPartsFromText(pasteText.value, needsTarget.value)
   if (!parts.length) {
     importNote.value = { type: 'error', text: 'No part numbers found in what was pasted — copy the rows (Part Number first) from Excel and paste again.' }
     return
@@ -348,9 +360,11 @@ function importPaste() {
   // Rows already typed stay; the same part number is not added twice.
   const have = new Set(customFilled.value.map(c => c.partNumber.replace(/\s+/g, '').toUpperCase()))
   const fresh = parts.filter(p => !have.has(p.partNumber.replace(/\s+/g, '').toUpperCase()))
-  custom.value = [...customFilled.value, ...fresh.map(p => ({ ...p }))]
+  custom.value = [...customFilled.value, ...fresh.map(p => ({ ...p, alternatives: [...p.alternatives] }))]
   if (!custom.value.length) custom.value = [blankCustom()]
   const notes = [`${fresh.length} part${fresh.length === 1 ? '' : 's'} added below`]
+  const withAlts = fresh.filter(p => p.alternatives.length).length
+  if (withAlts) notes.push(`${withAlts} with alternatives`)
   if (parts.length > fresh.length) notes.push(`${parts.length - fresh.length} already in the list`)
   if (skipped) notes.push(`${skipped} row${skipped === 1 ? '' : 's'} skipped (no part number or a repeat)`)
   const missingTarget = needsTarget.value ? fresh.filter(p => !(Number(p.targetPrice) > 0)).length : 0
@@ -390,6 +404,7 @@ async function save() {
           qty: num(c.qty),
           condition: c.condition || null,
           targetPrice: needsTarget.value ? num(c.targetPrice) : null,
+          alternatives: splitAlternatives(c.alternatives.join(','), c.partNumber),
         })),
       ],
     })
@@ -489,6 +504,7 @@ const ItemTable = defineComponent({
 .custom-row__qty { flex: 0 0 90px; }
 .custom-row__cond { flex: 0 0 120px; }
 .custom-row__target { flex: 0 0 150px; }
+.custom-row__alt { flex: 1 1 200px; min-width: 0; }
 @media (max-width: 800px) {
   .pp-add__split { grid-template-columns: 1fr; }
   .pp-add__rfqs { max-height: 40%; border-right: 0; }

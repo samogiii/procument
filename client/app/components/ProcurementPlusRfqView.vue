@@ -19,6 +19,7 @@
         @click:close="removeMine(r.rfqId)"
       >
         {{ r.name }}
+        <strong class="ml-1 rv-chip-deadline">· {{ deadlineLabel(r.deadline) }}</strong>
         <span class="ml-1 text-caption" :class="r.coveredCount === r.itemCount ? 'text-success' : 'text-error'">{{ r.coveredCount }}/{{ r.itemCount }}</span>
       </v-chip>
     </div>
@@ -61,7 +62,7 @@
           :loading="adding === 'all'"
           @click="addItems(notListed.map(i => i.rfqItemId), 'ILS', 'all')"
         >
-          Add {{ notListed.length }} missing to ILS Parts
+          Add {{ notListed.length }} missing to Parts
         </v-btn>
         <v-btn size="small" variant="text" icon="mdi-refresh" :loading="loading" title="Reload" @click="load" />
       </template>
@@ -74,27 +75,58 @@
     </div>
 
     <template v-else-if="coverage">
-      <!-- RFQ summary -->
+      <!-- RFQ summary: the RFQ, its deadline (bold), more about it, and every item at a glance -->
       <div class="rv-sum mb-3">
-        <div>
-          <div class="text-subtitle-1 font-weight-bold">{{ coverage.rfq.name }}</div>
-          <div class="text-caption text-medium-emphasis">
-            {{ coverage.rfq.customerCode || '—' }} · {{ coverage.rfq.status }} · deadline {{ fmtDate(coverage.rfq.deadline) }} ({{ deadlineLabel(coverage.rfq.deadline) }})
+        <div class="rv-sum__top">
+          <div class="min-w-0">
+            <div class="d-flex align-center flex-wrap gap-2">
+              <span class="text-subtitle-1 font-weight-bold">{{ coverage.rfq.name }}</span>
+              <v-chip size="x-small" variant="tonal">{{ coverage.rfq.status }}</v-chip>
+            </div>
+            <div class="rv-deadline" :class="deadlineClass(coverage.rfq.deadline)">
+              <v-icon icon="mdi-calendar-clock" size="16" />
+              Deadline {{ fmtDate(coverage.rfq.deadline) }} · {{ deadlineLabel(coverage.rfq.deadline) }}
+            </div>
+          </div>
+          <v-spacer />
+          <div class="rv-progress">
+            <v-progress-linear :model-value="coverage.items.length ? ((coverage.items.length - missingCount) / coverage.items.length) * 100 : 0" color="success" height="10" rounded />
+            <div class="text-caption mt-1">
+              <strong>{{ coverage.items.length - missingCount }}</strong> of {{ coverage.items.length }} items have a supplier
+            </div>
+          </div>
+          <v-btn size="small" variant="text" :to="`/rfqs/${coverage.rfq.id}`" append-icon="mdi-open-in-new">Open RFQ</v-btn>
+        </div>
+        <div class="rv-facts">
+          <div v-for="f in rfqFacts" :key="f.label" class="rv-fact">
+            <div class="rv-fact__label">{{ f.label }}</div>
+            <div class="rv-fact__value" :title="f.value">{{ f.value }}</div>
           </div>
         </div>
-        <v-spacer />
-        <div class="rv-progress">
-          <v-progress-linear :model-value="coverage.items.length ? ((coverage.items.length - missingCount) / coverage.items.length) * 100 : 0" color="success" height="10" rounded />
-          <div class="text-caption mt-1">
-            <strong>{{ coverage.items.length - missingCount }}</strong> of {{ coverage.items.length }} items have a supplier
-          </div>
+        <div v-if="coverage.rfq.notes" class="text-caption text-medium-emphasis rv-notes">
+          <v-icon icon="mdi-note-text-outline" size="13" /> {{ coverage.rfq.notes }}
         </div>
-        <v-btn size="small" variant="text" :to="`/rfqs/${coverage.rfq.id}`" append-icon="mdi-open-in-new">Open RFQ</v-btn>
+        <!-- Every item of the RFQ: green = has a supplier, red = not yet. Click = go to it (and copy its P/N). -->
+        <div class="rv-items">
+          <v-chip
+            v-for="it in coverage.items"
+            :key="it.rfqItemId"
+            size="small"
+            variant="tonal"
+            :color="it.hasSupplier ? 'success' : 'error'"
+            :prepend-icon="it.hasSupplier ? 'mdi-check' : 'mdi-alert-circle-outline'"
+            :title="`${it.partNumber}${it.description ? ` — ${it.description}` : ''} · Qty ${it.qty}${it.condition ? ` · ${it.condition}` : ''} — click to go to it and copy the P/N`"
+            @click="goToItem(it)"
+          >
+            <strong>{{ it.partNumber }}</strong>
+            <span class="ml-1 text-caption">× {{ it.qty }}{{ it.condition ? ` ${it.condition}` : '' }}</span>
+          </v-chip>
+        </div>
       </div>
 
       <v-progress-linear v-if="loading" indeterminate color="primary" height="2" class="mb-2" />
 
-      <template v-for="it in shown" :key="it.rfqItemId">
+      <div v-for="it in shown" :id="`rv-item-${it.rfqItemId}`" :key="it.rfqItemId" class="rv-anchor" :class="{ 'rv-anchor--flash': flashed === it.rfqItemId }">
         <!-- On my list: the full part card, with the quotes already on this RFQ -->
         <ProcurementPlusPartCard
           v-if="it.board"
@@ -109,12 +141,16 @@
           @hide="(ids: number[]) => emit('hide', ids)"
           @show="(ids: number[]) => emit('show', ids)"
           @delete="(ids: number[]) => emit('delete', ids)"
+          @add-offer="(b: PpBoardPart, rows: PpOfferRow[], m: string[]) => addOffer(b.part.id, rows, m)"
         >
           <ProcurementPlusQuoteHistory
             :part-number="it.partNumber"
             :rfq-quotes="it.rfqQuotes"
             :older-quotes="it.olderQuotes"
             :older-count="it.olderQuoteCount"
+            :lines="it.board.lines"
+            addable
+            @add-supplier="(q: PpRfqQuote, m: string[]) => addHistorySupplier(it, q, m)"
           />
         </ProcurementPlusPartCard>
         <!-- Not on my list yet -->
@@ -122,7 +158,10 @@
           <div class="rv-item__grid">
           <v-icon :icon="it.hasSupplier ? 'mdi-check-circle' : 'mdi-alert-circle-outline'" :color="it.hasSupplier ? 'success' : 'error'" />
           <div class="rv-item__part">
-            <div class="font-weight-bold">{{ it.partNumber }}<span v-if="it.alt" class="text-caption text-info"> · alt {{ it.alt }}</span></div>
+            <div class="font-weight-bold">
+              <span class="rv-pn" title="Click to copy" @click="copyPn(it.partNumber)">{{ it.partNumber }}<v-icon icon="mdi-content-copy" size="12" class="ml-1 rv-pn__icon" /></span>
+              <span v-if="it.alt" class="text-caption text-info"> · alt {{ it.alt }}</span>
+            </div>
             <div class="text-caption text-medium-emphasis text-truncate">{{ it.description || '—' }}</div>
             <div class="d-flex gap-1 mt-1">
               <v-chip size="x-small" variant="outlined">Qty {{ it.qty }}</v-chip>
@@ -153,15 +192,30 @@
             </v-menu>
           </div>
           </div>
+          <!-- What the uploaded files list for it (closed at first): Add puts the item on the list with that supplier -->
+          <template v-if="it.offers?.length">
+            <button v-if="!offersOpen.has(it.rfqItemId)" type="button" class="rv-files-toggle" @click="toggleOffers(it.rfqItemId)">
+              <v-icon icon="mdi-chevron-down" size="16" />
+              Available in your files · {{ it.offers.length }} listing{{ it.offers.length === 1 ? '' : 's' }}
+            </button>
+            <template v-else>
+              <button type="button" class="rv-files-toggle" @click="toggleOffers(it.rfqItemId)">
+                <v-icon icon="mdi-chevron-up" size="16" /> Hide what your files list
+              </button>
+              <ProcurementPlusFileOffers :rows="it.offers" :busy="offerBusy" @add="(rows: PpOfferRow[], m: string[]) => addItemOffer(it, rows, m)" />
+            </template>
+          </template>
           <ProcurementPlusQuoteHistory
             :part-number="it.partNumber"
             :rfq-quotes="it.rfqQuotes"
             :older-quotes="it.olderQuotes"
             :older-count="it.olderQuoteCount"
             :start-open="!it.hasSupplier && it.olderQuoteCount > 0"
+            addable
+            @add-supplier="(q: PpRfqQuote, m: string[]) => addHistorySupplier(it, q, m)"
           />
         </section>
-      </template>
+      </div>
       <div v-if="!shown.length" class="text-center text-medium-emphasis pa-6">No items in this filter.</div>
     </template>
     <div v-else-if="loading" class="d-flex justify-center py-10"><v-progress-circular indeterminate color="primary" /></div>
@@ -195,11 +249,14 @@
 </template>
 
 <script setup lang="ts">
-import type { PpBoardPart, PpPart, PpQuoteLine, PpRfqCoverageItem } from '~/utils/procurementPlus'
+import type { PpOfferRow } from '~/components/ProcurementPlusAvailabilityDialog.vue'
+import type { PpBoardPart, PpPart, PpQuoteLine, PpRfqCoverageItem, PpRfqQuote } from '~/utils/procurementPlus'
 
 defineProps<{ showOwner?: boolean }>()
 const emit = defineEmits<{
   changed: []
+  /** My RFQs changed (opened / removed) — the Parts tab lists their items. */
+  'mine-changed': []
   'edit-part': [part: PpPart]
   move: [ids: number[], track: string]
   hide: [ids: number[]]
@@ -207,7 +264,11 @@ const emit = defineEmits<{
   delete: [ids: number[]]
 }>()
 
-interface RfqOption { id: number; name: string; status: string; deadline: string; customerCode?: string; itemCount: number }
+interface RfqOption {
+  id: number; name: string; status: string; deadline: string; customerCode?: string; itemCount: number
+  // Coverage only: more about the RFQ for the summary box.
+  customerName?: string; receivedDate?: string; createdAt?: string; ownerName?: string; senderMail?: string; notes?: string
+}
 interface Coverage { rfq: RfqOption; items: PpRfqCoverageItem[] }
 
 const api = useProcurementPlusApi()
@@ -222,6 +283,7 @@ async function loadMine() {
 }
 async function removeMine(id: number) {
   await api.del(`/procurement-plus/my-rfqs/${id}`)
+  emit('mine-changed')
   myRfqs.value = myRfqs.value.filter(r => r.rfqId !== id)
   if (rfqId.value === id) rfqId.value = myRfqs.value[0]?.rfqId ?? null
 }
@@ -258,6 +320,49 @@ const shown = computed(() => (coverage.value?.items ?? [])
   // Items still missing a supplier first.
   .sort((a, b) => Number(a.hasSupplier) - Number(b.hasSupplier)))
 
+/** The summary box: more about the loaded RFQ (only what it has). */
+const rfqFacts = computed(() => {
+  const r = coverage.value?.rfq
+  if (!r) return []
+  const customer = [r.customerCode, r.customerName && r.customerName !== r.customerCode ? r.customerName : null].filter(Boolean).join(' · ')
+  return [
+    { label: 'Customer', value: customer },
+    { label: 'Items', value: `${r.itemCount} · ${missingCount.value} without supplier` },
+    { label: 'Received', value: fmtDate(r.receivedDate) },
+    { label: 'Created', value: fmtDate(r.createdAt) },
+    { label: 'Owner', value: r.ownerName ?? '' },
+    { label: 'Sent from', value: r.senderMail ?? '' },
+  ].filter(f => f.value)
+})
+/** Deadline colour: past = red, within 2 days = orange. */
+function deadlineClass(deadline: string) {
+  const days = (new Date(deadline).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000
+  return days < 0 ? 'text-error' : days <= 2 ? 'text-orange-darken-2' : 'text-primary'
+}
+
+/** Summary chip → show that item (filters cleared), flash it, and copy its P/N. */
+const flashed = ref<number | null>(null)
+async function goToItem(it: PpRfqCoverageItem) {
+  filter.value = 'all'
+  copyPn(it.partNumber)
+  await nextTick()
+  document.getElementById(`rv-item-${it.rfqItemId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  flashed.value = it.rfqItemId
+  setTimeout(() => { if (flashed.value === it.rfqItemId) flashed.value = null }, 1600)
+}
+function copyPn(pn: string) {
+  const ok = copyText(pn)
+  toast(ok ? `${pn} copied` : 'Could not copy — your browser blocked it', ok ? 'success' : 'warning')
+}
+
+/** Items not on the list: "Available in your files" starts closed. */
+const offersOpen = ref(new Set<number>())
+function toggleOffers(id: number) {
+  const next = new Set(offersOpen.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  offersOpen.value = next
+}
+
 async function load() {
   if (!rfqId.value) { coverage.value = null; return }
   // The picker shows the name even when the RFQ came from My RFQs / the address bar.
@@ -286,8 +391,10 @@ watch(rfqId, async (id) => {
   await load()
   if (id) {
     // Saved on my list (moved to the top when opened again).
+    const isNew = !myRfqs.value.some(r => r.rfqId === id)
     await api.post('/procurement-plus/my-rfqs', { rfqId: id }).catch(() => {})
     await loadMine()
+    if (isNew) emit('mine-changed')
   }
 })
 watch(() => api.asUser.value, async () => {
@@ -331,6 +438,63 @@ async function addAndSupplier(it: PpRfqCoverageItem) {
   if (board) openAddLine(board)
 }
 
+// ── File rows → supplier lines ──
+const offerBusy = ref<number | null>(null)
+/** One line per picked P/N (the part itself / each alternative). */
+async function addOffer(partId: number, rows: PpOfferRow[], methods: string[]) {
+  if (!rows.length) return
+  let added = 0
+  try {
+    for (const row of rows) {
+      offerBusy.value = row.offerId
+      await api.post(`/procurement-plus/parts/${partId}/lines`, { offerId: row.offerId, methods })
+      added++
+    }
+    const first = rows[0]!
+    toast(`${first.preferredName || first.supplierName || first.companyRaw}: ${added} line${added === 1 ? '' : 's'} added`)
+  } catch (e: any) {
+    toast(e?.data?.message || 'Could not add the supplier', 'error')
+  } finally {
+    offerBusy.value = null
+  }
+  if (added) {
+    await load()
+    emit('changed')
+  }
+}
+/** Puts an item not on the list on it (Parts / ILS) — the new part's id. */
+async function listItem(it: PpRfqCoverageItem) {
+  const res = await api.post<{ ids: number[] }>('/procurement-plus/parts', { track: 'ILS', items: [{ rfqItemId: it.rfqItemId }] })
+  const id = res.ids?.[0]
+  if (!id) throw new Error('Could not add the part')
+  return id
+}
+
+/** Supplier quotes list → "add this supplier" under the item's part: the name only (no condition, qty or price). */
+async function addHistorySupplier(it: PpRfqCoverageItem, q: PpRfqQuote, methods: string[]) {
+  try {
+    const id = it.board?.part.id ?? await listItem(it)
+    await api.post(`/procurement-plus/parts/${id}/lines`, { supplierId: q.supplierId ?? null, supplierName: q.supplierName, methods, nameOnly: true })
+    toast(`${q.supplierName} added under ${it.partNumber}`)
+    await load()
+    emit('changed')
+  } catch (e: any) {
+    toast(e?.data?.message || e?.message || 'Could not add the supplier', 'error')
+  }
+}
+
+/** An item not on the list: add it (Parts / ILS), then the file rows as its suppliers. */
+async function addItemOffer(it: PpRfqCoverageItem, rows: PpOfferRow[], methods: string[]) {
+  offerBusy.value = rows[0]?.offerId ?? null
+  try {
+    const id = await listItem(it)
+    await addOffer(id, rows, methods)
+  } catch (e: any) {
+    toast(e?.data?.message || e?.message || 'Could not add', 'error')
+    offerBusy.value = null
+  }
+}
+
 // ── Lines ──
 const addLine = reactive({ open: false, partId: 0, partNumber: '' })
 function openAddLine(b: PpBoardPart) { Object.assign(addLine, { open: true, partId: b.part.id, partNumber: b.part.partNumber }) }
@@ -348,7 +512,7 @@ function openEdit(l: PpQuoteLine) {
 }
 function patchLine(row: any) {
   for (const it of coverage.value?.items ?? []) {
-    const l = it.board?.lines.find(x => x.line.id === row.id)
+    const l = it.board?.lines.find(x => x.line.id === row.id) ?? it.board?.emailLines?.find(x => x.line.id === row.id)
     if (l) { l.line = { ...l.line, ...row }; break }
   }
 }
@@ -376,10 +540,34 @@ defineExpose({ load: () => Promise.all([load(), loadMine()]) })
   padding: 56px 16px; border-radius: 12px; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
 }
 .rv-sum {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 12px 14px; border-radius: 12px;
+  padding: 12px 14px; border-radius: 12px;
   background: rgb(var(--v-theme-surface)); border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
+.rv-sum__top { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.rv-deadline { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 15px; font-weight: 800; }
+.rv-chip-deadline { font-weight: 800; }
 .rv-progress { min-width: 220px; }
+.rv-facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px; }
+.rv-fact { min-width: 0; max-width: 280px; }
+.rv-fact__label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.55; }
+.rv-fact__value { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-notes { margin-top: 6px; white-space: pre-wrap; }
+.rv-items {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed rgba(var(--v-border-color), 0.18);
+}
+.rv-anchor { scroll-margin-top: 80px; border-radius: 12px; transition: box-shadow 0.3s; }
+.rv-anchor--flash { box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.45); }
+.rv-pn { cursor: copy; }
+.rv-pn__icon { opacity: 0; transition: opacity 0.15s; }
+.rv-pn:hover .rv-pn__icon { opacity: 0.6; }
+.rv-files-toggle {
+  display: flex; align-items: center; gap: 4px; width: 100%; padding: 6px 12px;
+  font-size: 12px; font-weight: 700; opacity: 0.75; text-align: left;
+  border-top: 1px dashed rgba(var(--v-border-color), 0.18);
+}
+.rv-files-toggle:hover { opacity: 1; background: rgba(var(--v-theme-primary), 0.04); }
+.min-w-0 { min-width: 0; }
 .rv-item {
   margin-bottom: 12px; border-radius: 12px; overflow: hidden;
   background: rgb(var(--v-theme-surface));

@@ -9,7 +9,7 @@
             <div class="text-h6 font-weight-bold">Suppliers available</div>
             <div class="text-caption text-medium-emphasis">
               {{ data?.uploads.length ?? 0 }} file{{ data?.uploads.length === 1 ? '' : 's' }} from the last {{ data?.freshDays ?? 7 }} days ·
-              {{ partCount }} of your parts listed
+              {{ partCount }} of your parts and RFQ items listed
             </div>
           </div>
           <v-spacer />
@@ -23,7 +23,7 @@
             clearable
             style="max-width: 300px; min-width: 200px"
           />
-          <v-btn-toggle v-if="tab === 'preferred' || tab === 'others'" v-model="groupBy" mandatory density="compact" variant="outlined" divided color="primary">
+          <v-btn-toggle v-if="tab === 'preferred'" v-model="groupBy" mandatory density="compact" variant="outlined" divided color="primary">
             <v-btn value="part" size="small" prepend-icon="mdi-cog-outline">By part</v-btn>
             <v-btn value="supplier" size="small" prepend-icon="mdi-domain">By supplier</v-btn>
           </v-btn-toggle>
@@ -79,7 +79,7 @@
             </template>
             <template v-else>
               <div class="text-body-2 text-medium-emphasis">
-                Suppliers in your files that are not preferred — star one to move it to Preferred.
+                Suppliers in your files that are not preferred — tick them to source them too, or star one to move it to Preferred.
               </div>
               <v-spacer />
               <v-btn
@@ -90,6 +90,16 @@
                 @click="emit('resolve')"
               >
                 Find {{ data.unmatched.length }} unknown compan{{ data.unmatched.length === 1 ? 'y' : 'ies' }}
+              </v-btn>
+              <v-btn
+                color="primary"
+                variant="flat"
+                size="large"
+                prepend-icon="mdi-send-circle-outline"
+                :disabled="!picked.size"
+                @click="emit('source', [...picked])"
+              >
+                Source{{ picked.size ? ` ${pickedSupplierCount} selected` : '' }}
               </v-btn>
             </template>
           </div>
@@ -102,9 +112,19 @@
 
           <div v-for="g in groups" :key="g.key" class="group">
             <div class="group__head">
-              <template v-if="groupBy === 'part'">
+              <v-checkbox-btn
+                v-if="tab === 'others'"
+                :model-value="g.rows.every(r => picked.has(r.offerId))"
+                :indeterminate="!g.rows.every(r => picked.has(r.offerId)) && g.rows.some(r => picked.has(r.offerId))"
+                density="compact"
+                class="flex-grow-0 mr-1"
+                title="Select these rows to source"
+                @update:model-value="(v: boolean | null) => pickRows(g.rows, !!v)"
+              />
+              <template v-if="grouping === 'part'">
                 <v-icon icon="mdi-cog-outline" size="18" class="mr-2 text-primary" />
                 <span class="group__title">{{ g.title }}</span>
+                <RfqItemChip :part-id="g.rows[0]!.partId" />
                 <span v-if="g.subtitle" class="text-caption text-medium-emphasis ml-2 text-truncate">{{ g.subtitle }}</span>
                 <v-spacer />
                 <v-chip size="x-small" variant="tonal">{{ g.rows.length }} listing{{ g.rows.length === 1 ? '' : 's' }}</v-chip>
@@ -115,6 +135,10 @@
                 <span class="group__title">{{ g.title }}</span>
                 <span v-if="g.title !== g.rows[0]!.companyRaw" class="text-caption text-medium-emphasis ml-2">
                   as “{{ g.rows[0]!.companyRaw }}”
+                </span>
+                <!-- Not in the catalog yet: its emails from the files, to find or add it -->
+                <span v-if="!g.rows[0]!.supplierId && emailsOf(g.rows).length" class="text-caption text-medium-emphasis ml-2 text-truncate" :title="emailsOf(g.rows).join(', ')">
+                  <v-icon icon="mdi-email-outline" size="12" /> {{ emailsOf(g.rows).join(', ') }}
                 </span>
                 <v-chip v-if="g.rows[0]!.sourceMethod" size="x-small" :color="methodMeta(g.rows[0]!.sourceMethod).color" variant="tonal" class="ml-2" :prepend-icon="methodMeta(g.rows[0]!.sourceMethod).icon">
                   {{ methodMeta(g.rows[0]!.sourceMethod).title }}
@@ -150,7 +174,8 @@
               <table class="offers">
                 <thead>
                   <tr>
-                    <th v-if="groupBy === 'supplier'">Part</th>
+                    <th v-if="tab === 'others'" style="width: 36px" />
+                    <th v-if="grouping === 'supplier'">Part</th>
                     <th v-else>Supplier</th>
                     <th>Supplier comment</th>
                     <th class="num">Qty</th>
@@ -164,9 +189,13 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in g.rows" :key="`${r.offerId}-${r.partId}`">
-                    <td v-if="groupBy === 'supplier'" class="font-weight-medium nowrap">
+                  <tr v-for="r in g.rows" :key="`${r.offerId}-${r.partId}`" :class="{ 'row--picked': picked.has(r.offerId) }">
+                    <td v-if="tab === 'others'">
+                      <v-checkbox-btn :model-value="picked.has(r.offerId)" density="compact" @update:model-value="(v: boolean | null) => pickRows([r], !!v)" />
+                    </td>
+                    <td v-if="grouping === 'supplier'" class="font-weight-medium nowrap">
                       {{ r.partNumber }}
+                      <RfqItemChip :part-id="r.partId" />
                       <StateChip :state="r.sourcingState" />
                     </td>
                     <td v-else class="nowrap">
@@ -215,7 +244,8 @@
               :indeterminate="missingPicked.size > 0 && !missing.every(m => missingPicked.has(m.partId))"
               label="Select all"
               density="compact"
-              class="flex-grow-0"
+              inline
+              class="flex-0-0 pp-select-all"
               @update:model-value="(v: boolean | null) => missingPicked = new Set(v ? missing.map(m => m.partId) : [])"
             />
             <v-btn
@@ -333,7 +363,7 @@ import { defineComponent, h } from 'vue'
 import { VChip } from 'vuetify/components'
 
 export interface PpOfferRow {
-  offerId: number; partId: number; partNumber: string; filePartNo: string; altPartNo?: string
+  offerId: number; uploadId: number; partId: number; partNumber: string; filePartNo: string; altPartNo?: string
   supplierId?: number; supplierName?: string; supplierStatus?: string; supplierEmail?: string
   /** The preferred supplier (Preferreds table) the row matched — not necessarily in the catalog. */
   preferredId?: number; preferredName?: string
@@ -357,7 +387,8 @@ export interface PpAvailability {
 const props = defineProps<{ modelValue: boolean; data: PpAvailability | null; loading?: boolean; initialTab?: string }>()
 const emit = defineEmits<{
   'update:modelValue': [v: boolean]
-  source: []
+  /** Preferred tab: no ids (every preferred row). Others tab: the picked rows (offer ids). */
+  source: [offerIds?: number[]]
   resolve: []
   reload: []
   'hide-part': [partId: number]
@@ -375,10 +406,24 @@ function toggleMissing(id: number) {
 watch(() => props.data, () => {
   const ids = new Set((props.data?.missing ?? []).map(m => m.partId))
   missingPicked.value = new Set([...missingPicked.value].filter(id => ids.has(id)))
+  const offers = new Set((props.data?.others ?? []).map(r => r.offerId))
+  picked.value = new Set([...picked.value].filter(id => offers.has(id)))
 })
+
+// ── Others tab: rows picked to source (offer ids) ──
+const picked = ref(new Set<number>())
+function pickRows(rows: PpOfferRow[], on: boolean) {
+  const next = new Set(picked.value)
+  for (const r of rows) on ? next.add(r.offerId) : next.delete(r.offerId)
+  picked.value = next
+}
+const pickedSupplierCount = computed(() =>
+  new Set((props.data?.others ?? []).filter(r => picked.value.has(r.offerId)).map(supplierKey)).size)
 const { mobile } = useDisplay()
 const tab = ref('preferred')
-const groupBy = ref<'part' | 'supplier'>('part')
+const groupBy = ref<'part' | 'supplier'>('supplier')
+/** Other suppliers are always by supplier (their parts are on the part cards already); Preferred has the toggle. */
+const grouping = computed(() => (tab.value === 'others' ? 'supplier' : groupBy.value))
 const search = ref('')
 const historyKind = ref('all')
 
@@ -401,16 +446,18 @@ function supplierCount(rows?: PpOfferRow[]) {
 /** One supplier: the preferred entry, else the catalog supplier, else the company as written. */
 const supplierKey = (r: PpOfferRow) => (r.preferredId ? `p${r.preferredId}` : r.supplierId ? `s${r.supplierId}` : `c${r.companyKey}`)
 const supplierLabel = (r: PpOfferRow) => r.preferredName || r.supplierName || r.companyRaw
+const emailsOf = (rows: PpOfferRow[]) =>
+  [...new Set(rows.map(r => r.email?.trim().toLowerCase()).filter((e): e is string => !!e))]
 
 const groups = computed(() => {
   const rows = (tab.value === 'preferred' ? props.data?.preferred : props.data?.others) ?? []
   const map = new Map<string, { key: string; title: string; subtitle?: string; rows: PpOfferRow[] }>()
   for (const r of rows) {
     if (!matches(rowText(r))) continue
-    const key = groupBy.value === 'part' ? `part${r.partId}` : supplierKey(r)
+    const key = grouping.value === 'part' ? `part${r.partId}` : supplierKey(r)
     let g = map.get(key)
     if (!g) {
-      g = groupBy.value === 'part'
+      g = grouping.value === 'part'
         ? { key, title: r.partNumber, subtitle: r.description, rows: [] }
         : { key, title: supplierLabel(r), rows: [] }
       map.set(key, g)
@@ -451,6 +498,23 @@ async function prefer(g: { key: string; rows: PpOfferRow[] }) {
   }
 }
 
+/** An item of one of your RFQs (By RFQ) not on your Parts list yet (partId < 0) — sourcing it adds it to Parts. */
+const RfqItemChip = defineComponent({
+  props: { partId: { type: Number, required: true } },
+  setup(p) {
+    return () => p.partId < 0
+      ? h(VChip, {
+          size: 'x-small',
+          color: 'blue',
+          variant: 'tonal',
+          class: 'ml-1',
+          prependIcon: 'mdi-file-document-outline',
+          title: 'An item of your RFQs (By RFQ) — sourcing it puts it on your Parts list',
+        }, () => 'RFQ item')
+      : null
+  },
+})
+
 const StateChip = defineComponent({
   props: { state: { type: String, default: null } },
   setup(p) {
@@ -468,6 +532,8 @@ const StateChip = defineComponent({
 </script>
 
 <style scoped>
+/* Vuetify wraps selection-control labels (white-space: normal) — "Select all" stays on one line. */
+.pp-select-all :deep(.v-label) { white-space: nowrap; }
 .avail__head { padding: 16px 20px 0; }
 .avail__body { height: 72vh; padding: 16px 20px !important; }
 .avail__empty {
@@ -494,6 +560,7 @@ const StateChip = defineComponent({
 }
 .offers td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--v-border-color), 0.05); vertical-align: top; }
 .offers tbody tr:hover { background: rgba(var(--v-theme-primary), 0.03); }
+.offers tbody tr.row--picked { background: rgba(var(--v-theme-primary), 0.06); }
 .offers .num { text-align: right; white-space: nowrap; }
 .offers .nowrap { white-space: nowrap; }
 .offers .comment { max-width: 280px; min-width: 160px; color: rgba(var(--v-theme-on-surface), 0.75); }

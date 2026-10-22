@@ -526,16 +526,15 @@ public static class PdfDocModelBuilders
         {
             var it = items[i];
 
-            // The Modern template prints Cert / Tag Date / Note on a sub-row under each item.
+            // Same sub-row as the Modern template: the spec strip (Cert … Warranty), then the note on its own line.
             var details = new List<string>();
-            if (!string.IsNullOrWhiteSpace(it.CertName)) details.Add($"Cert: {it.CertName}");
-            if (!string.IsNullOrWhiteSpace(it.TagDate))
-                details.Add($"Tag Date: {(it.TagDate.Length >= 4 ? it.TagDate[..4] : it.TagDate)}");
-            if (!string.IsNullOrWhiteSpace(it.Note)) details.Add($"Note: {it.Note}");
+            var specs = it.Specs();
+            if (specs.Count > 0) details.Add(string.Join("   ·   ", specs.Select(s => $"{s.Label}: {s.Value}")));
+            if (!string.IsNullOrWhiteSpace(it.Note)) details.Add($"Note: {it.Note.Trim()}");
 
             m.Rows.Add(new PdfTableRow
             {
-                Note = details.Count > 0 ? string.Join("   ", details) : null,
+                Note = details.Count > 0 ? string.Join("\n", details) : null,
                 Cells =
                 [
                     new PdfCell((i + 1).ToString()),

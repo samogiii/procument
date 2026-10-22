@@ -10,6 +10,13 @@ public class PpRfqOption
     public DateTime Deadline { get; set; }
     public string? CustomerCode { get; set; }
     public int ItemCount { get; set; }
+    // By RFQ summary box only (coverage): more about the RFQ.
+    public string? CustomerName { get; set; }
+    public DateTime? ReceivedDate { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public string? OwnerName { get; set; }
+    public string? SenderMail { get; set; }
+    public string? Notes { get; set; }
 }
 
 public class PpRfqItemOption
@@ -45,6 +52,8 @@ public class PpAddPartItem
     public double? Qty { get; set; }
     public string? Condition { get; set; }
     public decimal? TargetPrice { get; set; }
+    /// <summary>Alternative P/Ns typed / pasted with the part — added to the catalog part's (or the RFQ item's) ones.</summary>
+    public List<string>? Alternatives { get; set; }
 }
 
 public class PpAddPartsResponse
@@ -53,6 +62,8 @@ public class PpAddPartsResponse
     /// <summary>Hidden parts that were picked again and are shown again.</summary>
     public int Restored { get; set; }
     public int AlreadyListed { get; set; }
+    /// <summary>Ids of every part the request added, showed again or found already listed.</summary>
+    public List<long> Ids { get; set; } = new();
 }
 
 /// <summary>Edit a preferred part (null = keep).</summary>
@@ -87,6 +98,17 @@ public class PpAddLineRequest
     public long? SupplierId { get; set; }
     /// <summary>Custom supplier name when it is neither preferred nor in the catalog.</summary>
     public string? SupplierName { get; set; }
+    /// <summary>A row of the user's files: the line takes its company, price, qty, condition and alt.</summary>
+    public long? OfferId { get; set; }
+    /// <summary>How the part is searched with this supplier: ILS / Email / Search, one or more (null = the usual default).</summary>
+    public List<string>? Methods { get; set; }
+    /// <summary>Just the supplier (part history): no qty or condition copied onto the line.</summary>
+    public bool NameOnly { get; set; }
+}
+
+public class PpLineMethodsRequest
+{
+    public List<string> Methods { get; set; } = new();
 }
 
 public class PpNoteRequest
@@ -110,6 +132,13 @@ public class PpBoardPart
     /// <summary>Lines being priced, then lines Done in the last AutoApplyDays.</summary>
     public List<PpQuoteLineResponse> Lines { get; set; } = new();
     public List<PpEventResponse> Events { get; set; } = new();
+    /// <summary>Rows for the part in the owner's current files (Suppliers available).</summary>
+    public List<PpOfferRow> Offers { get; set; } = new();
+    /// <summary>
+    /// Email Quotes lines (MailFlow) for the part — pending, or accepted in the last AutoApplyDays — shown as
+    /// editable rows under it. Lines that answer one of the part's own lines are on that line (EmailQuote) instead.
+    /// </summary>
+    public List<PpQuoteLineResponse> EmailLines { get; set; } = new();
 }
 
 public class PpPriceStat
@@ -145,8 +174,10 @@ public class PpBoardCounts
     public int Ready { get; set; }
     /// <summary>Only Done lines left.</summary>
     public int Done { get; set; }
-    /// <summary>ILS: no row in the current files.</summary>
+    /// <summary>No row in the current files.</summary>
     public int NotInFiles { get; set; }
+    /// <summary>Parts tab: how many come from each tab — parts / project / wechat / rfq (after the search).</summary>
+    public Dictionary<string, int> Origins { get; set; } = new();
 }
 
 /// <summary>"By supplier" view: one supplier with all its lines (any part).</summary>
@@ -214,6 +245,8 @@ public class PpRfqCoverageItem
     public int OlderQuoteCount { get; set; }
     /// <summary>The part on the user's Procurement Plus list (any track) with its lines; null = not on the list.</summary>
     public PpBoardPart? Board { get; set; }
+    /// <summary>Not on the list: rows for it in the user's current files (on the list they are on Board).</summary>
+    public List<PpOfferRow> Offers { get; set; } = new();
     public bool HasSupplier { get; set; }
 }
 
@@ -228,6 +261,8 @@ public class PpRfqQuote
     public string? Alt { get; set; }
     public string? CertName { get; set; }
     public DateOnly? TagDate { get; set; }
+    /// <summary>Catalog supplier of the quote (part history: "add this supplier" under the part).</summary>
+    public long? SupplierId { get; set; }
     public string SupplierName { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public string? Condition { get; set; }
@@ -287,6 +322,21 @@ public class PpPartResponse
     /// within AutoApplyDays — with the RFQs they were written to.
     /// </summary>
     public List<PpLiveQuote> LiveQuotes { get; set; } = new();
+    /// <summary>Parts tab, not on the list yet: the saved-RFQ item it stands for (Id is then -RfqItemId).</summary>
+    public long? RfqItemId { get; set; }
+    /// <summary>Not on the list yet: the user's saved RFQs (By RFQ) that ask for it.</summary>
+    public List<PpRfqRef> FromRfqs { get; set; } = new();
+}
+
+/// <summary>A part's history (clock button on a part card): its supplier quotes on RFQs and its timeline.</summary>
+public class PpPartHistory
+{
+    public string PartNumber { get; set; } = string.Empty;
+    /// <summary>Supplier quotes for the part (name, alternatives, linked catalog part) on any RFQ, newest first.</summary>
+    public List<PpRfqQuote> Quotes { get; set; } = new();
+    /// <summary>How many exist (Quotes holds the newest MaxHistoryQuotes).</summary>
+    public int QuoteCount { get; set; }
+    public List<PpEventResponse> Events { get; set; } = new();
 }
 
 public class PpRfqRef
@@ -356,6 +406,7 @@ public class PpAvailabilityResponse
 public class PpOfferRow
 {
     public long OfferId { get; set; }
+    public long UploadId { get; set; }
     public long PartId { get; set; }
     /// <summary>The user's part this row answers.</summary>
     public string PartNumber { get; set; } = string.Empty;
@@ -522,11 +573,14 @@ public class PpStartSourcingRequest
 
 public class PpSourceSupplier
 {
-    /// <summary>The preferred supplier (Preferreds id).</summary>
-    public long PreferredId { get; set; }
-    /// <summary>null = the preferred supplier's method.</summary>
+    /// <summary>The preferred supplier (Preferreds id); null = a non-preferred supplier (catalog or just a company in the file).</summary>
+    public long? PreferredId { get; set; }
+    /// <summary>null = the preferred supplier's method (Email for a non-preferred one).</summary>
     public string? SourceMethod { get; set; }
-    /// <summary>Rows to source; empty = every fresh row matching this preferred supplier for the user's shown parts.</summary>
+    /// <summary>
+    /// Rows to source; empty = every fresh row matching this preferred supplier for the user's shown parts.
+    /// A non-preferred supplier needs its rows listed.
+    /// </summary>
     public List<long> OfferIds { get; set; } = new();
 }
 
@@ -558,6 +612,26 @@ public class PpQuoteLineResponse
     public string? CreatedByName { get; set; }
     /// <summary>Done lines: the RFQs it was written to.</summary>
     public List<PpRfqRef> WrittenRfqs { get; set; } = new();
+    /// <summary>Added from a row of an ILS / Excel file ("Available in your files").</summary>
+    public bool FromFile { get; set; }
+    /// <summary>An Email Quotes line (MailFlow), not a Procurement Plus one.</summary>
+    public bool IsEmail { get; set; }
+    /// <summary>Copied from the user's own supplier quote on this RFQ (last two weeks) — Done never writes back onto it.</summary>
+    public PpRfqRef? FromRfq { get; set; }
+    /// <summary>When that RFQ quote was added.</summary>
+    public DateTime? FromRfqQuotedAt { get; set; }
+    /// <summary>The supplier also quoted this line by email (same part + condition) — its price came from that mail.</summary>
+    public PpEmailQuoteRef? EmailQuote { get; set; }
+}
+
+public class PpEmailQuoteRef
+{
+    public long Id { get; set; }
+    public string? Subject { get; set; }
+    public DateTime? Date { get; set; }
+    public string? SupplierEmail { get; set; }
+    public decimal? Price { get; set; }
+    public string Status { get; set; } = "Pending";
 }
 
 public class PpDoneResponse

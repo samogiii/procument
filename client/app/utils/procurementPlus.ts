@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import type { PpOfferRow } from '~/components/ProcurementPlusAvailabilityDialog.vue'
 
 /** How a preferred supplier is asked for a quote (PreferredSupplierMethods on the API). */
 /** How a preferred supplier is asked. WeChat is not one — it is a part track (PART_TRACKS). */
@@ -12,12 +13,25 @@ export const SOURCE_METHODS: { value: SourceMethod; title: string; icon: string;
 
 /** Where a part is sourced: uploaded ILS files, a Project (nobody lists it), or WeChat. */
 export const PART_TRACKS = [
-  { value: 'ILS', title: 'ILS', icon: 'mdi-airplane-search', color: 'deep-purple', hint: 'Sourced from uploaded ILS / Excel files' },
+  { value: 'ILS', title: 'Parts', icon: 'mdi-airplane-search', color: 'deep-purple', hint: 'Sourced from uploaded ILS / Excel files' },
   { value: 'Project', title: 'Project', icon: 'mdi-briefcase-search-outline', color: 'teal', hint: 'Nobody lists it — worked on as a project' },
   { value: 'WeChat', title: 'WeChat', icon: 'mdi-wechat', color: 'green', hint: 'Sourced over WeChat' },
 ] as const
 
 export const trackMeta = (track?: string | null) => PART_TRACKS.find(t => t.value === track) ?? PART_TRACKS[0]
+
+/**
+ * The tab a part on the Parts tab comes from (its track; "RFQ" = an item of a saved RFQ, not on the list yet).
+ * Cards are tinted very lightly in that colour.
+ */
+export const PART_ORIGINS = [
+  { value: 'parts', track: 'ILS', title: 'Parts', icon: 'mdi-airplane-search', color: 'deep-purple' },
+  { value: 'project', track: 'Project', title: 'Project', icon: 'mdi-briefcase-search-outline', color: 'teal' },
+  { value: 'wechat', track: 'WeChat', title: 'WeChat', icon: 'mdi-wechat', color: 'green' },
+  { value: 'rfq', track: 'RFQ', title: 'RFQs', icon: 'mdi-file-document-outline', color: 'blue' },
+] as const
+
+export const originMeta = (track?: string | null) => PART_ORIGINS.find(o => o.track === track) ?? PART_ORIGINS[0]
 
 /** Project and WeChat parts need a target price. */
 export const needsTargetPrice = (track?: string | null) => track === 'Project' || track === 'WeChat'
@@ -40,6 +54,15 @@ export interface PpQuoteLine {
   createdByUserId?: number
   createdByName?: string
   writtenRfqs: { rfqId: number; rfqName: string; deadline: string; customerCode?: string; qty?: number; price?: number }[]
+  /** Added from a row of an ILS / Excel file ("Available in your files"). */
+  fromFile?: boolean
+  /** An Email Quotes line (MailFlow) shown under the part, not a Procurement Plus line. */
+  isEmail?: boolean
+  /** The supplier also quoted this line by email (same part + condition) — the price came from that mail. */
+  emailQuote?: { id: number; subject?: string; date?: string; supplierEmail?: string; price?: number; status: string } | null
+  /** Copied from my own supplier quote on this RFQ (last 2 weeks) — Done puts it on the other RFQs, never back on this one. */
+  fromRfq?: PpRfqRef | null
+  fromRfqQuotedAt?: string | null
 }
 
 export interface PpRfqRef { rfqId: number; rfqName: string; deadline: string; customerCode?: string; qty?: number; price?: number }
@@ -52,11 +75,18 @@ export interface PpPart {
   liveQuotes: { quoteId: number; source: string; supplierName?: string; price?: number; condition?: string; autoFillUntil?: string; rfqs: PpRfqRef[] }[]
   /** Average price per condition: supplier quotes on older RFQs + prices typed here. */
   priceStats: PpPriceStat[]
+  /** Parts tab, not on the list yet (track "RFQ", id = -rfqItemId): the saved-RFQ item and the RFQs asking for it. */
+  rfqItemId?: number
+  fromRfqs: PpRfqRef[]
 }
 
 export interface PpPriceStat { condition: string; average: number; min: number; max: number; count: number; lastDate: string }
 
-export interface PpBoardCounts { all: number; noSupplier: number; sourcing: number; ready: number; done: number; notInFiles: number }
+export interface PpBoardCounts {
+  all: number; noSupplier: number; sourcing: number; ready: number; done: number; notInFiles: number
+  /** Parts tab: parts per origin tab (parts / project / wechat / rfq). */
+  origins?: Record<string, number>
+}
 export interface PpBoardPage { items: PpBoardPart[]; total: number; page: number; pageSize: number; counts: PpBoardCounts }
 
 export interface PpSupplierGroup {
@@ -65,13 +95,15 @@ export interface PpSupplierGroup {
 }
 
 export interface PpRfqQuote {
-  supplierName: string; price: number; condition?: string; qty: number; leadTime?: string; date: string
+  supplierId?: number; supplierName: string; price: number; condition?: string; qty: number; leadTime?: string; date: string
   /** Older quotes: the RFQ it is on, and the P/N it was for (can be an alternative). */
   rfqId?: number; rfqName?: string; customerCode?: string; partNumber?: string; alt?: string; certName?: string; tagDate?: string
 }
 export interface PpRfqCoverageItem {
   rfqItemId: number; partNumber: string; description?: string; qty: number; condition?: string; alt?: string
   rfqQuotes: PpRfqQuote[]; olderQuotes: PpRfqQuote[]; olderQuoteCount: number; board: PpBoardPart | null; hasSupplier: boolean
+  /** Not on the list: its rows in the current files (on the list they are on board.offers). */
+  offers: PpOfferRow[]
 }
 
 /** Part status on a board: no supplier / being priced / ready for Done / only Done lines. */
@@ -90,10 +122,48 @@ export const PART_STATUS = {
 } as const
 
 export interface PpEvent { id: number; kind: string; text: string; createdAt: string; userName?: string }
-export interface PpBoardPart { part: PpPart; lines: PpQuoteLine[]; events: PpEvent[] }
+export interface PpBoardPart {
+  part: PpPart; lines: PpQuoteLine[]; events: PpEvent[]
+  /** Rows for the part in the owner's current files (Suppliers available). */
+  offers: PpOfferRow[]
+  /** Email Quotes lines (MailFlow) for the part — editable rows under it. */
+  emailLines?: PpQuoteLine[]
+}
+
+const pnKey = (s?: string | null) => (s || '').replace(/\s+/g, '').toUpperCase()
+
+/** The P/N a file row offers when it is not the part itself (an alternative), else ''. */
+export const offerAlt = (row: PpOfferRow) => (pnKey(row.filePartNo) === pnKey(row.partNumber) ? '' : pnKey(row.filePartNo))
+
+/**
+ * A file row already has a supplier line under the part: same preferred / catalog supplier / company name,
+ * same condition and the same P/N (each alternative a supplier lists is its own line).
+ */
+export function offerAdded(row: PpOfferRow, lines: PpQuoteLine[]) {
+  const key = (s?: string | null) => (s || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
+  const cond = (s?: string | null) => (s || '').trim().toUpperCase()
+  return lines.some(l => ((row.preferredId && l.preferredId === row.preferredId)
+    || (row.supplierId && l.line.supplierId === row.supplierId)
+    || (key(l.line.supplierNameRaw) && key(l.line.supplierNameRaw) === key(row.companyRaw)))
+    && cond(l.line.condition) === cond(row.condition)
+    && pnKey(l.line.alt) === offerAlt(row))
+}
 
 export function methodMeta(method?: string | null) {
   return SOURCE_METHODS.find(m => m.value === method) ?? SOURCE_METHODS[0]!
+}
+
+/** How a supplier line under a part is searched — one or more, picked when it is added (ILS first). */
+export const LINE_METHODS = [
+  { value: 'ILS', title: 'ILS', icon: 'mdi-airplane-search', color: 'deep-purple' },
+  { value: 'Email', title: 'Send Email', icon: 'mdi-email-fast-outline', color: 'blue' },
+  { value: 'Search', title: 'Search', icon: 'mdi-web', color: 'orange' },
+] as const
+
+/** A line's methods ("ILS,Email" on the API) — only the known ones, in LINE_METHODS order. */
+export const lineMethods = (sourceMethod?: string | null) => {
+  const set = new Set((sourceMethod || '').split(',').map(s => s.trim().toLowerCase()))
+  return LINE_METHODS.filter(m => set.has(m.value.toLowerCase()))
 }
 
 /** Days uploaded files stay in the Suppliers Available tabs (ProcurementPlusService.FreshDays). */
@@ -185,6 +255,7 @@ export interface ImportedPart {
   qty: number | null
   condition: string | null
   targetPrice: number | null
+  alternatives: string[]
 }
 
 /** Header names per field, compared lower-cased with punctuation squeezed out. */
@@ -194,6 +265,19 @@ const PART_HEADERS: Record<keyof ImportedPart, string[]> = {
   qty: ['qty', 'quantity', 'qnty', 'q ty', 'quantity requested', 'req qty'],
   condition: ['condition', 'cond', 'cd', 'req condition', 'requested condition'],
   targetPrice: ['target price', 'target', 'target $', 'price', 'unit price', 'tp'],
+  alternatives: ['alternatives', 'alternative', 'alternates', 'alternate', 'alt', 'alts', 'alt pn', 'alt p/n', 'alt part', 'interchangeable'],
+}
+
+/** "ALT1, ALT2; ALT3 | ALT4" → the P/Ns, without the part's own P/N and repeats. */
+export function splitAlternatives(raw: string, ownPartNumber = ''): string[] {
+  const key = (v: string) => v.replace(/\s+/g, '').toUpperCase()
+  const seen = new Set([key(ownPartNumber)])
+  return raw.split(/[,;|\n]+/).map(a => a.trim()).filter((a) => {
+    const k = key(a)
+    if (!k || seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
 }
 
 const normHeader = (v: unknown) => String(v ?? '').toLowerCase().replace(/[^a-z0-9#/$]+/g, ' ').trim()
@@ -205,6 +289,7 @@ function fieldOf(header: string): keyof ImportedPart | null {
   // "Part Number (P/N)", "Part Description", "Qty Required", "Target Price USD" … — the specific words first,
   // so "Part Description" is a description, not a part number.
   if (header.includes('desc')) return 'description'
+  if (/^alt\b/.test(header) || header.includes('alternat') || header.includes('interchang')) return 'alternatives'
   if (header.includes('target')) return 'targetPrice'
   if (header.includes('cond')) return 'condition'
   if (header.includes('qty') || header.includes('quantity')) return 'qty'
@@ -231,12 +316,13 @@ function splitPasted(text: string): string[][] {
 
 /**
  * Reads custom parts from rows copied out of Excel and pasted (like the RFQs page bulk import). The
- * header row is found by its names — Part Number / P/N, Description, Qty, Condition, Target price, in
- * any order, title lines above it skipped; without one the columns are read as Part Number |
- * Description | Qty | Condition | Target price (a single column = just part numbers). Rows without a
- * part number and repeated header rows are skipped; the same part twice is kept once.
+ * header row is found by its names — Part Number / P/N, Description, Qty, Condition, Target price,
+ * Alternatives, in any order, title lines above it skipped; without one the columns are read as Part
+ * Number | Description | Qty | Condition | [Target price, when `withTarget`] | Alternatives (a single
+ * column = just part numbers). Alternatives in one cell are split on , ; |. Rows without a part number
+ * and repeated header rows are skipped; the same part twice is kept once.
  */
-export function readPartsFromText(text: string): { parts: ImportedPart[]; skipped: number; hasHeader: boolean } {
+export function readPartsFromText(text: string, withTarget = true): { parts: ImportedPart[]; skipped: number; hasHeader: boolean } {
   const rows = splitPasted(text)
   if (!rows.length) return { parts: [], skipped: 0, hasHeader: false }
 
@@ -258,7 +344,11 @@ export function readPartsFromText(text: string): { parts: ImportedPart[]; skippe
       break
     }
   }
-  if (headerIndex < 0) columns = { partNumber: 0, description: 1, qty: 2, condition: 3, targetPrice: 4 }
+  if (headerIndex < 0) {
+    columns = withTarget
+      ? { partNumber: 0, description: 1, qty: 2, condition: 3, targetPrice: 4, alternatives: 5 }
+      : { partNumber: 0, description: 1, qty: 2, condition: 3, alternatives: 4 }
+  }
 
   const cell = (r: string[], f: keyof ImportedPart) => (columns[f] == null ? '' : (r[columns[f]!] ?? '').trim())
   const seen = new Set<string>()
@@ -278,6 +368,7 @@ export function readPartsFromText(text: string): { parts: ImportedPart[]; skippe
       qty: firstNumber(cell(r, 'qty')),
       condition: cell(r, 'condition').toUpperCase() || null,
       targetPrice: firstNumber(cell(r, 'targetPrice')),
+      alternatives: splitAlternatives(cell(r, 'alternatives'), partNumber),
     })
   }
   return { parts, skipped, hasHeader: headerIndex >= 0 }

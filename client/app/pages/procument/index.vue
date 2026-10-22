@@ -730,9 +730,7 @@
                               <span class="font-weight-medium">{{ quote.supplierName || '—' }}</span>
                               <v-chip v-if="!quote.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit or save it">Unsaved</v-chip>
                             </div>
-                            <div v-if="quote.supplierEmail" class="quote-cell-email" :title="quote.supplierEmail">
-                              <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ quote.supplierEmail }}
-                            </div>
+                            <QuoteSupplierEmails :quote="quote" />
                             <div
                               v-if="quote.supplierStatus === 'Pending'"
                               style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
@@ -924,9 +922,7 @@
                                         <span class="font-weight-medium">{{ shop.supplierName || '—' }}</span>
                                         <v-chip v-if="!shop.id" size="x-small" color="warning" variant="tonal" class="ml-1" title="Not saved yet — edit or save it">Unsaved</v-chip>
                                       </div>
-                                      <div v-if="shop.supplierEmail" class="quote-cell-email" :title="shop.supplierEmail">
-                                        <v-icon icon="mdi-email-check-outline" size="11" class="mr-1" />{{ shop.supplierEmail }}
-                                      </div>
+                                      <QuoteSupplierEmails :quote="shop" />
                                       <div
                                         v-if="shop.supplierStatus === 'Pending'"
                                         style="font-size:10px; color:#f59e0b; padding: 1px 4px; line-height:1.4; pointer-events:none;"
@@ -1054,7 +1050,9 @@
       :part-number="quoteEditor.item?.partNumberName"
       :customer-base="quoteEditor.item?.customerBase"
       :company-preset-options="companyPresetOptions"
+      :rfq-id="quoteEditor.item?.rfqId"
       :save="saveQuoteFromEditor"
+      @certificates="list => quoteEditor.row && syncCertificateSummary(quoteEditor.row, list)"
     />
 
     <!-- Resubmit Supplier Dialog -->
@@ -2162,9 +2160,13 @@ async function saveQuoteFromEditor(form: any) {
     ;(editableQuotes.value[item.rfqItemId] ||= []).unshift(merged)
     if (!expandedArray.value.includes(item.rfqItemId)) expandedArray.value.push(item.rfqItemId)
   }
+  // The modal now edits the grid's (reactive) row: a second Save or a cert upload patches it.
+  const gridRow = row ?? (shop ? parent.shopRecords[0] : editableQuotes.value[item.rfqItemId]![0])
+  quoteEditor.value.row = gridRow
   // The backend re-opens a Rejected RFQ when a quote is saved.
   if (item.rfqStatus === 'Rejected') item.rfqStatus = 'In Progress'
   showSnack(shop ? 'Shop record saved' : 'Supplier quote saved', 'success')
+  return gridRow
 }
 
 // ── Our Company (company presets) + Expert column ──
@@ -2177,10 +2179,10 @@ async function loadCompanyPresetOptions() {
     companyPresetOptions.value = []
   }
 }
-// Supplier grid columns: 25, plus the SuperAdmin-only Expert column.
+// Supplier grid columns: 26, plus the SuperAdmin-only Expert column.
 // Main columns only unless "all columns" is on (see composables/useQuoteGridColumns).
 const { allQuoteColumns, OTHER_QUOTE_DETAIL_FIELDS } = useQuoteGridColumns()
-const quoteGridColspan = computed(() => allQuoteColumns.value ? (isSuperAdmin.value ? 27 : 26) : (isSuperAdmin.value ? 10 : 9))
+const quoteGridColspan = computed(() => allQuoteColumns.value ? (isSuperAdmin.value ? 28 : 27) : (isSuperAdmin.value ? 10 : 9))
 
 // ── Shop Records (AR condition) ──
 const expandedShops = ref<Set<string>>(new Set())
@@ -2446,15 +2448,6 @@ async function removeShopQuote(item: any, parentQuote: any, sIdx: number) {
   display: flex;
   align-items: center;
   max-width: none;
-}
-.quote-cell-email {
-  font-size: 10px;
-  color: #22c55e;
-  padding: 0 6px 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
 }
 .price-text {
   color: #4ade80;

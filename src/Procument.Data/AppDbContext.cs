@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
   public DbSet<EntityPermission> EntityPermissions => Set<EntityPermission>();
   public DbSet<UserBase> UserBases => Set<UserBase>();
   public DbSet<UserCustomer> UserCustomers => Set<UserCustomer>();
+  public DbSet<UserMailbox> UserMailboxes => Set<UserMailbox>();
   public DbSet<MenuPermission> MenuPermissions => Set<MenuPermission>();
 
   // Shared
@@ -59,6 +60,7 @@ public class AppDbContext : DbContext
   public DbSet<CustomerFollowUpDocument> CustomerFollowUpDocuments => Set<CustomerFollowUpDocument>();
   public DbSet<CustomerFollowUpMessage> CustomerFollowUpMessages => Set<CustomerFollowUpMessage>();
   public DbSet<CustomerFollowUpMessageRead> CustomerFollowUpMessageReads => Set<CustomerFollowUpMessageRead>();
+  public DbSet<CustomerFollowUpRef> CustomerFollowUpRefs => Set<CustomerFollowUpRef>();
   public DbSet<WalletSettings> WalletSettings => Set<WalletSettings>();
   public DbSet<SupplierCreditAccount> SupplierCreditAccounts => Set<SupplierCreditAccount>();
   public DbSet<SupplierCreditEntry> SupplierCreditEntries => Set<SupplierCreditEntry>();
@@ -194,6 +196,18 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.UserId);
       entity.HasOne(e => e.User)
             .WithMany(u => u.UserCustomers)
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<UserMailbox>(entity =>
+    {
+      entity.ToTable("UserMailboxes");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Mailbox).HasMaxLength(320);
+      entity.HasIndex(e => new { e.UserId, e.Mailbox }).IsUnique();
+      entity.HasOne(e => e.User)
+            .WithMany(u => u.UserMailboxes)
             .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Cascade);
     });
@@ -579,6 +593,8 @@ public class AppDbContext : DbContext
             .HasForeignKey(e => e.SourceStockItemId)
             .OnDelete(DeleteBehavior.Restrict);
       entity.Property(e => e.SupplierEmail).HasMaxLength(320);
+      entity.Property(e => e.SourceEmail).HasMaxLength(320);
+      entity.HasIndex(e => e.SourcePendingQuoteId);
       entity.Property(e => e.SerialNumber).HasMaxLength(200);
       entity.Property(e => e.TraceTo).HasMaxLength(300);
       entity.Property(e => e.TagType).HasMaxLength(100);
@@ -586,6 +602,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.TaggedBy).HasMaxLength(300);
       entity.Property(e => e.MoQ).HasMaxLength(100);
       entity.Property(e => e.Warranty).HasMaxLength(200);
+      entity.Property(e => e.CR).HasMaxLength(200);
       entity.HasIndex(e => e.CompanyPresetId);
       entity.HasOne<CompanyPreset>()
             .WithMany()
@@ -650,6 +667,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.TaggedBy).HasMaxLength(300);
       entity.Property(e => e.MoQ).HasMaxLength(100);
       entity.Property(e => e.Warranty).HasMaxLength(200);
+      entity.Property(e => e.CR).HasMaxLength(200);
       entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
 
       entity.HasOne(e => e.Supplier)
@@ -671,6 +689,7 @@ public class AppDbContext : DbContext
       // Procurement Plus preferred supplier — plain column (no FK: Suppliers already reaches this table).
       entity.HasIndex(e => e.PreferredId);
       entity.HasIndex(e => e.PreferredPartId);
+      entity.HasIndex(e => e.SourceSupplierQuoteId);
     });
 
     // ── Procurement Plus ──
@@ -1661,7 +1680,23 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Feedback).HasMaxLength(4000);
       entity.Property(e => e.CreatedBy).HasMaxLength(100);
       entity.Property(e => e.ModifiedBy).HasMaxLength(100);
+      entity.Property(e => e.Category).HasMaxLength(100);
+      entity.Property(e => e.ProcurementStatus).HasMaxLength(20).IsRequired().HasDefaultValue("Open");
+      entity.Property(e => e.SalesStatus).HasMaxLength(20).IsRequired().HasDefaultValue("Open");
       entity.HasIndex(e => e.IsActive);
+    });
+
+    modelBuilder.Entity<CustomerFollowUpRef>(entity =>
+    {
+      entity.ToTable("CustomerFollowUpRefs");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.RefType).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.AddedBy).HasMaxLength(100);
+      entity.HasIndex(e => new { e.CustomerFollowUpId, e.RefType, e.RefId }).IsUnique();
+      entity.HasOne(e => e.CustomerFollowUp)
+                .WithMany(f => f.Refs)
+                .HasForeignKey(e => e.CustomerFollowUpId)
+                .OnDelete(DeleteBehavior.Cascade);
     });
 
     modelBuilder.Entity<CustomerFollowUpDocument>(entity =>

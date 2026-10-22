@@ -7,6 +7,8 @@
     <div class="d-flex align-center flex-wrap gap-2 mb-2">
       <MailboxSelect v-model="mailbox" api-base="/pending-rfqs" />
       <span class="text-caption text-medium-emphasis">Which MailFlow mailbox the emails came in through.</span>
+      <v-spacer />
+      <EmailRfqExportButton :mailbox="mailbox" />
     </div>
 
     <v-tabs v-model="tab" color="primary" class="mb-3">

@@ -14,15 +14,16 @@
         {{ activeFilterCount }} filter{{ activeFilterCount > 1 ? 's' : '' }} active
       </v-chip>
       <v-chip
-        v-if="hiddenClosedCount > 0"
+        v-for="hidden in hiddenCounts"
+        :key="hidden.rule.key"
         size="small"
         variant="tonal"
         color="grey"
         prepend-icon="mdi-eye-off-outline"
-        title="Rows with Issue Status Closed are hidden — click (or pick Closed in the Issue Status filter) to show them"
-        @click="showClosedRows"
+        :title="`Rows with ${COLUMN[hidden.rule.key].label} ${hidden.rule.value} are hidden — click (or pick ${hidden.rule.value} in the ${COLUMN[hidden.rule.key].label} filter) to show them`"
+        @click="showHiddenRows(hidden.rule)"
       >
-        {{ hiddenClosedCount }} closed hidden
+        {{ hidden.count }} {{ hidden.rule.chip }} hidden
       </v-chip>
       <v-chip
         v-if="unreadCount > 0"
@@ -151,6 +152,8 @@
               @delete="rowToDelete = row"
               @documents="openDocuments(row)"
               @messages="openMessages(row)"
+              @rfq="openRfq(row)"
+              @refs="openRefs(row)"
             />
             <tr v-if="!displayRows.length">
               <td :colspan="orderedKeys.length + 1" class="text-center pa-8 text-medium-emphasis">
@@ -183,16 +186,30 @@
       </v-card>
     </v-dialog>
 
+    <CustomerFollowUpRfqDialog
+      :row="rfqRow"
+      @close="rfqRow = null"
+      @saved="replaceRow"
+      @notify="showSnack"
+    />
+
+    <CustomerFollowUpRefsDialog
+      :row="refsRow"
+      @close="refsRow = null"
+      @saved="replaceRow"
+      @notify="showSnack"
+    />
+
     <CustomerFollowUpDocumentsDialog
       :row="documentsRow"
-      @close="documentsRow = null"
+      @close="closeDocuments"
       @count="setDocumentCount"
       @notify="showSnack"
     />
 
     <CustomerFollowUpMessagesDialog
       :row="messagesRow"
-      @close="messagesRow = null"
+      @close="closeMessages"
       @message-count="setMessageCount"
       @unread-change="setUnread"
       @documents-added="addDocumentCount"
@@ -206,6 +223,7 @@
 <script setup lang="ts">
 import {
   BLANK_FILTER_VALUE,
+  DIALOG_COLUMN_TYPES,
   documentCountText,
   FOLLOW_UP_COLUMN_BY_KEY as COLUMN,
   FOLLOW_UP_COLUMNS,
@@ -231,12 +249,18 @@ const EMPTY_SET = new Set<string>()
 interface FollowUpOptions {
   customers: string[]
   assignees: string[]
-  responseStatuses: string[]
+  categories: string[]
   issueStatuses: string[]
+  /** Open, In Progress, Done (Procurement and Sales Status). */
+  workStatuses: string[]
+  /** Menu Access "followUpProcurement": Procurement Status Done rows are hidden for this user. */
+  isProcurementUser: boolean
 }
 
 const rows = ref<FollowUpRow[]>([])
-const options = ref<FollowUpOptions>({ customers: [], assignees: [], responseStatuses: [], issueStatuses: [] })
+const options = ref<FollowUpOptions>({
+  customers: [], assignees: [], categories: [], issueStatuses: [], workStatuses: ['Open', 'In Progress', 'Done'], isProcurementUser: false,
+})
 const loading = ref(true)
 const adding = ref(false)
 const deleting = ref(false)
@@ -277,7 +301,7 @@ async function load() {
     rows.value = list.map(normalizeFollowUpRow)
     options.value = opts
     newRowIds.value = new Set()
-    closedThisVisitIds.value = new Set()
+    settledThisVisitIds.value = new Set()
   } catch (error) {
     showSnack(errorMessage(error, 'Could not load follow ups.'), 'error')
   } finally {
@@ -466,25 +490,43 @@ const searchedRows = computed(() => {
     column.type !== 'docs' && column.type !== 'chat' && followUpCellText(row, column.key).toLowerCase().includes(query)))
 })
 
-function hasClosedIssue(row: FollowUpRow) {
-  return (row.issueStatus ?? '').trim().toLowerCase() === 'closed'
+/**
+ * Rows hidden until their value is picked in that column's filter:
+ * - Issue Status Closed and Sales Status Done — for everyone;
+ * - Procurement Status Done — for procurement users only (sales keeps seeing them).
+ */
+interface HideRule { key: 'issueStatus' | 'salesStatus' | 'procurementStatus'; value: string; chip: string }
+
+const hideRules = computed<HideRule[]>(() => [
+  { key: 'issueStatus', value: 'Closed', chip: 'closed' },
+  { key: 'salesStatus', value: 'Done', chip: 'sales done' },
+  ...(options.value.isProcurementUser ? [{ key: 'procurementStatus', value: 'Done', chip: 'procurement done' } as HideRule] : []),
+])
+
+function matchesRule(row: FollowUpRow, rule: HideRule) {
+  return (row[rule.key] ?? '').trim().toLowerCase() === rule.value.toLowerCase()
 }
 
-/** Rows with Issue Status "Closed" stay hidden until "Closed" is picked in the Issue Status filter. */
-const showClosedIssues = computed(() =>
-  [...(colFilter.selected.issueStatus ?? [])].some(value => value.trim().toLowerCase() === 'closed'))
+/** The rule's value is picked in its column filter, so its rows show. */
+function ruleLifted(rule: HideRule) {
+  return [...(colFilter.selected[rule.key] ?? [])].some(value => value.trim().toLowerCase() === rule.value.toLowerCase())
+}
 
-/** Rows closed during this visit stay on screen (so closing one doesn't yank it away mid-edit) until the next load. */
-const closedThisVisitIds = ref(new Set<number>())
+const activeHideRules = computed(() => hideRules.value.filter(rule => !ruleLifted(rule)))
+
+/** Rows closed / set to Done during this visit stay on screen (so it doesn't vanish mid-edit) until the next load. */
+const settledThisVisitIds = ref(new Set<number>())
 
 /**
  * The first active filter the row fails (or null). With `exceptKey`, that column's filter is ignored.
- * A hidden closed row counts as failing the Issue Status filter, so "Closed" still shows in that
+ * A row hidden by a rule counts as failing that column's filter, so e.g. "Done" still shows in that
  * column's filter list.
  */
 function failedFilter(row: FollowUpRow, exceptKey?: FollowUpKey): FollowUpKey | null {
-  if (exceptKey !== 'issueStatus' && !showClosedIssues.value && hasClosedIssue(row) && !closedThisVisitIds.value.has(row.id)) {
-    return 'issueStatus'
+  if (!settledThisVisitIds.value.has(row.id)) {
+    for (const rule of activeHideRules.value) {
+      if (rule.key !== exceptKey && matchesRule(row, rule)) return rule.key
+    }
   }
   for (const key of activeFilterKeys.value) {
     if (key !== exceptKey && !colFilter.selected[key]!.has(filterValue(row, key))) return key
@@ -492,15 +534,19 @@ function failedFilter(row: FollowUpRow, exceptKey?: FollowUpKey): FollowUpKey | 
   return null
 }
 
-const hiddenClosedCount = computed(() => showClosedIssues.value
-  ? 0
-  : searchedRows.value.filter(row =>
-    hasClosedIssue(row) && !closedThisVisitIds.value.has(row.id) && failedFilter(row, 'issueStatus') === null).length)
+/** Per active rule: rows that would show if only that rule were lifted. */
+const hiddenCounts = computed(() => activeHideRules.value
+  .map(rule => ({
+    rule,
+    count: searchedRows.value.filter(row =>
+      matchesRule(row, rule) && !settledThisVisitIds.value.has(row.id) && failedFilter(row, rule.key) === null).length,
+  }))
+  .filter(hidden => hidden.count > 0))
 
-/** Same as picking "Closed" in the Issue Status filter. */
-function showClosedRows() {
-  const closedValue = filterOptions.value.issueStatus.all.find(value => value.trim().toLowerCase() === 'closed') ?? 'Closed'
-  colFilter.toggle('issueStatus', closedValue)
+/** Same as picking the rule's value (e.g. "Done") in its column filter. */
+function showHiddenRows(rule: HideRule) {
+  const value = filterOptions.value[rule.key].all.find(v => v.trim().toLowerCase() === rule.value.toLowerCase()) ?? rule.value
+  colFilter.toggle(rule.key, value)
 }
 
 const filteredRows = computed(() => searchedRows.value.filter(row =>
@@ -569,15 +615,19 @@ const filterOptions = computed(() => {
 
 const editorOptions = computed<Partial<Record<FollowUpKey, string[]>>>(() => ({
   customerCode: options.value.customers,
+  category: options.value.categories,
   assign: options.value.assignees,
-  responseStatus: options.value.responseStatuses,
+  procurementStatus: options.value.workStatuses,
+  salesStatus: options.value.workStatuses,
   issueStatus: options.value.issueStatuses,
 }))
 
-const OPTION_LIST_BY_KEY: Partial<Record<FollowUpKey, keyof FollowUpOptions>> = {
+type FreeOptionList = 'customers' | 'assignees' | 'categories' | 'issueStatuses'
+
+const OPTION_LIST_BY_KEY: Partial<Record<FollowUpKey, FreeOptionList>> = {
   customerCode: 'customers',
+  category: 'categories',
   assign: 'assignees',
-  responseStatus: 'responseStatuses',
   issueStatus: 'issueStatuses',
 }
 
@@ -590,10 +640,16 @@ function rememberOption(key: FollowUpKey, value: string) {
   options.value = { ...options.value, [listName]: [...list, value] }
 }
 
-/** Columns edited in place — the Row Id, Documents and Messages cells are not. */
+/** Columns edited in place — the Row Id and the dialog cells (Documents, Messages, RFQ Ref#, Other Refs) are not. */
 function isEditableKey(key: FollowUpKey): key is EditableFollowUpKey {
   const type = COLUMN[key].type
-  return type !== 'id' && type !== 'docs' && type !== 'chat'
+  return type !== 'id' && !DIALOG_COLUMN_TYPES.has(type)
+}
+
+/** Status values that hide a row (Closed / Done) — a row set to one now stays until the next load. */
+function settlesRow(key: EditableFollowUpKey, value: string | null) {
+  const rule = hideRules.value.find(r => r.key === key)
+  return !!rule && value?.toLowerCase() === rule.value.toLowerCase()
 }
 
 function startEdit(id: number, key: FollowUpKey) {
@@ -622,14 +678,26 @@ async function commitCell(id: number, key: EditableFollowUpKey, rawValue: string
 
   // Show the new value at once; only this cell is reverted if the save fails.
   rows.value[index] = { ...rows.value[index]!, [key]: value }
-  if (key === 'issueStatus' && value?.toLowerCase() === 'closed') closedThisVisitIds.value = new Set([...closedThisVisitIds.value, id])
+  if (settlesRow(key, value)) settledThisVisitIds.value = new Set([...settledThisVisitIds.value, id])
   if (value) rememberOption(key, value)
+  // Category RFQ asks for the RFQ right away (pick one or create it).
+  if (key === 'category' && value?.toLowerCase() === 'rfq' && !rows.value[index]!.rfq) {
+    editing.value = null
+    rfqRow.value = rows.value[index]!
+  }
   try {
     const saved = normalizeFollowUpRow(await api.patch<any>(`/customer-follow-ups/${id}`, { field: key, value }))
     const current = rows.value.findIndex(row => row.id === id)
     if (current >= 0) {
-      // Merge only this cell (plus audit info) so a faster save of another cell is not overwritten.
-      rows.value[current] = { ...rows.value[current]!, [key]: saved[key], modifiedBy: saved.modifiedBy, modifyAt: saved.modifyAt }
+      // Merge only this cell (plus audit info, and the Procurement Status a procurement user's edit
+      // moves to In Progress) so a faster save of another cell is not overwritten.
+      rows.value[current] = {
+        ...rows.value[current]!,
+        [key]: saved[key],
+        procurementStatus: saved.procurementStatus,
+        modifiedBy: saved.modifiedBy,
+        modifyAt: saved.modifyAt,
+      }
     }
   } catch (error) {
     const current = rows.value.findIndex(row => row.id === id)
@@ -650,6 +718,12 @@ function openDocuments(row: FollowUpRow) {
   documentsRow.value = row
 }
 
+function closeDocuments() {
+  const row = documentsRow.value
+  documentsRow.value = null
+  if (row) refreshProcurementStatus(row.id)
+}
+
 /** The dialog reports the count after loading, uploading or deleting — only that row re-renders. */
 function setDocumentCount(rowId: number, count: number) {
   const index = rows.value.findIndex(row => row.id === rowId)
@@ -665,6 +739,68 @@ const messagesRow = ref<FollowUpRow | null>(null)
 function openMessages(row: FollowUpRow) {
   editing.value = null
   messagesRow.value = row
+}
+
+function closeMessages() {
+  const row = messagesRow.value
+  messagesRow.value = null
+  if (row) refreshProcurementStatus(row.id)
+}
+
+/**
+ * Uploading a file or chatting is work too: the server moves an Open Procurement Status to In Progress
+ * for a procurement user. Those dialogs don't return the row, so its status is read once they close.
+ */
+async function refreshProcurementStatus(rowId: number) {
+  const row = rows.value.find(r => r.id === rowId)
+  if (!options.value.isProcurementUser || row?.procurementStatus !== 'Open') return
+  try {
+    const saved = normalizeFollowUpRow(await api.get<any>(`/customer-follow-ups/${rowId}`))
+    const index = rows.value.findIndex(r => r.id === rowId)
+    if (index >= 0 && rows.value[index]!.procurementStatus !== saved.procurementStatus) {
+      rows.value[index] = { ...rows.value[index]!, procurementStatus: saved.procurementStatus }
+    }
+  } catch {
+    // The next load shows it.
+  }
+}
+
+// ── RFQ Ref# and Other Refs ──────────────────────────────────────────────────
+
+/** The row whose RFQ dialog is open. */
+const rfqRow = ref<FollowUpRow | null>(null)
+/** The row whose Other Refs dialog is open. */
+const refsRow = ref<FollowUpRow | null>(null)
+
+function openRfq(row: FollowUpRow) {
+  editing.value = null
+  rfqRow.value = row
+}
+
+function openRefs(row: FollowUpRow) {
+  editing.value = null
+  refsRow.value = row
+}
+
+/** A dialog saved the row: take the server's RFQ, refs and statuses; keep this user's chat state. */
+function replaceRow(raw: any) {
+  const saved = normalizeFollowUpRow(raw)
+  const index = rows.value.findIndex(row => row.id === saved.id)
+  if (index < 0) return
+  const current = rows.value[index]!
+  const next = {
+    ...current,
+    rfq: saved.rfq,
+    refs: saved.refs,
+    category: saved.category,
+    procurementStatus: saved.procurementStatus,
+    modifiedBy: saved.modifiedBy,
+    modifyAt: saved.modifyAt,
+  }
+  rows.value[index] = next
+  // The open dialog shows the row it was given — keep it current (e.g. the RFQ dialog after Unlink).
+  if (rfqRow.value?.id === saved.id) rfqRow.value = next
+  if (refsRow.value?.id === saved.id) refsRow.value = next
 }
 
 /** Per user: the dialog marks the chat read when it opens, or unread with its "Mark as unread" button. */
@@ -740,6 +876,8 @@ async function deleteRow() {
     if (editing.value?.id === row.id) editing.value = null
     if (documentsRow.value?.id === row.id) documentsRow.value = null
     if (messagesRow.value?.id === row.id) messagesRow.value = null
+    if (rfqRow.value?.id === row.id) rfqRow.value = null
+    if (refsRow.value?.id === row.id) refsRow.value = null
     rowToDelete.value = null
     showSnack(`Row #${row.id} deleted.`)
   } catch (error) {
@@ -882,6 +1020,43 @@ onBeforeUnmount(() => {
   gap: 3px;
   font-weight: 600;
   color: rgb(var(--v-theme-primary));
+}
+
+.cfu-table :deep(td.cfu-cell-rfq),
+.cfu-table :deep(td.cfu-cell-refs) { cursor: pointer; }
+.cfu-table :deep(td.cfu-cell-rfq:hover .cfu-empty-icon),
+.cfu-table :deep(td.cfu-cell-refs:hover .cfu-empty-icon) { opacity: 0.7; }
+.cfu-table :deep(.cfu-rfq-wanted) { opacity: 0.8; color: rgb(var(--v-theme-warning)); }
+.cfu-table :deep(.cfu-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  color: rgb(var(--v-theme-primary));
+  text-decoration: none;
+}
+.cfu-table :deep(.cfu-link:hover) { text-decoration: underline; }
+.cfu-table :deep(.cfu-rfq-status) {
+  margin-left: 4px;
+  font-size: 10px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.cfu-table :deep(.cfu-refs) { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.cfu-table :deep(.cfu-ref-chip) {
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+.cfu-table :deep(.cfu-ref-chip:hover) { background: rgba(var(--v-theme-primary), 0.2); }
+.cfu-table :deep(.cfu-ref-missing) {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-error), 0.1);
+  text-decoration: line-through;
 }
 
 .cfu-table :deep(td.cfu-cell-chat) { cursor: pointer; }

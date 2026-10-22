@@ -1,6 +1,6 @@
 <template>
   <!--
-    ILS Parts / Project / WeChat. Two views: by part (paged cards — part, average price per condition,
+    Parts (every track + saved-RFQ items, tinted by origin) / Project / WeChat. Two views: by part (paged cards — part, average price per condition,
     suppliers underneath) and by supplier. Filtering, sorting and paging run on the server.
   -->
   <div>
@@ -35,13 +35,45 @@
         <v-switch v-model="showHidden" label="Removed parts" color="primary" density="compact" hide-details inset class="flex-grow-0" />
       </template>
       <v-spacer />
+      <v-btn
+        v-if="isAll"
+        variant="tonal"
+        size="small"
+        color="deep-purple"
+        prepend-icon="mdi-content-copy"
+        :loading="copying"
+        title="Copy every part number on this tab (with the filters above), one per line — e.g. for an ILS search"
+        @click="copyAll"
+      >
+        Copy all P/Ns
+      </v-btn>
       <v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-plus" @click="emit('add-part')">
-        Add {{ track === 'ILS' ? '' : meta.title + ' ' }}parts
+        Add {{ track === 'ILS' || isAll ? '' : meta.title + ' ' }}parts
       </v-btn>
       <v-btn size="small" variant="text" icon="mdi-refresh" :loading="loading" title="Refresh" @click="load" />
     </div>
 
     <template v-if="view === 'parts'">
+      <!-- Parts tab: where each part comes from (card tint) — click one to show only those -->
+      <div v-if="isAll" class="d-flex align-center flex-wrap gap-2 mb-2">
+        <span class="text-caption font-weight-bold text-medium-emphasis">From</span>
+        <v-chip-group v-model="origin" selected-class="chip--on" class="py-0">
+          <v-chip
+            v-for="o in PART_ORIGINS"
+            :key="o.value"
+            :value="o.value"
+            size="small"
+            :color="o.color"
+            variant="tonal"
+            :prepend-icon="o.icon"
+            filter
+            :class="`origin-chip--${o.value}`"
+          >
+            {{ o.title }} <span class="ml-1 font-weight-bold">{{ counts.origins?.[o.value] ?? 0 }}</span>
+          </v-chip>
+        </v-chip-group>
+      </div>
+
       <!-- Status filter -->
       <div class="d-flex align-center flex-wrap gap-2 mb-3">
         <v-chip-group v-model="status" mandatory selected-class="chip--on" class="py-0">
@@ -122,6 +154,8 @@
           @hide="(ids: number[]) => emit('hide', ids)"
           @show="(ids: number[]) => emit('show', ids)"
           @delete="(ids: number[]) => emit('delete', ids)"
+          @add-offer="addOffer"
+          @add-to-list="(b: PpBoardPart) => ensurePart(b).then(id => id && load())"
         />
       </div>
 
@@ -161,10 +195,12 @@
 </template>
 
 <script setup lang="ts">
+import type { PpOfferRow } from '~/components/ProcurementPlusAvailabilityDialog.vue'
+import { PART_ORIGINS } from '~/utils/procurementPlus'
 import type { PpBoardCounts, PpBoardPage, PpBoardPart, PpPart, PpQuoteLine } from '~/utils/procurementPlus'
 
 const props = withDefaults(defineProps<{
-  /** ILS (the ILS Parts tab), Project or WeChat. */
+  /** All (the Parts tab: every track + saved-RFQ items not on the list), ILS, Project or WeChat. */
   track: string
   /** SuperAdmin "All users": show whose part it is. */
   showOwner?: boolean
@@ -190,6 +226,7 @@ const SORTS = [
 ]
 
 const api = useProcurementPlusApi()
+const isAll = computed(() => props.track === 'All')
 const meta = computed(() => trackMeta(props.track))
 const view = ref<'parts' | 'suppliers'>('parts')
 
@@ -199,6 +236,8 @@ const saved = (() => { try { return JSON.parse(localStorage.getItem(storeKey) ||
 const search = ref<string>('')
 const debouncedSearch = ref('')
 const status = ref<string>('all')
+/** Parts tab: only parts from this tab (parts / project / wechat / rfq); null = all. */
+const origin = ref<string | null>(null)
 const sort = ref<string>(saved.sort || 'added')
 const pageSize = ref<number>(saved.pageSize || 25)
 const showHidden = ref(false)
@@ -232,8 +271,21 @@ const statusFilters = computed(() => [
   { value: 'sourcing', title: 'Sourcing', count: counts.value.sourcing, color: 'info' },
   { value: 'ready', title: 'Ready for Done', count: counts.value.ready, color: 'success' },
   { value: 'done', title: 'Done', count: counts.value.done, color: 'success' },
-  ...(props.track === 'ILS' ? [{ value: 'nofiles', title: 'Not in files', count: counts.value.notInFiles, color: 'warning' }] : []),
+  ...(props.track === 'ILS' || isAll.value ? [{ value: 'nofiles', title: 'Not in files', count: counts.value.notInFiles, color: 'warning' }] : []),
 ])
+
+/** The board's filters as query parameters (also used by Copy all). */
+function filterParams() {
+  const params = new URLSearchParams({
+    track: props.track,
+    includeHidden: String(showHidden.value),
+    status: status.value,
+    sort: sort.value,
+  })
+  if (debouncedSearch.value) params.set('search', debouncedSearch.value)
+  if (isAll.value && origin.value) params.set('origin', origin.value)
+  return params
+}
 
 let loadSeq = 0
 async function load() {
@@ -241,29 +293,24 @@ async function load() {
   const seq = ++loadSeq
   loading.value = true
   try {
-    const params = new URLSearchParams({
-      track: props.track,
-      includeHidden: String(showHidden.value),
-      status: status.value,
-      sort: sort.value,
-      page: String(page.value),
-      pageSize: String(pageSize.value),
-    })
-    if (debouncedSearch.value) params.set('search', debouncedSearch.value)
+    const params = filterParams()
+    params.set('page', String(page.value))
+    params.set('pageSize', String(pageSize.value))
     const res = await api.get<PpBoardPage>(`/procurement-plus/board?${params}`)
     if (seq !== loadSeq) return // a newer request is on its way
     items.value = res.items
     total.value = res.total
     counts.value = res.counts
     if (res.page !== page.value) page.value = res.page
-    emit('loaded', res.counts.all)
+    // Parts tab: the tab badge counts every origin, not only the one picked.
+    emit('loaded', isAll.value ? Object.values(res.counts.origins ?? {}).reduce((n, c) => n + c, 0) : res.counts.all)
   } finally {
     if (seq === loadSeq) loading.value = false
   }
 }
 
 // New filter → back to page 1; page change → just load.
-watch([debouncedSearch, status, sort, pageSize, showHidden, () => api.asUser.value], () => {
+watch([debouncedSearch, status, origin, sort, pageSize, showHidden, () => api.asUser.value], () => {
   if (page.value !== 1) page.value = 1
   else load()
 })
@@ -272,7 +319,9 @@ watch(view, (v) => { if (v === 'parts') load() })
 
 // ── Selection (kept across pages) ──
 const selected = ref(new Set<number>())
-const pageSelected = computed(() => items.value.length > 0 && items.value.every(b => selected.value.has(b.part.id)))
+// Saved-RFQ items not on the list (id < 0) cannot be selected — they are not parts yet.
+const selectable = computed(() => items.value.filter(b => b.part.id > 0))
+const pageSelected = computed(() => selectable.value.length > 0 && selectable.value.every(b => selected.value.has(b.part.id)))
 function toggle(id: number) {
   const next = new Set(selected.value)
   next.has(id) ? next.delete(id) : next.add(id)
@@ -281,13 +330,13 @@ function toggle(id: number) {
 function togglePage() {
   const next = new Set(selected.value)
   const on = !pageSelected.value
-  for (const b of items.value) on ? next.add(b.part.id) : next.delete(b.part.id)
+  for (const b of selectable.value) on ? next.add(b.part.id) : next.delete(b.part.id)
   selected.value = next
 }
 
-const emptyTitle = computed(() => props.track === 'ILS' ? 'No ILS parts yet' : `No ${meta.value.title} parts`)
-const emptyHint = computed(() => props.track === 'ILS'
-  ? 'Pick parts from your RFQs (or add custom ones), upload the ILS files, then Source from Suppliers available.'
+const emptyTitle = computed(() => props.track === 'ILS' || isAll.value ? 'No parts yet' : `No ${meta.value.title} parts`)
+const emptyHint = computed(() => props.track === 'ILS' || isAll.value
+  ? 'Pick parts from your RFQs (or add custom ones), load RFQs on By RFQ, upload the ILS files — their suppliers show under each part.'
   : `Add a part as ${meta.value.title}, or move "No supplier" parts here from Suppliers available.`)
 
 async function onChanged() {
@@ -304,15 +353,66 @@ function openEdit(l: PpQuoteLine) {
 }
 function patchLine(row: any) {
   for (const b of items.value) {
-    const l = b.lines.find(x => x.line.id === row.id)
+    const l = b.lines.find(x => x.line.id === row.id) ?? b.emailLines?.find(x => x.line.id === row.id)
     if (l) { l.line = { ...l.line, ...row }; break }
   }
 }
 
 // ── Add a supplier under a part ──
 const addLine = reactive({ open: false, partId: 0, partNumber: '' })
-function openAddLine(b: PpBoardPart) {
-  Object.assign(addLine, { open: true, partId: b.part.id, partNumber: b.part.partNumber })
+async function openAddLine(b: PpBoardPart) {
+  const id = await ensurePart(b)
+  if (id) Object.assign(addLine, { open: true, partId: id, partNumber: b.part.partNumber })
+}
+
+/** The part's id — a saved-RFQ item not on the list (id < 0) is put on it first (as a Parts / ILS part). */
+async function ensurePart(b: PpBoardPart): Promise<number | null> {
+  if (b.part.id > 0) return b.part.id
+  try {
+    const res = await api.post<{ ids: number[] }>('/procurement-plus/parts', { track: 'ILS', items: [{ rfqItemId: b.part.rfqItemId }] })
+    const id = res.ids?.[0] ?? null
+    if (!id) toast('Could not add the part', 'error')
+    else emit('changed')
+    return id
+  } catch (e: any) {
+    toast(e?.data?.message || 'Could not add the part', 'error')
+    return null
+  }
+}
+
+// ── A file row → a supplier line (price, qty, condition from the file) ──
+async function addOffer(b: PpBoardPart, rows: PpOfferRow[], methods: string[]) {
+  const id = await ensurePart(b)
+  if (!id || !rows.length) return
+  let added = 0
+  try {
+    // One line per picked P/N (the part itself / each alternative).
+    for (const row of rows) {
+      await api.post<PpQuoteLine>(`/procurement-plus/parts/${id}/lines`, { offerId: row.offerId, methods })
+      added++
+    }
+    const first = rows[0]!
+    toast(`${first.preferredName || first.supplierName || first.companyRaw}: ${added} line${added === 1 ? '' : 's'} added to ${b.part.partNumber}`)
+  } catch (e: any) {
+    toast(e?.data?.message || 'Could not add the supplier', 'error')
+  }
+  if (added) await onChanged()
+}
+
+// ── Copy every part number on the tab (all pages, with the filters) ──
+const copying = ref(false)
+async function copyAll() {
+  copying.value = true
+  try {
+    const names = await api.get<string[]>(`/procurement-plus/board/part-numbers?${filterParams()}`)
+    if (!names.length) { toast('No part numbers to copy', 'warning'); return }
+    const ok = copyText(names.join('\n'))
+    toast(ok ? `${names.length} part number${names.length === 1 ? '' : 's'} copied` : 'Could not copy — your browser blocked it', ok ? 'success' : 'warning')
+  } catch (e: any) {
+    toast(e?.data?.message || 'Could not load the part numbers', 'error')
+  } finally {
+    copying.value = false
+  }
 }
 async function onLineAdded(line: PpQuoteLine) {
   await onChanged()

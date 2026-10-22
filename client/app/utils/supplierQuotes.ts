@@ -21,6 +21,7 @@ export const QUOTE_DETAIL_FIELDS = [
   { key: 'taggedBy', label: 'Tagged By', placeholder: 'Shop / agency', suggestions: [] as string[] },
   { key: 'moQ', label: 'MoQ', placeholder: 'Minimum order qty', suggestions: [] as string[] },
   { key: 'warranty', label: 'Warranty', placeholder: 'e.g. 6 months', suggestions: [] as string[] },
+  { key: 'cr', label: 'CR', placeholder: 'CR', suggestions: [] as string[] },
 ] as const
 
 export type QuoteDetailKey = typeof QUOTE_DETAIL_FIELDS[number]['key']

@@ -172,6 +172,35 @@
           </div>
           <div v-else class="text-caption text-grey">No individual customers assigned.</div>
 
+          <v-divider class="my-3" />
+          <div class="text-subtitle-2 mb-1">Email Quotes Mailboxes</div>
+          <div class="text-caption text-medium-emphasis mb-2">
+            On the Email Quotes page this user only sees emails from these mailboxes. SuperAdmin always sees every mailbox.
+          </div>
+          <v-alert v-if="mailboxesLoadError" type="warning" density="compact" variant="tonal" class="mb-2">
+            Couldn't load this user's mailboxes ({{ mailboxesLoadError }}). Is the API updated and restarted?
+          </v-alert>
+          <v-combobox
+            v-model="editForm.mailboxes"
+            v-model:search="mailboxSearch"
+            :items="mailboxOptions.map(m => m.mailbox)"
+            :loading="mailboxesLoading"
+            label="Mailbox email addresses"
+            placeholder="Pick or type an address, then Enter"
+            variant="outlined"
+            density="compact"
+            multiple
+            chips
+            closable-chips
+            hide-details
+            prepend-inner-icon="mdi-email-multiple-outline"
+            @blur="commitMailboxSearch"
+          >
+            <template #item="{ item, props: p }">
+              <v-list-item v-bind="p" :subtitle="mailboxLabel(item.raw)" />
+            </template>
+          </v-combobox>
+
           <v-alert v-if="error" type="error" density="compact" class="mt-2">{{ error }}</v-alert>
         </v-card-text>
         <v-card-actions>
@@ -240,6 +269,7 @@ const editForm = ref({
   role: 'Expert',
   bases: [] as number[],
   assignedCustomers: [] as { id: number; name: string; customerCode: string | null }[],
+  mailboxes: [] as string[],
 })
 const passwordForm = ref({ newPassword: '' })
 
@@ -287,6 +317,32 @@ async function removeIndividualCustomer(customerId: number) {
   } catch (e: any) {
     showSnack(e?.data?.message || 'Failed to remove customer', 'error')
   }
+}
+
+// Email Quotes mailboxes: saved only once loaded, so a quick Save can't wipe them
+const mailboxOptions = ref<{ mailbox: string; label: string | null }[]>([])
+const mailboxesLoading = ref(false)
+const mailboxesLoadError = ref('')
+/** Text typed in the box but not yet turned into a chip with Enter. */
+const mailboxSearch = ref('')
+let savedMailboxes: string[] = []
+
+/** An address typed without pressing Enter still counts (blur / Save). */
+function commitMailboxSearch() {
+  const typed = mailboxSearch.value?.trim()
+  if (!typed) return
+  if (!editForm.value.mailboxes.some(m => m.toLowerCase() === typed.toLowerCase()))
+    editForm.value.mailboxes = [...editForm.value.mailboxes, typed]
+  mailboxSearch.value = ''
+}
+
+function mailboxLabel(mailbox: string) {
+  const label = mailboxOptions.value.find(m => m.mailbox === mailbox)?.label
+  return label && label !== mailbox ? label : undefined
+}
+
+function normalizeMailboxes(list: string[]) {
+  return [...new Set(list.map(m => m.trim().toLowerCase()).filter(Boolean))].sort()
 }
 
 const snackbar = ref(false)
@@ -361,15 +417,29 @@ async function openEdit(user: any) {
     role: user.role,
     bases: [...(user.bases ?? [])],
     assignedCustomers: [],
+    mailboxes: [],
   }
+  savedMailboxes = []
+  mailboxSearch.value = ''
+  mailboxesLoadError.value = ''
   customerToAdd.value = null
   customerSearchResults.value = []
   error.value = ''
   showEdit.value = true
-  // Load individually-assigned customers in the background
-  try {
-    editForm.value.assignedCustomers = await api.get<any[]>(`/users/${user.id}/customers`)
-  } catch { /* non-critical */ }
+  // Load individually-assigned customers and mailboxes in the background
+  mailboxesLoading.value = true
+  await Promise.all([
+    api.get<any[]>(`/users/${user.id}/customers`)
+      .then(r => { editForm.value.assignedCustomers = r })
+      .catch(() => { /* non-critical */ }),
+    api.get<string[]>(`/users/${user.id}/mailboxes`)
+      .then(r => { savedMailboxes = r; editForm.value.mailboxes = [...r] })
+      .catch((e: any) => { mailboxesLoadError.value = e?.data?.message || e?.statusCode || e?.message || 'request failed' }),
+    api.get<{ mailbox: string; label: string | null }[]>('/users/mailbox-options')
+      .then(r => { mailboxOptions.value = r })
+      .catch(() => { /* non-critical */ }),
+  ])
+  mailboxesLoading.value = false
 }
 
 async function updateUser() {
@@ -388,6 +458,16 @@ async function updateUser() {
       ...toAdd.map(b => api.post(`/users/${selectedUser.value.id}/bases`, { base: b })),
       ...toRemove.map(b => api.del(`/users/${selectedUser.value.id}/bases/${b}`)),
     ])
+
+    commitMailboxSearch()
+    const mailboxes = normalizeMailboxes(editForm.value.mailboxes)
+    if (mailboxes.join() !== normalizeMailboxes(savedMailboxes).join()) {
+      try {
+        savedMailboxes = await api.put<string[]>(`/users/${selectedUser.value.id}/mailboxes`, { mailboxes })
+      } catch (e: any) {
+        throw { data: { message: `Mailboxes not saved: ${e?.data?.message || e?.statusCode || e?.message || 'request failed'}` } }
+      }
+    }
 
     showEdit.value = false
     showSnack('User updated successfully')
