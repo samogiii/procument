@@ -2,9 +2,9 @@ import { useTheme } from 'vuetify'
 
 const STORAGE_KEY = 'procument_theme'
 
-export type AppThemeName = 'procumentDark' | 'procumentLight' | 'procumentFrost'
+export type AppThemeName = 'procumentDark' | 'procumentLight' | 'procumentFrost' | 'procumentPistachio' | 'procumentPistachioDark'
 
-const THEMES: AppThemeName[] = ['procumentDark', 'procumentLight', 'procumentFrost']
+const THEMES: AppThemeName[] = ['procumentDark', 'procumentLight', 'procumentFrost', 'procumentPistachio', 'procumentPistachioDark']
 
 export function useAppTheme() {
   const vuetifyTheme = useTheme()
@@ -22,7 +22,7 @@ export function useAppTheme() {
     }
   }
 
-  /** Cycles Dark → Light → Frost → Dark */
+  /** Cycles Dark → Light → Frost → Pistachio → Pistachio Dark → Dark */
   function toggle() {
     const idx = THEMES.indexOf(currentTheme.value)
     const next = THEMES[(idx + 1) % THEMES.length]

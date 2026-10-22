@@ -33,6 +33,7 @@ export function buildQuotePdfPayload(quote: any, preset: any) {
     customerName: quote?.customerName || '—',
     customerBillTo: quote?.customerBillTo || null,
     customerShipTo: quote?.customerShipTo || quote?.customerBillTo || null,
+    customerBase: quote?.customerBase ?? null, // Base 1 gets its own layout server-side
     items: items.map((it: any) => ({
       rfqReference: it.rfqReference || null,
       partNumberName: it.partNumberName || null,

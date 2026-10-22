@@ -50,10 +50,10 @@
           <v-col cols="12" md="3">
             <v-text-field v-model="companyEmail" label="Contact Email" variant="outlined" density="compact" hide-details :disabled="selectedPreset !== 'Custom'" />
           </v-col>
-          <v-col cols="12" md="2">
+          <v-col v-if="!isBase1" cols="12" md="2">
             <v-text-field v-model.number="taxAmount" label="Tax" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
           </v-col>
-          <v-col cols="12" md="2">
+          <v-col v-if="!isBase1" cols="12" md="2">
             <v-text-field v-model.number="shippingAmount" label="Shipping" variant="outlined" density="compact" hide-details type="number" :prefix="currency === 'China Yuan (CNY)' ? '¥' : '$'" />
           </v-col>
           <v-col cols="12" md="2">
@@ -103,6 +103,18 @@ const api = useApi()
  * keeps the internal one.
  */
 const docNumber = computed(() => props.quote?.b1QuoteNumber || props.quote?.quoteNumber || '')
+
+/**
+ * Base 1 customers get their own layout in all three templates (mirrors QuotePdfRequest.IsBase1):
+ * no Valid Until / Currency in the meta row; columns Ref, Part Number, Description, Cert Reference,
+ * CD, Qty, Unit Price, Total Price; specs stacked one per line; no Tax / Shipping; comments folded
+ * into the end of the terms without a heading.
+ */
+const isBase1 = computed(() => props.quote?.customerBase === 1)
+
+/** Base 1 terms block: the terms, then the comments, as one text. */
+const termsWithComments = computed(() =>
+  [companyTerms.value, comments.value].map(s => (s || '').trim()).filter(Boolean).join('\n\n'))
 
 // ── Presets ──
 const apiPresets = ref<any[]>([])
@@ -295,10 +307,18 @@ function buildPreviewModel(): PdfPreviewModel {
   const rate = (isYuan || isEuro || isGbp) ? (exchangeRate.value || 1) : 1
   const money = (n: number) => `${sym}${fmt(n)}`
 
+  const b1 = isBase1.value
   const subtotal = (Number(q.totalAmount) || 0) * rate
-  const tax = (taxAmount.value || 0) * rate
-  const shipping = (shippingAmount.value || 0) * rate
+  const tax = b1 ? 0 : (taxAmount.value || 0) * rate
+  const shipping = b1 ? 0 : (shippingAmount.value || 0) * rate
   const other = (otherAmount.value || 0) * rate
+  const certRefs = (it: any) => (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'
+  const partNumber = (it: any) => ({
+    text: it.alt || it.partNumberName,
+    subText: it.alt ? `(Alt to: ${it.partNumberName || '—'})` : null,
+    highlight: !!it.alt,
+    bold: true,
+  })
 
   return {
     docTitle: 'Quotation',
@@ -313,62 +333,83 @@ function buildPreviewModel(): PdfPreviewModel {
     accent: theme.value.accent,
     meta: [
       { label: 'Date', value: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : '' },
-      { label: 'Valid Until', value: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '' },
+      ...(b1 ? [] : [{ label: 'Valid Until', value: q.validUntil ? new Date(q.validUntil).toLocaleDateString() : '' }]),
       { label: 'RFQ', value: q.rfqName },
-      { label: 'Currency', value: currency.value },
+      ...(b1 ? [] : [{ label: 'Currency', value: currency.value }]),
     ],
     addresses: [
       { title: 'Bill To', name: q.customerName, address: q.customerBillTo },
       { title: 'Ship To', name: q.customerName, address: q.customerShipTo || q.customerBillTo },
     ],
-    columns: [
-      { header: '#', width: 22 },
-      { header: 'Ref', width: 30 },
-      { header: 'Part No.', relative: 3 },
-      { header: 'Description', relative: 2.5, align: 'left' },
-      { header: 'Qty', width: 30 },
-      { header: 'CD', width: 30 },
-      { header: 'Lead Time', width: 55 },
-      { header: 'Unit Price', width: 60, align: 'right' },
-      { header: 'Total', width: 65, align: 'right' },
-      { header: 'Cert Reference', width: 68 },
-    ],
+    columns: b1
+      ? [
+          { header: 'Ref', width: 30 },
+          { header: 'Part Number', relative: 2.75 },
+          { header: 'Description', relative: 2.75, align: 'left' },
+          { header: 'Cert Reference', width: 68 },
+          { header: 'CD', width: 30 },
+          { header: 'Qty', width: 30 },
+          { header: 'Unit Price', width: 60, align: 'right' },
+          { header: 'Total Price', width: 65, align: 'right' },
+        ]
+      : [
+          { header: '#', width: 22 },
+          { header: 'Ref', width: 30 },
+          { header: 'Part No.', relative: 3 },
+          { header: 'Description', relative: 2.5, align: 'left' },
+          { header: 'Qty', width: 30 },
+          { header: 'CD', width: 30 },
+          { header: 'Lead Time', width: 55 },
+          { header: 'Unit Price', width: 60, align: 'right' },
+          { header: 'Total', width: 65, align: 'right' },
+          { header: 'Cert Reference', width: 68 },
+        ],
     rows: items.map((it: any, i: number) => {
       // Same sub-row as the server: the spec strip (Cert … Warranty), then the note on its own line.
+      // Base 1 stacks the specs, one per line.
       const details: string[] = []
-      const specs = quoteItemSpecs(it)
-      if (specs.length) details.push(specs.map(s => `${s.label}: ${s.value}`).join('   ·   '))
+      const specs = quoteItemSpecs(it, b1).map(s => `${s.label}: ${s.value}`)
+      if (b1) details.push(...specs)
+      else if (specs.length) details.push(specs.join('   ·   '))
       if (it.note?.trim()) details.push(`Note: ${it.note.trim()}`)
       return {
         note: details.length ? details.join('\n') : null,
-        cells: [
-          { text: String(i + 1) },
-          { text: it.rfqReference },
-          {
-            text: it.alt || it.partNumberName,
-            subText: it.alt ? `(Alt to: ${it.partNumberName || '—'})` : null,
-            highlight: !!it.alt,
-            bold: true,
-          },
-          { text: it.description },
-          { text: String(it.qty), bold: true },
-          { text: it.condition },
-          { text: it.sellLeadTime },
-          { text: money((Number(it.unitPrice) || 0) * rate) },
-          { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
-          { text: (it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—' },
-        ],
+        cells: b1
+          ? [
+              { text: it.rfqReference },
+              partNumber(it),
+              { text: it.description },
+              { text: certRefs(it) },
+              { text: it.condition },
+              { text: String(it.qty), bold: true },
+              { text: money((Number(it.unitPrice) || 0) * rate) },
+              { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
+            ]
+          : [
+              { text: String(i + 1) },
+              { text: it.rfqReference },
+              partNumber(it),
+              { text: it.description },
+              { text: String(it.qty), bold: true },
+              { text: it.condition },
+              { text: it.sellLeadTime },
+              { text: money((Number(it.unitPrice) || 0) * rate) },
+              { text: money((Number(it.totalPrice) || 0) * rate), bold: true },
+              { text: certRefs(it) },
+            ],
       }
     }),
     totals: [
       { label: 'Subtotal', amount: money(subtotal) },
-      { label: 'Tax', amount: money(tax) },
-      { label: 'Shipping', amount: money(shipping) },
+      ...(b1 ? [] : [
+        { label: 'Tax', amount: money(tax) },
+        { label: 'Shipping', amount: money(shipping) },
+      ]),
       { label: 'Other', amount: money(other) },
       { label: 'Total', amount: money(subtotal + tax + shipping + other), isGrand: true },
     ],
-    comments: comments.value,
-    terms: companyTerms.value,
+    comments: b1 ? null : comments.value,
+    terms: b1 ? termsWithComments.value : companyTerms.value,
     footerText: footerText.value,
     showSignature: true,
   }
@@ -425,11 +466,13 @@ const renderedHtml = computed(() => {
 
   const rate = (isYuan || isEuro || isGbp) ? (exchangeRate.value || 1) : 1
 
+  const b1 = isBase1.value
   const subtotal = (Number(q.totalAmount) || 0) * rate
-  const tax = (taxAmount.value || 0) * rate
-  const shipping = (shippingAmount.value || 0) * rate
+  const tax = b1 ? 0 : (taxAmount.value || 0) * rate
+  const shipping = b1 ? 0 : (shippingAmount.value || 0) * rate
   const other = (otherAmount.value || 0) * rate
   const grandTotal = subtotal + tax + shipping + other
+  const termsText = b1 ? termsWithComments.value : companyTerms.value
 
   const primary = theme.value.primary
   const accent = theme.value.accent
@@ -480,18 +523,35 @@ const renderedHtml = computed(() => {
     // Detail sub-row: a quiet spec strip (small caps label + value, thin dividers), the note on its own line.
     const label = (text: string) =>
       `<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;margin-right:5px;">${text}</span>`
-    const specs = quoteItemSpecs(it)
-    const specLine = specs
+    const specs = quoteItemSpecs(it, b1)
+    const specSpans = specs
       .map(s => `<span style="white-space:nowrap;">${label(s.label)}<span style="color:#374151;">${s.value}</span></span>`)
-      .join('<span style="color:#d1d5db;margin:0 10px;">|</span>')
+    // Base 1 stacks the specs one per line; everyone else gets one strip with thin dividers.
+    const specLine = b1
+      ? specSpans.map(s => `<div>${s}</div>`).join('')
+      : specSpans.join('<span style="color:#d1d5db;margin:0 10px;">|</span>')
     const noteLine = it.note?.trim()
       ? `<div style="margin-top:${specs.length ? 3 : 0}px;">${label('Note')}<span style="font-style:italic;color:#6b7280;">${it.note.trim()}</span></div>`
       : ''
     const details = specLine || noteLine ? [specLine, noteLine] : []
     const detailRow = details.length > 0 ? `
     <tr style="background:${bg};">
-      <td colspan="10" style="padding:1px 12px 8px 44px; font-size:10px; line-height:1.6; border-bottom:1px solid #e5e7eb;">${specLine ? `<div>${specLine}</div>` : ''}${noteLine}</td>
+      <td colspan="${b1 ? 8 : 10}" style="padding:1px 12px 8px 44px; font-size:10px; line-height:1.6; border-bottom:1px solid #e5e7eb;">${specLine ? `<div>${specLine}</div>` : ''}${noteLine}</td>
     </tr>` : ''
+    const bb = details.length ? '' : 'border-bottom:1px solid #eef0f3;'
+    const pnCell = `<td style="padding:9px 12px; font-size:11px; font-weight:600; color:${isAlt ? accent : primary}; ${bb}">${displayPN}${mainPNNote}</td>`
+    const certCell = `<td style="padding:9px 8px; font-size:9px; text-align:center; color:#4b5563; ${bb}">${(it.certReferences || []).map((reference: string) => `REF#${reference}`).join(', ') || '—'}</td>`
+    if (b1) return `
+    <tr style="background:${bg};">
+      <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; ${bb}">${it.rfqReference || '—'}</td>
+      ${pnCell}
+      <td style="padding:9px 12px; font-size:10.5px; color:#4b5563; max-width:120px; ${bb}">${it.description || '—'}</td>
+      ${certCell}
+      <td style="padding:9px 12px; font-size:10.5px; text-align:center; color:${primary}; ${bb}">${it.condition || '—'}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:center; font-weight:600; color:${primary}; ${bb}">${it.qty}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; color:${primary}; ${bb}">${sym}${fmt(Number(it.unitPrice) * rate)}</td>
+      <td style="padding:9px 12px; font-size:11px; text-align:right; font-weight:700; color:${primary}; ${bb}">${sym}${fmt(Number(it.totalPrice) * rate)}</td>
+    </tr>${detailRow}`
     return `
     <tr style="background:${bg};">
       <td style="padding:9px 8px; font-size:10px; color:#9ca3af; text-align:center; ${details.length ? '' : 'border-bottom:1px solid #eef0f3;'}">${it.rfqReference || '—'}</td>
@@ -536,9 +596,9 @@ const renderedHtml = computed(() => {
       <!-- Meta Row -->
       <div style="padding:16px 40px; display:flex; gap:40px; font-size:11px; color:#4b5563;">
         <div><span style="font-weight:600; color:${primary};">Date:</span> ${quoteDate}</div>
-        <div><span style="font-weight:600; color:${primary};">Valid Until:</span> ${validUntil}</div>
+        ${b1 ? '' : `<div><span style="font-weight:600; color:${primary};">Valid Until:</span> ${validUntil}</div>`}
         <div><span style="font-weight:600; color:${primary};">RFQ:</span> ${q.rfqName || '—'}</div>
-        <div><span style="font-weight:600; color:${primary};">Currency:</span> ${currency.value}</div>
+        ${b1 ? '' : `<div><span style="font-weight:600; color:${primary};">Currency:</span> ${currency.value}</div>`}
       </div>
 
       <!-- Bill To / Ship To -->
@@ -559,6 +619,17 @@ const renderedHtml = computed(() => {
       <div style="margin:0 40px 16px 40px;">
         <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
           <thead>
+            ${b1 ? `
+            <tr style="background:${primary};">
+              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:32px;">Ref</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Part Number</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:left;">Description</th>
+              <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.6px; text-align:center;">Cert Reference</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">CD</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:36px;">Qty</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
+              <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total Price</th>
+            </tr>` : `
             <tr style="background:${primary};">
               <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:32px;">Ref</th>
               <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:center; width:28px;">#</th>
@@ -570,7 +641,7 @@ const renderedHtml = computed(() => {
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Unit Price</th>
               <th style="padding:10px 12px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.8px; text-align:right;">Total</th>
               <th style="padding:10px 8px; font-size:9px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.6px; text-align:center;">Cert Reference</th>
-            </tr>
+            </tr>`}
           </thead>
           <tbody>${rows}</tbody>
         </table>
@@ -581,25 +652,27 @@ const renderedHtml = computed(() => {
         <div style="min-width:260px;">
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; font-size:11px;">
             <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Subtotal</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(subtotal)}</td></tr>
+            ${b1 ? '' : `
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Tax</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(tax)}</td></tr>
-            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shipping)}</td></tr>
+            <tr style="background:${rowEven};"><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #eef0f3;">Shipping</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #eef0f3;">${sym}${fmt(shipping)}</td></tr>`}
             <tr><td style="padding:8px 14px; color:#4b5563; border-bottom:1px solid #e5e7eb;">Other</td><td style="padding:8px 14px; text-align:right; font-weight:600; border-bottom:1px solid #e5e7eb;">${sym}${fmt(other)}</td></tr>
             <tr style="background:${primary};"><td style="padding:10px 14px; color:#fff; font-weight:700;">Total</td><td style="padding:10px 14px; text-align:right; color:#fff; font-weight:800; font-size:14px;">${sym}${fmt(grandTotal)}</td></tr>
           </table>
         </div>
       </div>
 
-      <!-- Comments -->
+      <!-- Comments (Base 1: folded into the end of the terms instead) -->
+      ${b1 ? '' : `
       <div style="margin:0 40px 16px 40px; border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px;">
         <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:5px;">Comments</div>
         <div style="font-size:11px; color:#4b5563; white-space:pre-wrap; line-height:1.5;">${comments.value || 'No Comments'}</div>
-      </div>
+      </div>`}
 
       <!-- Terms & Conditions -->
-      ${companyTerms.value ? `
+      ${termsText ? `
       <div style="margin:0 40px 16px 40px; border:1px solid #e5e7eb; border-radius:6px; padding:12px 16px; background:${rowEven};">
         <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:${accent}; margin-bottom:6px;">Terms &amp; Conditions</div>
-        <div style="font-size:10px; color:#4b5563; white-space:pre-wrap; line-height:1.6;">${companyTerms.value}</div>
+        <div style="font-size:10px; color:#4b5563; white-space:pre-wrap; line-height:1.6;">${termsText}</div>
       </div>` : ''}
 
       <!-- Footer -->
@@ -675,6 +748,7 @@ async function downloadPdf() {
         customerName: q.customerName || '—',
         customerBillTo: q.customerBillTo || null,
         customerShipTo: q.customerShipTo || q.customerBillTo || null,
+        customerBase: q.customerBase ?? null, // Base 1 gets its own layout server-side
         items: items.map((it: any) => ({
           rfqReference: it.rfqReference || null,
           partNumberName: it.partNumberName || null,

@@ -407,9 +407,9 @@ public class PdfController : ControllerBase
                     });
                 }
                 Meta("Date", req.QuoteDate);
-                Meta("Valid Until", req.ValidUntil);
+                if (!req.IsBase1) Meta("Valid Until", req.ValidUntil);
                 Meta("RFQ", req.RfqName);
-                Meta("Currency", req.Currency);
+                if (!req.IsBase1) Meta("Currency", req.Currency);
             });
 
             // Bill To / Ship To
@@ -435,8 +435,8 @@ public class PdfController : ControllerBase
             // Totals
             col.Item().PaddingBottom(10).AlignRight().Width(220).Element(e => ComposeTotals(e, req, primary, sym));
 
-            // Comments
-            if (!string.IsNullOrEmpty(req.Comments))
+            // Comments — Base 1 has no Comments box; they close out the terms text instead
+            if (!req.IsBase1 && !string.IsNullOrEmpty(req.Comments))
             {
                 col.Item().PaddingBottom(8).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(c =>
                 {
@@ -446,12 +446,13 @@ public class PdfController : ControllerBase
             }
 
             // Terms
-            if (!string.IsNullOrEmpty(req.Terms))
+            var terms = req.IsBase1 ? req.TermsWithComments() : req.Terms;
+            if (!string.IsNullOrEmpty(terms))
             {
                 col.Item().PaddingBottom(8).Background(Colors.Grey.Lighten4).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(10).Column(c =>
                 {
                     c.Item().Text(t => t.Span("TERMS & CONDITIONS").Bold().FontSize(8).FontColor(accent).LetterSpacing(0.1f));
-                    c.Item().PaddingTop(4).Text(t => t.Span(req.Terms).FontSize(8).FontColor(Colors.Grey.Darken1));
+                    c.Item().PaddingTop(4).Text(t => t.Span(terms).FontSize(8).FontColor(Colors.Grey.Darken1));
                 });
             }
         });
@@ -461,15 +462,18 @@ public class PdfController : ControllerBase
     private static void ComposeItemsTable(IContainer container, QuotePdfRequest req, string primary, string accent, string sym)
     {
         var items = req.Items ?? [];
+        var b1 = req.IsBase1;
 
         container.Column(outer =>
         {
             // Header row
             outer.Item().Row(hr =>
             {
-                string[] headers = ["#", "Ref", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total", "Cert Reference"];
-                float[] widths = [22, 30, 0, 0, 30, 30, 55, 60, 65, 68];
-                float[] rels = [0, 0, 3, 2.5f, 0, 0, 0, 0, 0, 0];
+                string[] headers = b1
+                    ? ["Ref", "Part Number", "Description", "Cert Reference", "CD", "Qty", "Unit Price", "Total Price"]
+                    : ["#", "Ref", "Part No.", "Description", "Qty", "CD", "Lead Time", "Unit Price", "Total", "Cert Reference"];
+                float[] widths = b1 ? [30, 0, 0, 68, 30, 30, 60, 65] : [22, 30, 0, 0, 30, 30, 55, 60, 65, 68];
+                float[] rels = b1 ? [0, 2.75f, 2.75f, 0, 0, 0, 0, 0] : [0, 0, 3, 2.5f, 0, 0, 0, 0, 0, 0];
 
                 for (int h = 0; h < headers.Length; h++)
                 {
@@ -491,7 +495,7 @@ public class PdfController : ControllerBase
                 var isAlt = !string.IsNullOrEmpty(it.Alt);
                 var displayPN = isAlt ? it.Alt! : (it.PartNumberName ?? "—");
                 var pnColor = isAlt ? accent : primary;
-                var specs = it.Specs();
+                var specs = it.Specs(withLeadTime: b1);
                 var hasNote = !string.IsNullOrWhiteSpace(it.Note);
                 var hasDetails = specs.Count > 0 || hasNote;
 
@@ -512,39 +516,67 @@ public class PdfController : ControllerBase
                                 });
                         }
 
+                        // Part number cell
+                        void PartNumber(IContainer cell)
+                        {
+                            cell.Background(bg)
+                                .BorderBottom(hasDetails ? 0f : 0.5f).BorderColor(Colors.Grey.Lighten3)
+                                .Padding(5).AlignCenter().AlignMiddle().Column(c =>
+                                {
+                                    c.Item().Text(t => t.Span(displayPN).FontSize(8.5f).Bold().FontColor(pnColor));
+                                    if (isAlt)
+                                        c.Item().Text(t => t.Span($"(Alt to: {it.PartNumberName})").FontSize(7).FontColor(Colors.Grey.Medium));
+                                });
+                        }
+
+                        var unitPrice = $"{sym}{FormatPrice(it.UnitPrice * (req.ExchangeRate ?? 1))}";
+                        var totalPrice = $"{sym}{FormatPrice(it.TotalPrice * (req.ExchangeRate ?? 1))}";
+
+                        if (b1)
+                        {
+                            Cell(r.ConstantItem(30), it.RfqReference ?? "—", Colors.Grey.Medium);
+                            PartNumber(r.RelativeItem(2.75f));
+                            Cell(r.RelativeItem(2.75f), it.Description ?? "—", Colors.Grey.Darken1);
+                            Cell(r.ConstantItem(68), FormatCertReferences(it.CertReferences), Colors.Grey.Darken1);
+                            Cell(r.ConstantItem(30), it.Condition ?? "—", primary);
+                            Cell(r.ConstantItem(30), it.Qty.ToString(), primary, bold: true);
+                            Cell(r.ConstantItem(60), unitPrice, primary);
+                            Cell(r.ConstantItem(65), totalPrice, primary, bold: true);
+                            return;
+                        }
+
                         Cell(r.ConstantItem(22), (idx + 1).ToString(), Colors.Grey.Darken1);
                         Cell(r.ConstantItem(30), it.RfqReference ?? "—", Colors.Grey.Medium);
-
-                        // Part number cell
-                        r.RelativeItem(3).Background(bg)
-                            .BorderBottom(hasDetails ? 0f : 0.5f).BorderColor(Colors.Grey.Lighten3)
-                            .Padding(5).AlignCenter().AlignMiddle().Column(c =>
-                            {
-                                c.Item().Text(t => t.Span(displayPN).FontSize(8.5f).Bold().FontColor(pnColor));
-                                if (isAlt)
-                                    c.Item().Text(t => t.Span($"(Alt to: {it.PartNumberName})").FontSize(7).FontColor(Colors.Grey.Medium));
-                            });
-
+                        PartNumber(r.RelativeItem(3));
                         Cell(r.RelativeItem(2.5f), it.Description ?? "—", Colors.Grey.Darken1);
                         Cell(r.ConstantItem(30), it.Qty.ToString(), primary, bold: true);
                         Cell(r.ConstantItem(30), it.Condition ?? "—", primary);
                         Cell(r.ConstantItem(55), it.LeadTime ?? "—", Colors.Grey.Darken1);
-                        Cell(r.ConstantItem(60), $"{sym}{FormatPrice(it.UnitPrice * (req.ExchangeRate ?? 1))}", primary);
-                        Cell(r.ConstantItem(65), $"{sym}{FormatPrice(it.TotalPrice * (req.ExchangeRate ?? 1))}", primary, bold: true);
+                        Cell(r.ConstantItem(60), unitPrice, primary);
+                        Cell(r.ConstantItem(65), totalPrice, primary, bold: true);
                         Cell(r.ConstantItem(68), FormatCertReferences(it.CertReferences), Colors.Grey.Darken1);
                     });
 
                     // Detail sub-row, indented under Part No.: a quiet spec strip
                     // (CERT FAA | TAG DATE 2024 | TRACE TO … | PRICE TYPE … | WARRANTY …), then the note on its own line.
+                    // Base 1 stacks the specs instead, one label/value per line.
                     if (hasDetails)
                     {
                         group.Item().Background(bg)
                             .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten3)
-                            .PaddingLeft(52 + 5).PaddingRight(8).PaddingTop(1).PaddingBottom(6)
+                            .PaddingLeft((b1 ? 30 : 52) + 5).PaddingRight(8).PaddingTop(1).PaddingBottom(6)
                             .Column(details =>
                             {
                                 details.Spacing(2);
-                                if (specs.Count > 0)
+                                if (b1)
+                                    foreach (var spec in specs)
+                                        details.Item().Text(t =>
+                                        {
+                                            t.Span(spec.Label.ToUpperInvariant() + "  ").FontSize(6.5f).SemiBold()
+                                                .LetterSpacing(0.06f).FontColor(Colors.Grey.Medium);
+                                            t.Span(spec.Value).FontSize(8).FontColor(Colors.Grey.Darken3);
+                                        });
+                                else if (specs.Count > 0)
                                     details.Item().Text(t =>
                                     {
                                         for (var s = 0; s < specs.Count; s++)
@@ -573,8 +605,9 @@ public class PdfController : ControllerBase
     {
         var rate = req.ExchangeRate ?? 1;
         var subtotal = (req.Subtotal ?? 0) * rate;
-        var tax = (req.Tax ?? 0) * rate;
-        var shipping = (req.Shipping ?? 0) * rate;
+        // Base 1 quotes carry no Tax / Shipping lines, so neither may reach the total.
+        var tax = req.IsBase1 ? 0 : (req.Tax ?? 0) * rate;
+        var shipping = req.IsBase1 ? 0 : (req.Shipping ?? 0) * rate;
         var other = (req.Other ?? 0) * rate;
         var grandTotal = subtotal + tax + shipping + other;
 
@@ -602,8 +635,11 @@ public class PdfController : ControllerBase
             }
 
             TotalRow("Subtotal", subtotal, Colors.Grey.Lighten5);
-            TotalRow("Tax", tax);
-            TotalRow("Shipping", shipping, Colors.Grey.Lighten5);
+            if (!req.IsBase1)
+            {
+                TotalRow("Tax", tax);
+                TotalRow("Shipping", shipping, Colors.Grey.Lighten5);
+            }
             TotalRow("Other", other);
             TotalRow("Total", grandTotal, isGrand: true);
         });
@@ -663,6 +699,23 @@ public class QuotePdfRequest
     public string? CustomerName { get; set; }
     public string? CustomerBillTo { get; set; }
     public string? CustomerShipTo { get; set; }
+    /// <summary>Customer.Base — Base 1 customers get their own quote layout (see <see cref="IsBase1"/>).</summary>
+    public int? CustomerBase { get; set; }
+
+    /// <summary>
+    /// Base 1 layout, in every template: no Valid Until / Currency in the meta row; columns
+    /// Ref, Part Number, Description, Cert Reference, CD, Qty, Unit Price, Total Price; the item
+    /// specs stacked one per line; no Tax / Shipping totals; comments folded into the end of the
+    /// terms text without their own heading.
+    /// </summary>
+    public bool IsBase1 => CustomerBase == 1;
+
+    /// <summary>Terms followed by the comments, as one text — the Base 1 terms block.</summary>
+    public string? TermsWithComments()
+    {
+        var parts = new[] { Terms, Comments }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim()).ToList();
+        return parts.Count > 0 ? string.Join("\n\n", parts) : null;
+    }
 
     // Items
     public List<QuotePdfItem>? Items { get; set; }
@@ -702,8 +755,9 @@ public class QuotePdfItem
     /// <summary>
     /// The small label/value pairs printed under the item (empty ones left out), in reading order:
     /// what the part is (cert, tag year, trace), then how it is sold (price type, warranty).
+    /// <paramref name="withLeadTime"/> appends the lead time — the Base 1 layout has no Lead Time column.
     /// </summary>
-    public List<(string Label, string Value)> Specs()
+    public List<(string Label, string Value)> Specs(bool withLeadTime = false)
     {
         var specs = new List<(string, string)>();
         void Add(string label, string? value)
@@ -716,6 +770,7 @@ public class QuotePdfItem
         Add("Price Type", PriceType);
         Add("Warranty", Warranty);
         Add("CR", CR);
+        if (withLeadTime) Add("Lead Time", LeadTime);
         return specs;
     }
 }

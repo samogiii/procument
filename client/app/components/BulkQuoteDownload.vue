@@ -343,6 +343,7 @@ async function generateAndDownload(q: any, preset: any) {
     customerName: q.customerName || '—',
     customerBillTo: q.customerBillTo || null,
     customerShipTo: q.customerShipTo || q.customerBillTo || null,
+    customerBase: q.customerBase ?? null, // Base 1 gets its own layout server-side
     items: items.map((it: any) => ({
       rfqReference: it.rfqReference || null,
       partNumberName: it.partNumberName || null,

@@ -469,6 +469,7 @@ public static class PdfDocModelBuilders
         var sym = req.CurrencySymbol ?? "$";
         var rate = req.ExchangeRate ?? 1;
         var items = req.Items ?? [];
+        var b1 = req.IsBase1;
 
         var m = new PdfDocModel
         {
@@ -483,16 +484,19 @@ public static class PdfDocModelBuilders
             Primary = req.PrimaryColor ?? "#1a2744",
             Accent = req.AccentColor ?? "#2563eb",
             CurrencySymbol = sym,
-            Comments = req.Comments,
-            Terms = req.Terms,
+            // Base 1: comments close out the terms text, with no Comments heading of their own.
+            Comments = b1 ? null : req.Comments,
+            Terms = b1 ? req.TermsWithComments() : req.Terms,
             FooterText = req.FooterText,
-            Meta =
-            [
-                new("Date", req.QuoteDate),
-                new("Valid Until", req.ValidUntil),
-                new("RFQ", req.RfqName),
-                new("Currency", req.Currency)
-            ]
+            Meta = b1
+                ? [new("Date", req.QuoteDate), new("RFQ", req.RfqName)]
+                :
+                [
+                    new("Date", req.QuoteDate),
+                    new("Valid Until", req.ValidUntil),
+                    new("RFQ", req.RfqName),
+                    new("Currency", req.Currency)
+                ]
         };
 
         m.Addresses.Add(new PdfAddressBlock
@@ -508,57 +512,88 @@ public static class PdfDocModelBuilders
             Address = req.CustomerShipTo ?? req.CustomerBillTo
         });
 
-        m.Columns =
-        [
-            PdfTableColumn.Fixed("#", 22),
-            PdfTableColumn.Fixed("Ref", 30),
-            PdfTableColumn.Flex("Part No.", 3f, PdfCellAlign.Center),
-            PdfTableColumn.Flex("Description", 2.5f),
-            PdfTableColumn.Fixed("Qty", 30),
-            PdfTableColumn.Fixed("CD", 30),
-            PdfTableColumn.Fixed("Lead Time", 55),
-            PdfTableColumn.Fixed("Unit Price", 60, PdfCellAlign.Right),
-            PdfTableColumn.Fixed("Total", 65, PdfCellAlign.Right),
-            PdfTableColumn.Fixed("Cert Reference", 68, PdfCellAlign.Center)
-        ];
+        m.Columns = b1
+            ?
+            [
+                PdfTableColumn.Fixed("Ref", 30),
+                PdfTableColumn.Flex("Part Number", 2.75f, PdfCellAlign.Center),
+                PdfTableColumn.Flex("Description", 2.75f),
+                PdfTableColumn.Fixed("Cert Reference", 68, PdfCellAlign.Center),
+                PdfTableColumn.Fixed("CD", 30),
+                PdfTableColumn.Fixed("Qty", 30),
+                PdfTableColumn.Fixed("Unit Price", 60, PdfCellAlign.Right),
+                PdfTableColumn.Fixed("Total Price", 65, PdfCellAlign.Right)
+            ]
+            :
+            [
+                PdfTableColumn.Fixed("#", 22),
+                PdfTableColumn.Fixed("Ref", 30),
+                PdfTableColumn.Flex("Part No.", 3f, PdfCellAlign.Center),
+                PdfTableColumn.Flex("Description", 2.5f),
+                PdfTableColumn.Fixed("Qty", 30),
+                PdfTableColumn.Fixed("CD", 30),
+                PdfTableColumn.Fixed("Lead Time", 55),
+                PdfTableColumn.Fixed("Unit Price", 60, PdfCellAlign.Right),
+                PdfTableColumn.Fixed("Total", 65, PdfCellAlign.Right),
+                PdfTableColumn.Fixed("Cert Reference", 68, PdfCellAlign.Center)
+            ];
 
         for (int i = 0; i < items.Count; i++)
         {
             var it = items[i];
 
             // Same sub-row as the Modern template: the spec strip (Cert … Warranty), then the note on its own line.
+            // Base 1 stacks the specs, one per line.
             var details = new List<string>();
-            var specs = it.Specs();
-            if (specs.Count > 0) details.Add(string.Join("   ·   ", specs.Select(s => $"{s.Label}: {s.Value}")));
+            var specs = it.Specs(withLeadTime: b1).Select(s => $"{s.Label}: {s.Value}").ToList();
+            if (b1) details.AddRange(specs);
+            else if (specs.Count > 0) details.Add(string.Join("   ·   ", specs));
             if (!string.IsNullOrWhiteSpace(it.Note)) details.Add($"Note: {it.Note.Trim()}");
 
+            var certRefs = new PdfCell(it.CertReferences == null ? null : string.Join(", ", it.CertReferences.Select(r => $"REF#{r}")));
             m.Rows.Add(new PdfTableRow
             {
                 Note = details.Count > 0 ? string.Join("\n", details) : null,
-                Cells =
-                [
-                    new PdfCell((i + 1).ToString()),
-                    new PdfCell(it.RfqReference),
-                    PartNumberCell(it.PartNumberName, it.Alt),
-                    new PdfCell(it.Description),
-                    new PdfCell(it.Qty.ToString(), bold: true),
-                    new PdfCell(it.Condition),
-                    new PdfCell(it.LeadTime),
-                    new PdfCell(Money(sym, it.UnitPrice * rate)),
-                    new PdfCell(Money(sym, it.TotalPrice * rate), bold: true),
-                    new PdfCell(it.CertReferences == null ? null : string.Join(", ", it.CertReferences.Select(r => $"REF#{r}")))
-                ]
+                Cells = b1
+                    ?
+                    [
+                        new PdfCell(it.RfqReference),
+                        PartNumberCell(it.PartNumberName, it.Alt),
+                        new PdfCell(it.Description),
+                        certRefs,
+                        new PdfCell(it.Condition),
+                        new PdfCell(it.Qty.ToString(), bold: true),
+                        new PdfCell(Money(sym, it.UnitPrice * rate)),
+                        new PdfCell(Money(sym, it.TotalPrice * rate), bold: true)
+                    ]
+                    :
+                    [
+                        new PdfCell((i + 1).ToString()),
+                        new PdfCell(it.RfqReference),
+                        PartNumberCell(it.PartNumberName, it.Alt),
+                        new PdfCell(it.Description),
+                        new PdfCell(it.Qty.ToString(), bold: true),
+                        new PdfCell(it.Condition),
+                        new PdfCell(it.LeadTime),
+                        new PdfCell(Money(sym, it.UnitPrice * rate)),
+                        new PdfCell(Money(sym, it.TotalPrice * rate), bold: true),
+                        certRefs
+                    ]
             });
         }
 
         var subtotal = (req.Subtotal ?? 0) * rate;
-        var tax = (req.Tax ?? 0) * rate;
-        var shipping = (req.Shipping ?? 0) * rate;
+        // Base 1 quotes carry no Tax / Shipping lines, so neither may reach the total.
+        var tax = b1 ? 0 : (req.Tax ?? 0) * rate;
+        var shipping = b1 ? 0 : (req.Shipping ?? 0) * rate;
         var other = (req.Other ?? 0) * rate;
 
         m.Totals.Add(new PdfTotalLine("Subtotal", subtotal));
-        m.Totals.Add(new PdfTotalLine("Tax", tax));
-        m.Totals.Add(new PdfTotalLine("Shipping", shipping));
+        if (!b1)
+        {
+            m.Totals.Add(new PdfTotalLine("Tax", tax));
+            m.Totals.Add(new PdfTotalLine("Shipping", shipping));
+        }
         m.Totals.Add(new PdfTotalLine("Other", other));
         m.Totals.Add(new PdfTotalLine("Total", subtotal + tax + shipping + other, isGrand: true));
 

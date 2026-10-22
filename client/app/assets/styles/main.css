@@ -59,6 +59,70 @@
   --date-picker-invert: none;
 }
 
+.v-theme--procumentPistachio {
+  --glass-bg: rgba(255, 251, 234, 0.86);
+  --glass-border: rgba(165, 176, 33, 0.35);
+  --card-bg: rgba(255, 251, 234, 0.88);
+  --card-border: rgba(165, 176, 33, 0.32);
+  --card-hover-border: rgba(138, 48, 73, 0.45);
+  --toolbar-bg: rgba(246, 238, 126, 0.30);
+  --toolbar-border: rgba(165, 176, 33, 0.42);
+  --excel-bg: rgba(255, 252, 240, 0.96);
+  --excel-border: rgba(165, 176, 33, 0.38);
+  --row-hover: rgba(165, 176, 33, 0.10);
+  --cell-hover: rgba(244, 189, 58, 0.20);
+  --scrollbar-thumb: #C3CA5E;
+  --scrollbar-track: #F6EFD2;
+  --gradient-start: #6E7E14;
+  --gradient-end: #8A3049;
+  --pn-color: #8A3049;
+  --date-picker-invert: none;
+}
+
+/* Pistachio UI accents: warm gradient drawer + golden app-bar edge */
+.v-theme--procumentPistachio .v-navigation-drawer {
+  background-image: linear-gradient(180deg, #FFF8D6 0%, #F3EBC4 100%);
+  border-inline-end: 1px solid rgba(165, 176, 33, 0.35) !important;
+}
+.v-theme--procumentPistachio .v-app-bar {
+  border-bottom: 2px solid #F4BD3A !important;
+}
+.v-theme--procumentPistachio .v-navigation-drawer .v-list-item--active {
+  border-inline-start: 3px solid #8A3049;
+}
+
+.v-theme--procumentPistachioDark {
+  --glass-bg: rgba(34, 36, 22, 0.78);
+  --glass-border: rgba(165, 176, 33, 0.24);
+  --card-bg: rgba(34, 36, 22, 0.72);
+  --card-border: rgba(165, 176, 33, 0.22);
+  --card-hover-border: rgba(244, 189, 58, 0.40);
+  --toolbar-bg: rgba(45, 47, 29, 0.60);
+  --toolbar-border: rgba(165, 176, 33, 0.30);
+  --excel-bg: rgba(28, 30, 18, 0.92);
+  --excel-border: rgba(165, 176, 33, 0.28);
+  --row-hover: rgba(165, 176, 33, 0.08);
+  --cell-hover: rgba(244, 189, 58, 0.12);
+  --scrollbar-thumb: #4A4D22;
+  --scrollbar-track: #181A0E;
+  --gradient-start: #B5C12E;
+  --gradient-end: #F4BD3A;
+  --pn-color: #D4DC5A;
+  --date-picker-invert: invert(1);
+}
+
+/* Pistachio Dark UI accents: deep olive drawer + golden app-bar edge */
+.v-theme--procumentPistachioDark .v-navigation-drawer {
+  background-image: linear-gradient(180deg, #24261A 0%, #1B1D10 100%);
+  border-inline-end: 1px solid rgba(165, 176, 33, 0.22) !important;
+}
+.v-theme--procumentPistachioDark .v-app-bar {
+  border-bottom: 2px solid rgba(244, 189, 58, 0.75) !important;
+}
+.v-theme--procumentPistachioDark .v-navigation-drawer .v-list-item--active {
+  border-inline-start: 3px solid #C2566F;
+}
+
 /* ─── Global Styles ─── */
 
 * {

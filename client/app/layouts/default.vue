@@ -283,6 +283,8 @@
             <v-btn icon variant="text" size="small" class="ml-1" v-bind="menuProps">
               <v-icon v-if="appTheme.currentTheme.value === 'procumentDark'" icon="mdi-weather-night" />
               <v-icon v-else-if="appTheme.currentTheme.value === 'procumentFrost'" icon="mdi-snowflake" />
+              <v-icon v-else-if="appTheme.currentTheme.value === 'procumentPistachio'" icon="mdi-peanut" />
+              <v-icon v-else-if="appTheme.currentTheme.value === 'procumentPistachioDark'" icon="mdi-peanut-outline" />
               <v-icon v-else icon="mdi-weather-sunny" />
             </v-btn>
           </template>
@@ -317,6 +319,26 @@
                   <span class="theme-swatch" style="background:linear-gradient(135deg,#90D5EC,#AADDEC);box-shadow:0 0 0 2px #D4D4D4" />
                 </template>
                 <v-list-item-title>Frost</v-list-item-title>
+              </v-list-item>
+              <v-list-item
+                rounded="lg"
+                :active="appTheme.currentTheme.value === 'procumentPistachio'"
+                @click="appTheme.setTheme('procumentPistachio')"
+              >
+                <template #prepend>
+                  <span class="theme-swatch" style="background:linear-gradient(135deg,#A5B021,#F4BD3A 60%,#8A3049);box-shadow:0 0 0 2px #FBF5DC" />
+                </template>
+                <v-list-item-title>Pistachio</v-list-item-title>
+              </v-list-item>
+              <v-list-item
+                rounded="lg"
+                :active="appTheme.currentTheme.value === 'procumentPistachioDark'"
+                @click="appTheme.setTheme('procumentPistachioDark')"
+              >
+                <template #prepend>
+                  <span class="theme-swatch" style="background:linear-gradient(135deg,#B5C12E,#F4BD3A 60%,#C2566F);box-shadow:0 0 0 2px #181A0E" />
+                </template>
+                <v-list-item-title>Pistachio Dark</v-list-item-title>
               </v-list-item>
             </v-list>
           </v-card>
