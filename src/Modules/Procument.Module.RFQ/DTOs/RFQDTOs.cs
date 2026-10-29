@@ -182,6 +182,11 @@ public class AlternativeResponse
 {
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    /// <summary>
+    /// In the part's alternative family through another part (X lists Y, Y lists Z → Y shows X and Z);
+    /// Id = 0, removed on the part that lists it.
+    /// </summary>
+    public bool Linked { get; set; }
 }
 
 // ──── Bulk Import ────

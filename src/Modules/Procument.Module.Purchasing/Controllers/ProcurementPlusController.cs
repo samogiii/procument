@@ -13,14 +13,14 @@ namespace Procument.Module.Purchasing.Controllers;
 /// <summary>
 /// Procurement Plus page: pick parts from RFQs, upload availability files, see which (preferred)
 /// suppliers list them, source them and mark the prices Done onto RFQs. Granted per user in
-/// Menu Access ("procurementPlus"); SuperAdmin always passes.
+/// Menu Access ("procurementProMax" — the page is now Procurement ProMax, never in the menu); SuperAdmin always passes.
 /// </summary>
 [ApiController]
 [Route("api/procurement-plus")]
 [Authorize]
 public class ProcurementPlusController : ControllerBase
 {
-    public const string Feature = "procurementPlus";
+    public const string Feature = "procurementProMax";
 
     private readonly IProcurementPlusService _service;
     private readonly IPendingSupplierQuoteService _quotes;
@@ -42,7 +42,7 @@ public class ProcurementPlusController : ControllerBase
     }
 
     private ObjectResult Forbidden() =>
-        StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to Procurement Plus." });
+        StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to Procurement ProMax." });
 
     private long UserId =>
         long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
@@ -259,26 +259,26 @@ public class ProcurementPlusController : ControllerBase
     // ──── Preferred suppliers ────
 
     [HttpGet("preferred-suppliers")]
-    public Task<ActionResult> Preferred() => Run(() => _service.GetPreferredAsync());
+    public Task<ActionResult> Preferred() => Run(() => _service.GetPreferredAsync(PageUserId));
 
     /// <summary>Add a preferred supplier — a name is enough, it does not have to be in the catalog.</summary>
     [HttpPost("preferred-suppliers")]
     [Auditable("Preferred", "AddSupplier", CaptureBody = true)]
     public Task<ActionResult> AddPreferred([FromBody] PpSavePreferredSupplierRequest request) =>
-        Run(() => _service.SavePreferredAsync(UserId, null, request));
+        Run(() => _service.SavePreferredAsync(PageUserId, UserId, null, request));
 
     /// <summary>Edit a preferred supplier (name, emails, phone, method, note, catalog link — supplierId 0 unlinks).</summary>
     [HttpPut("preferred-suppliers/{id:long}")]
     [Auditable("Preferred", "EditSupplier", CaptureBody = true)]
     public Task<ActionResult> EditPreferred(long id, [FromBody] PpSavePreferredSupplierRequest request) =>
-        Run(() => _service.SavePreferredAsync(UserId, id, request));
+        Run(() => _service.SavePreferredAsync(PageUserId, UserId, id, request));
 
     [HttpPatch("preferred-suppliers/{id:long}")]
     [Auditable("Preferred", "UpdateSupplier", CaptureBody = true)]
     public async Task<IActionResult> UpdatePreferred(long id, [FromBody] PpUpdatePreferredRequest request)
     {
         if (!await HasAccessAsync()) return Forbidden();
-        return await _service.UpdatePreferredAsync(id, request) ? Ok() : NotFound();
+        return await _service.UpdatePreferredAsync(PageUserId, id, request) ? Ok() : NotFound();
     }
 
     [HttpDelete("preferred-suppliers/{id:long}")]
@@ -286,7 +286,7 @@ public class ProcurementPlusController : ControllerBase
     public async Task<IActionResult> RemovePreferred(long id)
     {
         if (!await HasAccessAsync()) return Forbidden();
-        return await _service.RemovePreferredAsync(id) ? Ok() : NotFound();
+        return await _service.RemovePreferredAsync(PageUserId, id) ? Ok() : NotFound();
     }
 
     /// <summary>Link a preferred supplier to a catalog supplier — needed only to put its prices on RFQs (Done).</summary>
@@ -297,7 +297,7 @@ public class ProcurementPlusController : ControllerBase
         if (!await HasAccessAsync()) return Forbidden();
         try
         {
-            var result = await _service.LinkPreferredAsync(id, request);
+            var result = await _service.LinkPreferredAsync(PageUserId, id, request);
             return result == null ? NotFound() : Ok(result);
         }
         catch (InvalidOperationException ex)
@@ -308,7 +308,7 @@ public class ProcurementPlusController : ControllerBase
 
     /// <summary>Catalog suppliers for the pickers on this page (the /suppliers API is role-limited).</summary>
     [HttpGet("suppliers")]
-    public Task<ActionResult> Suppliers([FromQuery] string? q) => Run(() => _service.SearchSuppliersAsync(q));
+    public Task<ActionResult> Suppliers([FromQuery] string? q) => Run(() => _service.SearchSuppliersAsync(PageUserId, q));
 
     // ──── Sourcing → Done ────
 

@@ -24,22 +24,29 @@
     </v-alert>
 
     <v-tabs v-model="tab" color="primary" class="mb-3">
-      <v-tab value="pending" prepend-icon="mdi-email-alert-outline">
-        Pending
-        <v-badge v-if="pendingCount" :content="pendingCount" color="warning" inline />
+      <v-tab value="pendingUnder" prepend-icon="mdi-email-alert-outline">
+        Pending under 5K
+        <v-badge v-if="pendingUnderCount" :content="pendingUnderCount" color="warning" inline />
+      </v-tab>
+      <v-tab value="pendingOver" prepend-icon="mdi-email-alert-outline">
+        Pending 5K and above
+        <v-badge v-if="pendingOverCount" :content="pendingOverCount" color="warning" inline />
       </v-tab>
       <v-tab value="accepted" prepend-icon="mdi-email-check-outline">Accepted</v-tab>
       <v-tab value="removed" prepend-icon="mdi-email-remove-outline">Removed</v-tab>
     </v-tabs>
 
-    <!-- Pending stays mounted so its count badge is current on the other tabs -->
-    <div v-show="tab === 'pending'">
-      <p class="text-body-2 text-medium-emphasis mb-4">
-        Supplier quotes MailFlow read from email. Check each line against the email, then accept it onto the
-        matching RFQs (deadline no more than a week ago), edit it, or remove it. Removed emails are never imported
-        again — find them on the Removed tab.
-      </p>
-      <PendingSupplierQuotesPanel :key="pendingKey" :mailbox="mailbox" @loaded="(n: number) => pendingCount = n" />
+    <!-- Both Pending tabs stay mounted so their count badges are current on the other tabs -->
+    <p v-show="tab === 'pendingUnder' || tab === 'pendingOver'" class="text-body-2 text-medium-emphasis mb-4">
+      Supplier quotes MailFlow read from email, split by line value (Qty × Price; no price counts as 0, no qty as 1).
+      Check each line against the email, then accept it onto the matching RFQs (deadline no more than a week ago),
+      edit it, or remove it. Removed emails are never imported again — find them on the Removed tab.
+    </p>
+    <div v-show="tab === 'pendingUnder'">
+      <PendingSupplierQuotesPanel :key="pendingKey" :mailbox="mailbox" value="under" @loaded="(n: number) => pendingUnderCount = n" />
+    </div>
+    <div v-show="tab === 'pendingOver'">
+      <PendingSupplierQuotesPanel :key="pendingKey" :mailbox="mailbox" value="over" @loaded="(n: number) => pendingOverCount = n" />
     </div>
 
     <!-- Re-created on every visit so lines accepted a moment ago are there -->
@@ -63,9 +70,10 @@
 
 <script setup lang="ts">
 // Access: Menu Access "Email Quotes" (route gate in middleware/auth.global.ts, nav in layouts/default.vue).
-const tab = ref<'pending' | 'accepted' | 'removed'>('pending')
-const pendingCount = ref(0)
-/** Bumped when a MailFlow run finishes or removed lines are restored, so Pending reloads. */
+const tab = ref<'pendingUnder' | 'pendingOver' | 'accepted' | 'removed'>('pendingUnder')
+const pendingUnderCount = ref(0)
+const pendingOverCount = ref(0)
+/** Bumped when a MailFlow run finishes or removed lines are restored, so both Pending tabs reload. */
 const pendingKey = ref(0)
 /** Mailbox dropdown: null = every mailbox. */
 const mailbox = ref<string | null>(null)

@@ -30,6 +30,19 @@
                 <v-icon v-if="g.first.preferredId" icon="mdi-star" color="amber" size="13" title="Preferred supplier" />
                 <span class="font-weight-medium">{{ g.first.preferredName || g.first.supplierName || g.first.companyRaw }}</span>
                 <v-chip v-if="!g.first.supplierId" size="x-small" color="warning" variant="tonal" title="Not matched to a catalog supplier yet">not in catalog</v-chip>
+                <!-- It lists a condition my part asks for -->
+                <v-chip
+                  v-for="c in askedHere(g)"
+                  :key="`has-${c}`"
+                  size="x-small"
+                  color="success"
+                  variant="tonal"
+                  prepend-icon="mdi-check-decagram"
+                  class="font-weight-bold"
+                  :title="`Lists ${c} — the condition your part asks for`"
+                >
+                  has {{ c }}
+                </v-chip>
               </div>
               <!-- Not in the catalog yet: its emails from the file, to find or add it -->
               <div v-if="!g.first.supplierId && emailsOf(g.rows).length" class="text-caption text-medium-emphasis fo__emails">
@@ -53,14 +66,23 @@
                   :key="c.value"
                   size="x-small"
                   :variant="condOf(g) === c.value ? 'flat' : 'outlined'"
-                  :color="condOf(g) === c.value ? 'primary' : undefined"
-                  :title="`Show the P/Ns listed ${c.value || 'with no condition'}`"
+                  :color="condOf(g) === c.value ? 'primary' : askedIn(g).has(c.value) ? 'success' : undefined"
+                  :class="{ 'font-weight-black': askedIn(g).has(c.value) }"
+                  :title="`Show the P/Ns listed ${c.value || 'with no condition'}${askedIn(g).has(c.value) ? ' — the condition your part asks for' : ''}`"
                   @click="setCond(g, c.value)"
                 >
                   {{ c.value || '—' }} <span class="fo__chip-meta">{{ c.count }}</span>
                 </v-chip>
               </div>
-              <v-chip v-else-if="g.conditions[0]?.value" size="x-small" variant="outlined">{{ g.conditions[0].value }}</v-chip>
+              <v-chip
+                v-else-if="g.conditions[0]?.value"
+                size="x-small"
+                variant="outlined"
+                :color="askedIn(g).has(g.conditions[0].value) ? 'success' : undefined"
+                :class="{ 'font-weight-black': askedIn(g).has(g.conditions[0].value) }"
+              >
+                {{ g.conditions[0].value }}
+              </v-chip>
             </td>
             <td class="fo__pns">
               <div class="fo__chips">
@@ -77,9 +99,17 @@
                   @click="toggle(r)"
                 >
                   <strong>{{ r.filePartNo }}</strong>
-                  <span class="fo__chip-cond">{{ r.condition || '—' }}</span>
+                  <span class="fo__chip-cond" :class="{ 'fo__chip-cond--asked': isAsked(r) }">{{ r.condition || '—' }}</span>
                   <span class="fo__chip-meta">Qty {{ r.qty ?? r.qtyRaw ?? '—' }}</span>
                   <span v-if="r.price != null || r.priceRaw" class="fo__chip-meta">· {{ r.price != null ? fmtMoney(r.price) : r.priceRaw }}</span>
+                  <!-- We already have a valid price from this supplier (RFQ quote / Email Quote, last 14 days) -->
+                  <span
+                    v-if="r.knownPrice != null"
+                    class="fo__chip-known"
+                    :title="`${r.knownPriceSource === 'Email' ? 'Email Quote' : `RFQ quote${r.knownPriceRef ? ' · ' + r.knownPriceRef : ''}`} · ${fmtDate(r.knownPriceDate)}`"
+                  >
+                    {{ r.knownPriceSource === 'Email' ? 'Email' : 'RFQ' }} {{ fmtMoney(r.knownPrice) }}
+                  </span>
                 </v-chip>
                 <v-chip
                   v-if="visibleRows(g).length > CHIPS_SHOWN"
@@ -94,6 +124,8 @@
             </td>
             <td class="nowrap text-caption text-medium-emphasis" :title="`${g.first.fileName} · ${fmtDate(g.first.uploadedAt)}`">{{ g.first.fileName }}</td>
             <td class="text-right nowrap">
+              <!-- Extra per-supplier buttons from the page (new Procurement Plus ILS tab: copy P/Ns, quotation mail) -->
+              <slot name="supplier-actions" :rows="g.rows" :first="g.first" />
               <template v-if="g.rows.every(isAdded)">
                 <v-chip size="x-small" color="warning" variant="tonal" prepend-icon="mdi-check">Added</v-chip>
               </template>
@@ -145,7 +177,11 @@ const props = withDefaults(defineProps<{
   lines?: PpQuoteLine[]
   /** Offer id being added. */
   busy?: number | null
-}>(), { lines: () => [], busy: null })
+  /** Rows of several parts (new Procurement Plus ILS tab): a row is added only by a line of its own part. */
+  matchPart?: boolean
+  /** New Procurement Plus: conditions each part asks for (by part id, upper case) — shown bold on the chips. */
+  askedConditions?: Record<number, string[]>
+}>(), { lines: () => [], busy: null, matchPart: false, askedConditions: () => ({}) })
 /**
  * The rows to turn into supplier lines (one or more P/Ns of one supplier — each with its own condition and qty),
  * and how the part is searched with that supplier (ILS / Email / Search).
@@ -191,7 +227,14 @@ function minPriced(rows: PpOfferRow[]) {
   return rows.reduce((m, r) => (r.price != null && (m.price == null || r.price < m.price) ? r : m), rows[0]!)
 }
 
-const isAdded = (r: PpOfferRow) => offerAdded(r, props.lines)
+/** The row's condition is one its part asks for. */
+const isAsked = (r: PpOfferRow) => !!cond(r) && (props.askedConditions[r.partId] ?? []).includes(cond(r))
+/** Conditions of a supplier's rows that their parts ask for. */
+const askedIn = (g: Group) => new Set(g.rows.filter(isAsked).map(cond))
+const askedHere = (g: Group) => [...askedIn(g)]
+
+const isAdded = (r: PpOfferRow) =>
+  offerAdded(r, props.matchPart ? props.lines.filter(l => l.preferredPartId === r.partId) : props.lines)
 const emailsOf = (rows: PpOfferRow[]) =>
   [...new Set(rows.map(r => r.email?.trim().toLowerCase()).filter((e): e is string => !!e))]
 
@@ -287,6 +330,14 @@ function chipTitle(r: PpOfferRow) {
 .fo__chip-cond {
   margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em;
   background: rgba(var(--v-theme-on-surface), 0.08);
+}
+.fo__chip-cond--asked {
+  font-weight: 900; font-size: 11.5px;
+  background: rgba(var(--v-theme-success), 0.22); color: rgb(var(--v-theme-success));
+}
+.fo__chip-known {
+  margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; font-weight: 700;
+  background: rgba(var(--v-theme-success), 0.18); color: rgb(var(--v-theme-success));
 }
 .fo__conds { min-width: 90px; max-width: 200px; }
 .nowrap { white-space: nowrap; }

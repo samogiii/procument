@@ -52,7 +52,7 @@ export function toSupplierQuotePayload(q: any, opts: { shop?: boolean; parentPro
     supplierName: q.supplierName,
     qty: q.qty,
     price: q.price,
-    alt: q.alt,
+    alt: cleanAlt(q.alt),
     certName: q.certName || null,
     tagDate: q.tagDate || null,
     shippingCost: q.shippingCost ?? null,
@@ -66,6 +66,8 @@ export function toSupplierQuotePayload(q: any, opts: { shop?: boolean; parentPro
     customCertReferences: q.customCertReferences || [],
     supplierEmail: q.supplierEmail || '', // '' = none
     ...quoteDetailsOf(q, ''), // '' = clear
+    // Added from a "recent" chip: the expert who first added that supplier stays the expert (new quotes only).
+    expertUserId: q.id ? null : (q.expertUserId ?? null),
   }
   if (opts.shop) {
     return {

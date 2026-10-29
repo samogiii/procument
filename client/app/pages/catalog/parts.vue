@@ -296,7 +296,7 @@ async function submitBulk() {
         description: r.description || null,
         fleet: r.fleet || null,
         remark: null,
-        alternatives: r.alternatives ? r.alternatives.split(',').map(a => a.trim()).filter(Boolean) : [],
+        alternatives: cleanAltList(r.alternatives ? r.alternatives.split(',') : []),
       }))
     const res = await api.post<{ created: number; skipped: number; total: number }>('/partnumbers/bulk', { parts })
     bulkResult.value = { type: 'success', message: `Done! ${res.created} created, ${res.skipped} updated/skipped out of ${res.total} total.` }

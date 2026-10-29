@@ -33,6 +33,10 @@ public interface IPendingRfqService
     Task<List<CustomerLookupItem>> SearchCustomersAsync(string? q);
     Task<PendingQuoteEmailResponse?> GetEmailAsync(long emailId);
     Task<(Stream stream, string fileName, string contentType)?> GetAttachmentAsync(long emailId, long attachmentId);
+    Task<AssignPpeResponse> AssignPpeAsync(List<long> ids, long? ppeUserId, long actorId);
+    Task<List<QuoteReviewerOption>> GetPpeUsersAsync();
+    Task<PartCustomersResponse> GetPartCustomersAsync(string partNumber);
+    Task<List<PartInsight>> GetPartInsightsAsync(PartInsightsRequest request);
 }
 
 /// <summary>
@@ -41,14 +45,17 @@ public interface IPendingRfqService
 /// owned by the user who accepted. Same life cycle as Email Quotes: Pending → Accepted / Removed, removed
 /// rows kept as tombstones so MailFlow never imports that email again.
 /// </summary>
-public class PendingRfqService : IPendingRfqService
+public partial class PendingRfqService : IPendingRfqService
 {
     private const string Pending = "Pending";
     private const string Accepted = "Accepted";
     private const string Removed = "Removed";
+    /// <summary>RFQHeader statuses after No Quote (a non-admin's request waits for an admin first).</summary>
+    private const string RfqNoQuote = "No Quote";
+    private const string RfqWaitingForAdmin = "Waiting For Admin";
     /// <summary>No deadline in the email (MailFlow normally sends received + 3 days) → this many days after it arrived.</summary>
     public const int DefaultDeadlineDays = 3;
-    public const int MaxEmailsPerPage = 100;
+    public const int MaxEmailsPerPage = 200;
 
     private static readonly Regex NumberPattern = new(@"\d+(?:\.\d+)?", RegexOptions.Compiled);
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
@@ -57,12 +64,14 @@ public class PendingRfqService : IPendingRfqService
 
     private readonly DbContext _db;
     private readonly IRFQService _rfqService;
+    private readonly ICustomerQuotePriceLookup _quotePrices;
     private readonly ILogger<PendingRfqService> _logger;
 
-    public PendingRfqService(DbContext db, IRFQService rfqService, ILogger<PendingRfqService> logger)
+    public PendingRfqService(DbContext db, IRFQService rfqService, ICustomerQuotePriceLookup quotePrices, ILogger<PendingRfqService> logger)
     {
         _db = db;
         _rfqService = rfqService;
+        _quotePrices = quotePrices;
         _logger = logger;
     }
 
@@ -308,7 +317,10 @@ public class PendingRfqService : IPendingRfqService
 
     private sealed record EmailPage(List<long> Ids, int Page, int PageSize, int TotalEmails, int TotalLines);
 
-    /// <summary>Pages lines by their source email, so one email is never split across pages (same as Email Quotes).</summary>
+    /// <summary>
+    /// Pages lines by their source email, so one email is never split across pages (same as Email Quotes).
+    /// The ids come back in page order: newest email first, its lines in import order.
+    /// </summary>
     private static async Task<EmailPage> PageByEmailAsync(IQueryable<PendingRfqItem> query, bool byReview, int page, int pageSize)
     {
         pageSize = Math.Clamp(pageSize, 1, MaxEmailsPerPage);
@@ -321,7 +333,7 @@ public class PendingRfqService : IPendingRfqService
             {
                 Sort = g.Max(h => byReview ? h.ReviewedAt ?? h.CreatedAt : h.EmailDate ?? h.CreatedAt),
                 FirstId = g.Min(h => h.Id),
-                Ids = g.Select(h => h.Id),
+                Ids = g.Select(h => h.Id).Order(),
             })
             .OrderByDescending(e => e.Sort).ThenBy(e => e.FirstId)
             .ToList();
@@ -338,9 +350,10 @@ public class PendingRfqService : IPendingRfqService
         var all = ForMailbox(_db.Set<PendingRfqItem>().AsNoTracking().Where(p => p.Status == Pending), mailbox, p => p.Mailbox);
         var query = Search(all, search);
         var paged = await PageByEmailAsync(query, false, page, pageSize);
+        var items = await BuildAsync(paged.Ids);
         return new PendingRfqPageResponse
         {
-            Items = await BuildAsync(paged.Ids),
+            Items = items,
             Page = paged.Page,
             PageSize = paged.PageSize,
             TotalEmails = paged.TotalEmails,
@@ -396,6 +409,11 @@ public class PendingRfqService : IPendingRfqService
         string status, int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox)
     {
         var inPeriod = ForMailbox(_db.Set<PendingRfqItem>().AsNoTracking().Where(p => p.Status == status), mailbox, p => p.Mailbox);
+        // Accepted tab hides lines whose RFQ was marked No Quote (or is waiting for an admin to confirm it, Sam);
+        // a rejected request puts the RFQ back in progress and the lines show again.
+        if (status == Accepted)
+            inPeriod = inPeriod.Where(p => !_db.Set<RFQHeader>().Any(h => h.Id == p.RfqId
+                && (h.Status == RfqNoQuote || h.Status == RfqWaitingForAdmin)));
         if (days is > 0)
         {
             var since = DateTime.UtcNow.AddDays(-days.Value);
@@ -413,10 +431,12 @@ public class PendingRfqService : IPendingRfqService
         var query = inPeriod;
         if (reviewedByUserId != null) query = query.Where(p => p.ReviewedByUserId == reviewedByUserId);
         query = Search(query, search);
-        var paged = await PageByEmailAsync(query, true, page, pageSize);
+        // Accepted: newest email first by the email's own date (Sam); Removed: most recently removed first.
+        var paged = await PageByEmailAsync(query, status != Accepted, page, pageSize);
+        var items = await BuildAsync(paged.Ids);
         return new PendingRfqPageResponse
         {
-            Items = await BuildAsync(paged.Ids),
+            Items = items,
             Page = paged.Page,
             PageSize = paged.PageSize,
             TotalEmails = paged.TotalEmails,
@@ -438,17 +458,28 @@ public class PendingRfqService : IPendingRfqService
             || (p.Customer != null && p.Customer.Name.Contains(q)));
     }
 
-    /// <summary>Builds these lines for the panels (a page, or one line after an edit).</summary>
+    /// <summary>
+    /// Builds these lines for the panels (a page, or one line after an edit), in the order of <paramref name="ids"/>.
+    /// Part insights (known PPE, average price, customers) are not here — the page loads them after (part-insights).
+    /// </summary>
     private async Task<List<PendingRfqItemResponse>> BuildAsync(ICollection<long> ids)
     {
         if (ids.Count == 0) return new();
-        var rows = await _db.Set<PendingRfqItem>().AsNoTracking()
-            .Include(p => p.Customer)
-            .Where(p => ids.Contains(p.Id))
-            .OrderBy(p => p.Id)
-            .ToListAsync();
+        var position = ids.Select((id, i) => (id, i)).DistinctBy(x => x.id).ToDictionary(x => x.id, x => x.i);
+        var rows = (await _db.Set<PendingRfqItem>().AsNoTracking()
+                .Where(p => ids.Contains(p.Id))
+                .ToListAsync())
+            .OrderBy(p => position[p.Id])
+            .ToList();
+        // Name + code only — the whole customer row carries its contacts and emails.
+        var customerIds = rows.Select(r => r.CustomerId).OfType<long>().Distinct().ToList();
+        var customers = await _db.Set<Customer>().AsNoTracking()
+            .Where(c => customerIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.Name, c.CustomerCode })
+            .ToDictionaryAsync(c => c.Id);
 
-        var userIds = rows.Where(r => r.ReviewedByUserId != null).Select(r => r.ReviewedByUserId!.Value).Distinct().ToList();
+        var userIds = rows.Select(r => r.ReviewedByUserId).Concat(rows.Select(r => r.PpeUserId))
+            .OfType<long>().Distinct().ToList();
         var userNames = await _db.Set<User>().AsNoTracking()
             .Where(u => userIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.Name);
@@ -461,6 +492,10 @@ public class PendingRfqService : IPendingRfqService
                 .Select(h => h.Name)
                 .ToListAsync())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var rfqIds = rows.Select(r => r.RfqId).OfType<long>().Distinct().ToList();
+        var rfqDeadlines = await _db.Set<RFQHeader>().AsNoTracking()
+            .Where(h => rfqIds.Contains(h.Id))
+            .ToDictionaryAsync(h => h.Id, h => h.LeadTime);
 
         return rows.Select(r => new PendingRfqItemResponse
         {
@@ -473,8 +508,8 @@ public class PendingRfqService : IPendingRfqService
             Mailbox = r.Mailbox,
             MailboxLabel = r.MailboxLabel,
             CustomerId = r.CustomerId,
-            CustomerName = r.Customer?.Name,
-            CustomerCode = r.Customer?.CustomerCode,
+            CustomerName = r.CustomerId != null ? customers.GetValueOrDefault(r.CustomerId.Value)?.Name : null,
+            CustomerCode = r.CustomerId != null ? customers.GetValueOrDefault(r.CustomerId.Value)?.CustomerCode : null,
             RfqName = r.RfqName,
             Deadline = r.Deadline,
             DeadlineRaw = r.DeadlineRaw,
@@ -494,9 +529,13 @@ public class PendingRfqService : IPendingRfqService
             ReviewedByName = r.ReviewedByUserId != null && userNames.TryGetValue(r.ReviewedByUserId.Value, out var n) ? n : null,
             RfqId = r.RfqId,
             CreatedRfqName = r.CreatedRfqName,
+            RfqDeadline = r.RfqId != null && rfqDeadlines.TryGetValue(r.RfqId.Value, out var lead) ? lead : null,
             PlannedRfqName = plannedNames.GetValueOrDefault(r.Id),
             PlannedDeadline = r.Status == Pending ? EffectiveDeadline(r) : null,
             RfqNameTaken = plannedNames.TryGetValue(r.Id, out var planned) && takenNames.Contains(planned),
+            PpeUserId = r.PpeUserId,
+            PpeUserName = r.PpeUserId != null ? userNames.GetValueOrDefault(r.PpeUserId.Value) : null,
+            PpeAssignedAt = r.PpeAssignedAt,
         }).ToList();
     }
 
@@ -710,6 +749,8 @@ public class PendingRfqService : IPendingRfqService
                 }
                 result.Rfqs.Add(new CreatedRfqInfo(created.RfqId.Value, created.Name, first.Customer?.Name ?? "", created.ItemCount));
             }
+            // A P/N that already has a PPE goes to them — the part now covers this RFQ too (Sam).
+            await AutoAssignPpeAsync(tracked.Values.Where(r => r.Status == Accepted).ToList(), userId);
             await _db.SaveChangesAsync();
         }
         return result;
@@ -733,7 +774,7 @@ public class PendingRfqService : IPendingRfqService
     /// <summary>"A, B; C" → [A, B, C]; placeholders like "no" / "n/a" / "-" mean none.</summary>
     private static List<string> SplitAlternatives(string? raw) =>
         (raw ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(a => a.Length > 0 && !new[] { "no", "none", "n/a", "na", "-" }.Contains(a.ToLowerInvariant()))
+            .Where(a => !AltPartNumbers.IsPlaceholder(a))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

@@ -56,5 +56,7 @@ public class PaymentRequestResponse
     public decimal? PendingPaymentAmount { get; set; }
     public decimal? PendingExchangeRate { get; set; }
     public Guid? PendingUploadId { get; set; }
+    /// <summary>Set while a payment made in the warehouse app waits for office review.</summary>
+    public DateTime? WarehousePaidAt { get; set; }
     public decimal GrandTotal => Amount;
 }

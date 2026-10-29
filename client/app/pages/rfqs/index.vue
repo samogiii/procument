@@ -1772,7 +1772,7 @@ function pushAlt(index: number) {
   const row = form.value.items[index]
   if (!row) return
   const val = row.altInput.trim()
-  if (!val) return
+  if (isPlaceholderAlt(val)) { row.altInput = ''; return }
   if (!row.alternatives.includes(val)) {
     row.alternatives.push(val)
   }
@@ -1850,7 +1850,7 @@ async function importFromPaste() {
       const remark = (cols[5] || '').trim()
       const alt = (cols[6] || '').trim()
 
-      const alternatives = alt ? alt.split(';').map(a => a.trim()).filter(Boolean) : []
+      const alternatives = cleanAltList(alt.split(';'))
 
       rows.push({
         partNumber,
@@ -2052,7 +2052,7 @@ function parseBulkRFQs() {
     const condition = (cols[5] || '').trim().toUpperCase()
     const priority = (cols[6] || '').trim()
     const altRaw = (cols[7] || '').trim()
-    const alternatives = altRaw ? altRaw.split(',').map(a => a.trim()).filter(Boolean) : []
+    const alternatives = cleanAltList(altRaw.split(','))
     const remark = (cols[8] || '').trim()
     const receivedDate = parseDateToISO((cols[9] || '').trim())
     const deadline = parseDateToISO((cols[10] || '').trim())
@@ -2177,7 +2177,7 @@ async function submitBulkRFQs() {
             }))
           }
 
-          for (const altName of local.alternatives) {
+          for (const altName of cleanAltList(local.alternatives)) {
             const existing = (serverItem.alternatives || []).find((a: any) => a.name === altName)
             if (!existing) {
               promises.push(api.post(`/partnumbers/${serverItem.partNumberId}/alternatives`, { name: altName }))
@@ -2305,7 +2305,7 @@ async function submitRfq() {
         }
 
         // Add alternatives
-        for (const altName of localRow.alternatives) {
+        for (const altName of cleanAltList(localRow.alternatives)) {
           const existing = (serverItem.alternatives || []).find((a: any) => a.name === altName)
           if (!existing) {
             promises.push(api.post(`/partnumbers/${serverItem.partNumberId}/alternatives`, { name: altName }))

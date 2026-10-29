@@ -29,4 +29,6 @@ public interface IPaymentBoxService : IPaymentLedgerService
     /// <summary>Global wallet switches. A missing settings row means everything is off.</summary>
     Task<WalletSettingsResponse> GetSettingsAsync();
     Task<WalletSettingsResponse> UpdateSettingsAsync(UpdateWalletSettingsRequest req, long userId);
+    /// <summary>Base tags a new transaction would get from its PR / PI / customer ("B1,B3").</summary>
+    Task<SuggestedBasesResponse> SuggestBasesAsync(long? paymentRequestId, long? invoiceId, long? customerId);
 }

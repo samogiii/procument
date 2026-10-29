@@ -204,7 +204,7 @@
                         :color="m.updatesExisting ? 'info' : (daysPastDeadline(m.deadline) > 0 ? 'warning' : 'success')"
                         variant="tonal"
                         :to="`/rfqs/${m.rfqId}`"
-                        :title="`${m.customerCode || ''} · requested ${m.requestedQty}${m.matchedAsAlt ? ' · quoted as alternative ' + m.matchedAsAlt : ''}${m.updatesExisting ? ' · updates this supplier\'s existing quote' : ''}`"
+                        :title="`${m.customerCode || ''} · requested ${m.requestedQty}${m.matchedAsAlt ? ' · quoted as alternative ' + m.matchedAsAlt : ''}${m.updatesExisting ? ' · the same quote is there already (every field equal) — it is rewritten, not added' : ''}`"
                       >
                         {{ m.rfqName }} · {{ new Date(m.deadline).toLocaleDateString() }}
                         <span v-if="daysPastDeadline(m.deadline) > 0" class="ml-1">({{ daysPastDeadline(m.deadline) }}d late)</span>
@@ -315,8 +315,11 @@ type PendingRow = {
 type PendingCertificate = { id: number; fileName: string; sizeBytes: number }
 type SupplierOption = { id: number; name: string }
 
-/** Page's mailbox dropdown: only lines read from this MailFlow mailbox (null = all, '-' = unknown). */
-const props = defineProps<{ mailbox?: string | null }>()
+/**
+ * mailbox: page's mailbox dropdown — only lines read from this MailFlow mailbox (null = all, '-' = unknown).
+ * value: only lines whose Qty × Price is under / at least 5K (Pending tabs); unset = every line.
+ */
+const props = defineProps<{ mailbox?: string | null; value?: 'under' | 'over' }>()
 const emit = defineEmits<{ (e: 'accepted'): void; (e: 'loaded', count: number): void }>()
 
 const api = useApi()
@@ -353,6 +356,7 @@ async function load() {
     const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) })
     if (searchTerm.value) params.set('search', searchTerm.value)
     if (props.mailbox) params.set('mailbox', props.mailbox)
+    if (props.value) params.set('value', props.value)
     const res = await api.get<{ items: PendingRow[]; page: number; totalEmails: number; totalLines: number; pendingTotal: number }>(
       `/pending-supplier-quotes?${params}`)
     if (id !== loadId) return

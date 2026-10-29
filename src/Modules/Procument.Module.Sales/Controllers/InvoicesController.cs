@@ -92,12 +92,30 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
         return Ok(results);
     }
 
+    /// <summary>A Base 5 customer's Proforma Invoice needs the "base5ProformaInvoice" grant in Menu Access
+    /// for everyone, SuperAdmin included (creating only — no other PI rights). Other PIs: Admins only.</summary>
     [HttpPost]
-    [Authorize(Roles = "Admin,SuperAdmin")]
     [Auditable("Invoice", "Create", CaptureBody = true)]
     public async Task<ActionResult<InvoiceResponse>> Create([FromBody] CreateInvoiceRequest request)
     {
-        var (userId, _, _, _) = GetUserContext();
+        var (userId, isAdmin, _, _) = GetUserContext();
+        var customerBase = await _db.Set<Quote>()
+            .Where(q => q.Id == request.QuoteId)
+            .Select(q => (int?)q.Customer.Base)
+            .FirstOrDefaultAsync();
+        if (customerBase == 5)
+        {
+            var userName = User.Identity?.Name;
+            var granted = !string.IsNullOrEmpty(userName) && await _db.Set<MenuPermission>()
+                .AnyAsync(p => p.Feature == "base5ProformaInvoice" && p.UserName == userName);
+            if (!granted)
+                return BadRequest(new { message = "You need \"Base 5 Proforma Invoice\" in Menu Access to create a Proforma Invoice for a Base 5 customer." });
+        }
+        else if (!isAdmin)
+        {
+            return BadRequest(new { message = "You can only create a Proforma Invoice for a Base 5 customer." });
+        }
+
         try
         {
             var result = await _invoiceService.CreateAsync(request, userId);
@@ -160,6 +178,56 @@ public class InvoicesController : ControllerBase, IAsyncActionFilter
         var (userId, isAdmin, _, _) = GetUserContext();
         var success = await _invoiceService.UpdateItemsAsync(id, request, userId, isAdmin);
         return success ? Ok() : Forbid();
+    }
+
+    /// <summary>Lines of this Sales Order's source quotes that can be added to it.</summary>
+    [HttpGet("{id:long}/addable-items")]
+    public async Task<ActionResult<List<InvoiceAddableItemResponse>>> GetAddableItems(long id)
+    {
+        var (userId, isAdmin, _, _) = GetUserContext();
+        var result = await _invoiceService.GetAddableItemsAsync(id, userId, isAdmin);
+        return result == null ? Forbid() : Ok(result);
+    }
+
+    /// <summary>Sent/Accepted quotes of this Sales Order's customer that can be added to its source quotes.</summary>
+    [HttpGet("{id:long}/linkable-quotes")]
+    public async Task<ActionResult<List<InvoiceLinkableQuoteResponse>>> GetLinkableQuotes(long id)
+    {
+        var (userId, isAdmin, _, _) = GetUserContext();
+        var result = await _invoiceService.GetLinkableQuotesAsync(id, userId, isAdmin);
+        return result == null ? Forbid() : Ok(result);
+    }
+
+    [HttpPost("{id:long}/source-quotes")]
+    [Auditable("Invoice", "AddSourceQuote", CaptureBody = true)]
+    public async Task<IActionResult> AddSourceQuote(long id, [FromBody] AddInvoiceSourceQuoteRequest request)
+    {
+        var (userId, isAdmin, _, _) = GetUserContext();
+        try
+        {
+            var success = await _invoiceService.AddSourceQuoteAsync(id, request.QuoteId, userId, isAdmin);
+            return success ? Ok() : Forbid();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:long}/items")]
+    [Auditable("Invoice", "AddItems", CaptureBody = true)]
+    public async Task<IActionResult> AddItems(long id, [FromBody] AddInvoiceItemsRequest request)
+    {
+        var (userId, isAdmin, _, _) = GetUserContext();
+        try
+        {
+            var success = await _invoiceService.AddItemsAsync(id, request, userId, isAdmin);
+            return success ? Ok() : Forbid();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:long}/items/{itemId:long}")]

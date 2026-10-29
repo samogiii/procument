@@ -387,6 +387,9 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         return new WalletSettingsResponse(row.AutoImport);
     }
 
+    public async Task<SuggestedBasesResponse> SuggestBasesAsync(long? paymentRequestId, long? invoiceId, long? customerId) =>
+        new(await TransactionBases.SuggestAsync(_db, paymentRequestId, invoiceId, customerId));
+
     public async Task<bool> DeleteBoxAsync(long id)
     {
         var box = await _db.Set<PaymentBox>().FindAsync(id);
@@ -414,7 +417,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             PaymentRequestId = req.PaymentRequestId,
             Notes = req.Notes,
             IsAuto = false,
-            Base = NormalizeBase(req.Base),
+            Base = TransactionBases.Normalize(req.Base),
             TxCurrency = req.Currency,
             ExchangeRate = req.ExchangeRate,
             ToPaymentBoxId = req.ToPaymentBoxId,
@@ -444,7 +447,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         tx.InvoiceId = req.InvoiceId;
         tx.PaymentRequestId = req.PaymentRequestId;
         tx.Notes = req.Notes;
-        tx.Base = NormalizeBase(req.Base);
+        tx.Base = TransactionBases.Normalize(req.Base);
         tx.TxCurrency = req.Currency;
         tx.ExchangeRate = req.ExchangeRate;
         tx.ToPaymentBoxId = req.ToPaymentBoxId;
@@ -659,6 +662,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             PopFileName = popFileName,
             IsAuto = true,
             InWallet = await WalletImport.IsOnAsync(_db),
+            Base = await TransactionBases.SuggestAsync(_db, null, invoiceId, customerId),
             TxCurrency = normalizedCurrency,
             // Amount * ExchangeRate is the value posted to the wallet. A null
             // factor means the POP and wallet already use the same currency.
@@ -698,6 +702,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             PaymentRequestId = paymentRequestId,
             IsAuto = true,
             InWallet = await WalletImport.IsOnAsync(_db),
+            Base = await TransactionBases.SuggestAsync(_db, paymentRequestId, null, null),
             CreatedAt = DateTime.UtcNow
         });
         await _db.SaveChangesAsync();
@@ -813,15 +818,6 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             ? null
             : box.CompanyPreset.Name;
 
-    /// <summary>Accepts only "B1".."B7"; anything else is stored as no base.</summary>
-    private static string? NormalizeBase(string? value)
-    {
-        var v = value?.Trim().ToUpperInvariant();
-        return !string.IsNullOrEmpty(v) && v.Length == 2 && v[0] == 'B' && v[1] >= '1' && v[1] <= '7'
-            ? v
-            : null;
-    }
-
     /// <summary>How a wallet is labelled: its own name, falling back to the company preset.</summary>
     private static string DisplayName(PaymentBox box) =>
         string.IsNullOrWhiteSpace(box.Name)
@@ -837,17 +833,24 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         var totalWithdraw = withdraws.Sum(t => t.Amount * (t.ExchangeRate ?? 1m));
 
         // Per-currency breakdown (raw amounts, not converted)
-        var currencies = box.Transactions
-            .Select(t => t.TxCurrency ?? box.Currency)
-            .Distinct()
-            .Where(c => c != null);
+        List<CurrencyBreakdown> Breakdowns(IEnumerable<PaymentTransaction> txs)
+        {
+            var list = txs.ToList();
+            return list
+                .Select(t => t.TxCurrency ?? box.Currency)
+                .Where(c => c != null)
+                .Distinct()
+                .Select(c => new CurrencyBreakdown(
+                    c,
+                    CurrencySymbol(c),
+                    list.Where(t => t.Type == "Deposit" && (t.TxCurrency ?? box.Currency) == c).Sum(t => t.Amount),
+                    list.Where(t => t.Type == "Withdraw" && (t.TxCurrency ?? box.Currency) == c).Sum(t => t.Amount)))
+                .Where(b => b.TotalDeposit > 0 || b.TotalWithdraw > 0)
+                .ToList();
+        }
 
-        var breakdowns = currencies.Select(c => new CurrencyBreakdown(
-            c,
-            CurrencySymbol(c),
-            deposits.Where(t => (t.TxCurrency ?? box.Currency) == c).Sum(t => t.Amount),
-            withdraws.Where(t => (t.TxCurrency ?? box.Currency) == c).Sum(t => t.Amount)
-        )).Where(b => b.TotalDeposit > 0 || b.TotalWithdraw > 0).ToList();
+        var breakdowns = Breakdowns(box.Transactions);
+        var b1Breakdowns = Breakdowns(box.Transactions.Where(t => TransactionBases.Has(t.Base, "B1")));
 
         return new PaymentBoxSummaryResponse(
             box.Id,
@@ -863,7 +866,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             box.BankAddress,
             box.AccountNumber,
             box.BeneficiaryName,
-            box.SwiftCode);
+            box.SwiftCode,
+            b1Breakdowns);
     }
 
     private static string CurrencySymbol(string currency) => currency switch

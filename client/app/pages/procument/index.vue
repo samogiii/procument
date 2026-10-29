@@ -1937,6 +1937,7 @@ function applySuggestion(item: any, suggestion: any) {
     note: suggestion.note || '',
     myNotes: suggestion.myNotes || '',
     ...quoteDetailsOf(suggestion, ''),
+    expertUserId: suggestion.expertUserId ?? null,
     _saving: false,
   })
   if (!expandedArray.value.includes(item.rfqItemId)) {

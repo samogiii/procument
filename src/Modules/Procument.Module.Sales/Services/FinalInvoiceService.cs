@@ -221,23 +221,40 @@ public class FinalInvoiceService : IFinalInvoiceService
         return fi == null ? null : MapToResponse(fi);
     }
 
-    /// <summary>A shipping track is finished once its parts reached the customer (SN# finished or PickUp).</summary>
-    private const string FinishedTrackStatus = "Delivered to Customer";
     private const string CancelledLineStatus = "Cancelled";
 
     /// <summary>
-    /// Sales Order lines that can go on a Final Invoice right now: the Sales Order is live, the line
-    /// is not cancelled and not on a Final Invoice yet, and its live PO line has at least one finished
-    /// ("Delivered to Customer") track. A Sales Order is invoiced part by part through this rule.
+    /// Track statuses from "Received in Warehouse" onwards — the part reached the warehouse, so it can
+    /// be final-invoiced. "Ship to Warehouse" (still on the way) and "Rejected" don't count.
     /// </summary>
-    private IQueryable<InvoiceItem> InvoiceableItems() =>
-        _db.Set<InvoiceItem>().Where(ii =>
+    private static readonly string[] ReadyTrackStatuses =
+    [
+        "Received in Warehouse", "Waiting for Packing", "Ship To USA",
+        "Clearing Customs", "Received in Office", "Delivered to Customer",
+    ];
+
+    /// <summary>PO-line tracks whose parts were received in the warehouse (or went further).</summary>
+    private IQueryable<long> ReadyTrackIds() =>
+        _db.Set<POItemTrackNumber>()
+            .Where(t => ReadyTrackStatuses.Contains(t.Status))
+            .Select(t => t.Id);
+
+    /// <summary>
+    /// Sales Order lines that can go on a Final Invoice right now: the Sales Order is live, the line
+    /// is not cancelled and not on a Final Invoice yet, and its live PO line has at least one ready
+    /// track (see <see cref="ReadyTrackIds"/>). A Sales Order is invoiced part by part through this rule.
+    /// </summary>
+    private IQueryable<InvoiceItem> InvoiceableItems()
+    {
+        var readyTrackIds = ReadyTrackIds();
+        return _db.Set<InvoiceItem>().Where(ii =>
             !ii.Invoice.IsCancelled
             && ii.Status != CancelledLineStatus
             && !_db.Set<FinalInvoiceItem>().Any(f => f.InvoiceItemId == ii.Id)
             && _db.Set<POItem>().Any(pi => pi.InvoiceItemId == ii.Id
                 && pi.ReturnedAt == null
-                && pi.TrackNumbers.Any(t => t.Status == FinishedTrackStatus)));
+                && pi.TrackNumbers.Any(t => readyTrackIds.Contains(t.Id))));
+    }
 
     public async Task<List<EligibleProformaResponse>> GetEligibleProformasAsync()
     {
@@ -290,10 +307,16 @@ public class FinalInvoiceService : IFinalInvoiceService
         var lines = proforma.InvoiceItems.Where(ii => ii.Status != CancelledLineStatus).OrderBy(ii => ii.Id).ToList();
         var lineIds = lines.Select(ii => ii.Id).ToList();
 
+        var readyTrackIds = ReadyTrackIds();
         var tracks = await _db.Set<POItemTrackNumber>().AsNoTracking()
             .Where(t => t.POItem.InvoiceItemId != null && lineIds.Contains(t.POItem.InvoiceItemId.Value) && t.POItem.ReturnedAt == null)
             .OrderBy(t => t.Id)
-            .Select(t => new { InvoiceItemId = t.POItem.InvoiceItemId!.Value, t.TrackNumber, t.Status })
+            .Select(t => new
+            {
+                InvoiceItemId = t.POItem.InvoiceItemId!.Value,
+                t.TrackNumber,
+                Ready = readyTrackIds.Contains(t.Id),
+            })
             .ToListAsync();
         var tracksByLine = tracks.ToLookup(t => t.InvoiceItemId);
 
@@ -319,8 +342,8 @@ public class FinalInvoiceService : IFinalInvoiceService
             Items = lines.Select(ii =>
             {
                 var lineTracks = tracksByLine[ii.Id].ToList();
-                var finished = lineTracks.Where(t => t.Status == FinishedTrackStatus).Select(t => t.TrackNumber).Distinct().ToList();
-                var open = lineTracks.Where(t => t.Status != FinishedTrackStatus).Select(t => t.TrackNumber).Distinct().ToList();
+                var finished = lineTracks.Where(t => t.Ready).Select(t => t.TrackNumber).Distinct().ToList();
+                var open = lineTracks.Where(t => !t.Ready).Select(t => t.TrackNumber).Distinct().ToList();
                 invoiced.TryGetValue(ii.Id, out var onInvoice);
 
                 string? reason =
@@ -328,7 +351,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                     : onInvoice != null ? $"Already on {onInvoice.InvoiceNumber}"
                     : !linesWithPo.Contains(ii.Id) ? "No PO yet"
                     : lineTracks.Count == 0 ? "No track number yet"
-                    : finished.Count == 0 ? "Shipping not finished"
+                    : finished.Count == 0 ? "Not received in warehouse yet"
                     : null;
 
                 return new FinalInvoiceCandidateItem
@@ -401,7 +424,7 @@ public class FinalInvoiceService : IFinalInvoiceService
                 .ToListAsync();
             if (invoiceable.Count != ids.Count)
                 throw new InvalidOperationException(
-                    "Some selected parts can't be invoiced: each part needs a finished shipping track and must not be on another Final Invoice. Refresh and try again.");
+                    "Some selected parts can't be invoiced: each part needs a track number received in the warehouse and must not be on another Final Invoice. Refresh and try again.");
 
             var selected = proforma.InvoiceItems.Where(ii => ids.Contains(ii.Id)).OrderBy(ii => ii.Id).ToList();
 
@@ -413,10 +436,11 @@ public class FinalInvoiceService : IFinalInvoiceService
             if (proforma.PaymentStatus != InvoicePaymentTerms.Prepayment && proforma.Status != "Finish")
                 proforma.Status = "Running";
 
-            // Finished tracks of the live (non-returned) PO lines — the shipments this invoice bills for.
+            // Ready tracks of the live (non-returned) PO lines — the shipments this invoice bills for.
+            var readyTrackIds = ReadyTrackIds();
             var finishedTracks = await _db.Set<POItemTrackNumber>()
                 .Where(t => t.POItem.InvoiceItemId != null && ids.Contains(t.POItem.InvoiceItemId.Value)
-                         && t.POItem.ReturnedAt == null && t.Status == FinishedTrackStatus)
+                         && t.POItem.ReturnedAt == null && readyTrackIds.Contains(t.Id))
                 .OrderBy(t => t.Id)
                 .Select(t => new { InvoiceItemId = t.POItem.InvoiceItemId!.Value, t.TrackNumber, t.Carrier })
                 .ToListAsync();

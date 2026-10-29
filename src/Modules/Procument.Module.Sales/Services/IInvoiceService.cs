@@ -12,6 +12,10 @@ public interface IInvoiceService
     Task<bool> UpdateAsync(long id, UpdateInvoiceRequest request);
     Task<bool> UpdateB1InvoiceNumberAsync(long id, string? b1InvoiceNumber);
     Task<bool> UpdateItemsAsync(long id, UpdateInvoiceItemsRequest request, long userId, bool isAdmin);
+    Task<List<InvoiceAddableItemResponse>?> GetAddableItemsAsync(long id, long userId, bool isAdmin);
+    Task<List<InvoiceLinkableQuoteResponse>?> GetLinkableQuotesAsync(long id, long userId, bool isAdmin);
+    Task<bool> AddSourceQuoteAsync(long id, long quoteId, long userId, bool isAdmin);
+    Task<bool> AddItemsAsync(long id, AddInvoiceItemsRequest request, long userId, bool isAdmin);
     Task<RemoveInvoiceItemResponse?> RemoveItemAsync(long id, long itemId, long userId, bool isAdmin);
     Task<bool> UpdateStatusAsync(long id, string status, long userId, bool isAdmin, bool autoFinalize = false);
     Task<bool> GrantPermissionsAsync(List<long> invoiceIds, long targetUserId, string permission);

@@ -11,7 +11,16 @@
         <v-icon v-else icon="mdi-unfold-more-horizontal" size="13" class="cf-sort-hint" />
       </template>
     </span>
-    <v-menu :close-on-content-click="false" max-width="280">
+    <v-btn
+      v-if="filterAction"
+      icon="mdi-filter-outline"
+      size="x-small"
+      variant="text"
+      class="cf-filter-btn"
+      :title="filterAction"
+      @click.stop="$emit('filterClick')"
+    />
+    <v-menu v-else :close-on-content-click="false" max-width="280">
       <template #activator="{ props: mp }">
         <v-btn
           v-bind="mp"
@@ -96,9 +105,15 @@ const props = defineProps<{
   sortable?: boolean
   isSorted?: boolean
   sortDesc?: boolean
+  /**
+   * When set, the filter button emits `filterClick` (the parent opens its own dialog) instead of
+   * opening the value list; the text is the button's tooltip.
+   */
+  filterAction?: string
 }>()
 
 defineEmits<{
+  filterClick: []
   toggle: [val: string]
   /** Payload is the list currently visible in the menu (after search + show-all). */
   selectAll: [vals: string[]]

@@ -3,6 +3,7 @@ using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -101,7 +102,7 @@ public class ILSService : IILSService
 
             item.PartNumberId = partNumberId;
             item.Description = request.Description;
-            item.AltPartNumber = request.AltPartNumber;
+            item.AltPartNumber = AltPartNumbers.Clean(request.AltPartNumber);
             item.Price = request.Price;
             item.Qty = request.Qty;
             item.Condition = request.Condition;
@@ -116,7 +117,7 @@ public class ILSService : IILSService
             {
                 PartNumberId = partNumberId,
                 Description = request.Description,
-                AltPartNumber = request.AltPartNumber,
+                AltPartNumber = AltPartNumbers.Clean(request.AltPartNumber),
                 Price = request.Price,
                 Qty = request.Qty,
                 Condition = request.Condition,
@@ -241,7 +242,7 @@ public class ILSService : IILSService
                 {
                     PartNumber = pn,
                     Description = row.Description,
-                    AltPartNumber = row.AltPartNumber,
+                    AltPartNumber = AltPartNumbers.Clean(row.AltPartNumber),
                     Price = row.Price,
                     Qty = row.Qty,
                     Condition = row.Condition,

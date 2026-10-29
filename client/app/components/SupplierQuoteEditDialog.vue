@@ -38,7 +38,7 @@
 
         <div class="sqe-row sqe-row--3">
           <v-select v-model="form.condition" :items="shop ? SHOP_CONDITIONS : QUOTE_CONDITIONS" label="Condition" density="compact" variant="outlined" clearable hide-details />
-          <v-text-field v-model="form.alt" label="Alt P/N" placeholder="Same P/N" density="compact" variant="outlined" clearable hide-details />
+          <v-text-field v-model="form.alt" label="Alt P/N" placeholder="Same P/N" density="compact" variant="outlined" clearable hide-details @blur="form.alt = cleanAlt(form.alt)" />
           <v-text-field v-model.number="form.qty" type="number" min="0" label="Qty" density="compact" variant="outlined" hide-details />
         </div>
         <div class="sqe-row" :class="{ 'sqe-row--3': shop }">
@@ -156,9 +156,13 @@
             color="error"
             variant="tonal"
             prepend-icon="mdi-file-pdf-box"
-            :title="c.originalFileName"
+            :title="`${c.originalFileName} — click to view`"
+            @click="previewCertificate(c)"
           >
             REF#{{ c.reference }} · {{ c.originalFileName }}
+            <template #append>
+              <v-icon icon="mdi-download" size="16" class="ml-1" title="Download" @click.stop="downloadCertificate(c)" />
+            </template>
           </v-chip>
           <v-chip
             v-for="(file, i) in queuedCerts"
@@ -199,6 +203,14 @@
       </v-card-actions>
     </v-card>
 
+    <DocPreviewModal
+      :open="docPreview.open.value"
+      :blob-url="docPreview.blobUrl.value"
+      :file-name="docPreview.fileName.value"
+      :mime-type="docPreview.mimeType.value"
+      @close="docPreview.close()"
+    />
+
     <!-- Add-supplier / add-email for the picker above -->
     <SupplierQuickAddDialog
       v-model="supplierDialog.open"
@@ -224,6 +236,8 @@ const props = defineProps<{
   companyPresetOptions?: { id: number; name: string }[]
   /** RFQ the quote belongs to — cert PDFs live under /rfqs/{rfqId}/supplier-quotes/{id}/certificates. */
   rfqId?: number | string | null
+  /** More quotes whose cert PDFs to list (view / download) — e.g. the same supplier offer on other RFQs. */
+  certQuotes?: { rfqId: number | string; quoteId: number }[]
   /** Persists the edited copy and returns the saved quote (its id); throw to keep the dialog open with the error shown. */
   save: (form: any) => Promise<any>
 }>()
@@ -278,16 +292,53 @@ function certsUrl(quoteId: number) {
   return `/rfqs/${props.rfqId}/supplier-quotes/${quoteId}/certificates`
 }
 
+/** quoteId → its RFQ, for the cert download path (this quote + certQuotes). */
+function certRfqId(quoteId: number) {
+  if (quoteId === form.value?.id && props.rfqId) return props.rfqId
+  return props.certQuotes?.find(q => q.quoteId === quoteId)?.rfqId ?? props.rfqId
+}
+
 async function loadCertificates(quoteId: number) {
-  if (!props.rfqId) return
+  const sources = [
+    ...(props.rfqId ? [{ rfqId: props.rfqId, quoteId }] : []),
+    ...(props.certQuotes ?? []).filter(q => q.quoteId !== quoteId),
+  ]
+  if (!sources.length) return
   certsLoading.value = true
   try {
-    const list = await api.get<QuoteCertificate[]>(certsUrl(quoteId))
-    if (form.value?.id === quoteId) certificates.value = list
-  } catch {
-    // The list is a convenience; uploading still works.
+    const lists = await Promise.all(sources.map(s =>
+      api.get<QuoteCertificate[]>(`/rfqs/${s.rfqId}/supplier-quotes/${s.quoteId}/certificates`)
+        // The list is a convenience; uploading still works.
+        .catch(() => [] as QuoteCertificate[]),
+    ))
+    if (form.value?.id !== quoteId) return
+    const seen = new Set<number>()
+    certificates.value = lists.flat()
+      .filter(c => !seen.has(c.id) && seen.add(c.id))
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
   } finally {
     certsLoading.value = false
+  }
+}
+
+const docPreview = useDocPreview()
+function certDownloadPath(c: QuoteCertificate) {
+  return `/rfqs/${certRfqId(c.supplierQuoteId)}/supplier-quotes/${c.supplierQuoteId}/certificates/${c.id}/download`
+}
+function previewCertificate(c: QuoteCertificate) {
+  docPreview.preview(certDownloadPath(c), c.originalFileName, 'application/pdf')
+}
+async function downloadCertificate(c: QuoteCertificate) {
+  try {
+    const blob = await api.get<Blob>(certDownloadPath(c), { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = c.originalFileName
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    error.value = 'Cert PDF download failed'
   }
 }
 

@@ -12,8 +12,14 @@ using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Controllers;
 
-public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long WalletId, decimal Amount, decimal? ExchangeRate, decimal? WireFee);
-public record FinalizeSupplierPaymentRequest(decimal FinalWalletAmount);
+/// <summary>Accept = saved from the Payment Request tab: saving the details is what accepts the request.</summary>
+public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long WalletId, decimal Amount, decimal? ExchangeRate, decimal? WireFee, bool Accept = false);
+/// <summary>
+/// The bank's final amount for a POP. With HandlingFee / BankWireFee (wallet currency) the final amount
+/// is worked out here: wallet debit (amount × rate) + handling + wire fee; FinalWalletAmount is then ignored.
+/// </summary>
+public record FinalizeSupplierPaymentRequest(decimal? FinalWalletAmount, decimal? HandlingFee = null, decimal? BankWireFee = null);
+public record RejectWarehousePaymentRequest(string? Note);
 /// <summary>
 /// One row of a PO's supplier payment history. Id is the wallet transaction (null for credit rows);
 /// RowKey is unique across both kinds and is what the UI should key on.
@@ -98,6 +104,14 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 WireFee = pr.PO!.ImportDetail != null ? pr.PO.ImportDetail.Wirefee ?? 0 : 0,
                 UploadId = pr.PendingUploadId!.Value,
                 pr.Status,
+                pr.WarehousePopFileName,
+                pr.WarehouseHandlingFee,
+                pr.WarehouseBankWireFee,
+                pr.WarehouseFinalAmount,
+                pr.WarehouseExchangeRate,
+                pr.WarehousePaidBy,
+                pr.WarehousePaidAt,
+                pr.WarehouseRejectNote,
             }).FirstOrDefaultAsync();
 
         if (draft == null) return Ok(null);
@@ -105,9 +119,21 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             .Where(t => t.PopUploadId == draft.UploadId && t.ToType == "Supplier")
             .Select(t => new { t.Id, t.PopFileName, t.CreatedAt, InitialWalletAmount = t.Amount * (t.ExchangeRate ?? 1m) })
             .FirstOrDefaultAsync();
+        // Paid in the warehouse app and waiting for review here (see WarehouseAccept / WarehouseReject).
+        var warehouse = draft.WarehousePaidAt == null ? null : new
+        {
+            FileName = draft.WarehousePopFileName,
+            HandlingFee = draft.WarehouseHandlingFee ?? 0,
+            BankWireFee = draft.WarehouseBankWireFee ?? 0,
+            FinalAmount = draft.WarehouseFinalAmount,
+            ExchangeRate = draft.WarehouseExchangeRate,
+            PaidBy = draft.WarehousePaidBy,
+            PaidAt = draft.WarehousePaidAt,
+            InitialWalletAmount = Math.Round(draft.Amount * (draft.WarehouseExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero),
+        };
         return Ok(new { draft.PaymentRequestId, draft.PrNumber, draft.WalletId, draft.WalletName,
             draft.WalletCurrency, draft.Amount, draft.ExchangeRate, draft.WireFee,
-            draft.UploadId, draft.Status, Pop = pop });
+            draft.UploadId, draft.Status, Pop = pop, Warehouse = warehouse, draft.WarehouseRejectNote });
     }
 
     [HttpPost("po/{poId:long}/draft")]
@@ -124,10 +150,22 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
             var po = await db.Set<PurchaseOrder>().Include(p => p.ImportDetail).FirstOrDefaultAsync(p => p.Id == poId);
             if (po == null) return NotFound();
+            if (request.Accept && po.PaymentApproval != "Accepted" && po.Status is not ("Cancelled" or "Returned"))
+            {
+                // Saved from the Payment Request tab: the details are the acceptance. Nothing is
+                // stored unless the rest of the checks pass (SaveChanges is only reached at the end).
+                po.PaymentApproval = "Accepted";
+                po.PaymentApprovalNote = null;
+                po.PaymentApprovalAt = DateTime.UtcNow;
+                po.PaymentApprovalBy = CurrentUserId();
+                await PurchaseOrderStatusFlow.ApplyAsync(db, po, PurchaseOrderStatusFlow.WaitingForPayment);
+            }
             if (po.PaymentApproval != "Accepted" || po.Status is "Cancelled" or "Returned")
                 return BadRequest(new { message = "The payment request must be accepted before payment." });
             if (po.PaymentStatus == WaitingForFinalAmount)
                 return BadRequest(new { message = "Confirm the final bank amount for the current POP before starting another payment." });
+            if (await db.Set<PaymentRequest>().AnyAsync(p => p.POId == poId && p.WarehousePaidAt != null))
+                return BadRequest(new { message = "The warehouse already paid this request. Accept or reject that payment first." });
 
             var pr = await db.Set<PaymentRequest>().FirstOrDefaultAsync(p => p.Id == request.PaymentRequestId && p.POId == poId);
             if (pr == null) return BadRequest(new { message = "Select a payment request belonging to this PO." });
@@ -217,53 +255,43 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
             var po = await db.Set<PurchaseOrder>().Include(p => p.Supplier).Include(p => p.ImportDetail).FirstOrDefaultAsync(p => p.Id == poId);
             if (po == null) return NotFound();
-            var pr = await db.Set<PaymentRequest>()
-                .Where(p => p.POId == poId && p.PendingUploadId != null && p.PendingPaymentAmount != null && p.PendingWalletId != null)
-                .OrderByDescending(p => p.Id).FirstOrDefaultAsync();
+            var pr = await PendingDraftAsync(poId);
             if (pr == null)
                 return BadRequest(new { message = "Save the payment request, amount, and wallet before uploading the POP." });
+            if (pr.WarehousePaidAt != null)
+                return BadRequest(new { message = "The warehouse already paid this request. Accept or reject that payment instead." });
 
             var uploadId = pr.PendingUploadId!.Value;
-            var walletId = pr.PendingWalletId!.Value;
-            var amount = pr.PendingPaymentAmount!.Value;
             var existing = await db.Set<PaymentTransaction>().FirstOrDefaultAsync(t => t.PopUploadId == uploadId);
             if (existing != null) return Ok(new { existing.Id, fileName = existing.PopFileName, waitingForFinalAmount = true });
 
-            var wallet = await db.Set<PaymentBox>().FirstOrDefaultAsync(w => w.Id == walletId);
-            if (wallet == null) return BadRequest(new { message = "The saved wallet no longer exists. Save the payment details again." });
-            var rate = string.Equals(wallet.Currency, "USD", StringComparison.OrdinalIgnoreCase) ? 1m : pr.PendingExchangeRate;
-            if (rate is null or <= 0) return BadRequest(new { message = "The saved exchange rate is invalid." });
-
-            var invoiceNumber = await db.Set<Invoice>().Where(i => i.Id == po.InvoiceId)
-                .Select(i => i.InvoiceNumber).FirstOrDefaultAsync() ?? po.PONumber;
+            var invoiceNumber = await PopFolderAsync(po);
             using var stream = file.OpenReadStream();
             var savedName = storage.SaveFileInSupplierCategory(invoiceNumber, po.Supplier.Name, Folder,
                 $"PR-{pr.PRId}-{uploadId:N}-{Path.GetFileName(file.FileName)}", stream);
 
-            var payment = new PaymentTransaction
+            var (payment, wallet, error) = await AddPopPaymentAsync(po, pr, savedName, invoiceNumber, pr.PendingExchangeRate);
+            if (payment == null)
             {
-                PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
-                Amount = amount, TxCurrency = "USD", ExchangeRate = rate,
-                Type = "Withdraw", FromType = "MotherWallet", ToType = "Supplier", ToSupplierId = po.SupplierId,
-                IsAuto = true, PopUploadId = uploadId, PopFileName = savedName, PopInvoiceNumber = invoiceNumber,
-                // Off: still the PO's payment record, just not counted in the wallet.
-                InWallet = await WalletImport.IsOnAsync(db),
-                Notes = $"POP for PR-{pr.PRId} / {po.PONumber}",
-            };
-            db.Set<PaymentTransaction>().Add(payment);
-            pr.Status = "WAITING FOR FINAL AMOUNT";
-            po.PaymentStatus = WaitingForFinalAmount;
+                storage.DeleteFileInSupplierCategory(invoiceNumber, po.Supplier.Name, Folder, savedName);
+                return BadRequest(new { message = error });
+            }
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
-            return Ok(new { payment.Id, fileName = savedName, paidAmount = amount,
-                initialWalletAmount = amount * rate.Value, walletCurrency = wallet.Currency, waitingForFinalAmount = true });
+            return Ok(new { payment.Id, fileName = savedName, paidAmount = payment.Amount,
+                initialWalletAmount = payment.Amount * payment.ExchangeRate!.Value, walletCurrency = wallet!.Currency, waitingForFinalAmount = true });
         });
     }
 
     [HttpPost("po/{poId:long}/final-amount")]
     public async Task<IActionResult> FinalizeAmount(long poId, [FromBody] FinalizeSupplierPaymentRequest request)
     {
-        if (request.FinalWalletAmount <= 0 || decimal.Round(request.FinalWalletAmount, 2) != request.FinalWalletAmount)
+        var byFees = request.HandlingFee != null || request.BankWireFee != null;
+        if (byFees && (request.HandlingFee is < 0 || request.BankWireFee is < 0
+                || decimal.Round(request.HandlingFee ?? 0, 2) != (request.HandlingFee ?? 0)
+                || decimal.Round(request.BankWireFee ?? 0, 2) != (request.BankWireFee ?? 0)))
+            return BadRequest(new { message = "Enter the handling and wire fees as 0 or more with at most two decimal places." });
+        if (!byFees && (request.FinalWalletAmount is not > 0 || decimal.Round(request.FinalWalletAmount.Value, 2) != request.FinalWalletAmount))
             return BadRequest(new { message = "Enter the bank's final withdrawn amount with at most two decimal places." });
 
         return await db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
@@ -277,40 +305,184 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 .OrderByDescending(p => p.Id).FirstOrDefaultAsync();
             if (pr == null) return BadRequest(new { message = "There is no POP waiting for a final bank amount." });
 
-            var payment = await db.Set<PaymentTransaction>()
-                .FirstOrDefaultAsync(t => t.PopUploadId == pr.PendingUploadId && t.ToType == "Supplier");
-            if (payment == null) return BadRequest(new { message = "The supplier payment for this POP could not be found." });
-            var wallet = await db.Set<PaymentBox>().FirstOrDefaultAsync(w => w.Id == payment.PaymentBoxId);
-            if (wallet == null) return BadRequest(new { message = "The payment wallet no longer exists." });
-
-            var initialWalletAmount = Math.Round(payment.Amount * (payment.ExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero);
-            if (request.FinalWalletAmount < initialWalletAmount)
-                return BadRequest(new { message = $"The final amount cannot be less than the original wallet debit ({initialWalletAmount:0.00} {wallet.Currency})." });
-            var bankFee = request.FinalWalletAmount - initialWalletAmount;
-            if (bankFee > 0)
-            {
-                db.Set<PaymentTransaction>().Add(new PaymentTransaction
-                {
-                    PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
-                    Amount = bankFee, TxCurrency = wallet.Currency,
-                    Type = "Withdraw", FromType = "MotherWallet", ToType = "BankFee", IsAuto = true,
-                    InWallet = payment.InWallet,   // the fee lives wherever its POP lives
-                    Notes = $"Bank Fee and Others for PR-{pr.PRId} / {po.PONumber}", CreatedAt = DateTime.UtcNow,
-                });
-            }
-
-            pr.PendingWalletId = null;
-            pr.PendingPaymentAmount = null;
-            pr.PendingExchangeRate = null;
-            pr.PendingUploadId = null;
-            var userId = long.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var parsedUserId) ? parsedUserId : (long?)null;
-            var progress = await SupplierPaymentCompletion.ApplyAsync(db, po, pr, userId);
-
+            var (result, error) = byFees
+                ? await FinalizeCoreAsync(po, pr, null, request.HandlingFee ?? 0, request.BankWireFee ?? 0)
+                : await FinalizeCoreAsync(po, pr, request.FinalWalletAmount, null, null);
+            if (result == null) return BadRequest(new { message = error });
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
-            return Ok(new { initialWalletAmount, finalWalletAmount = request.FinalWalletAmount, bankFee,
-                walletCurrency = wallet.Currency, paidAmount = progress.PoPaid, remainingAmount = progress.PoRemaining,
-                complete = progress.Complete, status = po.PaymentStatus });
+            return Ok(result);
         });
     }
+
+    // ── Paid in the warehouse app (synced by WarehousePaymentSyncController) ──
+
+    /// <summary>The POP the warehouse uploaded, for review before it is accepted.</summary>
+    [HttpGet("po/{poId:long}/warehouse-pop")]
+    public async Task<IActionResult> WarehousePop(long poId)
+    {
+        var po = await db.Set<PurchaseOrder>().AsNoTracking().Include(p => p.Supplier).FirstOrDefaultAsync(p => p.Id == poId);
+        var pr = await db.Set<PaymentRequest>().AsNoTracking()
+            .Where(p => p.POId == poId && p.WarehousePaidAt != null && p.WarehousePopFileName != null)
+            .OrderByDescending(p => p.Id).FirstOrDefaultAsync();
+        if (po == null || pr == null) return NotFound();
+        var file = storage.OpenFileInSupplierCategory(await PopFolderAsync(po), po.Supplier.Name, Folder, pr.WarehousePopFileName!);
+        if (file == null) return NotFound();
+        new FileExtensionContentTypeProvider().TryGetContentType(pr.WarehousePopFileName!, out var mime);
+        return base.File(file.Value.Stream, mime ?? "application/octet-stream", pr.WarehousePopFileName);
+    }
+
+    /// <summary>
+    /// Accept what the warehouse paid: records its POP with the warehouse's exchange rate, then its
+    /// final bank amount (anything above amount × rate is Bank Fee and Others) — the same rows as
+    /// uploading the POP and saving the final amount here. Wallet rows follow the auto-import switch.
+    /// </summary>
+    [HttpPost("po/{poId:long}/warehouse-accept")]
+    public async Task<IActionResult> WarehouseAccept(long poId)
+    {
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+            var po = await db.Set<PurchaseOrder>().Include(p => p.Supplier).Include(p => p.ImportDetail).FirstOrDefaultAsync(p => p.Id == poId);
+            if (po == null) return NotFound();
+            var pr = await PendingDraftAsync(poId);
+            if (pr?.WarehousePaidAt == null || pr.WarehousePopFileName == null || pr.WarehouseFinalAmount == null)
+                return BadRequest(new { message = "There is no warehouse payment waiting for review." });
+            if (await db.Set<PaymentTransaction>().AnyAsync(t => t.PopUploadId == pr.PendingUploadId))
+                return BadRequest(new { message = "A POP was already recorded for this payment." });
+
+            var (payment, _, popError) = await AddPopPaymentAsync(po, pr, pr.WarehousePopFileName,
+                await PopFolderAsync(po), pr.WarehouseExchangeRate ?? pr.PendingExchangeRate);
+            if (payment == null) return BadRequest(new { message = popError });
+            payment.Notes = $"POP for PR-{pr.PRId} / {po.PONumber} (warehouse · {pr.WarehousePaidBy})";
+            // The final amount reads the POP row back through the ledger.
+            await db.SaveChangesAsync();
+
+            // Fees as entered on the phone; the total is amount × rate + fees again here.
+            var (result, error) = await FinalizeCoreAsync(po, pr, null, pr.WarehouseHandlingFee ?? 0, pr.WarehouseBankWireFee ?? 0);
+            if (result == null) return BadRequest(new { message = error });
+            ClearWarehouse(pr, null);
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return Ok(result);
+        });
+    }
+
+    /// <summary>Send the warehouse payment back: its POP is removed and the next sync reopens it on the phone.</summary>
+    [HttpPost("po/{poId:long}/warehouse-reject")]
+    public async Task<IActionResult> WarehouseReject(long poId, [FromBody] RejectWarehousePaymentRequest request)
+    {
+        var note = request.Note?.Trim();
+        if (string.IsNullOrEmpty(note)) return BadRequest(new { message = "Say what the warehouse should fix." });
+        if (note.Length > 500) note = note[..500];
+
+        var po = await db.Set<PurchaseOrder>().Include(p => p.Supplier).FirstOrDefaultAsync(p => p.Id == poId);
+        if (po == null) return NotFound();
+        var pr = await db.Set<PaymentRequest>()
+            .Where(p => p.POId == poId && p.WarehousePaidAt != null)
+            .OrderByDescending(p => p.Id).FirstOrDefaultAsync();
+        if (pr == null) return BadRequest(new { message = "There is no warehouse payment waiting for review." });
+
+        if (pr.WarehousePopFileName != null)
+            storage.DeleteFileInSupplierCategory(await PopFolderAsync(po), po.Supplier.Name, Folder, pr.WarehousePopFileName);
+        ClearWarehouse(pr, note);
+        await db.SaveChangesAsync();
+        return Ok(new { rejected = true });
+    }
+
+    // ── Shared by the office and warehouse paths ──
+
+    private Task<PaymentRequest?> PendingDraftAsync(long poId) => db.Set<PaymentRequest>()
+        .Where(p => p.POId == poId && p.PendingUploadId != null && p.PendingPaymentAmount != null && p.PendingWalletId != null)
+        .OrderByDescending(p => p.Id).FirstOrDefaultAsync();
+
+    /// <summary>POPs are filed under the Sales Order (Stock POs: the PO number).</summary>
+    private async Task<string> PopFolderAsync(PurchaseOrder po)
+        => await db.Set<Invoice>().Where(i => i.Id == po.InvoiceId).Select(i => i.InvoiceNumber).FirstOrDefaultAsync() ?? po.PONumber;
+
+    /// <summary>The supplier payment row for the saved draft: its USD amount debited at <paramref name="rate"/>. Caller saves.</summary>
+    private async Task<(PaymentTransaction? Payment, PaymentBox? Wallet, string? Error)> AddPopPaymentAsync(
+        PurchaseOrder po, PaymentRequest pr, string savedName, string invoiceNumber, decimal? rate)
+    {
+        var wallet = await db.Set<PaymentBox>().FirstOrDefaultAsync(w => w.Id == pr.PendingWalletId);
+        if (wallet == null) return (null, null, "The saved wallet no longer exists. Save the payment details again.");
+        if (string.Equals(wallet.Currency, "USD", StringComparison.OrdinalIgnoreCase)) rate = 1m;
+        if (rate is null or <= 0) return (null, wallet, "The saved exchange rate is invalid.");
+
+        var payment = new PaymentTransaction
+        {
+            PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
+            Amount = pr.PendingPaymentAmount!.Value, TxCurrency = "USD", ExchangeRate = rate,
+            Type = "Withdraw", FromType = "MotherWallet", ToType = "Supplier", ToSupplierId = po.SupplierId,
+            IsAuto = true, PopUploadId = pr.PendingUploadId, PopFileName = savedName, PopInvoiceNumber = invoiceNumber,
+            // Off: still the PO's payment record, just not counted in the wallet.
+            InWallet = await WalletImport.IsOnAsync(db),
+            // Every PI customer the PO's lines belong to.
+            Base = await TransactionBases.ForPaymentRequestAsync(db, pr.Id),
+            Notes = $"POP for PR-{pr.PRId} / {po.PONumber}",
+        };
+        db.Set<PaymentTransaction>().Add(payment);
+        pr.PendingExchangeRate = rate;
+        pr.Status = "WAITING FOR FINAL AMOUNT";
+        po.PaymentStatus = WaitingForFinalAmount;
+        return (payment, wallet, null);
+    }
+
+    /// <summary>
+    /// Bank's final amount for the POP of this draft: fee row, draft cleared, PO progress. Caller saves.
+    /// With fees given, the final amount = wallet debit (amount × rate) + handling + wire fee.
+    /// </summary>
+    private async Task<(object? Result, string? Error)> FinalizeCoreAsync(PurchaseOrder po, PaymentRequest pr,
+        decimal? finalWalletAmount, decimal? handlingFee, decimal? bankWireFee)
+    {
+        var payment = await db.Set<PaymentTransaction>()
+            .FirstOrDefaultAsync(t => t.PopUploadId == pr.PendingUploadId && t.ToType == "Supplier");
+        if (payment == null) return (null, "The supplier payment for this POP could not be found.");
+        var wallet = await db.Set<PaymentBox>().FirstOrDefaultAsync(w => w.Id == payment.PaymentBoxId);
+        if (wallet == null) return (null, "The payment wallet no longer exists.");
+
+        var initialWalletAmount = Math.Round(payment.Amount * (payment.ExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero);
+        var byFees = handlingFee != null || bankWireFee != null;
+        var final = byFees ? initialWalletAmount + (handlingFee ?? 0) + (bankWireFee ?? 0) : finalWalletAmount ?? 0;
+        if (final < initialWalletAmount)
+            return (null, $"The final amount cannot be less than the original wallet debit ({initialWalletAmount:0.00} {wallet.Currency}).");
+        var bankFee = final - initialWalletAmount;
+        if (bankFee > 0)
+        {
+            var breakdown = byFees ? $" (handling {handlingFee ?? 0:0.00} + wire fee {bankWireFee ?? 0:0.00} {wallet.Currency})" : "";
+            db.Set<PaymentTransaction>().Add(new PaymentTransaction
+            {
+                PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
+                Amount = bankFee, TxCurrency = wallet.Currency,
+                Type = "Withdraw", FromType = "MotherWallet", ToType = "BankFee", IsAuto = true,
+                InWallet = payment.InWallet,   // the fee lives wherever its POP lives
+                Base = payment.Base,
+                Notes = $"Bank Fee and Others for PR-{pr.PRId} / {po.PONumber}{breakdown}", CreatedAt = DateTime.UtcNow,
+            });
+        }
+
+        pr.PendingWalletId = null;
+        pr.PendingPaymentAmount = null;
+        pr.PendingExchangeRate = null;
+        pr.PendingUploadId = null;
+        var progress = await SupplierPaymentCompletion.ApplyAsync(db, po, pr, CurrentUserId());
+
+        return (new { initialWalletAmount, finalWalletAmount = final, handlingFee, bankWireFee, bankFee,
+            walletCurrency = wallet.Currency, paidAmount = progress.PoPaid, remainingAmount = progress.PoRemaining,
+            complete = progress.Complete, status = po.PaymentStatus }, null);
+    }
+
+    private static void ClearWarehouse(PaymentRequest pr, string? rejectNote)
+    {
+        pr.WarehousePopFileName = null;
+        pr.WarehouseFinalAmount = null;
+        pr.WarehouseExchangeRate = null;
+        pr.WarehousePaidBy = null;
+        pr.WarehousePaidAt = null;
+        pr.WarehouseRejectNote = rejectNote;
+    }
+
+    private long? CurrentUserId()
+        => long.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 }

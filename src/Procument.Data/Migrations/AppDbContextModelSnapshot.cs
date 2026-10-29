@@ -301,6 +301,9 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("MaxCredit")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("MinCoef")
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<DateTime?>("ModifyAt")
                         .HasColumnType("datetime2");
 
@@ -439,6 +442,10 @@ namespace Procument.Data.Migrations
                     b.Property<string>("Emails")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("FolderIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<DateTime?>("HiddenAt")
                         .HasColumnType("datetime2");
@@ -591,6 +598,9 @@ namespace Procument.Data.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("Trusted")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Username")
                         .HasColumnType("nvarchar(450)");
@@ -1967,6 +1977,33 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("SupplierCreditAccountId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("WarehouseBankWireFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("WarehouseExchangeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal?>("WarehouseFinalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("WarehouseHandlingFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("WarehousePaidAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("WarehousePaidBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("WarehousePopFileName")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("WarehouseRejectNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyPresetId");
@@ -2141,6 +2178,15 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<DateTime?>("PpeAssignedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("PpeAssignedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PpeUserId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Priority")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -2184,6 +2230,8 @@ namespace Procument.Data.Migrations
                     b.HasIndex("Mailbox");
 
                     b.HasIndex("MessageId");
+
+                    b.HasIndex("PpeUserId");
 
                     b.HasIndex("RfqId");
 
@@ -2455,6 +2503,12 @@ namespace Procument.Data.Migrations
 
                     b.Property<double?>("Coef_3")
                         .HasColumnType("float");
+
+                    b.Property<DateTime?>("CommissionAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("CommissionByUserId")
+                        .HasColumnType("bigint");
 
                     b.Property<long?>("CompanyPresetId")
                         .HasColumnType("bigint");
@@ -4460,6 +4514,10 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("Shipping")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("SourceQuoteIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -4596,8 +4654,8 @@ namespace Procument.Data.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Base")
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -5212,6 +5270,174 @@ namespace Procument.Data.Migrations
                     b.ToTable("WalletTransferPendings", (string)null);
                 });
 
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskBoardColumn", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDone")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<long>("OwnerUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "Position");
+
+                    b.ToTable("TaskBoardColumns", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCard", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("ColumnId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("date");
+
+                    b.Property<long>("OwnerUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ColumnId", "Position");
+
+                    b.HasIndex("OwnerUserId", "DueDate");
+
+                    b.ToTable("TaskCards", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardActivity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CardId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardId", "Kind", "CreatedAt");
+
+                    b.ToTable("TaskCardActivities", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardRef", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CardId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("RefId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RefType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardId", "RefType", "RefId")
+                        .IsUnique();
+
+                    b.ToTable("TaskCardRefs", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardTag", b =>
+                {
+                    b.Property<long>("CardId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TagId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("CardId", "TagId");
+
+                    b.HasIndex("TagId");
+
+                    b.ToTable("TaskCardTags", (string)null);
+                });
+
             modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskItem", b =>
                 {
                     b.Property<long>("Id")
@@ -5265,6 +5491,35 @@ namespace Procument.Data.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("Tasks", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskTag", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<long>("OwnerUserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("TaskTags", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Shared.Entities.AuditLog", b =>
@@ -6940,6 +7195,69 @@ namespace Procument.Data.Migrations
                     b.Navigation("ToBox");
                 });
 
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskBoardColumn", b =>
+                {
+                    b.HasOne("Procument.Module.Identity.Entities.User", "OwnerUser")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OwnerUser");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCard", b =>
+                {
+                    b.HasOne("Procument.Module.Tasks.Entities.TaskBoardColumn", "Column")
+                        .WithMany("Cards")
+                        .HasForeignKey("ColumnId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Column");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardActivity", b =>
+                {
+                    b.HasOne("Procument.Module.Tasks.Entities.TaskCard", "Card")
+                        .WithMany("Activities")
+                        .HasForeignKey("CardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Card");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardRef", b =>
+                {
+                    b.HasOne("Procument.Module.Tasks.Entities.TaskCard", "Card")
+                        .WithMany("Refs")
+                        .HasForeignKey("CardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Card");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCardTag", b =>
+                {
+                    b.HasOne("Procument.Module.Tasks.Entities.TaskCard", "Card")
+                        .WithMany("Tags")
+                        .HasForeignKey("CardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Tasks.Entities.TaskTag", "Tag")
+                        .WithMany("Cards")
+                        .HasForeignKey("TagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Card");
+
+                    b.Navigation("Tag");
+                });
+
             modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskItem", b =>
                 {
                     b.HasOne("Procument.Module.Identity.Entities.User", "AssignedToUser")
@@ -7150,6 +7468,25 @@ namespace Procument.Data.Migrations
             modelBuilder.Entity("Procument.Module.Sales.Entities.SupplierCreditEntry", b =>
                 {
                     b.Navigation("Documents");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskBoardColumn", b =>
+                {
+                    b.Navigation("Cards");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskCard", b =>
+                {
+                    b.Navigation("Activities");
+
+                    b.Navigation("Refs");
+
+                    b.Navigation("Tags");
+                });
+
+            modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskTag", b =>
+                {
+                    b.Navigation("Cards");
                 });
 #pragma warning restore 612, 618
         }

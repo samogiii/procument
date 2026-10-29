@@ -10,9 +10,12 @@ namespace Procument.Module.Catalog.Entities;
 /// </summary>
 public class Preferred : BaseEntity
 {
-    /// <summary><see cref="PreferredKinds.Part"/> or <see cref="PreferredKinds.Supplier"/>.</summary>
+    /// <summary><see cref="PreferredKinds"/>: Part, Supplier, Rfq or PpePart.</summary>
     public string Kind { get; set; } = PreferredKinds.Part;
-    /// <summary>Parts: the user whose working list it is. Suppliers: null (shared by everyone).</summary>
+    /// <summary>
+    /// The user whose row it is: parts / RFQs = their working list; suppliers = their own preferred
+    /// suppliers (each user has their own list, Sam 2026-10-25); PpePart = the assigned PPE.
+    /// </summary>
     public long? UserId { get; set; }
     /// <summary>Part number, or supplier / company name.</summary>
     public string Name { get; set; } = string.Empty;
@@ -45,6 +48,11 @@ public class Preferred : BaseEntity
     public decimal? TargetPrice { get; set; }
     /// <summary>Rfq rows: the RFQ on the user's "My RFQs" list (By RFQ tab). Plain id — RFQs live in another module.</summary>
     public long? RfqId { get; set; }
+    /// <summary>
+    /// PpePart rows: the user's folders the part is in (<see cref="PreferredKinds.PpeFolder"/> ids, comma-separated);
+    /// null = only in the public folder (every part is listed there).
+    /// </summary>
+    public string? FolderIds { get; set; }
 
     public PartNumber? CatalogPart { get; set; }
     public Supplier? Supplier { get; set; }
@@ -87,6 +95,13 @@ public static class PreferredKinds
     public const string Supplier = "Supplier";
     /// <summary>An RFQ a user keeps on their "My RFQs" list (By RFQ tab).</summary>
     public const string Rfq = "Rfq";
+    /// <summary>
+    /// A part assigned to a user (the PPE — Procurement Part Expert) from Email RFQs; listed on the new
+    /// Procurement Plus page (PpeService). Procurement ProMax only reads <see cref="Part"/> rows.
+    /// </summary>
+    public const string PpePart = "PpePart";
+    /// <summary>A user's own folder on the new Procurement Plus page (Name = folder name); parts list it in FolderIds.</summary>
+    public const string PpeFolder = "PpeFolder";
 }
 
 public static class PreferredSupplierMethods

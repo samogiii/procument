@@ -277,7 +277,7 @@
             prepend-inner-icon="mdi-magnify"
             clearable
             no-filter
-            @update:search="fetchQuotes"
+            @update:search="onQuoteSearch"
           >
             <!-- Subtitle carries the B1 quote number alongside the customer code so a
                  quote can be recognised by either number. -->
@@ -487,7 +487,17 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]
 
+// Typing used to fire one full fetch per keystroke, and a slow early response could land last
+// and overwrite the newer one. Debounce the typing and drop responses that are no longer current.
+let quoteSearchTimer: ReturnType<typeof setTimeout> | undefined
+let quoteFetchId = 0
+function onQuoteSearch(search: string) {
+  clearTimeout(quoteSearchTimer)
+  quoteSearchTimer = setTimeout(() => fetchQuotes(search), 300)
+}
+
 async function fetchQuotes(search: string) {
+  const id = ++quoteFetchId
   loadingQuotes.value = true
   try {
     const result = await api.get<any>('/quotes', {
@@ -498,9 +508,12 @@ async function fetchQuotes(search: string) {
         ...(search ? { search } : {}),
       },
     })
+    if (id !== quoteFetchId) return
 
     const needle = search?.toLowerCase()
     availableQuotes.value = (result.items || [])
+      // Base 5 PIs need the "Base 5 Proforma Invoice" grant, SuperAdmin included.
+      .filter((q: any) => q.customerBase !== 5 || authStore.base5ProformaInvoice)
       .filter((q: any) => !needle ||
         q.quoteNumber?.toLowerCase().includes(needle) ||
         q.b1QuoteNumber?.toLowerCase().includes(needle) ||
@@ -510,12 +523,15 @@ async function fetchQuotes(search: string) {
   } catch (e) {
     console.error(e)
   } finally {
-    loadingQuotes.value = false
+    if (id === quoteFetchId) loadingQuotes.value = false
   }
 }
 
 watch(showCreateDialog, (val) => {
-  if (val) fetchQuotes('')
+  if (val) {
+    clearTimeout(quoteSearchTimer)
+    fetchQuotes('')
+  }
 })
 
 function proceedToCreate() {

@@ -376,6 +376,16 @@
         Line Items
         <v-spacer />
         <v-btn
+          v-if="canAddItems"
+          variant="tonal"
+          color="primary"
+          size="small"
+          class="mr-2"
+          prepend-icon="mdi-playlist-plus"
+          :disabled="savingItems || removingItemId !== null"
+          @click="openAddItems"
+        >Add Item</v-btn>
+        <v-btn
           v-if="canEditItems && itemsDirty"
           variant="tonal"
           color="warning"
@@ -539,6 +549,14 @@
     </v-card>
 
     <!-- Dialogs -->
+    <!-- Add lines from the quotes this Sales Order was created from -->
+    <InvoiceAddItemsDialog
+      v-model="showAddItems"
+      :invoice-id="Number(route.params.id)"
+      @added="onItemsAdded"
+      @error="(msg) => showSnack(msg, 'error')"
+    />
+
     <v-dialog v-model="showAudit" max-width="800">
       <BusinessAuditViewer entity-name="Invoice" :entity-id="route.params.id as string" />
     </v-dialog>
@@ -579,6 +597,7 @@
       class="mt-6"
       ref="documentsRef"
       @wallet-selected="onPopWalletSelected"
+      @finished="loadInvoice"
     />
 
     <InvoicePdfGenerator v-model="showPdf" :invoice="invoice" @pdf-uploaded="documentsRef?.loadDocuments()" />
@@ -682,6 +701,10 @@ const canEditItems = computed(() => {
     || (invoice.value.items || []).some((item: any) =>
       (item.assignedUsers || []).some((user: any) => user.id === userId))
 })
+// New lines can join any order that is still open (not cancelled, not finished).
+const canAddItems = computed(() =>
+  canEditItems.value && !!invoice.value.id && !invoice.value.isCancelled && invoice.value.status !== 'Finish')
+const showAddItems = ref(false)
 const showPdf = ref(false)
 const canCreateFinal = ref(false)
 const showCreateFinal = ref(false)
@@ -855,6 +878,18 @@ async function removeInvoiceItem(item: any) {
   } finally {
     removingItemId.value = null
   }
+}
+
+async function openAddItems() {
+  // Reloading after the add would drop unsaved line edits, so keep them first.
+  if (itemsDirty.value && !await saveItemEdits()) return
+  showAddItems.value = true
+}
+
+async function onItemsAdded(count: number) {
+  showSnack(`${count} item${count !== 1 ? 's' : ''} added to the Sales Order`, 'success')
+  await loadInvoice()
+  await Promise.all([checkFinalEligibility(), checkLock()])
 }
 
 onMounted(async () => {

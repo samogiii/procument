@@ -7,7 +7,7 @@ export function toEmailQuoteUpdatePayload(r: any, supplierId: number | null) {
   return {
     supplierId,
     partNumber: r.partNumber,
-    alt: r.alt || null,
+    alt: cleanAlt(r.alt),
     tagDate: r.tagDate || null,
     price: num(r.price),
     qty: num(r.qty),

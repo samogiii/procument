@@ -49,6 +49,20 @@ public class CustomerFollowUpMessageResponse
     public string? DocumentName { get; set; }
 }
 
+/// <summary>One message that matched a search across every row's chat.</summary>
+public class CustomerFollowUpMessageSearchHit
+{
+    public long RowId { get; set; }
+    public CustomerFollowUpMessageResponse Message { get; set; } = new();
+}
+
+/// <summary>Search hits, newest first; Total counts every match even when only the first page is returned.</summary>
+public class CustomerFollowUpMessageSearchResponse
+{
+    public int Total { get; set; }
+    public List<CustomerFollowUpMessageSearchHit> Hits { get; set; } = [];
+}
+
 public class CustomerFollowUpDocumentResponse
 {
     public long Id { get; set; }

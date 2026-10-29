@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Procument.Shared\Procument.Shared.csproj" />
     <ProjectReference Include="..\Procument.Module.Identity\Procument.Module.Identity.csproj" />
+    <!-- Card References search and labels (RFQs, quotes, invoices, purchase orders) -->
+    <ProjectReference Include="..\Procument.Module.Sales\Procument.Module.Sales.csproj" />
   </ItemGroup>
 
   <ItemGroup>

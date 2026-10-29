@@ -13,6 +13,8 @@ public class CreateInvoiceRequest
     public string? PaymentStatus { get; set; }      // Prepayment | CAD | Net | Credit
     public int? PaymentTermDays { get; set; }
     public decimal? PrepaymentPercent { get; set; } // 1-100, only when PaymentStatus = "Prepayment"
+    /// <summary>The other quotes merged into this Sales Order (besides <see cref="QuoteId"/>).</summary>
+    public List<long>? AdditionalQuoteIds { get; set; }
     public List<CreateInvoiceItemRequest> Items { get; set; } = new();
 }
 
@@ -55,6 +57,57 @@ public class UpdateInvoiceItemDiscountRequest
     public decimal? UnitPrice { get; set; }
     public string? Condition { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
+}
+
+/// <summary>Lines to add to an existing Sales Order — each one a line of a source quote.</summary>
+public class AddInvoiceItemsRequest
+{
+    public List<AddInvoiceItemRequest> Items { get; set; } = new();
+}
+
+public class AddInvoiceItemRequest
+{
+    public long QuoteItemId { get; set; }
+    public int Qty { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
+}
+
+/// <summary>
+/// A line of one of the Sales Order's source quotes. <see cref="IsDuplicate"/> is true when the
+/// Sales Order already has the same part with the same condition and unit price.
+/// </summary>
+public class InvoiceAddableItemResponse
+{
+    public long QuoteItemId { get; set; }
+    public long QuoteId { get; set; }
+    public string QuoteNumber { get; set; } = string.Empty;
+    public string PartNumberName { get; set; } = string.Empty;
+    public string? Alt { get; set; }
+    public string? Description { get; set; }
+    public string? Condition { get; set; }
+    public int Qty { get; set; }
+    public decimal UnitPrice { get; set; }
+    public string? CertName { get; set; }
+    public string? LeadTime { get; set; }
+    public bool IsDuplicate { get; set; }
+}
+
+/// <summary>A Sent/Accepted quote of the same customer that can be added to a Sales Order's source quotes.</summary>
+public class InvoiceLinkableQuoteResponse
+{
+    public long Id { get; set; }
+    public string QuoteNumber { get; set; } = string.Empty;
+    public string? B1QuoteNumber { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public decimal? TotalAmount { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int ItemCount { get; set; }
+}
+
+public class AddInvoiceSourceQuoteRequest
+{
+    public long QuoteId { get; set; }
 }
 
 public class RemoveInvoiceItemResponse

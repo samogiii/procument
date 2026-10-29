@@ -69,8 +69,8 @@ public class CreateFinalInvoiceRequest
 {
     public long ProformaInvoiceId { get; set; }
     /// <summary>
-    /// Sales Order lines to put on this Final Invoice. Each must have a finished shipping track
-    /// ("Delivered to Customer") and not be on another Final Invoice yet.
+    /// Sales Order lines to put on this Final Invoice. Each must have a track received in the
+    /// warehouse (or further along) and not be on another Final Invoice yet.
     /// </summary>
     public List<long> InvoiceItemIds { get; set; } = new();
 }
@@ -88,7 +88,7 @@ public class FinalInvoiceCandidateItem
     public string? Condition { get; set; }
     /// <summary>Sales Order line status (mirrors the PO line).</summary>
     public string Status { get; set; } = "";
-    /// <summary>Finished ("Delivered to Customer") track numbers of the live PO line.</summary>
+    /// <summary>Track numbers of the live PO line received in the warehouse (or further along).</summary>
     public List<string> FinishedTrackNumbers { get; set; } = new();
     /// <summary>Tracks still on the way — shown so the user knows why a part is not selectable yet.</summary>
     public List<string> OpenTrackNumbers { get; set; } = new();

@@ -69,6 +69,12 @@
                   {{ item.symbol }}{{ formatPrice(item.balance) }} <span v-if="item.symbol === '¥'">({{ formatPrice(item.balance / (7)) }}$)</span>
                 </span>
               </div>
+              <div v-if="b1NetBalance !== null" class="text-body font-weight-bold mt-6">
+                B1 NetB :
+                <span :style="{ color: b1NetBalance < 0 ? 'rgb(var(--v-theme-error))' : '#0A998B' }">
+                  {{ b1NetBalance < 0 ? '-' : '' }}${{ formatPrice(Math.abs(b1NetBalance)) }}
+                </span>
+              </div>
             </div>
           </div>
         </v-card>
@@ -563,7 +569,9 @@
 
             <!-- Base -->
             <template #item.base="{ item }">
-              <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
+              <span v-if="item.base" class="d-inline-flex flex-wrap ga-1">
+                <v-chip v-for="b in splitBases(item.base)" :key="b" size="x-small" color="deep-purple" variant="tonal">{{ b }}</v-chip>
+              </span>
               <span v-else class="text-medium-emphasis">—</span>
             </template>
 
@@ -1089,6 +1097,7 @@ interface PaymentBox {
   totalWithdraw: number
   balance: number
   currencyBreakdowns: CurrencyBreakdown[]
+  b1Breakdowns?: CurrencyBreakdown[] | null
   bankName?: string | null
   bankAddress?: string | null
   accountNumber?: string | null
@@ -1301,6 +1310,25 @@ const totalBalanceByCurrency = computed(() => {
     .map(([currency, v]) => ({ currency, symbol: v.symbol, balance: v.balance }))
 })
 
+/**
+ * B1 NetB, in USD, over every transaction tagged Base B1:
+ * (¥ deposits / 7 + $ deposits) − (¥ withdraws / 7 + $ withdraws). Other currencies are ignored.
+ * null when no wallet has a B1 USD/CNY transaction.
+ */
+const b1NetBalance = computed(() => {
+  let net = 0
+  let found = false
+  for (const box of boxes.value) {
+    for (const bd of box.b1Breakdowns ?? []) {
+      const divisor = bd.currency === 'CNY' ? 7 : bd.currency === 'USD' ? 1 : 0
+      if (!divisor) continue
+      net += (bd.totalDeposit - bd.totalWithdraw) / divisor
+      found = true
+    }
+  }
+  return found ? net : null
+})
+
 const ledgerHeaders = [
   { title: 'Account', key: 'accountName', sortable: true },
   { title: 'Deposit', key: 'deposit', sortable: true, width: '120px' },
@@ -1349,10 +1377,17 @@ const LIST_COLS = {
   toName: (t: AllTransactionRow) => (t.withdraw != null ? (t.toName ?? '—') : '—'),
   piNumber: (t: AllTransactionRow) => t.piNumber ?? '—',
   prNumber: (t: AllTransactionRow) => t.prNumber ?? '—',
-  base: (t: AllTransactionRow) => t.base ?? '—',
+  // A row tagged "B1,B3" shows under both B1 and B3.
+  base: (t: AllTransactionRow) => baseFilterValues(t.base),
   exchangeRate: (t: AllTransactionRow) => t.exchangeRate != null ? `×${t.exchangeRate}` : '1:1',
   isAuto: (t: AllTransactionRow) => t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual',
-} satisfies Record<string, (t: AllTransactionRow) => string>
+} satisfies Record<string, (t: AllTransactionRow) => string | string[]>
+
+/** A cell's filter value(s) — multi-value columns (Base) match when any value is selected. */
+function cellValues(key: keyof typeof LIST_COLS, t: AllTransactionRow): string[] {
+  const v = LIST_COLS[key](t)
+  return Array.isArray(v) ? v : [v]
+}
 
 // Date column range filter (ColDateRangeMenu) — `YYYY-MM-DD`, both ends inclusive.
 const dateFrom = ledgerPf.dateFrom
@@ -1365,7 +1400,7 @@ function localDayKey(iso: string) {
 }
 
 /** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
-const allBaseOptions = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', '—']
+const allBaseOptions = [...WALLET_BASES, '—']
 
 type ListColKey = keyof typeof LIST_COLS
 const LIST_KEYS = Object.keys(LIST_COLS) as ListColKey[]
@@ -1377,7 +1412,7 @@ function uniq(vals: string[]) {
 
 const cfOptions = computed(() => {
   const out = {} as Record<ListColKey, string[]>
-  for (const key of LIST_KEYS) out[key] = uniq(allTransactions.value.map(LIST_COLS[key]))
+  for (const key of LIST_KEYS) out[key] = uniq(allTransactions.value.flatMap(t => cellValues(key, t)))
   return out
 })
 
@@ -1401,7 +1436,7 @@ const displayedTransactions = computed(() =>
     if (showOnlyNew.value && !t.isNew) return false
     for (const key of LIST_KEYS) {
       const sel = colFilter.selected[key]
-      if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
+      if (sel?.size && !cellValues(key, t).some(v => sel.has(v))) return false
     }
     if (!rangeFilter.matches('deposit', t.deposit)) return false
     if (!rangeFilter.matches('withdraw', t.withdraw)) return false

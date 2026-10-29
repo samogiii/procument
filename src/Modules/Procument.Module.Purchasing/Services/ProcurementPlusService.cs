@@ -51,12 +51,12 @@ public interface IProcurementPlusService
     Task<PpResolveCompanyResponse> ResolveCompanyAsync(long userId, PpResolveCompanyRequest request);
 
     // Preferred suppliers (Preferreds table — catalog link optional)
-    Task<List<PpPreferredSupplierResponse>> GetPreferredAsync();
-    Task<PpPreferredSupplierResponse> SavePreferredAsync(long userId, long? id, PpSavePreferredSupplierRequest request);
-    Task<bool> UpdatePreferredAsync(long id, PpUpdatePreferredRequest request);
-    Task<bool> RemovePreferredAsync(long id);
-    Task<PpLinkPreferredResponse?> LinkPreferredAsync(long id, PpLinkPreferredRequest request);
-    Task<List<PpSupplierOption>> SearchSuppliersAsync(string? q);
+    Task<List<PpPreferredSupplierResponse>> GetPreferredAsync(long ownerId);
+    Task<PpPreferredSupplierResponse> SavePreferredAsync(long ownerId, long actorId, long? id, PpSavePreferredSupplierRequest request);
+    Task<bool> UpdatePreferredAsync(long ownerId, long id, PpUpdatePreferredRequest request);
+    Task<bool> RemovePreferredAsync(long ownerId, long id);
+    Task<PpLinkPreferredResponse?> LinkPreferredAsync(long ownerId, long id, PpLinkPreferredRequest request);
+    Task<List<PpSupplierOption>> SearchSuppliersAsync(long ownerId, string? q);
 
     // Sourcing → Done
     Task<PpStartSourcingResponse> StartSourcingAsync(long userId, PpStartSourcingRequest request);
@@ -78,7 +78,7 @@ public interface IProcurementPlusService
 /// email quote (PendingSupplierQuote with Source = ProcurementPlus): written to every RFQ for the
 /// part whose deadline is at most a week ago, and auto-filled onto new RFQs for AutoApplyDays.
 /// </summary>
-public class ProcurementPlusService : IProcurementPlusService
+public partial class ProcurementPlusService : IProcurementPlusService
 {
     /// <summary>Uploaded files feed the Suppliers Available tabs this long; older rows only show under History.</summary>
     public const int FreshDays = 7;
@@ -92,11 +92,13 @@ public class ProcurementPlusService : IProcurementPlusService
 
     private readonly DbContext _db;
     private readonly IPendingSupplierQuoteService _quotes;
+    private readonly ICustomerQuotePriceLookup _customerQuotes;
 
-    public ProcurementPlusService(DbContext db, IPendingSupplierQuoteService quotes)
+    public ProcurementPlusService(DbContext db, IPendingSupplierQuoteService quotes, ICustomerQuotePriceLookup customerQuotes)
     {
         _db = db;
         _quotes = quotes;
+        _customerQuotes = customerQuotes;
     }
 
     // ──── Part picking (from RFQs) ────
@@ -378,8 +380,8 @@ public class ProcurementPlusService : IProcurementPlusService
         MyParts(userId).Where(p => ids.Contains(p.Id)).ExecuteDeleteAsync();
 
     /// <summary>Preferred parts of one user's page, or of every user (null — SuperAdmin "All users").</summary>
-    private IQueryable<Preferred> MyParts(long? userId) =>
-        _db.Set<Preferred>().Where(p => p.Kind == PartKind && (userId == null || p.UserId == userId));
+    private IQueryable<Preferred> MyParts(long? userId, string kind = PartKind) =>
+        _db.Set<Preferred>().Where(p => p.Kind == kind && (userId == null || p.UserId == userId));
 
     // ──── Boards: Sourcing (ILS) / Project / WeChat ────
 
@@ -614,7 +616,7 @@ public class ProcurementPlusService : IProcurementPlusService
                 result.Add(entry);
             }
         }
-        return result;
+        return await WithFamiliesAsync(result);
     }
 
     /// <summary>Soonest open-RFQ deadline first; parts on no open RFQ last.</summary>
@@ -742,16 +744,17 @@ public class ProcurementPlusService : IProcurementPlusService
             .ToListAsync();
         if (offers.Count == 0) return new();
 
-        var matcher = await LoadPreferredMatcherAsync();
+        // Preferred suppliers are per user (Sam): each file is matched against its owner's list.
+        var matchers = await LoadPreferredMatchersAsync(offers.Select(o => o.Upload.UserId));
         // One company = one preferred supplier: the first of its rows that matches decides.
-        var preferredByCompany = offers.GroupBy(o => o.CompanyKey)
-            .ToDictionary(g => g.Key, g => g.Select(o => matcher.Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
+        var preferredByCompany = offers.GroupBy(o => (o.Upload.UserId, o.CompanyKey))
+            .ToDictionary(g => g.Key, g => g.Select(o => matchers[o.Upload.UserId].Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
         var state = userId != null ? await SourcingStateAsync(userId.Value) : new Dictionary<(string, string), string>();
 
         var rows = new List<PpOfferRow>();
         foreach (var o in offers)
         {
-            var pref = preferredByCompany[o.CompanyKey];
+            var pref = preferredByCompany[(o.Upload.UserId, o.CompanyKey)];
             // Files are per user: only the part owner's files count for it.
             foreach (var p in PartsFor(index, o.PartKey, o.AltKey).Where(p => p.Part.UserId == o.Upload.UserId))
             {
@@ -919,12 +922,12 @@ public class ProcurementPlusService : IProcurementPlusService
 
         // Items not on the list: their rows in the files too, through a stand-in part per item.
         var owner = userId ?? scope.UserId;
-        var standIns = items.Where(i => matchOf[i.Id] == null).Select(i =>
+        var standIns = await WithFamiliesAsync(items.Where(i => matchOf[i.Id] == null).Select(i =>
         {
             var keys = ItemKeys(i);
             var stand = new Preferred { Id = -i.Id, Kind = PartKind, UserId = owner, Name = i.PartNumber.Name, NameKey = PnKey(i.PartNumber.Name), Track = RfqTrack };
             return new PartKeys(stand, new(), keys, keys.ToList());
-        }).ToList();
+        }).ToList());
         var looseOffers = (await OfferRowsAsync(standIns, userId ?? owner))
             .GroupBy(r => -r.PartId)
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Price == null ? 1 : 0).ThenBy(r => r.Price).ToList());
@@ -960,13 +963,16 @@ public class ProcurementPlusService : IProcurementPlusService
 
     /// <summary>
     /// Supplier quotes for each item's part on OTHER RFQs — matched by the item's part number, new name,
-    /// RFQ-item alt and catalog alternatives — newest first.
+    /// RFQ-item alt and its whole alternative family — newest first.
     /// </summary>
-    private Task<Dictionary<long, List<PpRfqQuote>>> OlderQuotesAsync(List<RFQItem> items, long rfqId) =>
-        QuotesByKeysAsync(
-            items.ToDictionary(i => i.Id, ItemKeys),
+    private async Task<Dictionary<long, List<PpRfqQuote>>> OlderQuotesAsync(List<RFQItem> items, long rfqId)
+    {
+        var keysOf = await ItemFamilyKeysAsync(items);
+        return await QuotesByKeysAsync(
+            items.ToDictionary(i => i.Id, keysOf),
             items.SelectMany(i => new[] { i.PartNumber.Name, i.PartNumber.NewName, i.Alt }.Concat(i.PartNumber.Alternatives.Select(a => a.Name))),
             rfqId);
+    }
 
     /// <summary>
     /// Supplier quotes on RFQs (newest first, any RFQ but excludeRfqId) for each entry's part — an entry is a set of
@@ -1063,7 +1069,7 @@ public class ProcurementPlusService : IProcurementPlusService
                 .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
                 .FirstOrDefaultAsync(i => i.Id == -id);
             if (item == null) return null;
-            (partNumber, keys) = (item.PartNumber.Name, ItemKeys(item));
+            (partNumber, keys) = (item.PartNumber.Name, (await ItemFamilyKeysAsync([item]))(item));
             names = new[] { item.PartNumber.Name, item.PartNumber.NewName, item.Alt }.Concat(item.PartNumber.Alternatives.Select(a => a.Name)).ToList();
         }
 
@@ -1114,8 +1120,9 @@ public class ProcurementPlusService : IProcurementPlusService
                 .ToListAsync())
             .ToHashSet();
         var lineKeys = (await LineHeadsAsync(userId)).Select(h => PnKey(h.PartNumber)).ToHashSet();
+        var keysOf = await ItemFamilyKeysAsync(items);
         foreach (var r in rfqs)
-            r.CoveredCount = items.Count(i => i.RFQId == r.RfqId && (quoted.Contains(i.Id) || ItemKeys(i).Overlaps(lineKeys)));
+            r.CoveredCount = items.Count(i => i.RFQId == r.RfqId && (quoted.Contains(i.Id) || keysOf(i).Overlaps(lineKeys)));
 
         var openedAt = saved.ToDictionary(p => p.RfqId!.Value, p => p.AddedAt);
         foreach (var r in rfqs) r.AddedAt = openedAt[r.RfqId];
@@ -1226,10 +1233,11 @@ public class ProcurementPlusService : IProcurementPlusService
                 .FirstOrDefaultAsync(o => o.Id == request.OfferId && o.Upload.UserId == part.UserId)
                 ?? throw new InvalidOperationException("File row not found.");
         if (request.PreferredId is > 0)
-            pref = await _db.Set<Preferred>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == request.PreferredId && p.Kind == SupplierKind)
+            pref = await _db.Set<Preferred>().AsNoTracking()
+                       .FirstOrDefaultAsync(p => p.Id == request.PreferredId && p.Kind == SupplierKind && p.UserId == part.UserId)
                 ?? throw new InvalidOperationException("Preferred supplier not found.");
         else if (offer != null)
-            pref = (await LoadPreferredMatcherAsync()).Match(offer.SupplierId, offer.Email, offer.CompanyKey);
+            pref = (await LoadPreferredMatcherAsync(offer.Upload.UserId)).Match(offer.SupplierId, offer.Email, offer.CompanyKey);
         var supplierId = request.SupplierId is > 0 ? request.SupplierId : pref?.SupplierId ?? offer?.SupplierId;
         if (supplierId != null)
             catalog = await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == supplierId)
@@ -1365,15 +1373,20 @@ public class ProcurementPlusService : IProcurementPlusService
     /// <remarks>FromRfqs: a stand-in for saved-RFQ items not on the list (Parts tab) — the RFQs asking for it.</remarks>
     private sealed record PartKeys(Preferred Part, List<string> Alternatives, HashSet<string> Keys, List<string> Names, List<PpRfqRef>? FromRfqs = null);
 
-    /// <summary>Preferred parts of a user (null = every user), optionally of one track (ILS / Project / WeChat).</summary>
-    private async Task<List<PartKeys>> LoadPartsAsync(long? userId, bool includeHidden, string? track = null)
+    /// <summary>
+    /// Preferred parts of a user (null = every user), optionally of one track (ILS / Project / WeChat).
+    /// kind = PpePart: the parts assigned to the user on the new Procurement Plus page. ids = only those parts.
+    /// </summary>
+    private async Task<List<PartKeys>> LoadPartsAsync(long? userId, bool includeHidden, string? track = null, string kind = PartKind,
+        IReadOnlyCollection<long>? ids = null)
     {
-        var parts = await MyParts(userId).AsNoTracking()
+        var parts = await MyParts(userId, kind).AsNoTracking()
             .Include(p => p.CatalogPart).ThenInclude(c => c!.Alternatives)
             .Where(p => (includeHidden || p.HiddenAt == null) && (track == null || p.Track == track))
+            .Where(p => ids == null || ids.Contains(p.Id))
             .OrderByDescending(p => p.AddedAt).ThenBy(p => p.Name)
             .ToListAsync();
-        return parts.Select(p =>
+        return await WithFamiliesAsync(parts.Select(p =>
         {
             var alternatives = SplitList(p.Alternatives)
                 .Concat(new[] { p.CatalogPart?.NewName }.OfType<string>())
@@ -1388,7 +1401,43 @@ public class ProcurementPlusService : IProcurementPlusService
                 .ToList();
             var keys = raw.Select(PnKey).Where(k => k.Length > 0).ToHashSet();
             return new PartKeys(p, alternatives, keys, raw.Concat(keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        }).ToList());
+    }
+
+    /// <summary>
+    /// Widens each part's keys, names and alternatives to its whole alternative family — X lists Y and Y
+    /// lists Z: a part X answers to Z too (PartFamilies), on RFQs, files, email lines and price history.
+    /// </summary>
+    private async Task<List<PartKeys>> WithFamiliesAsync(List<PartKeys> parts)
+    {
+        if (parts.Count == 0) return parts;
+        var families = await PartFamilies.LoadAsync(_db, parts.SelectMany(p => p.Names));
+        return parts.Select(p =>
+        {
+            var added = p.Keys.SelectMany(families.FamilyOf).Where(k => !p.Keys.Contains(k)).Distinct().ToList();
+            if (added.Count == 0) return p;
+            var spellings = added.Select(k => families.NameOf(k) ?? k).ToList();
+            return p with
+            {
+                Alternatives = p.Alternatives.Concat(spellings.Where(n => PnKey(n) != p.Part.NameKey))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                Keys = p.Keys.Concat(added).ToHashSet(),
+                Names = p.Names.Concat(spellings).Concat(added).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            };
         }).ToList();
+    }
+
+    /// <summary>ItemKeys widened to each item's alternative family (items must include PartNumber.Alternatives).</summary>
+    private async Task<Func<RFQItem, HashSet<string>>> ItemFamilyKeysAsync(IEnumerable<RFQItem> items)
+    {
+        var families = await PartFamilies.LoadAsync(_db, items.SelectMany(i =>
+            new[] { i.PartNumber.Name, i.PartNumber.NewName, i.Alt }.Concat(i.PartNumber.Alternatives.Select(a => a.Name))));
+        return item =>
+        {
+            var keys = ItemKeys(item);
+            keys.UnionWith(keys.SelectMany(families.FamilyOf).ToList());
+            return keys;
+        };
     }
 
     /// <summary>The user's parts a file row answers (by its P/N or its Alt P/N).</summary>
@@ -1431,9 +1480,9 @@ public class ProcurementPlusService : IProcurementPlusService
                 && (allKeys.Contains(o.PartKey) || (o.AltKey != null && allKeys.Contains(o.AltKey))))
             .Select(o => new { o.PartKey, o.AltKey, o.SupplierId, o.CompanyKey, o.Email, o.Upload.UserId })
             .ToListAsync();
-        var matcher = await LoadPreferredMatcherAsync();
-        var preferredByCompany = offers.GroupBy(o => o.CompanyKey)
-            .ToDictionary(g => g.Key, g => g.Select(o => matcher.Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
+        var matchers = await LoadPreferredMatchersAsync(offers.Select(o => o.UserId));
+        var preferredByCompany = offers.GroupBy(o => (o.UserId, o.CompanyKey))
+            .ToDictionary(g => g.Key, g => g.Select(o => matchers[o.UserId].Match(o.SupplierId, o.Email, o.CompanyKey)).FirstOrDefault(m => m != null));
 
         // Lines being sourced here.
         var sourcing = await _db.Set<PendingSupplierQuote>().AsNoTracking()
@@ -1450,8 +1499,8 @@ public class ProcurementPlusService : IProcurementPlusService
             // Files are per user: only the part owner's files count for it.
             var partOffers = offers.Where(o => o.UserId == p.Part.UserId
                 && (p.Keys.Contains(o.PartKey) || (o.AltKey != null && p.Keys.Contains(o.AltKey)))).ToList();
-            var preferredCount = partOffers.Select(o => preferredByCompany[o.CompanyKey]?.Id).OfType<long>().Distinct().Count();
-            var otherCount = partOffers.Where(o => preferredByCompany[o.CompanyKey] == null)
+            var preferredCount = partOffers.Select(o => preferredByCompany[(o.UserId, o.CompanyKey)]?.Id).OfType<long>().Distinct().Count();
+            var otherCount = partOffers.Where(o => preferredByCompany[(o.UserId, o.CompanyKey)] == null)
                 .Select(o => o.SupplierId?.ToString() ?? "c:" + o.CompanyKey).Distinct().Count();
             return new PpPartResponse
             {
@@ -1794,7 +1843,7 @@ public class ProcurementPlusService : IProcurementPlusService
         }
 
         // A preferred supplier for this company with no catalog link gets this one (and its open lines).
-        var matcher = await LoadPreferredMatcherAsync();
+        var matcher = await LoadPreferredMatcherAsync(userId);
         var preferred = emails.Select(e => matcher.Match(null, e, key)).FirstOrDefault(m => m != null) ?? matcher.Match(null, null, key);
         if (preferred is { SupplierId: null })
             await SetPreferredSupplierAsync(preferred.Id, request.SupplierId);
@@ -1820,7 +1869,7 @@ public class ProcurementPlusService : IProcurementPlusService
 
         // One row per (file row, part) — a row normally answers one part.
         var rows = uploads.Count == 0 ? new List<PpOfferRow>() : await OfferRowsAsync(parts, userId);
-        var matcher = await LoadPreferredMatcherAsync();
+        var matcher = await LoadPreferredMatcherAsync(userId);
 
         response.Uploads = uploads.Select(u => new PpUploadResponse
         {
@@ -2040,17 +2089,29 @@ public class ProcurementPlusService : IProcurementPlusService
         }
     }
 
-    private async Task<PreferredMatcher> LoadPreferredMatcherAsync() =>
-        new(await _db.Set<Preferred>().AsNoTracking().Where(p => p.Kind == SupplierKind).ToListAsync());
+    /// <summary>One user's preferred suppliers — each user has their own list (Sam).</summary>
+    private async Task<PreferredMatcher> LoadPreferredMatcherAsync(long userId) =>
+        new(await _db.Set<Preferred>().AsNoTracking().Where(p => p.Kind == SupplierKind && p.UserId == userId).ToListAsync());
+
+    /// <summary>A matcher per user, for rows of several users' files at once (every id asked gets one, maybe empty).</summary>
+    private async Task<Dictionary<long, PreferredMatcher>> LoadPreferredMatchersAsync(IEnumerable<long> userIds)
+    {
+        var ids = userIds.Distinct().ToList();
+        var rows = ids.Count == 0 ? new List<Preferred>() : await _db.Set<Preferred>().AsNoTracking()
+            .Where(p => p.Kind == SupplierKind && p.UserId != null && ids.Contains(p.UserId.Value))
+            .ToListAsync();
+        var byUser = rows.ToLookup(p => p.UserId!.Value);
+        return ids.ToDictionary(id => id, id => new PreferredMatcher(byUser[id]));
+    }
 
     private static List<string> EmailsOf(Preferred p) =>
         SplitList(p.Emails).Select(SupplierEmails.Normalize).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-    public async Task<List<PpPreferredSupplierResponse>> GetPreferredAsync()
+    public async Task<List<PpPreferredSupplierResponse>> GetPreferredAsync(long ownerId)
     {
         var rows = await _db.Set<Preferred>().AsNoTracking()
             .Include(p => p.Supplier)
-            .Where(p => p.Kind == SupplierKind)
+            .Where(p => p.Kind == SupplierKind && p.UserId == ownerId)
             .OrderBy(p => p.Name)
             .ToListAsync();
         var names = await UserNamesAsync(rows.Select(r => r.AddedByUserId));
@@ -2077,7 +2138,7 @@ public class ProcurementPlusService : IProcurementPlusService
     /// without a name, fills the name, emails and phone. Adding one that already exists (same catalog
     /// supplier, same name or same email) updates that one instead.
     /// </summary>
-    public async Task<PpPreferredSupplierResponse> SavePreferredAsync(long userId, long? id, PpSavePreferredSupplierRequest request)
+    public async Task<PpPreferredSupplierResponse> SavePreferredAsync(long ownerId, long actorId, long? id, PpSavePreferredSupplierRequest request)
     {
         var supplierId = request.SupplierId is > 0 ? request.SupplierId : null;
         var catalog = supplierId == null ? null : await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == supplierId)
@@ -2091,17 +2152,17 @@ public class ProcurementPlusService : IProcurementPlusService
         Preferred? row;
         if (id != null)
         {
-            row = await _db.Set<Preferred>().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind)
+            row = await _db.Set<Preferred>().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind && p.UserId == ownerId)
                 ?? throw new InvalidOperationException("Preferred supplier not found.");
         }
         else
         {
-            var all = await _db.Set<Preferred>().Where(p => p.Kind == SupplierKind).ToListAsync();
+            var all = await _db.Set<Preferred>().Where(p => p.Kind == SupplierKind && p.UserId == ownerId).ToListAsync();
             row = all.FirstOrDefault(p => (supplierId != null && p.SupplierId == supplierId) || p.NameKey == key)
                 ?? all.FirstOrDefault(p => EmailsOf(p).Intersect(emails, StringComparer.OrdinalIgnoreCase).Any());
             if (row == null)
             {
-                row = new Preferred { Kind = SupplierKind, AddedAt = DateTime.UtcNow, AddedByUserId = userId };
+                row = new Preferred { Kind = SupplierKind, UserId = ownerId, AddedAt = DateTime.UtcNow, AddedByUserId = actorId };
                 _db.Set<Preferred>().Add(row);
             }
             else emails = EmailsOf(row).Concat(emails).ToList(); // adding again merges the addresses
@@ -2122,9 +2183,9 @@ public class ProcurementPlusService : IProcurementPlusService
         return ToResponse(saved, await UserNamesAsync([saved.AddedByUserId]));
     }
 
-    public async Task<bool> UpdatePreferredAsync(long id, PpUpdatePreferredRequest request)
+    public async Task<bool> UpdatePreferredAsync(long ownerId, long id, PpUpdatePreferredRequest request)
     {
-        var row = await _db.Set<Preferred>().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind);
+        var row = await _db.Set<Preferred>().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind && p.UserId == ownerId);
         if (row == null) return false;
         if (request.SourceMethod != null) row.SourceMethod = PreferredSupplierMethods.Normalize(request.SourceMethod);
         if (request.Note != null) row.Note = Trunc(NullIfBlank(request.Note), 500);
@@ -2132,17 +2193,17 @@ public class ProcurementPlusService : IProcurementPlusService
         return true;
     }
 
-    public async Task<bool> RemovePreferredAsync(long id) =>
-        await _db.Set<Preferred>().Where(p => p.Id == id && p.Kind == SupplierKind).ExecuteDeleteAsync() > 0;
+    public async Task<bool> RemovePreferredAsync(long ownerId, long id) =>
+        await _db.Set<Preferred>().Where(p => p.Id == id && p.Kind == SupplierKind && p.UserId == ownerId).ExecuteDeleteAsync() > 0;
 
     /// <summary>
     /// Links a preferred supplier to a catalog supplier (needed to put its prices on RFQs): its lines
     /// being sourced point there, its emails join the catalog contacts, and its name is remembered so
     /// files with that company name match the catalog supplier too.
     /// </summary>
-    public async Task<PpLinkPreferredResponse?> LinkPreferredAsync(long id, PpLinkPreferredRequest request)
+    public async Task<PpLinkPreferredResponse?> LinkPreferredAsync(long ownerId, long id, PpLinkPreferredRequest request)
     {
-        var row = await _db.Set<Preferred>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind);
+        var row = await _db.Set<Preferred>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == id && p.Kind == SupplierKind && p.UserId == ownerId);
         if (row == null) return null;
         var supplierId = request.SupplierId is > 0 ? request.SupplierId : null;
         if (supplierId != null && !await _db.Set<Supplier>().AnyAsync(s => s.Id == supplierId))
@@ -2189,7 +2250,7 @@ public class ProcurementPlusService : IProcurementPlusService
     /// supplier using that company domain - those come first (DomainMatch). Free-mail domains (gmail,
     /// outlook...) never match by domain.
     /// </summary>
-    public async Task<List<PpSupplierOption>> SearchSuppliersAsync(string? q)
+    public async Task<List<PpSupplierOption>> SearchSuppliersAsync(long ownerId, string? q)
     {
         var query = _db.Set<Supplier>().AsNoTracking().Where(s => s.IsActive && s.Status != "Rejected" && s.Dependency != "Disabled");
         var term = q?.Trim();
@@ -2208,7 +2269,7 @@ public class ProcurementPlusService : IProcurementPlusService
             .ToListAsync();
         var ids = list.Select(s => s.Id).ToList();
         var preferredIds = (await _db.Set<Preferred>().AsNoTracking()
-                .Where(p => p.Kind == SupplierKind && p.SupplierId != null && ids.Contains(p.SupplierId.Value))
+                .Where(p => p.Kind == SupplierKind && p.UserId == ownerId && p.SupplierId != null && ids.Contains(p.SupplierId.Value))
                 .Select(p => p.SupplierId!.Value)
                 .ToListAsync())
             .ToHashSet();
@@ -2249,9 +2310,9 @@ public class ProcurementPlusService : IProcurementPlusService
         var since = DateTime.UtcNow.AddDays(-FreshDays);
         var preferredIds = request.Suppliers.Select(s => s.PreferredId).OfType<long>().Distinct().ToList();
         var preferreds = await _db.Set<Preferred>()
-            .Where(p => p.Kind == SupplierKind && preferredIds.Contains(p.Id))
+            .Where(p => p.Kind == SupplierKind && p.UserId == userId && preferredIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
-        var matcher = await LoadPreferredMatcherAsync();
+        var matcher = await LoadPreferredMatcherAsync(userId);
         var offers = await _db.Set<ProcurementPlusOffer>().AsNoTracking()
             .Include(o => o.Upload)
             .Where(o => o.Upload.UserId == userId && o.Upload.UploadedAt >= since)
@@ -2823,7 +2884,7 @@ public class ProcurementPlusService : IProcurementPlusService
     private static string? JoinAlternatives(IEnumerable<string?> alternatives, string ownKey)
     {
         var list = alternatives.OfType<string>().Select(a => a.Trim())
-            .Where(a => a.Length > 0 && PnKey(a) != ownKey)
+            .Where(a => !AltPartNumbers.IsPlaceholder(a) && PnKey(a) != ownKey)
             .DistinctBy(PnKey)
             .ToList();
         return list.Count == 0 ? null : Trunc(string.Join(", ", list), 2000);

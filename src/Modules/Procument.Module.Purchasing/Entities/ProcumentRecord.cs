@@ -18,6 +18,12 @@ public class ProcumentRecord : BaseEntity
     public double? Coef_1 { get; set; }
     public double? Coef_2 { get; set; }
     public double? Coef_3 { get; set; }
+    /// <summary>
+    /// Set when Coef_1 was saved as a commission on Procurement Plus: the Add Quote page then shows Coef 1 read only
+    /// (only SuperAdmin can change it).
+    /// </summary>
+    public DateTime? CommissionAt { get; set; }
+    public long? CommissionByUserId { get; set; }
     public double? ShippingCost { get; set; }
     public string? ShippingPoint { get; set; }
     public string? CertName { get; set; }

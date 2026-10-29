@@ -125,6 +125,8 @@
                   :search="colFilter.search[key] || ''"
                   :is-sorted="sortKey === key"
                   :sort-desc="sortDesc"
+                  :filter-action="key === 'messageCount' ? 'Search in all messages' : undefined"
+                  @filter-click="messageSearchOpen = true"
                   @toggle="(value) => colFilter.toggle(key, value)"
                   @select-all="(values) => colFilter.selectAll(key, values)"
                   @clear-all="colFilter.clearAll(key)"
@@ -207,8 +209,17 @@
       @notify="showSnack"
     />
 
+    <CustomerFollowUpMessageSearchDialog
+      :open="messageSearchOpen"
+      :rows="rows"
+      @close="messageSearchOpen = false"
+      @open="openMessages"
+      @notify="showSnack"
+    />
+
     <CustomerFollowUpMessagesDialog
       :row="messagesRow"
+      :focus-message-id="messagesFocusId"
       @close="closeMessages"
       @message-count="setMessageCount"
       @unread-change="setUnread"
@@ -735,15 +746,21 @@ function setDocumentCount(rowId: number, count: number) {
 
 /** The row whose chat is open. */
 const messagesRow = ref<FollowUpRow | null>(null)
+/** A message picked in the message search — the chat scrolls to it and flashes it. */
+const messagesFocusId = ref<number | null>(null)
+/** The Messages column's filter button opens a search across every row's chat instead of a value list. */
+const messageSearchOpen = ref(false)
 
-function openMessages(row: FollowUpRow) {
+function openMessages(row: FollowUpRow, focusMessageId: number | null = null) {
   editing.value = null
+  messagesFocusId.value = focusMessageId
   messagesRow.value = row
 }
 
 function closeMessages() {
   const row = messagesRow.value
   messagesRow.value = null
+  messagesFocusId.value = null
   if (row) refreshProcurementStatus(row.id)
 }
 
@@ -889,6 +906,8 @@ async function deleteRow() {
 
 onMounted(() => {
   layoutStore.layout(TABLE_KEY)
+  // The Messages column no longer has a value filter (its button opens the message search) — drop an old saved one.
+  if (colFilter.selected.messageCount?.size) colFilter.clearAll('messageCount')
   load()
   messageStatusTimer = setInterval(refreshMessageStatus, MESSAGE_STATUS_POLL_MS)
 })

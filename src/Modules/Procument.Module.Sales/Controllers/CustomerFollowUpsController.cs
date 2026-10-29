@@ -241,6 +241,21 @@ public class CustomerFollowUpsController : ControllerBase
         }
     }
 
+    /// <summary>Searches the text and file names of every row's messages, newest first.</summary>
+    [HttpGet("messages/search")]
+    public async Task<ActionResult<CustomerFollowUpMessageSearchResponse>> SearchMessages([FromQuery] string? q)
+    {
+        if (!await HasAccessAsync()) return Forbid();
+        try
+        {
+            return Ok(await _service.SearchMessagesAsync(q));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Message count + unread flag (for the current user) of every row with a chat — polled by the page.</summary>
     [HttpGet("message-status")]
     public async Task<ActionResult<List<CustomerFollowUpMessageStatusResponse>>> GetMessageStatuses()

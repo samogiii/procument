@@ -7,12 +7,60 @@ using Procument.Module.Purchasing.Entities;
 using Procument.Module.Tasks.Entities;
 using Procument.Module.OurInventory.Entities;
 using Procument.Shared.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Data;
 
 public class AppDbContext : DbContext
 {
   public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+  // Alt P/N columns that never store "no alternative" filler ("-", "_", "no" …) — see AltPartNumbers.
+  private static readonly HashSet<string> AltColumns = new() { "Alt", "RfqAlt", "QuoteAlt", "AltPartNumber", "AltPartNo", "AltKey" };
+
+  public override int SaveChanges(bool acceptAllChangesOnSuccess)
+  {
+    DropPlaceholderAlts();
+    return base.SaveChanges(acceptAllChangesOnSuccess);
+  }
+
+  public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+  {
+    DropPlaceholderAlts();
+    return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+  }
+
+  /// <summary>Last guard for every write path: filler Alts become null and are never added to a part family.</summary>
+  private void DropPlaceholderAlts()
+  {
+    foreach (var entry in ChangeTracker.Entries().ToList())
+    {
+      if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
+
+      if (entry.Entity is Alternative alternative)
+      {
+        if (!AltPartNumbers.IsPlaceholder(alternative.Name)) continue;
+        // Out of the part's collection too, or change detection would add it again.
+        alternative.PartNumber?.Alternatives.Remove(alternative);
+        entry.State = entry.State == EntityState.Added ? EntityState.Detached : EntityState.Deleted;
+        continue;
+      }
+
+      foreach (var property in entry.Properties)
+      {
+        if (property.CurrentValue is not string value) continue;
+        if (AltColumns.Contains(property.Metadata.Name))
+        {
+          if (AltPartNumbers.IsPlaceholder(value)) property.CurrentValue = null;
+        }
+        else if (property.Metadata.Name == "Alternatives")
+        {
+          var cleaned = AltPartNumbers.CleanList(value);
+          if (cleaned != value) property.CurrentValue = cleaned;
+        }
+      }
+    }
+  }
 
   // Identity
   public DbSet<User> Users => Set<User>();
@@ -117,6 +165,12 @@ public class AppDbContext : DbContext
   public DbSet<ProcurementSupplierQuote> ProcurementSupplierQuotes => Set<ProcurementSupplierQuote>();
   public DbSet<SupplierQuoteCertificate> SupplierQuoteCertificates => Set<SupplierQuoteCertificate>();
   public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+  public DbSet<TaskBoardColumn> TaskBoardColumns => Set<TaskBoardColumn>();
+  public DbSet<TaskCard> TaskCards => Set<TaskCard>();
+  public DbSet<TaskTag> TaskTags => Set<TaskTag>();
+  public DbSet<TaskCardTag> TaskCardTags => Set<TaskCardTag>();
+  public DbSet<TaskCardRef> TaskCardRefs => Set<TaskCardRef>();
+  public DbSet<TaskCardActivity> TaskCardActivities => Set<TaskCardActivity>();
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -254,6 +308,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.BillTo).HasMaxLength(500);
       entity.Property(e => e.Base).IsRequired(false);
       entity.Property(e => e.ExWork).IsRequired(false);
+      entity.Property(e => e.MinCoef).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Coef1).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Coef2).HasColumnType("decimal(18,4)");
       entity.Property(e => e.Coef3).HasColumnType("decimal(18,4)");
@@ -480,6 +535,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Status).HasMaxLength(50);
       entity.Property(e => e.PaymentStatus).HasMaxLength(20);
       entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.SourceQuoteIds).HasMaxLength(1000);
 
       entity.HasIndex(e => e.InvoiceNumber).IsUnique();
       // Copied from the source quote, so not unique — searched, hence indexed.
@@ -718,6 +774,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Track).HasMaxLength(20).HasDefaultValue(PreferredTracks.Ils);
       entity.Property(e => e.Condition).HasMaxLength(50);
       entity.Property(e => e.TargetPrice).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.FolderIds).HasMaxLength(1000);
       entity.HasIndex(e => new { e.Kind, e.UserId, e.NameKey });
       entity.HasIndex(e => e.SupplierId);
       entity.HasIndex(e => new { e.Kind, e.UserId, e.RfqId });
@@ -868,6 +925,8 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.CustomerEmail);
       // The created RFQ — plain column (an FK would give SQL Server a second cascade path from Customers).
       entity.HasIndex(e => e.RfqId);
+      // Procurement Plus PPE (assigned user) — plain column.
+      entity.HasIndex(e => e.PpeUserId);
     });
 
     modelBuilder.Entity<SupplierQuoteCertificate>(entity =>
@@ -1554,6 +1613,13 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.PendingPaymentAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.PendingExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WarehousePopFileName).HasMaxLength(400);
+      entity.Property(e => e.WarehouseFinalAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WarehouseHandlingFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WarehouseBankWireFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WarehouseExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WarehousePaidBy).HasMaxLength(200);
+      entity.Property(e => e.WarehouseRejectNote).HasMaxLength(500);
       entity.Property(e => e.Status).HasMaxLength(50);
 
       entity.HasOne(e => e.PO)
@@ -1616,7 +1682,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.TxCurrency).HasMaxLength(10).IsRequired(false);
       entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
       entity.Property(e => e.OriginalExchangeRate).HasColumnType("decimal(18,6)").IsRequired(false);
-      entity.Property(e => e.Base).HasMaxLength(10).IsRequired(false);
+      entity.Property(e => e.Base).HasMaxLength(40).IsRequired(false);   // "B1,B2,…" multi-base tags
 
       entity.HasOne(e => e.FromCustomer)
                 .WithMany()
@@ -2194,6 +2260,85 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => e.AssignedTo);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.CreatedAt);
+    });
+
+    modelBuilder.Entity<TaskBoardColumn>(entity =>
+    {
+      entity.ToTable("TaskBoardColumns");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.Color).HasMaxLength(20).IsRequired();
+      entity.HasIndex(e => new { e.OwnerUserId, e.Position });
+      entity.HasOne(e => e.OwnerUser)
+                .WithMany()
+                .HasForeignKey(e => e.OwnerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<TaskCard>(entity =>
+    {
+      entity.ToTable("TaskCards");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+      entity.Property(e => e.Priority).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.DueDate).HasColumnType("date");
+      entity.Property(e => e.CreatedBy).HasMaxLength(100).IsRequired();
+      entity.HasIndex(e => new { e.ColumnId, e.Position });
+      entity.HasIndex(e => new { e.OwnerUserId, e.DueDate });
+      // The owner is reached through the column — a second cascade path from Users is not allowed.
+      entity.HasOne(e => e.Column)
+                .WithMany(c => c.Cards)
+                .HasForeignKey(e => e.ColumnId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<TaskTag>(entity =>
+    {
+      entity.ToTable("TaskTags");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(60).IsRequired();
+      entity.Property(e => e.Color).HasMaxLength(20).IsRequired();
+      entity.HasIndex(e => new { e.OwnerUserId, e.Name }).IsUnique();
+    });
+
+    modelBuilder.Entity<TaskCardTag>(entity =>
+    {
+      entity.ToTable("TaskCardTags");
+      entity.HasKey(e => new { e.CardId, e.TagId });
+      entity.HasOne(e => e.Card)
+                .WithMany(c => c.Tags)
+                .HasForeignKey(e => e.CardId)
+                .OnDelete(DeleteBehavior.Cascade);
+      entity.HasOne(e => e.Tag)
+                .WithMany(t => t.Cards)
+                .HasForeignKey(e => e.TagId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<TaskCardRef>(entity =>
+    {
+      entity.ToTable("TaskCardRefs");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.RefType).HasMaxLength(20).IsRequired();
+      entity.HasIndex(e => new { e.CardId, e.RefType, e.RefId }).IsUnique();
+      entity.HasOne(e => e.Card)
+                .WithMany(c => c.Refs)
+                .HasForeignKey(e => e.CardId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<TaskCardActivity>(entity =>
+    {
+      entity.ToTable("TaskCardActivities");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Kind).HasMaxLength(20).IsRequired();
+      entity.Property(e => e.Text).HasMaxLength(4000).IsRequired();
+      entity.Property(e => e.UserName).HasMaxLength(100).IsRequired();
+      entity.HasIndex(e => new { e.CardId, e.Kind, e.CreatedAt });
+      entity.HasOne(e => e.Card)
+                .WithMany(c => c.Activities)
+                .HasForeignKey(e => e.CardId)
+                .OnDelete(DeleteBehavior.Cascade);
     });
 
     // ───────────────────────────────────────────

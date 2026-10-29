@@ -4,7 +4,7 @@
       <div>
         <h1 class="text-h5 font-weight-bold">Shipping</h1>
         <p class="text-caption text-medium-emphasis mt-1">
-          {{ showAll ? 'All track numbers of your warehouse(s) — open one to add more documents' : 'Track numbers on their way to your warehouse(s)' }}
+          {{ showAll ? 'Track numbers at your warehouse(s) — pick Ship To USA or later in Shipping Status to see those too' : 'Track numbers on their way to your warehouse(s)' }}
         </p>
       </div>
       <v-spacer />
@@ -24,7 +24,23 @@
         Clear filters
       </v-btn>
       <v-btn color="primary" prepend-icon="mdi-refresh" variant="tonal" size="small" :loading="loading" @click="loadTracks">Refresh</v-btn>
+      <!-- Sends open tracks to the warehouse app and brings back its photos, qty, boxes and notes -->
+      <v-btn
+        v-if="warehouseSyncEnabled"
+        color="primary"
+        prepend-icon="mdi-cloud-sync-outline"
+        variant="flat"
+        size="small"
+        :loading="syncing"
+        @click="syncWarehouse"
+      >
+        Sync warehouse
+      </v-btn>
     </div>
+
+    <v-alert v-if="syncing" type="info" variant="tonal" density="compact" class="mb-4">
+      {{ syncProgress }}
+    </v-alert>
 
     <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
 
@@ -38,6 +54,8 @@
         :headers="headers"
         :items="displayed"
         :loading="loading"
+        v-model:items-per-page="itemsPerPage"
+        :items-per-page-options="pageOptions"
         item-value="key"
         class="elevation-0"
         hover
@@ -99,13 +117,13 @@
           <ColFilterMenu
             col-key="status"
             :label="column.title"
-            :options="cfShippingOptions"
+            :options="allShippingStatuses"
             :selected="colFilter.selected['status'] || new Set()"
             :search="colFilter.search['status'] || ''"
             :is-sorted="isSorted(column)"
             :sort-desc="sortBy.find((s: any) => s.key === column.key)?.order === 'desc'"
             @toggle="(v) => colFilter.toggle('status', v)"
-            @select-all="() => colFilter.selectAll('status', cfShippingOptions)"
+            @select-all="(vals) => colFilter.selectAll('status', vals)"
             @clear-all="() => colFilter.clearAll('status')"
             @update:search="(v) => colFilter.search['status'] = v"
             @sort-click="toggleSort(column)"
@@ -178,15 +196,19 @@
           </div>
         </template>
 
-        <!-- Track shipping status -->
+        <!-- Track shipping status — one chip per distinct status when the parts are at different stages -->
         <template #item.status="{ item }">
-          <v-chip
-            size="x-small"
-            variant="tonal"
-            :color="trackStatusColor(item.worstStatus)"
-          >
-            {{ item.worstStatus }}
-          </v-chip>
+          <div class="d-flex gap-1 flex-wrap py-1">
+            <v-chip
+              v-for="st in item.statuses"
+              :key="st"
+              size="x-small"
+              variant="tonal"
+              :color="trackStatusColor(st)"
+            >
+              {{ st }}
+            </v-chip>
+          </div>
         </template>
 
         <template #item.actions="{ item }">
@@ -196,10 +218,39 @@
     </v-card>
 
     <v-snackbar v-model="snack" :color="snackColor" timeout="3000" location="top right">{{ snackMsg }}</v-snackbar>
+
+    <!-- Warehouse sync result -->
+    <v-dialog v-model="syncDialog" max-width="480">
+      <v-card v-if="syncResult">
+        <v-card-title class="text-h6 pa-4 pb-2">
+          <v-icon icon="mdi-cloud-check-outline" color="success" class="mr-2" />
+          Warehouse synced
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4">
+          <v-list density="compact" class="pa-0">
+            <v-list-item prepend-icon="mdi-truck-outline" :title="`${syncResult.tracksSent} open track(s) sent to the warehouse`" />
+            <v-list-item prepend-icon="mdi-image-multiple-outline" :title="`${syncResult.files} photo(s) / document(s) received`" />
+            <v-list-item prepend-icon="mdi-counter" :title="`${syncResult.quantities} received qty saved`" />
+            <v-list-item prepend-icon="mdi-package-variant-closed" :title="`${syncResult.boxes} box(es) saved${syncResult.deletedBoxes ? `, ${syncResult.deletedBoxes} removed` : ''}`" />
+            <v-list-item v-if="syncResult.notes" prepend-icon="mdi-note-text-outline" :title="`${syncResult.notes} warehouse note(s) saved`" />
+          </v-list>
+          <v-alert v-if="syncResult.skipped.length" type="warning" variant="tonal" density="compact" class="mt-3">
+            <div v-for="(s, i) in syncResult.skipped" :key="i" class="text-caption">{{ s }}</div>
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn color="primary" variant="flat" @click="syncDialog = false">OK</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import type { WarehouseSyncSummary } from '~/composables/useWarehouseSync'
+
 definePageMeta({ layout: 'default' })
 
 const api = useApi()
@@ -276,17 +327,32 @@ function trackStatusColor(status: string) {
   return map[status] ?? 'default'
 }
 
-// Once a track is received in the warehouse it has left this page's job, so only tracks
-// still on their way (or rejected on arrival) are listed. The API already limits the list
-// to the customer bases granted to the user.
-const pendingTracks = computed(() =>
-  tracks.value.filter(t => (statusRank[t.status] ?? 0) < statusRank['Received in Warehouse']!),
-)
+// Pending lists only tracks still on their way (or rejected on arrival). All adds the
+// warehouse stages; tracks from "Ship To USA" on stay hidden until their status is picked
+// in the Shipping Status filter. The API already limits the list to the user's customer bases.
+const visibleTracks = computed(() => {
+  const picked = colFilter.selected['status']
+  const limit = showAll.value ? statusRank['Ship To USA']! : statusRank['Received in Warehouse']!
+  return tracks.value.filter(t => (statusRank[t.status] ?? 0) < limit || !!picked?.has(t.status))
+})
+
+// Every shipping status, in ladder order — the Status filter always offers all of them,
+// so the hidden later stages can be picked straight away.
+const allShippingStatuses = Object.keys(statusRank).sort((a, b) => statusRank[a]! - statusRank[b]!)
+
+// At least 100 rows per page.
+const pageOptions = [
+  { value: 100, title: '100' },
+  { value: 200, title: '200' },
+  { value: 500, title: '500' },
+  { value: -1, title: 'All' },
+]
+const itemsPerPage = ref(100)
 
 // Group tracks that share the same trackNumber + carrier + warehouseId
 const grouped = computed(() => {
   const map = new Map<string, any>()
-  for (const t of pendingTracks.value) {
+  for (const t of visibleTracks.value) {
     const key = `${t.trackNumber}||${t.carrier ?? ''}||${t.warehouseId ?? ''}`
     if (!map.has(key)) {
       map.set(key, {
@@ -301,6 +367,7 @@ const grouped = computed(() => {
         // are merged across rows rather than taken from the first one.
         peopleById: new Map<number, any>(),
         supplierSet: new Set<string>(),
+        statusSet: new Set<string>(),
         worstStatus: t.status,
       })
     }
@@ -314,6 +381,7 @@ const grouped = computed(() => {
       if (!group.peopleById.has(u.id)) group.peopleById.set(u.id, u)
     }
     if (t.supplierName) group.supplierSet.add(t.supplierName)
+    if (t.status) group.statusSet.add(t.status)
     // Keep worst (lowest rank) shipping status
     if ((statusRank[t.status] ?? 99) < (statusRank[group.worstStatus] ?? 99)) {
       group.worstStatus = t.status
@@ -331,6 +399,7 @@ const grouped = computed(() => {
       partNames,
       reviewStatuses,
       supplierNames,
+      statuses: [...g.statusSet].sort((a: string, b: string) => (statusRank[a] ?? 99) - (statusRank[b] ?? 99)),
       partsText: [...partNames].sort().join(', '),
       reviewText: [...reviewStatuses].sort().join(', '),
       supplierText: supplierNames.join(', '),
@@ -349,10 +418,6 @@ function uniq(vals: string[]) {
 const cfWarehouseOptions = computed(() => uniq(grouped.value.map(g => g.warehouseName || '—')))
 const cfPartOptions = computed(() => uniq(grouped.value.flatMap(g => g.partNames)))
 const cfReviewOptions = computed(() => uniq(grouped.value.flatMap(g => g.reviewStatuses)))
-const cfShippingOptions = computed(() =>
-  uniq(grouped.value.map(g => g.worstStatus))
-    .sort((a, b) => (statusRank[a] ?? 99) - (statusRank[b] ?? 99)),
-)
 
 const displayed = computed(() => {
   const wh = colFilter.selected['warehouseName']
@@ -365,7 +430,7 @@ const displayed = computed(() => {
     // A row covers several parts, so it survives when any one of them is selected.
     if (pt?.size && !g.partNames.some((n: string) => pt.has(n))) return false
     if (rv?.size && !g.reviewStatuses.some((s: string) => rv.has(s))) return false
-    if (sh?.size && !sh.has(g.worstStatus)) return false
+    if (sh?.size && !g.statuses.some((s: string) => sh.has(s))) return false
     return true
   })
 })
@@ -386,6 +451,13 @@ watch(showAll, (all) => {
   loadTracks()
 })
 
+// Picking a status past "Received in Warehouse" only makes sense with every track loaded,
+// so the filter switches the page to All by itself.
+watch(() => [...(colFilter.selected['status'] ?? [])], (picked) => {
+  if (!showAll.value && picked.some(s => (statusRank[s] ?? 0) >= statusRank['Received in Warehouse']!))
+    showAll.value = true
+}, { immediate: true }) // the filter is remembered, so also check it on page open
+
 function goToGroup(group: any) {
   router.push(`/shipping/track-numbers/${group.primaryId}`)
 }
@@ -401,5 +473,35 @@ async function loadTracks() {
   }
 }
 
-onMounted(loadTracks)
+// ── Warehouse app sync ────────────────────────────────────────────────────────
+
+const warehouseSync = useWarehouseSync()
+const warehouseSyncEnabled = ref(false)
+const syncing = ref(false)
+const syncProgress = ref('')
+const syncDialog = ref(false)
+const syncResult = ref<WarehouseSyncSummary | null>(null)
+
+async function syncWarehouse() {
+  syncing.value = true
+  syncProgress.value = 'Connecting to the warehouse…'
+  try {
+    syncResult.value = await warehouseSync.sync(text => (syncProgress.value = text))
+    syncDialog.value = true
+    await loadTracks()
+  } catch (e: any) {
+    notify(e?.data?.message || e?.message || 'Warehouse sync failed', 'error')
+  } finally {
+    syncing.value = false
+  }
+}
+
+onMounted(async () => {
+  loadTracks()
+  try {
+    warehouseSyncEnabled.value = (await warehouseSync.getConfig()).enabled
+  } catch {
+    // Roles without access to the sync simply don't see the button.
+  }
+})
 </script>

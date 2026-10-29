@@ -15,9 +15,9 @@ const SEARCH_DEBOUNCE_MS = 300
  * One lazily loaded picker list of the Customer Follow Ups RFQ / Other Refs dialogs (newest first).
  * Nothing loads until `reset()`; after that, `search` changes reload it (debounced) and `loadMore()`
  * appends the next page. Responses of superseded searches are dropped.
- * type: Rfq | PurchaseOrder | Quote | Invoice | FinalInvoice.
+ * type: Rfq | PurchaseOrder | Quote | Invoice | FinalInvoice. The Task Manager passes its own endpoint.
  */
-export function useFollowUpRefPicker(type: string, search: Ref<string | null>) {
+export function useFollowUpRefPicker(type: string, search: Ref<string | null>, endpoint = '/customer-follow-ups/ref-options') {
     const api = useApi()
     let generation = 0
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -41,7 +41,7 @@ export function useFollowUpRefPicker(type: string, search: Ref<string | null>) {
         state.loading = true
         state.error = ''
         try {
-            const page = await api.get<{ items: FollowUpRefOption[]; hasMore: boolean }>('/customer-follow-ups/ref-options', {
+            const page = await api.get<{ items: FollowUpRefOption[]; hasMore: boolean }>(endpoint, {
                 query: {
                     type,
                     search: search.value?.trim() || undefined,

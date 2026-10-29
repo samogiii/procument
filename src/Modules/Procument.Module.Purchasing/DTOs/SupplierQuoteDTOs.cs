@@ -45,6 +45,12 @@ public class SaveSupplierQuoteRequest
     public string? MoQ { get; set; }
     public string? Warranty { get; set; }
     public string? CR { get; set; }
+    /// <summary>
+    /// New quote added from a "recent" suggestion: the expert who first added that supplier for the part
+    /// (kept as the quote's expert instead of the user clicking it). Ignored unless that user has a quote
+    /// from this supplier.
+    /// </summary>
+    public long? ExpertUserId { get; set; }
 }
 
 public class BulkSaveQuotesRequest
@@ -105,6 +111,9 @@ public class SupplierQuoteResponse
     /// <summary>The expert who imported this quote. Only filled for SuperAdmin requests.</summary>
     public long? ExpertUserId { get; set; }
     public string? ExpertName { get; set; }
+    /// <summary>Coef 1 saved as a commission on Procurement Plus — read only on the Add Quote page (SuperAdmin can change it).</summary>
+    public bool CoefLocked { get; set; }
+    public DateTime? CommissionAt { get; set; }
     public int SortOrder { get; set; }
     public int CertificateCount { get; set; }
     public List<string> CertReferences { get; set; } = new();

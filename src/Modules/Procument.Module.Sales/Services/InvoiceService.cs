@@ -393,6 +393,20 @@ public class InvoiceService : IInvoiceService
             throw new Exception("All selected quote items must belong to the same customer as the primary quote.");
         }
 
+        // Remember every merged quote — even one with no line picked — so "Add Item" can offer its lines later.
+        var additionalQuoteIds = (request.AdditionalQuoteIds ?? []).Where(quoteId => quoteId != primaryQuote.Id).Distinct().ToList();
+        var mergedQuoteIds = additionalQuoteIds.Count == 0
+            ? new List<long>()
+            : await _db.Set<Quote>()
+                .Where(q => additionalQuoteIds.Contains(q.Id) && q.CustomerId == primaryQuote.CustomerId)
+                .Select(q => q.Id)
+                .ToListAsync();
+        var sourceQuoteIds = new List<long> { primaryQuote.Id }
+            .Concat(mergedQuoteIds)
+            .Concat(quoteItems.Select(qi => qi.QuoteId))
+            .Distinct()
+            .ToList();
+
         var invoiceItems = new List<InvoiceItem>();
         decimal totalAmount = 0;
 
@@ -440,6 +454,7 @@ public class InvoiceService : IInvoiceService
             CustomerPONumber = request.CustomerPONumber,
             CustomerPODate = request.CustomerPODate,
             Subject = request.Subject,
+            SourceQuoteIds = string.Join(",", sourceQuoteIds),
             CreatedAt = DateTime.UtcNow,
             InvoiceItems = invoiceItems
         };
@@ -577,6 +592,234 @@ public class InvoiceService : IInvoiceService
         await _db.SaveChangesAsync();
         return true;
     }
+
+    /// <summary>
+    /// Lines of the quotes this Sales Order was created from (its primary quote plus every quote
+    /// its lines come from), each flagged when the order already has that part with the same
+    /// condition and unit price. Null when the order is missing or the user can't edit its items.
+    /// </summary>
+    public async Task<List<InvoiceAddableItemResponse>?> GetAddableItemsAsync(long id, long userId, bool isAdmin)
+    {
+        var invoice = await LoadInvoiceForAddAsync(id);
+        if (invoice == null) return null;
+        if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return null;
+
+        var sourceQuoteIds = SourceQuoteIds(invoice);
+        var taken = ExistingLineKeys(invoice);
+        // Projected in SQL — only the duplicate check runs in memory.
+        var quoteItems = await _db.Set<QuoteItem>()
+            .Where(qi => sourceQuoteIds.Contains(qi.QuoteId))
+            .OrderBy(qi => qi.QuoteId)
+            .ThenBy(qi => qi.SortOrder)
+            .ThenBy(qi => qi.Id)
+            .Select(qi => new InvoiceAddableItemResponse
+            {
+                QuoteItemId = qi.Id,
+                QuoteId = qi.QuoteId,
+                QuoteNumber = qi.Quote.QuoteNumber,
+                PartNumberName = qi.PartNumber != null ? qi.PartNumber.Name : "",
+                Alt = qi.Alt,
+                Description = qi.PartNumber != null ? qi.PartNumber.Description : null,
+                Condition = qi.Condition,
+                Qty = qi.Qty,
+                UnitPrice = qi.UnitPrice,
+                CertName = qi.ProcumentRecord != null ? qi.ProcumentRecord.CertName : null,
+                LeadTime = qi.ProcumentRecord != null ? qi.ProcumentRecord.SellLeadTime ?? qi.ProcumentRecord.LeadTime : null,
+            })
+            .ToListAsync();
+
+        foreach (var item in quoteItems)
+            item.IsDuplicate = taken.Contains(LineKey(item.Alt, item.PartNumberName, item.Condition, item.UnitPrice));
+        return quoteItems;
+    }
+
+    /// <summary>
+    /// Adds lines from the Sales Order's source quotes at the quoted unit price and condition.
+    /// Rejects a part already on the order with the same condition and unit price. When the order
+    /// already has a Procurement, the new lines get Procurement rows too.
+    /// </summary>
+    public async Task<bool> AddItemsAsync(long id, AddInvoiceItemsRequest request, long userId, bool isAdmin)
+    {
+        var requested = request.Items.Where(item => item.QuoteItemId > 0).ToList();
+        if (requested.Count == 0) throw new InvalidOperationException("Select at least one item to add.");
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            _db.ChangeTracker.Clear();
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            // Serialises adds per Sales Order, so two users can't add the same part twice.
+            await _db.Database
+                .SqlQuery<long>($"SELECT Id AS [Value] FROM ProformaInvoices WITH (UPDLOCK, HOLDLOCK) WHERE Id = {id}")
+                .ToListAsync();
+
+            var invoice = await LoadInvoiceForAddAsync(id, tracking: true);
+            if (invoice == null) return false;
+            if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return false;
+            if (invoice.IsCancelled) throw new InvalidOperationException("Items cannot be added to a cancelled Sales Order.");
+            if (invoice.Status == "Finish") throw new InvalidOperationException("Items cannot be added to a finished Sales Order.");
+
+            var sourceQuoteIds = SourceQuoteIds(invoice);
+            var quoteItemIds = requested.Select(item => item.QuoteItemId).Distinct().ToList();
+            var quoteItems = await _db.Set<QuoteItem>()
+                .Include(qi => qi.PartNumber)
+                .Where(qi => quoteItemIds.Contains(qi.Id))
+                .ToDictionaryAsync(qi => qi.Id);
+            if (quoteItemIds.Any(quoteItemId => !quoteItems.TryGetValue(quoteItemId, out var qi) || !sourceQuoteIds.Contains(qi.QuoteId)))
+                throw new InvalidOperationException("Items can only be added from the quotes this Sales Order was created from.");
+
+            // Lines are worked on as soon as the order is accepted, so new ones join at the same stage.
+            var lineStatus = invoice.Status is "Running" or "Waiting For Prepayment" ? "Sourcing" : "Not Started";
+            var taken = ExistingLineKeys(invoice);
+            var duplicates = new List<string>();
+            var newItems = new List<InvoiceItem>();
+            foreach (var itemReq in requested)
+            {
+                var quoteItem = quoteItems[itemReq.QuoteItemId];
+                if (!taken.Add(LineKey(quoteItem.Alt, quoteItem.PartNumber?.Name, quoteItem.Condition, quoteItem.UnitPrice)))
+                {
+                    duplicates.Add(string.IsNullOrWhiteSpace(quoteItem.Alt) ? quoteItem.PartNumber?.Name ?? $"Item #{quoteItem.Id}" : quoteItem.Alt);
+                    continue;
+                }
+
+                var qty = Math.Max(1, itemReq.Qty);
+                newItems.Add(new InvoiceItem
+                {
+                    QuoteItemId = quoteItem.Id,
+                    Qty = qty,
+                    UnitPrice = quoteItem.UnitPrice,
+                    TotalPrice = qty * quoteItem.UnitPrice,
+                    Condition = quoteItem.Condition,
+                    ExpectedDeliveryDate = itemReq.ExpectedDeliveryDate,
+                    Status = lineStatus,
+                });
+            }
+            if (duplicates.Count > 0)
+                throw new InvalidOperationException(
+                    $"Already on this Sales Order with the same condition and price: {string.Join(", ", duplicates.Distinct())}.");
+
+            foreach (var newItem in newItems)
+                invoice.InvoiceItems.Add(newItem);
+
+            var newTotal = invoice.InvoiceItems.Sum(ii => ii.TotalPrice);
+            if (invoice.PaymentStatus == InvoicePaymentTerms.Credit)
+                await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, invoice.CustomerId, newTotal, invoice.Id);
+            invoice.TotalAmount = newTotal;
+            await _db.SaveChangesAsync();
+
+            await _procurementService.AddInvoiceItemsAsync(invoice.Id, newItems.Select(item => item.Id).ToList(), userId);
+
+            await transaction.CommitAsync();
+            return true;
+        });
+    }
+
+    // A quote can join a Sales Order once it has gone out to the customer (same as Create Sales Order).
+    private static readonly string[] LinkableQuoteStatuses = ["Sent", "Accepted"];
+
+    /// <summary>
+    /// Sent/Accepted quotes of this Sales Order's customer that aren't among its source quotes yet.
+    /// Null when the order is missing or the user can't edit its items.
+    /// </summary>
+    public async Task<List<InvoiceLinkableQuoteResponse>?> GetLinkableQuotesAsync(long id, long userId, bool isAdmin)
+    {
+        var invoice = await LoadInvoiceForAddAsync(id);
+        if (invoice == null) return null;
+        if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return null;
+
+        var sourceQuoteIds = SourceQuoteIds(invoice).ToList();
+        return await _db.Set<Quote>()
+            .AsNoTracking()
+            .Where(q => q.CustomerId == invoice.CustomerId
+                && LinkableQuoteStatuses.Contains(q.Status)
+                && !sourceQuoteIds.Contains(q.Id))
+            .OrderByDescending(q => q.CreatedAt)
+            .Select(q => new InvoiceLinkableQuoteResponse
+            {
+                Id = q.Id,
+                QuoteNumber = q.QuoteNumber,
+                B1QuoteNumber = q.B1QuoteNumber,
+                Status = q.Status,
+                TotalAmount = q.TotalAmount,
+                SentAt = q.SentAt,
+                CreatedAt = q.CreatedAt,
+                ItemCount = q.QuoteItems.Count,
+            })
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Adds a Sent/Accepted quote of the same customer to the Sales Order's source quotes, so its lines
+    /// show in "Add Item". Lines are not added here — the user picks them afterwards.
+    /// </summary>
+    public async Task<bool> AddSourceQuoteAsync(long id, long quoteId, long userId, bool isAdmin)
+    {
+        var invoice = await LoadInvoiceForAddAsync(id, tracking: true);
+        if (invoice == null) return false;
+        if (!isAdmin && !await CanEditItemsAsync(invoice, userId)) return false;
+        if (invoice.IsCancelled) throw new InvalidOperationException("Quotes cannot be added to a cancelled Sales Order.");
+        if (invoice.Status == "Finish") throw new InvalidOperationException("Quotes cannot be added to a finished Sales Order.");
+
+        var quote = await _db.Set<Quote>().AsNoTracking()
+            .Where(q => q.Id == quoteId)
+            .Select(q => new { q.Id, q.QuoteNumber, q.CustomerId, q.Status })
+            .FirstOrDefaultAsync()
+            ?? throw new InvalidOperationException("Quote not found.");
+        if (quote.CustomerId != invoice.CustomerId)
+            throw new InvalidOperationException($"Quote {quote.QuoteNumber} is for another customer.");
+        if (!LinkableQuoteStatuses.Contains(quote.Status))
+            throw new InvalidOperationException($"Quote {quote.QuoteNumber} has not been sent to the customer yet.");
+
+        // Seeds the list from what older orders can still tell (primary quote + quotes of their lines).
+        var ids = SourceQuoteIds(invoice);
+        if (!ids.Add(quote.Id)) return true;
+        var stored = string.Join(",", ids.OrderBy(quoteIdValue => quoteIdValue == invoice.QuoteId ? 0 : 1).ThenBy(quoteIdValue => quoteIdValue));
+        if (stored.Length > 1000) throw new InvalidOperationException("This Sales Order already has too many quotes.");
+        invoice.SourceQuoteIds = stored;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    private async Task<Invoice?> LoadInvoiceForAddAsync(long id, bool tracking = false)
+    {
+        var query = _db.Set<Invoice>()
+            .Include(i => i.InvoiceItems)
+                .ThenInclude(ii => ii.QuoteItem)
+                    .ThenInclude(qi => qi!.PartNumber)
+            .Include(i => i.Quote)
+                .ThenInclude(quote => quote.RFQ)
+            .AsQueryable();
+        if (!tracking) query = query.AsNoTracking();
+        return await query.FirstOrDefaultAsync(i => i.Id == id);
+    }
+
+    // The quotes picked when the Sales Order was created (all merged quotes, recorded at creation),
+    // plus its primary quote and every quote its lines come from — older orders only have those two.
+    private static HashSet<long> SourceQuoteIds(Invoice invoice)
+    {
+        var ids = invoice.InvoiceItems
+            .Where(ii => ii.QuoteItem != null)
+            .Select(ii => ii.QuoteItem!.QuoteId)
+            .ToHashSet();
+        ids.Add(invoice.QuoteId);
+        foreach (var part in (invoice.SourceQuoteIds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (long.TryParse(part, out var quoteId)) ids.Add(quoteId);
+        return ids;
+    }
+
+    // Live (not cancelled) lines, keyed by part + condition + unit price.
+    private static HashSet<(string Part, string Condition, decimal UnitPrice)> ExistingLineKeys(Invoice invoice) =>
+        invoice.InvoiceItems
+            .Where(ii => ii.Status != "Cancelled")
+            .Select(ii => LineKey(ii.QuoteItem?.Alt, ii.QuoteItem?.PartNumber?.Name, ii.Condition ?? ii.QuoteItem?.Condition, ii.UnitPrice))
+            .ToHashSet();
+
+    // The part shown on the line is the Alt when one is set, otherwise the part number.
+    private static (string Part, string Condition, decimal UnitPrice) LineKey(string? alt, string? partNumber, string? condition, decimal unitPrice) =>
+        ((string.IsNullOrWhiteSpace(alt) ? partNumber : alt)?.Trim().ToUpperInvariant() ?? "",
+         condition?.Trim().ToUpperInvariant() ?? "",
+         decimal.Round(unitPrice, 2));
 
     public async Task<RemoveInvoiceItemResponse?> RemoveItemAsync(long id, long itemId, long userId, bool isAdmin)
     {

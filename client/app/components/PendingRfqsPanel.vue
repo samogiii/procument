@@ -18,7 +18,7 @@
         title="Searches every page"
         style="max-width: 300px; min-width: 200px;"
       />
-      <v-btn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="load">Refresh</v-btn>
+      <v-btn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="load(true)">Refresh</v-btn>
       <v-btn
         size="small"
         color="error"
@@ -38,7 +38,15 @@
         <template v-else>No pending RFQ emails. MailFlow's CSV Export sends new ones here automatically.</template>
       </p>
 
-      <div v-for="group in groups" :key="group.key" class="email-group mb-4">
+      <!-- Each email renders when it scrolls near the screen, so a 100-email page shows at once -->
+      <v-lazy
+        v-for="group in groups"
+        :key="group.key"
+        :min-height="110 + 30 * group.rows.length"
+        :options="{ rootMargin: '600px 0px' }"
+        transition=""
+      >
+      <div class="email-group mb-4">
         <!-- Customer + email -->
         <div class="d-flex align-center flex-wrap gap-2 mb-2">
           <v-autocomplete
@@ -182,6 +190,9 @@
                 <th style="min-width: 60px;">Cond</th>
                 <th style="min-width: 80px;">Priority</th>
                 <th style="min-width: 160px;">Remark</th>
+                <th style="min-width: 90px;" title="Average supplier quote price for this part on every RFQ (hover for each condition)">Avg Price</th>
+                <th style="min-width: 150px;" title="The last 5 customers who asked for this part (how many times)">Customers</th>
+                <th style="width: 32px;"></th>
                 <th style="width: 130px;">Deadline</th>
                 <th v-if="group.mixedNames || group.rfqs.length > 1" style="min-width: 140px;">RFQ</th>
                 <th style="width: 80px;"></th>
@@ -192,7 +203,20 @@
                 <td>
                   <v-checkbox-btn density="compact" :model-value="selected.has(row.id)" @update:model-value="(on: boolean) => toggleRow(row.id, on)" />
                 </td>
-                <td class="font-weight-medium">{{ row.partNumber }}</td>
+                <td class="font-weight-medium">
+                  {{ row.partNumber }}
+                  <v-chip
+                    v-if="ins(row)?.knownPpeName"
+                    size="x-small"
+                    color="deep-purple"
+                    variant="tonal"
+                    prepend-icon="mdi-account-star-outline"
+                    class="ml-1"
+                    :title="`PPE: accepting assigns this part to ${ins(row)?.knownPpeName} on Procurement Plus`"
+                  >
+                    {{ ins(row)?.knownPpeName }}
+                  </v-chip>
+                </td>
                 <td>
                   <div v-if="row.alternatives.length" class="d-flex flex-wrap gap-1">
                     <v-chip v-for="a in row.alternatives" :key="a" size="x-small" variant="tonal" color="amber-darken-2">{{ a }}</v-chip>
@@ -204,6 +228,35 @@
                 <td>{{ row.condition || '—' }}</td>
                 <td>{{ row.priority || '—' }}</td>
                 <td class="text-caption">{{ row.remark || '—' }}</td>
+                <td class="text-no-wrap">
+                  <span
+                    v-if="ins(row)?.avgPrice != null"
+                    class="font-weight-medium"
+                    :title="(ins(row)?.avgPriceByCondition ?? []).map(c => `${c.condition}: ${fmtMoney(c.average)} (${c.count})`).join('\n')"
+                  >
+                    {{ fmtMoney(ins(row)!.avgPrice!) }}
+                    <span class="text-caption text-medium-emphasis">({{ ins(row)?.avgPriceCount }})</span>
+                  </span>
+                  <span v-else class="text-medium-emphasis">{{ insightsWaiting.has(row.partNumber) ? '…' : '—' }}</span>
+                </td>
+                <td class="text-caption">
+                  <span v-if="ins(row)?.recentCustomers?.length">
+                    <span v-for="(c, i) in ins(row)!.recentCustomers" :key="c.customerId" :title="c.customerName">
+                      {{ c.customerCode || c.customerName }} ({{ c.count }}){{ i < ins(row)!.recentCustomers!.length - 1 ? ' ' : '' }}
+                    </span>
+                  </span>
+                  <span v-else class="text-medium-emphasis">{{ insightsWaiting.has(row.partNumber) ? '…' : '—' }}</span>
+                </td>
+                <td>
+                  <v-btn
+                    icon="mdi-information-outline"
+                    size="x-small"
+                    variant="text"
+                    color="info"
+                    title="Last 25 customers who asked for this part — qty, condition and our price"
+                    @click="openPartCustomers(row.partNumber)"
+                  />
+                </td>
                 <td>
                   <input
                     type="date"
@@ -225,8 +278,9 @@
           </table>
         </div>
       </div>
+      </v-lazy>
 
-      <EmailQuotesPager v-model:page="page" v-model:page-size="pageSize" :total-emails="totalEmails" />
+      <EmailQuotesPager v-model:page="page" v-model:page-size="pageSize" :total-emails="totalEmails" :page-sizes="[20, 50, 100, 200]" />
     </v-card-text>
 
     <!-- Edit one line -->
@@ -268,6 +322,8 @@
         <EmailRfqEditForm :row="row" @updated="onViewerRowUpdated" />
       </template>
     </QuoteEmailViewerDialog>
+
+    <PartCustomersDialog v-model="showPartCustomers" :part-number="partCustomersPn" />
 
     <ConfirmDialog
       v-model="showConfirmRemove"
@@ -333,9 +389,15 @@ function showSnack(text: string, color = 'success') {
   snackbar.value = true
 }
 
+// Known PPE, average price and last customers — loaded after the list, so the list never waits for them.
+const { insights, waiting: insightsWaiting, load: loadInsights } = usePendingRfqInsights({ recentCustomers: true, knownPpe: true })
+function ins(row: PendingRfqRow) {
+  return insights.value.get(row.partNumber)
+}
+
 // Paged by email on the server.
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(100)
 const totalEmails = ref(0)
 const totalLines = ref(0)
 /** Every pending line, even while a search narrows the list ("Remove all", tab badge). */
@@ -346,7 +408,8 @@ let loadId = 0
 /** Set when load() itself moved `page` — that page is already loaded. */
 let clampedPage = false
 
-async function load() {
+/** `fresh`: the Refresh button — the part insights are fetched again too. */
+async function load(fresh = false) {
   const id = ++loadId
   loading.value = true
   try {
@@ -367,6 +430,7 @@ async function load() {
     const ids = new Set(res.items.map(r => r.id))
     selected.value = new Set([...selected.value].filter(i => ids.has(i)))
     emit('loaded', res.pendingTotal)
+    loadInsights(res.items.map(r => r.partNumber), fresh === true)
   } catch {
     if (id === loadId) showSnack('Could not load RFQs from email', 'error')
   } finally {
@@ -605,6 +669,14 @@ async function accept(ids: number[], key: string) {
   } finally {
     busyKey.value = ''
   }
+}
+
+// ── Last customers for a part (info icon) ──
+const showPartCustomers = ref(false)
+const partCustomersPn = ref('')
+function openPartCustomers(partNumber: string) {
+  partCustomersPn.value = partNumber
+  showPartCustomers.value = true
 }
 
 // ── Source email viewer ──

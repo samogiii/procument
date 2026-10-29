@@ -48,7 +48,7 @@
             </template>
           </v-autocomplete>
           <div v-if="!loadingProformas && eligibleProformas.length === 0" class="text-caption text-error mt-2">
-            No Sales Order has parts ready. A part needs a finished shipping track (Delivered to Customer) and must not be on a Final Invoice yet.
+            No Sales Order has parts ready. A part needs a track number received in the warehouse and must not be on a Final Invoice yet.
           </div>
         </template>
 
@@ -65,7 +65,7 @@
             <v-btn size="x-small" variant="tonal" color="error" :disabled="loadingCandidates || !selectedIds.length" @click="selectedIds = []">Clear</v-btn>
           </div>
           <p class="text-caption text-medium-emphasis mb-2">
-            Only parts with a finished shipping track (Delivered to Customer) can be invoiced.
+            Only parts with a track number received in the warehouse can be invoiced.
             The other parts stay on the Sales Order for a later Final Invoice.
           </p>
 
@@ -140,7 +140,7 @@
 <script setup lang="ts">
 /**
  * Create a Final Invoice for some or all parts of a Sales Order. Only parts whose live PO line has a
- * finished shipping track ("Delivered to Customer") and that aren't on a Final Invoice yet can be picked;
+ * track number received in the warehouse and that aren't on a Final Invoice yet can be picked;
  * the rest stay open for a later Final Invoice. Pass `proformaId` to skip the Sales Order picker.
  */
 const props = defineProps<{

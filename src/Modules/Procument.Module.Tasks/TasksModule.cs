@@ -7,7 +7,7 @@ public static class TasksModule
 {
     public static IServiceCollection AddTasksModule(this IServiceCollection services)
     {
-        services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<ITaskBoardService, TaskBoardService>();
         return services;
     }
 }

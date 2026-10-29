@@ -25,6 +25,11 @@ public class Customer : AuditableEntity
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
     /// <summary>Customer-specific quote coefficients. When set, they take priority over the base/currency defaults on the create-quote page. SuperAdmin only.</summary>
+    /// <summary>
+    /// Procurement Plus commission: the lowest coef this customer may get with a Trusted supplier (≥ 10K$ selling
+    /// total: the coef may equal it; below: it must be bigger). SuperAdmin only.
+    /// </summary>
+    public decimal? MinCoef { get; set; }
     public decimal? Coef1 { get; set; }
     public decimal? Coef2 { get; set; }
     public decimal? Coef3 { get; set; }

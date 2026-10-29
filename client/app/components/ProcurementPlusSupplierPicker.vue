@@ -40,7 +40,9 @@ const props = withDefaults(defineProps<{
   initialSearch?: string
   /** Pick the first supplier using the searched email's domain when nothing is picked yet. */
   autoPickDomain?: boolean
-}>(), { label: 'Catalog supplier', placeholder: 'Type a name, email or domain', initialSearch: '', autoPickDomain: false })
+  /** Search endpoint (new Procurement Plus: /ppe/suppliers). */
+  searchPath?: string
+}>(), { label: 'Catalog supplier', placeholder: 'Type a name, email or domain', initialSearch: '', autoPickDomain: false, searchPath: '/procurement-plus/suppliers' })
 
 const emit = defineEmits<{
   'update:modelValue': [id: number | null]
@@ -60,7 +62,7 @@ function search(q: string) {
 async function load(q: string) {
   loading.value = true
   try {
-    const found = await api.get<PpSupplierOption[]>(`/procurement-plus/suppliers?q=${encodeURIComponent(q || '')}`)
+    const found = await api.get<PpSupplierOption[]>(`${props.searchPath}?q=${encodeURIComponent(q || '')}`)
     // Keep the picked one in the list so its name still shows.
     const current = options.value.find(o => o.id === props.modelValue)
     options.value = current && !found.some(f => f.id === current.id) ? [current, ...found] : found

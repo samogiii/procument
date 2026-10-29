@@ -35,6 +35,12 @@ public class PaymentBoxesController : ControllerBase
     public async Task<ActionResult<WalletSettingsResponse>> UpdateSettings([FromBody] UpdateWalletSettingsRequest req)
         => Ok(await _service.UpdateSettingsAsync(req, CurrentUserId()));
 
+    /// <summary>Base tags for a transaction from its PR's PI customers, its PI's customer, or its customer.</summary>
+    [HttpGet("suggest-bases")]
+    public async Task<ActionResult<SuggestedBasesResponse>> SuggestBases(
+        [FromQuery] long? paymentRequestId = null, [FromQuery] long? invoiceId = null, [FromQuery] long? customerId = null)
+        => Ok(await _service.SuggestBasesAsync(paymentRequestId, invoiceId, customerId));
+
     [HttpGet("upcoming-withdraws")]
     public async Task<ActionResult<List<UpcomingWithdrawResponse>>> GetUpcomingWithdraws()
         => Ok(await _service.GetUpcomingWithdrawsAsync());

@@ -103,161 +103,8 @@ public class ProcurementService : IProcurementService
         foreach (var ii in invoice.InvoiceItems.OrderBy(x => x.Id))
         {
             sortOrder++;
-            var qi = ii.QuoteItem;
-            var rfqItem = qi?.RFQItem;
-            var rfq = rfqItem?.RFQ;
-            var selectedProcRecord = qi?.ProcumentRecord;
-
-            var item = new ProcurementItem
-            {
-                ProcurementId = proc.Id,
-                SortOrder = sortOrder,
-                CreatedAt = DateTime.UtcNow,
-
-                // RFQ snapshot
-                SourceRfqId = rfq?.Id,
-                SourceRfqItemId = rfqItem?.Id,
-                RfqName = rfq?.Name,
-                RfqExType = rfq?.ExType,
-                PartNumberId = qi?.PartNumberId ?? rfqItem?.PartNumberId,
-                PartNumberName = qi?.PartNumber?.Name ?? rfqItem?.PartNumber?.Name,
-                PartNumberDescription = qi?.PartNumber?.Description ?? rfqItem?.PartNumber?.Description,
-                RfqQty = rfqItem?.Qty,
-                RfqCondition = rfqItem?.Condition,
-                RfqUnit = rfqItem?.Unit,
-                RfqPriority = rfqItem?.Priority,
-                RfqAlt = rfqItem?.Alt,
-                RfqNote = rfqItem?.Note,
-
-                // Quote snapshot
-                SourceQuoteId = qi?.QuoteId,
-                SourceQuoteItemId = qi?.Id,
-                QuoteNumber = quoteNumber,
-                QuoteUnitPrice = qi?.UnitPrice ?? 0,
-                QuoteQty = qi?.Qty ?? 0,
-                QuoteCondition = qi?.Condition,
-                QuoteAlt = qi?.Alt,
-                QuoteLeadTimeDays = qi?.LeadTimeDays,
-
-                // Selected-supplier snapshot
-                SourceProcumentRecordId = selectedProcRecord?.Id,
-                SourceSupplierId = selectedProcRecord?.SupplierId,
-                SupplierName = selectedProcRecord?.Supplier?.Name,
-                SupplierPrice = selectedProcRecord != null ? (decimal?)selectedProcRecord.Price : null,
-                SupplierLeadTime = selectedProcRecord?.LeadTime,
-                SupplierCondition = selectedProcRecord?.Condition,
-                SupplierCertName = selectedProcRecord?.CertName,
-                ShippingCost = selectedProcRecord?.ShippingCost,
-
-                // Invoice snapshot
-                SourceInvoiceItemId = ii.Id,
-                AcceptedQty = ii.Qty,
-                AcceptedUnitPrice = ii.UnitPrice,
-
-                // Editable defaults — seeded from the accepted invoice + selected supplier
-                Qty = ii.Qty,
-                UnitPrice = (selectedProcRecord?.Price > 0) ? (decimal)selectedProcRecord.Price : ii.UnitPrice,
-                CurrentSupplierId = selectedProcRecord?.SupplierId,
-                LeadTime = selectedProcRecord?.LeadTime,
-                Condition = qi?.Condition,
-                ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
-                Alt = qi?.Alt,
-                Note = null,
-                ItemStatus = "Open",
-            };
-            _db.Set<ProcurementItem>().Add(item);
-            await _db.SaveChangesAsync();
-            createdLines.Add((item, ii, qi, selectedProcRecord));
-
-            // Assignment priority: PI item → whole PI → source Quote/RFQ defaults.
-            var usersToAssign = await _db.Set<EntityPermission>()
-                .Where(permission => permission.EntityName == "InvoiceItem" && permission.EntityId == ii.Id.ToString())
-                .Select(permission => new { permission.UserId, permission.Permission })
-                .ToListAsync();
-
-            if (usersToAssign.Count == 0)
-            {
-                usersToAssign = await _db.Set<EntityPermission>()
-                    .Where(permission => permission.EntityName == "Invoice" && permission.EntityId == invoice.Id.ToString())
-                    .Select(permission => new { permission.UserId, permission.Permission })
-                    .ToListAsync();
-            }
-
-            if (usersToAssign.Count == 0)
-            {
-                if (qi != null)
-                {
-                    var quoteOwnerId = await _db.Set<Quote>().Where(quote => quote.Id == qi.QuoteId).Select(quote => quote.UserId).FirstOrDefaultAsync();
-                    if (quoteOwnerId > 0) usersToAssign.Add(new { UserId = quoteOwnerId, Permission = "Edit" });
-
-                    var quotePermissions = await _db.Set<EntityPermission>()
-                        .Where(permission => permission.EntityName == "Quote" && permission.EntityId == qi.QuoteId.ToString())
-                        .Select(permission => new { permission.UserId, permission.Permission })
-                        .ToListAsync();
-                    usersToAssign.AddRange(quotePermissions);
-                }
-                if (rfq != null)
-                {
-                    if (rfq.UserId.HasValue) usersToAssign.Add(new { UserId = rfq.UserId.Value, Permission = "Edit" });
-                    var rfqPermissions = await _db.Set<EntityPermission>()
-                        .Where(permission => permission.EntityName == "RFQ" && permission.EntityId == rfq.Id.ToString())
-                        .Select(permission => new { permission.UserId, permission.Permission })
-                        .ToListAsync();
-                    usersToAssign.AddRange(rfqPermissions);
-                }
-            }
-
-            foreach (var assignment in usersToAssign.GroupBy(user => user.UserId).Select(group => group.First()))
-            {
-                _db.Set<EntityPermission>().Add(new EntityPermission
-                {
-                    UserId = assignment.UserId,
-                    EntityName = "Procurement",
-                    EntityId = item.Id.ToString(),
-                    Permission = assignment.Permission,
-                    CreatedAt = DateTime.UtcNow
-                });
-            }
-            await _db.SaveChangesAsync();
-
-            // Clone ProcumentRecords tied to this RFQItem into ProcurementSupplierQuote rows
-            if (rfqItem != null)
-            {
-                var candidates = procRecords
-                    .Where(pr => pr.RFQItemId == rfqItem.Id)
-                    .OrderBy(pr => pr.SortOrder)
-                    .ThenBy(pr => pr.Id)
-                    .ToList();
-
-                int sqOrder = 0;
-                foreach (var pr in candidates)
-                {
-                    sqOrder++;
-                    var sq = new ProcurementSupplierQuote
-                    {
-                        ProcurementItemId = item.Id,
-                        SupplierId = pr.SupplierId,
-                        SupplierName = pr.Supplier?.Name ?? string.Empty,
-                        Price = pr.Price,
-                        Qty = pr.Qty,
-                        Condition = pr.Condition,
-                        Unit = pr.Unit,
-                        Alt = pr.Alt,
-                        LeadTime = pr.LeadTime,
-                        CertName = pr.CertName,
-                        ShippingCost = pr.ShippingCost,
-                        Note = pr.Note,
-                        TagDate = pr.TagDate,
-                        ShippingPoint = pr.ShippingPoint,
-                        IsSelected = selectedProcRecord != null && pr.Id == selectedProcRecord.Id,
-                        SourceProcumentRecordId = pr.Id,
-                        SortOrder = sqOrder,
-                        CreatedAt = DateTime.UtcNow,
-                        AddedByUserId = userId > 0 ? userId : null,
-                    };
-                    _db.Set<ProcurementSupplierQuote>().Add(sq);
-                }
-            }
+            var item = await AddProcurementLineAsync(proc.Id, invoice.Id, ii, quoteNumber, procRecords, sortOrder, userId);
+            createdLines.Add((item, ii, ii.QuoteItem, ii.QuoteItem?.ProcumentRecord));
         }
 
         await _db.SaveChangesAsync();
@@ -276,6 +123,237 @@ public class ProcurementService : IProcurementService
         }
 
         return (await GetByIdInternalAsync(proc.Id, userId, true))!;
+    }
+
+    public async Task AddInvoiceItemsAsync(long invoiceId, IReadOnlyCollection<long> invoiceItemIds, long userId)
+    {
+        if (invoiceItemIds.Count == 0) return;
+
+        // No active Procurement yet → nothing to do; it clones every line when it is created.
+        var proc = await _db.Set<Procurement>()
+            .Include(p => p.Items)
+            .FirstOrDefaultAsync(p => p.InvoiceId == invoiceId && p.Status != "Cancelled");
+        if (proc == null) return;
+
+        var quoteNumber = await _db.Set<Invoice>()
+            .Where(invoice => invoice.Id == invoiceId)
+            .Select(invoice => invoice.Quote.QuoteNumber)
+            .FirstOrDefaultAsync();
+
+        var invoiceItems = await _db.Set<InvoiceItem>()
+            .Include(ii => ii.QuoteItem)
+                .ThenInclude(qi => qi!.PartNumber)
+            .Include(ii => ii.QuoteItem)
+                .ThenInclude(qi => qi!.ProcumentRecord)
+                    .ThenInclude(pr => pr!.Supplier)
+            .Include(ii => ii.QuoteItem)
+                .ThenInclude(qi => qi!.RFQItem)
+                    .ThenInclude(ri => ri!.RFQ)
+            .Where(ii => ii.InvoiceId == invoiceId && invoiceItemIds.Contains(ii.Id))
+            .Where(ii => !_db.Set<ProcurementItem>().Any(pi => pi.ProcurementId == proc.Id && pi.SourceInvoiceItemId == ii.Id))
+            .OrderBy(ii => ii.Id)
+            .ToListAsync();
+        if (invoiceItems.Count == 0) return;
+
+        var rfqItemIds = invoiceItems
+            .Select(ii => ii.QuoteItem?.RFQItemId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        var procRecords = rfqItemIds.Count > 0
+            ? await _db.Set<ProcumentRecord>()
+                .Include(pr => pr.Supplier)
+                .Where(pr => rfqItemIds.Contains(pr.RFQItemId))
+                .ToListAsync()
+            : new List<ProcumentRecord>();
+
+        int sortOrder = proc.Items.Count == 0 ? 0 : proc.Items.Max(item => item.SortOrder);
+        var createdLines = new List<(ProcurementItem Item, InvoiceItem InvoiceItem)>();
+        foreach (var ii in invoiceItems)
+        {
+            sortOrder++;
+            var item = await AddProcurementLineAsync(proc.Id, invoiceId, ii, quoteNumber, procRecords, sortOrder, userId);
+            createdLines.Add((item, ii));
+        }
+
+        // A finalized Procurement has open work again — reopen it so the new rows can be sourced.
+        if (proc.Status == "Finalized")
+        {
+            proc.Status = "Sourcing";
+            proc.FinalizedAt = null;
+            proc.FinalizedByUserId = null;
+        }
+        await _db.SaveChangesAsync();
+
+        foreach (var line in createdLines)
+            await ReserveFromStockAsync(proc.Id, line.Item, line.InvoiceItem, line.InvoiceItem.QuoteItem, line.InvoiceItem.QuoteItem?.ProcumentRecord, userId);
+    }
+
+    /// <summary>
+    /// Clones one Sales Order line (with its Quote/RFQ/selected-supplier chain) into a ProcurementItem,
+    /// assigns it and copies the RFQ item's supplier quotes. The supplier-quote rows are left for the
+    /// caller to save. Shared by procurement creation and lines added to the Sales Order later.
+    /// </summary>
+    private async Task<ProcurementItem> AddProcurementLineAsync(long procurementId, long invoiceId, InvoiceItem ii,
+        string? quoteNumber, List<ProcumentRecord> procRecords, int sortOrder, long userId)
+    {
+        var qi = ii.QuoteItem;
+        var rfqItem = qi?.RFQItem;
+        var rfq = rfqItem?.RFQ;
+        var selectedProcRecord = qi?.ProcumentRecord;
+
+        var item = new ProcurementItem
+        {
+            ProcurementId = procurementId,
+            SortOrder = sortOrder,
+            CreatedAt = DateTime.UtcNow,
+
+            // RFQ snapshot
+            SourceRfqId = rfq?.Id,
+            SourceRfqItemId = rfqItem?.Id,
+            RfqName = rfq?.Name,
+            RfqExType = rfq?.ExType,
+            PartNumberId = qi?.PartNumberId ?? rfqItem?.PartNumberId,
+            PartNumberName = qi?.PartNumber?.Name ?? rfqItem?.PartNumber?.Name,
+            PartNumberDescription = qi?.PartNumber?.Description ?? rfqItem?.PartNumber?.Description,
+            RfqQty = rfqItem?.Qty,
+            RfqCondition = rfqItem?.Condition,
+            RfqUnit = rfqItem?.Unit,
+            RfqPriority = rfqItem?.Priority,
+            RfqAlt = rfqItem?.Alt,
+            RfqNote = rfqItem?.Note,
+
+            // Quote snapshot
+            SourceQuoteId = qi?.QuoteId,
+            SourceQuoteItemId = qi?.Id,
+            QuoteNumber = quoteNumber,
+            QuoteUnitPrice = qi?.UnitPrice ?? 0,
+            QuoteQty = qi?.Qty ?? 0,
+            QuoteCondition = qi?.Condition,
+            QuoteAlt = qi?.Alt,
+            QuoteLeadTimeDays = qi?.LeadTimeDays,
+
+            // Selected-supplier snapshot
+            SourceProcumentRecordId = selectedProcRecord?.Id,
+            SourceSupplierId = selectedProcRecord?.SupplierId,
+            SupplierName = selectedProcRecord?.Supplier?.Name,
+            SupplierPrice = selectedProcRecord != null ? (decimal?)selectedProcRecord.Price : null,
+            SupplierLeadTime = selectedProcRecord?.LeadTime,
+            SupplierCondition = selectedProcRecord?.Condition,
+            SupplierCertName = selectedProcRecord?.CertName,
+            ShippingCost = selectedProcRecord?.ShippingCost,
+
+            // Invoice snapshot
+            SourceInvoiceItemId = ii.Id,
+            AcceptedQty = ii.Qty,
+            AcceptedUnitPrice = ii.UnitPrice,
+
+            // Editable defaults — seeded from the accepted invoice + selected supplier
+            Qty = ii.Qty,
+            UnitPrice = (selectedProcRecord?.Price > 0) ? (decimal)selectedProcRecord.Price : ii.UnitPrice,
+            CurrentSupplierId = selectedProcRecord?.SupplierId,
+            LeadTime = selectedProcRecord?.LeadTime,
+            Condition = qi?.Condition,
+            ExpectedDeliveryDate = ii.ExpectedDeliveryDate,
+            Alt = qi?.Alt,
+            Note = null,
+            ItemStatus = "Open",
+        };
+        _db.Set<ProcurementItem>().Add(item);
+        await _db.SaveChangesAsync();
+
+        // Assignment priority: PI item → whole PI → source Quote/RFQ defaults.
+        var usersToAssign = await _db.Set<EntityPermission>()
+            .Where(permission => permission.EntityName == "InvoiceItem" && permission.EntityId == ii.Id.ToString())
+            .Select(permission => new { permission.UserId, permission.Permission })
+            .ToListAsync();
+
+        if (usersToAssign.Count == 0)
+        {
+            usersToAssign = await _db.Set<EntityPermission>()
+                .Where(permission => permission.EntityName == "Invoice" && permission.EntityId == invoiceId.ToString())
+                .Select(permission => new { permission.UserId, permission.Permission })
+                .ToListAsync();
+        }
+
+        if (usersToAssign.Count == 0)
+        {
+            if (qi != null)
+            {
+                var quoteOwnerId = await _db.Set<Quote>().Where(quote => quote.Id == qi.QuoteId).Select(quote => quote.UserId).FirstOrDefaultAsync();
+                if (quoteOwnerId > 0) usersToAssign.Add(new { UserId = quoteOwnerId, Permission = "Edit" });
+
+                var quotePermissions = await _db.Set<EntityPermission>()
+                    .Where(permission => permission.EntityName == "Quote" && permission.EntityId == qi.QuoteId.ToString())
+                    .Select(permission => new { permission.UserId, permission.Permission })
+                    .ToListAsync();
+                usersToAssign.AddRange(quotePermissions);
+            }
+            if (rfq != null)
+            {
+                if (rfq.UserId.HasValue) usersToAssign.Add(new { UserId = rfq.UserId.Value, Permission = "Edit" });
+                var rfqPermissions = await _db.Set<EntityPermission>()
+                    .Where(permission => permission.EntityName == "RFQ" && permission.EntityId == rfq.Id.ToString())
+                    .Select(permission => new { permission.UserId, permission.Permission })
+                    .ToListAsync();
+                usersToAssign.AddRange(rfqPermissions);
+            }
+        }
+
+        foreach (var assignment in usersToAssign.GroupBy(user => user.UserId).Select(group => group.First()))
+        {
+            _db.Set<EntityPermission>().Add(new EntityPermission
+            {
+                UserId = assignment.UserId,
+                EntityName = "Procurement",
+                EntityId = item.Id.ToString(),
+                Permission = assignment.Permission,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        await _db.SaveChangesAsync();
+
+        // Clone ProcumentRecords tied to this RFQItem into ProcurementSupplierQuote rows
+        if (rfqItem != null)
+        {
+            var candidates = procRecords
+                .Where(pr => pr.RFQItemId == rfqItem.Id)
+                .OrderBy(pr => pr.SortOrder)
+                .ThenBy(pr => pr.Id)
+                .ToList();
+
+            int sqOrder = 0;
+            foreach (var pr in candidates)
+            {
+                sqOrder++;
+                var sq = new ProcurementSupplierQuote
+                {
+                    ProcurementItemId = item.Id,
+                    SupplierId = pr.SupplierId,
+                    SupplierName = pr.Supplier?.Name ?? string.Empty,
+                    Price = pr.Price,
+                    Qty = pr.Qty,
+                    Condition = pr.Condition,
+                    Unit = pr.Unit,
+                    Alt = pr.Alt,
+                    LeadTime = pr.LeadTime,
+                    CertName = pr.CertName,
+                    ShippingCost = pr.ShippingCost,
+                    Note = pr.Note,
+                    TagDate = pr.TagDate,
+                    ShippingPoint = pr.ShippingPoint,
+                    IsSelected = selectedProcRecord != null && pr.Id == selectedProcRecord.Id,
+                    SourceProcumentRecordId = pr.Id,
+                    SortOrder = sqOrder,
+                    CreatedAt = DateTime.UtcNow,
+                    AddedByUserId = userId > 0 ? userId : null,
+                };
+                _db.Set<ProcurementSupplierQuote>().Add(sq);
+            }
+        }
+
+        return item;
     }
 
     /// <summary>
@@ -965,7 +1043,7 @@ public class ProcurementService : IProcurementService
         if (request.LeadTime != null) item.LeadTime = request.LeadTime;
         if (request.Condition != null) item.Condition = request.Condition;
         if (request.ExpectedDeliveryDate.HasValue) item.ExpectedDeliveryDate = request.ExpectedDeliveryDate.Value;
-        if (request.Alt != null) item.Alt = request.Alt;
+        if (request.Alt != null) item.Alt = AltPartNumbers.Clean(request.Alt);
         if (request.Note != null) item.Note = request.Note;
         if (!string.IsNullOrWhiteSpace(request.ItemStatus))
         {
@@ -1072,7 +1150,7 @@ public class ProcurementService : IProcurementService
         sq.Qty = request.Qty;
         sq.Condition = request.Condition;
         sq.Unit = request.Unit;
-        sq.Alt = request.Alt;
+        sq.Alt = AltPartNumbers.Clean(request.Alt);
         sq.LeadTime = request.LeadTime;
         sq.CertName = request.CertName;
         sq.ShippingCost = request.ShippingCost;

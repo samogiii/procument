@@ -572,7 +572,9 @@ interface CapListForm {
 const loading = ref(false)
 const saving = ref(false)
 const deleteSaving = ref(false)
-const allItems = ref<any[]>([])
+// shallowRef: the page holds every Cap List row, and deep reactivity proxied each one.
+// Rows are never mutated in place — updates replace the array.
+const allItems = shallowRef<any[]>([])
 const search = ref('')
 const activeTab = ref('all')
 
@@ -595,20 +597,20 @@ function showSnack(text: string, color = 'success') {
 // ── Computed ──
 const repairItems = computed(() => allItems.value.filter(i => i.isRepair))
 
+// One pass over the rows (it used to re-scan every row once per supplier).
 const uniqueSuppliers = computed(() => {
   const supplierMap = new Map<number, any>()
-  allItems.value.forEach(item => {
-    if (item.companyId && !supplierMap.has(item.companyId)) {
-      const items = allItems.value.filter(i => i.companyId === item.companyId)
-      supplierMap.set(item.companyId, {
-        companyId: item.companyId,
-        companyName: item.companyName,
-        totalItems: items.length,
-        repairItems: items.filter(i => i.isRepair).length,
-        supplyItems: items.filter(i => !i.isRepair).length,
-      })
+  for (const item of allItems.value) {
+    if (!item.companyId) continue
+    let supplier = supplierMap.get(item.companyId)
+    if (!supplier) {
+      supplier = { companyId: item.companyId, companyName: item.companyName, totalItems: 0, repairItems: 0, supplyItems: 0 }
+      supplierMap.set(item.companyId, supplier)
     }
-  })
+    supplier.totalItems++
+    if (item.isRepair) supplier.repairItems++
+    else supplier.supplyItems++
+  }
   return Array.from(supplierMap.values())
 })
 
@@ -852,10 +854,9 @@ async function saveItem() {
     }
     const saved = await api.post<any>('/caplist', payload)
     if (isEditing.value) {
-      const idx = allItems.value.findIndex(i => i.id === editingId.value)
-      if (idx >= 0) allItems.value[idx] = saved
+      allItems.value = allItems.value.map(i => i.id === editingId.value ? saved : i)
     } else {
-      allItems.value.unshift(saved)
+      allItems.value = [saved, ...allItems.value]
     }
     showSnack(isEditing.value ? 'Item updated' : 'Item added')
     closeDialog()
@@ -895,7 +896,7 @@ async function doDelete() {
 // ── AR Shop Import ──
 const showARDialog = ref(false)
 const arShopsLoading = ref(false)
-const arShops = ref<any[]>([])
+const arShops = shallowRef<any[]>([])
 const arShopSearch = ref('')
 const selectedARShops = ref<Set<number>>(new Set())
 const importingShops = ref(false)
@@ -940,17 +941,22 @@ async function importARShops() {
   if (!toImport.length) return
   importingShops.value = true
   try {
-    for (const shop of toImport) {
-      const payload = {
-        id: null,
-        partNumberId: shop.partNumberId,
-        description: null,
-        companyId: shop.supplierId,
-        isRepair: true,
-        procumentRecordId: shop.procumentRecordId,
+    const imported: any[] = []
+    try {
+      for (const shop of toImport) {
+        const payload = {
+          id: null,
+          partNumberId: shop.partNumberId,
+          description: null,
+          companyId: shop.supplierId,
+          isRepair: true,
+          procumentRecordId: shop.procumentRecordId,
+        }
+        imported.unshift(await api.post<any>('/caplist', payload))
       }
-      const saved = await api.post<any>('/caplist', payload)
-      allItems.value.unshift(saved)
+    } finally {
+      // One array swap for the whole batch, including the shops saved before a failure.
+      allItems.value = [...imported, ...allItems.value]
     }
     showSnack(`${toImport.length} shop(s) imported to Cap List`)
     showARDialog.value = false

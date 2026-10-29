@@ -99,6 +99,12 @@ public class PendingSupplierQuote : BaseEntity
     public long? SourceSupplierQuoteId { get; set; }
 
     public const string SourceProcurementPlus = "ProcurementPlus";
+    /// <summary>
+    /// A supplier line on the new Procurement Plus page (PpeService): a draft until it has a price and a
+    /// catalog supplier, then accepted onto every RFQ for the part whose deadline is at most 14 days ago.
+    /// Neither Email Quotes nor Procurement ProMax list these.
+    /// </summary>
+    public const string SourcePpe = "PPE";
 
     public Supplier? Supplier { get; set; }
     public PendingQuoteEmail? Email { get; set; }

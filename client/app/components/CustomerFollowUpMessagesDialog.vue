@@ -70,6 +70,7 @@
             :key="item.key"
             :class="itemClass(item)"
             :style="item.type === 'msg' ? { '--c': item.color } : undefined"
+            :data-msg-id="item.type === 'msg' ? item.message.id : undefined"
           >
             <span v-if="item.type === 'day'">{{ item.label }}</span>
             <template v-else>
@@ -282,8 +283,11 @@ type TimelineItem =
   | { type: 'day'; key: string; label: string }
   | { type: 'msg'; key: string; message: ChatMessage; mine: boolean; color: string; first: boolean; last: boolean }
 
-/** The chat of one Customer Follow Ups row. Open while `row` is set. */
-const props = defineProps<{ row: FollowUpRow | null }>()
+/**
+ * The chat of one Customer Follow Ups row. Open while `row` is set. With `focusMessageId` (a message
+ * search hit) it opens scrolled to that message and flashes it, instead of at the newest message.
+ */
+const props = defineProps<{ row: FollowUpRow | null; focusMessageId?: number | null }>()
 
 const emit = defineEmits<{
   close: []
@@ -397,7 +401,13 @@ const timeline = computed<TimelineItem[]>(() => {
 
 function itemClass(item: TimelineItem) {
   if (item.type === 'day') return 'chat-day'
-  return ['chat-msg', { 'is-mine': item.mine, 'is-first': item.first, 'is-last': item.last, 'is-pending': item.message.pending }]
+  return ['chat-msg', {
+    'is-mine': item.mine,
+    'is-first': item.first,
+    'is-last': item.last,
+    'is-pending': item.message.pending,
+    'is-focused': item.message.id === flashedId.value,
+  }]
 }
 
 // ── Loading & polling ────────────────────────────────────────────────────────
@@ -425,6 +435,7 @@ async function fetchMessages(rowId: number, initial: boolean) {
     if (initial || list.some(m => !knownIds.has(m.id) && !isMine(m))) markRead(rowId)
 
     await nextTick()
+    if (initial && props.focusMessageId && scrollToMessage(props.focusMessageId)) return
     if (initial || nearBottom) scrollToBottom(!initial)
     else if (arrived > 0) unseen.value += arrived
   } catch (error) {
@@ -491,6 +502,7 @@ watch(() => props.row?.id, (rowId) => {
 }, { immediate: true })
 
 onBeforeUnmount(() => {
+  if (flashTimer) clearTimeout(flashTimer)
   stopPolling()
   releaseFiles()
   closePreview()
@@ -507,6 +519,21 @@ function scrollToBottom(smooth = false) {
   unseen.value = 0
   const el = scroller.value
   if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+}
+
+/** The message picked in the message search, highlighted for a moment. */
+const flashedId = ref<number | null>(null)
+let flashTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Centres the message and flashes it. False when it is not in the chat (e.g. deleted since the search). */
+function scrollToMessage(messageId: number) {
+  const el = scroller.value?.querySelector<HTMLElement>(`[data-msg-id="${messageId}"]`)
+  if (!el) return false
+  el.scrollIntoView({ block: 'center' })
+  flashedId.value = messageId
+  if (flashTimer) clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => (flashedId.value = null), 2600)
+  return true
 }
 
 function onScroll() {
@@ -892,6 +919,13 @@ function formatFileSize(bytes: number) {
 .chat-msg.is-first { margin-top: 10px; }
 .chat-msg.is-mine { flex-direction: row-reverse; }
 .chat-msg.is-pending { opacity: 0.6; }
+/* The message opened from the message search */
+.chat-msg.is-focused .chat-bubble { animation: chat-focus 2.6s ease-out; }
+
+@keyframes chat-focus {
+  0%, 35% { box-shadow: 0 0 0 3px #facc15, 0 0 22px 2px rgba(250, 204, 21, 0.55); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 
 .chat-bubble {
   position: relative;

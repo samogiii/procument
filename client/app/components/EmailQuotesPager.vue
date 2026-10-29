@@ -4,7 +4,7 @@
     <v-pagination v-model="page" :length="pageCount" :total-visible="7" density="comfortable" size="small" />
     <v-select
       v-model="pageSize"
-      :items="PAGE_SIZES"
+      :items="pageSizes ?? PAGE_SIZES"
       label="Emails per page"
       density="compact"
       variant="outlined"
@@ -15,7 +15,8 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ totalEmails: number }>()
+/** pageSizes: the "Emails per page" choices (default 10–100). */
+const props = defineProps<{ totalEmails: number; pageSizes?: number[] }>()
 const page = defineModel<number>('page', { required: true })
 const pageSize = defineModel<number>('pageSize', { required: true })
 

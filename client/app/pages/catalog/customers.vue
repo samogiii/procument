@@ -87,12 +87,15 @@
             <span v-else>—</span>
           </template>
           <template #item.coefs="{ item }">
+            <v-chip v-if="item.minCoef != null" size="x-small" variant="flat" color="deep-purple" class="mb-1" title="MinCoef — Procurement Plus commission minimum with Trusted suppliers">
+              min {{ item.minCoef }}
+            </v-chip>
             <div v-if="item.coef1 != null || item.coef2 != null || item.coef3 != null" class="d-flex gap-1">
               <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef1 ?? '—' }}</v-chip>
               <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef2 ?? '—' }}</v-chip>
               <v-chip size="x-small" variant="tonal" color="deep-purple">{{ item.coef3 ?? '—' }}</v-chip>
             </div>
-            <span v-else>—</span>
+            <span v-else-if="item.minCoef == null">—</span>
           </template>
           <template #item.creditEnabled="{ item }">
             <v-chip size="x-small" :color="item.creditEnabled ? 'success' : 'grey'" variant="tonal">
@@ -211,6 +214,19 @@
           <v-text-field v-model.number="form.coef2" label="Coef 2" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
           <v-text-field v-model.number="form.coef3" label="Coef 3" type="number" step="0.01" min="0" variant="outlined" density="compact" hide-details clearable />
         </div>
+        <v-text-field
+          v-model.number="form.minCoef"
+          label="MinCoef (Procurement Plus commission)"
+          type="number"
+          step="0.01"
+          min="0"
+          variant="outlined"
+          density="compact"
+          clearable
+          persistent-hint
+          hint="Not used for now — the Procurement Plus commission has no minimum coef."
+          class="mb-2"
+        />
       </template>
 
       <template v-if="isAdmin">
@@ -314,6 +330,7 @@ const defaultForm = () => ({
   piTermsAndConditions: '', companyType: null as string | null, country: '', emails: [] as string[],
   website: '',
   coef1: null as number | null, coef2: null as number | null, coef3: null as number | null,
+  minCoef: null as number | null,
   creditEnabled: false, maxCredit: null as number | null,
 })
 const form = ref(defaultForm())
@@ -377,6 +394,7 @@ async function save() {
       coef1: num(form.value.coef1),
       coef2: num(form.value.coef2),
       coef3: num(form.value.coef3),
+      minCoef: num(form.value.minCoef),
       maxCredit: form.value.creditEnabled ? num(form.value.maxCredit) : null,
     }
     if (editingId.value) {

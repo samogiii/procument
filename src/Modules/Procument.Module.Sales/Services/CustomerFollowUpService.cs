@@ -51,6 +51,11 @@ public interface ICustomerFollowUpService
     /// Throws ArgumentException for an empty message, too long text or a file that is not a PDF / photo.
     /// </summary>
     Task<List<CustomerFollowUpMessageResponse>?> SendMessageAsync(long id, string? text, IEnumerable<IFormFile> files, string userName);
+    /// <summary>
+    /// Messages of every active row whose text or file name contains <paramref name="query"/> (case-insensitive),
+    /// newest first, at most <see cref="MaxMessageSearchHits"/>. Throws ArgumentException for a too short query.
+    /// </summary>
+    Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query);
     /// <summary>Deletes the message and its document. Only the sender may delete it.</summary>
     Task<DeleteMessageResult> DeleteMessageAsync(long id, long messageId, string userName);
 
@@ -86,6 +91,8 @@ public class CustomerFollowUpService : ICustomerFollowUpService
     public const int MaxRefPageSize = 50;
     /// <summary>A new RFQ without a deadline is due this many days from today (as in Email RFQs).</summary>
     private const int DefaultRfqDeadlineDays = 3;
+
+    public const int MaxMessageSearchHits = 300;
 
     public const int ShortTextMax = 100;
     public const int LongTextMax = 4000;
@@ -777,6 +784,29 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         await MarkProcurementWorkAsync(id, userName);
         await _db.SaveChangesAsync();
         return messages.Select(MapMessage).ToList();
+    }
+
+    public async Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query)
+    {
+        var term = query?.Trim() ?? "";
+        if (term.Length < 2) throw new ArgumentException("Type at least 2 characters to search.");
+        Limit(term, ShortTextMax, "The search");
+
+        var matches = _db.Set<CustomerFollowUpMessage>()
+            .AsNoTracking()
+            .Where(m => m.CustomerFollowUp.IsActive
+                && ((m.Text != null && m.Text.Contains(term)) || (m.DocumentName != null && m.DocumentName.Contains(term))));
+        var total = await matches.CountAsync();
+        var messages = await matches
+            .Include(m => m.Document)
+            .OrderByDescending(m => m.SentAt).ThenByDescending(m => m.Id)
+            .Take(MaxMessageSearchHits)
+            .ToListAsync();
+        return new CustomerFollowUpMessageSearchResponse
+        {
+            Total = total,
+            Hits = messages.Select(m => new CustomerFollowUpMessageSearchHit { RowId = m.CustomerFollowUpId, Message = MapMessage(m) }).ToList(),
+        };
     }
 
     public async Task<DeleteMessageResult> DeleteMessageAsync(long id, long messageId, string userName)

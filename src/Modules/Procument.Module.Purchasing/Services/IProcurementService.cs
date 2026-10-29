@@ -12,6 +12,12 @@ public interface IProcurementService
     /// </summary>
     Task<ProcurementResponse> CreateFromAcceptedInvoiceAsync(long invoiceId, long userId, bool autoFinalize = false);
 
+    /// <summary>
+    /// Clones Sales Order lines added after the Procurement was created into new Procurement rows
+    /// (reopening a finalized Procurement). No-op while the invoice has no active Procurement.
+    /// </summary>
+    Task AddInvoiceItemsAsync(long invoiceId, IReadOnlyCollection<long> invoiceItemIds, long userId);
+
     Task<PagedResult<ProcurementResponse>> GetAllAsync(PageQuery page, long userId, bool isAdmin, bool isSuperAdmin = true, int[]? userBases = null);
     Task<PagedResult<ProcurementItemFlatResponse>> GetAllItemsFlatAsync(long userId, bool isAdmin, int page = 1, int pageSize = 50, string? search = null, List<string>? statuses = null, List<string>? procStatuses = null, List<string>? customerNames = null, List<long>? userIds = null, string? sortBy = null, bool sortDesc = false, List<string>? partNames = null, List<string>? conditions = null, List<string>? supplierNames = null, bool isSuperAdmin = true, int[]? userBases = null, bool includeCancelled = false);
     Task<ProcurementResponse?> GetByIdAsync(long id, long userId, bool isAdmin);

@@ -50,6 +50,8 @@ const props = defineProps<{
   partNumber: string
   /** The part's supplier lines — suppliers already under it show "Added". */
   lines?: PpQuoteLine[]
+  /** Full history URL (the new Procurement Plus page: /ppe/parts/{id}/history); default = Procurement ProMax's. */
+  url?: string
 }>()
 const emit = defineEmits<{
   'update:modelValue': [open: boolean]
@@ -58,6 +60,7 @@ const emit = defineEmits<{
 }>()
 
 const api = useProcurementPlusApi()
+const plainApi = useApi()
 const history = ref<PpPartHistory | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -66,7 +69,9 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    history.value = await api.get<PpPartHistory>(`/procurement-plus/parts/${props.partId}/history`)
+    history.value = props.url
+      ? { events: [], ...await plainApi.get<PpPartHistory>(props.url) }
+      : await api.get<PpPartHistory>(`/procurement-plus/parts/${props.partId}/history`)
   } catch (e: any) {
     error.value = e?.data?.message || 'Could not load the history'
   } finally {

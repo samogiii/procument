@@ -441,6 +441,14 @@ public class PpOfferRow
     public string? SupplierEmail { get; set; }
     /// <summary>This supplier + part is already being sourced, or Done within AutoApplyDays.</summary>
     public string? SourcingState { get; set; }
+    /// <summary>
+    /// New Procurement Plus: a price we already have from this supplier for this P/N + condition, still valid (last 14
+    /// days) — from an RFQ supplier quote ("RFQ", Ref = RFQ name) or an Email Quotes line ("Email").
+    /// </summary>
+    public decimal? KnownPrice { get; set; }
+    public string? KnownPriceSource { get; set; }
+    public string? KnownPriceRef { get; set; }
+    public DateTime? KnownPriceDate { get; set; }
 }
 
 public class PpMissingPart

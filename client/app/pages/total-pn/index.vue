@@ -1436,7 +1436,7 @@ async function persistSupplierChanges(alreadySaving = false) {
         qty: Number(quote.qty) || 0,
         price: Number(quote.price) || 0,
         condition: quote.condition,
-        alt: quote.alt,
+        alt: cleanAlt(quote.alt),
         leadTime: quote.leadTime,
       })
       const shouldBeSelected = !!quote.isSelected

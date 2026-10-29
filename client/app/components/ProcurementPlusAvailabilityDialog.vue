@@ -370,6 +370,8 @@ export interface PpOfferRow {
   companyRaw: string; companyKey: string; supplierComment?: string; qtyRaw?: string; qty?: number
   condition?: string; description?: string; price?: number; priceRaw?: string; email?: string; phone?: string
   distance?: string; cage?: string; fileName: string; uploadedAt: string; sourceMethod?: string; sourcingState?: string
+  /** New Procurement Plus: a valid price (≤ 14 days) we already have from this supplier for this P/N + condition. */
+  knownPrice?: number | null; knownPriceSource?: 'RFQ' | 'Email' | null; knownPriceRef?: string | null; knownPriceDate?: string | null
 }
 export interface PpAvailability {
   freshDays: number

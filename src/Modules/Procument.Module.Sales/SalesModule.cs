@@ -15,6 +15,8 @@ public static class SalesModule
         services.AddScoped<IFinalInvoiceService, FinalInvoiceService>();
         // ProcurementService lives in Sales (can see both Sales + Purchasing types); interface is in Purchasing.
         services.AddScoped<IProcurementService, ProcurementService>();
+        // Email RFQs "last customers" info reads our customer quotes (Sales) from Purchasing.
+        services.AddScoped<ICustomerQuotePriceLookup, CustomerQuotePriceLookup>();
         services.AddScoped<ITotalPNService, TotalPNService>();
         services.AddScoped<PaymentBoxService>();
         services.AddScoped<IPaymentBoxService>(sp => sp.GetRequiredService<PaymentBoxService>());

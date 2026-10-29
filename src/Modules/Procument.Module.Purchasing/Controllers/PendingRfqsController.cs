@@ -205,6 +205,50 @@ public class PendingRfqsController : ControllerBase
         return Ok(new { restored = await _service.RestoreAsync(request.Ids) });
     }
 
+    /// <summary>Accepted tab: assign the lines' parts to a PPE (every accepted line with those P/Ns); null unassigns.</summary>
+    [HttpPost("ppe")]
+    [Auditable("PendingRfqItem", "AssignPpe", CaptureBody = true)]
+    public async Task<ActionResult<AssignPpeResponse>> AssignPpe([FromBody] AssignPpeRequest request)
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        try
+        {
+            return Ok(await _service.AssignPpeAsync(request.Ids, request.UserId, GetUserId()));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Users a part can be assigned to: everyone granted Procurement Plus in Menu Access.</summary>
+    [HttpGet("ppe-users")]
+    public async Task<ActionResult<List<QuoteReviewerOption>>> PpeUsers()
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        return Ok(await _service.GetPpeUsersAsync());
+    }
+
+    /// <summary>
+    /// Avg price / customers / known PPE for a page's P/Ns — the tabs load their list first and fill these in after.
+    /// POST only because the P/N list can be long; it changes nothing.
+    /// </summary>
+    [HttpPost("part-insights")]
+    public async Task<ActionResult<List<PartInsight>>> PartInsights([FromBody] PartInsightsRequest request)
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        return Ok(await _service.GetPartInsightsAsync(request));
+    }
+
+    /// <summary>Pending tab info icon: the last 25 customers who asked for the part, with what we quoted them.</summary>
+    [HttpGet("part-customers")]
+    public async Task<ActionResult<PartCustomersResponse>> PartCustomers([FromQuery] string partNumber)
+    {
+        if (!await CanReviewAsync()) return Forbidden();
+        if (string.IsNullOrWhiteSpace(partNumber)) return BadRequest(new { message = "Part number is required." });
+        return Ok(await _service.GetPartCustomersAsync(partNumber));
+    }
+
     /// <summary>Active customers for the customer picker (name, code or email).</summary>
     [HttpGet("customers")]
     public async Task<ActionResult<List<CustomerLookupItem>>> Customers([FromQuery] string? q)

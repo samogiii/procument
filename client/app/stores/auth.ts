@@ -41,8 +41,11 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
     pendingSupplierQuotes: [],
     pendingRfqs: [],
     sendQuoteEmail: [],
+    base5ProformaInvoice: [],
     customerFollowUps: [],
     procurementPlus: [],
+    procurementProMax: [],
+    bi: [],
     // Shipping — the customer bases each user sees (see composables/useShippingBases.ts)
     shippingBase1:   [],
     shippingBase2:   [],
@@ -57,7 +60,7 @@ const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
  * There is no SuperAdmin bypass: only these names see the nav item or the route.
  * Changing who has access means changing this list.
  */
-const WALLET_MENU_USERS = ['KZM', 'ASD', 'MA','System Admin'] as const
+const WALLET_MENU_USERS = ['KZM', 'ASD', 'MA','System Admin','AZA'] as const
 
 function getTokenExpiry(token: string): number | null {
     try {
@@ -158,10 +161,18 @@ export const useAuthStore = defineStore('auth', {
             !!state.user?.name && (state.featurePermissions.pendingRfqs ?? []).includes(state.user.name),
         /** Quote page: marking a quote Sent opens the SMTP email dialog instead of a plain status change. */
         sendQuoteEmail(): boolean { return (this as any).isSuperAdmin || this.can('sendQuoteEmail') },
+        /** Create a Proforma Invoice (Sales Order) from a Base 5 customer's quote — creating only.
+         *  No SuperAdmin bypass: without the grant nobody creates a Base 5 PI. */
+        base5ProformaInvoice: (state): boolean =>
+            !!state.user?.name && (state.featurePermissions.base5ProformaInvoice ?? []).includes(state.user.name),
         /** Customer Follow Ups page — granted per user in Menu Access, whatever the role. */
         customerFollowUps(): boolean { return (this as any).isSuperAdmin || this.can('customerFollowUps') },
         /** Procurement Plus page — granted per user in Menu Access, whatever the role. */
         procurementPlus(): boolean { return (this as any).isSuperAdmin || this.can('procurementPlus') },
+        /** Procurement ProMax (the old Procurement Plus) — never in the menu, opened by URL when granted in Menu Access. */
+        procurementProMax(): boolean { return (this as any).isSuperAdmin || this.can('procurementProMax') },
+        /** BI page — granted per user in Menu Access, whatever the role. */
+        bi(): boolean { return (this as any).isSuperAdmin || this.can('bi') },
         /**
          * Supplier Credits — granted per user in Menu Access, but only for the roles the API
          * serves (/api/supplier-credits: SuperAdmin, Admin, Payment, AHM).

@@ -342,14 +342,21 @@
                             ${{ formatPrice((Number(record.price) || 0) * (Number(record.qty) || 1)) }}
                           </td>
                           <td>
-                            <input
-                              type="number"
-                              class="coef-input"
-                              placeholder="1"
-                              v-model.number="record.coef_1"
-                              step="0.01"
-                              @input="record.customUnitPrice = null"
-                            />
+                            <!-- Coef 1 saved as a commission on Procurement Plus: read only (SuperAdmin can change it) -->
+                            <div class="d-flex align-center">
+                              <input
+                                type="number"
+                                class="coef-input"
+                                :class="{ 'coef-input--locked': record.coefLocked }"
+                                placeholder="1"
+                                v-model.number="record.coef_1"
+                                step="0.01"
+                                :readonly="isCoefLocked(record)"
+                                :title="record.coefLocked ? `Commission from Procurement Plus${isCoefLocked(record) ? ' — only SuperAdmin can change it' : ''}` : ''"
+                                @input="record.customUnitPrice = null"
+                              />
+                              <v-icon v-if="record.coefLocked" icon="mdi-lock-outline" size="13" color="deep-purple-lighten-2" class="ml-1" />
+                            </div>
                           </td>
                           <td>
                             <input
@@ -378,6 +385,7 @@
                               :value="getUnitPrice(record)"
                               step="0.01"
                               min="0"
+                              :readonly="isCoefLocked(record)"
                               @input="onUnitPriceInput(record, $event)"
                             />
                           </td>
@@ -491,6 +499,9 @@ const api = useApi()
 const authStore = useAuthStore()
 
 const isAdmin = computed(() => authStore.isAdmin)
+const isSuperAdmin = computed(() => authStore.isSuperAdmin)
+/** Coef 1 saved as a commission on Procurement Plus: read only for everyone but SuperAdmin. */
+const isCoefLocked = (record: any) => !!record.coefLocked && !isSuperAdmin.value
 const today = new Date().toISOString().split('T')[0]
 
 // State
@@ -558,7 +569,8 @@ const backUrl = computed(() =>
 )
 
 // Watch global coefs
-watch(globalCoef1, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_1 = val; r.customUnitPrice = null }) })
+// A commission Coef 1 (Procurement Plus) is never overwritten by the global / customer coef.
+watch(globalCoef1, (val) => { if (val != null) procurementRecords.value.forEach(r => { if (!r.coefLocked) { r.coef_1 = val; r.customUnitPrice = null } }) })
 watch(globalCoef2, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_2 = val; r.customUnitPrice = null }) })
 watch(globalCoef3, (val) => { if (val != null) procurementRecords.value.forEach(r => { r.coef_3 = val; r.customUnitPrice = null }) })
 
@@ -637,7 +649,7 @@ function applyCustomerCoefs() {
   if (cc.c2 != null) globalCoef2.value = cc.c2
   if (cc.c3 != null) globalCoef3.value = cc.c3
   procurementRecords.value.forEach(r => {
-    if (cc.c1 != null) r.coef_1 = cc.c1
+    if (cc.c1 != null && !r.coefLocked) r.coef_1 = cc.c1
     if (cc.c2 != null) r.coef_2 = cc.c2
     if (cc.c3 != null) r.coef_3 = cc.c3
     r.customUnitPrice = null
@@ -668,6 +680,10 @@ async function loadData() {
       for (const shop of r.shopRecords || []) {
         flatRecords.push({ ...shop, coef_1: shop.coef_1 ?? 1, coef_2: shop.coef_2 ?? 1, coef_3: shop.coef_3 ?? 1, isShop: true, parentProcurementId: r.id })
       }
+    }
+    // A commission (Procurement Plus) with a unit price typed by hand: that price is the quote's unit price.
+    for (const r of flatRecords) {
+      if (r.coefLocked && Number(r.unitPrice) > 0 && Math.abs(Number(r.unitPrice) - calcUnitPrice(r)) > 0.001) r.customUnitPrice = Number(r.unitPrice)
     }
     procurementRecords.value = flatRecords
     const sel: Record<number, boolean> = {}
@@ -758,7 +774,9 @@ function calcTotalPrice(q: any): number {
   return getUnitPrice(q) * (Number(q.qty) || 1)
 }
 
+/** A typed unit price stays as typed — the coefs are not changed to match it (Sam 2026-10-28). */
 function onUnitPriceInput(record: any, event: Event) {
+  if (isCoefLocked(record)) return
   const val = parseFloat((event.target as HTMLInputElement).value)
   if (!isNaN(val) && val > 0) record.customUnitPrice = val
   else record.customUnitPrice = null
@@ -919,7 +937,7 @@ async function doSaveQuote() {
         qty: r.qty,
         price: r.price,
         condition: r.condition,
-        alt: r.alt,
+        alt: cleanAlt(r.alt),
         unit: r.unit || null,
         leadTime: r.leadTime || null,
         sellLeadTime: r.sellLeadTime || '',
@@ -948,7 +966,7 @@ async function doSaveQuote() {
       qty: r.qty,
       unitPrice: getUnitPrice(r),
       condition: r.condition || null,
-      alt: r.alt || null,
+      alt: cleanAlt(r.alt),
       leadTimeDays: null
     }))
     const payload = { rfqId: Number(route.params.id), validUntil: validUntil.value || null, finalPrice: finalPriceOverride.value || null, items }
@@ -1185,6 +1203,14 @@ function showSnack(text: string, color: string) {
   background: var(--toolbar-bg);
   border-color: rgb(var(--v-theme-primary));
   box-shadow: 0 0 0 1px var(--card-hover-border);
+}
+/* Coef 1 saved as a Procurement Plus commission */
+.coef-input--locked {
+  border-color: rgba(149, 117, 205, 0.6);
+  color: #b39ddb;
+}
+.coef-input[readonly] {
+  cursor: not-allowed;
 }
 
 /* Editable Unit Price input */

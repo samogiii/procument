@@ -24,14 +24,24 @@ public class CapListService : ICapListService
 
     public async Task<List<CapListItemResponse>> GetAllAsync()
     {
-        var items = await _db.Set<CapListItem>()
-            .Include(i => i.PartNumber)
-            .Include(i => i.Company)
-            .Include(i => i.ProcumentRecord)
+        // Built in SQL: the page reads every row, and loading the whole (wide) supplier-quote
+        // record per row just for its Condition was most of the cost.
+        return await _db.Set<CapListItem>()
             .OrderByDescending(i => i.CreatedAt)
+            .Select(item => new CapListItemResponse
+            {
+                Id = item.Id,
+                PartNumberId = item.PartNumberId,
+                PartNumberName = item.PartNumber.Name,
+                Description = item.Description,
+                CompanyId = item.CompanyId,
+                CompanyName = item.Company.Name,
+                IsRepair = item.IsRepair,
+                Condition = item.ProcumentRecord != null ? item.ProcumentRecord.Condition : null,
+                ProcumentRecordId = item.ProcumentRecordId,
+                CreatedAt = item.CreatedAt
+            })
             .ToListAsync();
-
-        return items.Select(MapToResponse).ToList();
     }
 
     public async Task<CapListItemResponse> SaveAsync(SaveCapListItemRequest request)
@@ -151,39 +161,28 @@ public class CapListService : ICapListService
 
     public async Task<List<ARShopForCapListResponse>> GetARShopSuggestionsAsync()
     {
-        var shops = await _db.Set<ProcumentRecord>()
-            .Where(r => r.Type == "Shop")
-            .Include(r => r.Supplier)
-            .Include(r => r.RFQItem)
-                .ThenInclude(i => i.PartNumber)
-            .Include(r => r.RFQItem)
-                .ThenInclude(i => i.RFQ)
-            .ToListAsync();
-
-        // Exclude shops already imported
-        var importedIds = await _db.Set<CapListItem>()
-            .Where(c => c.ProcumentRecordId.HasValue)
-            .Select(c => c.ProcumentRecordId!.Value)
-            .ToListAsync();
-
-        return shops
-            .Where(s => !importedIds.Contains(s.Id))
+        // Filtered and projected in SQL — shops already imported are excluded with NOT EXISTS
+        // instead of loading every Shop record and every imported id into memory.
+        return await _db.Set<ProcumentRecord>()
+            .Where(r => r.Type == "Shop"
+                && r.RFQItem.PartNumberId > 0
+                && r.SupplierId > 0
+                && !_db.Set<CapListItem>().Any(c => c.ProcumentRecordId == r.Id))
             .Select(s => new ARShopForCapListResponse
             {
                 ProcumentRecordId = s.Id,
-                PartNumberId = s.RFQItem?.PartNumberId ?? 0,
-                PartNumberName = s.RFQItem?.PartNumber?.Name ?? "",
+                PartNumberId = s.RFQItem.PartNumberId,
+                PartNumberName = s.RFQItem.PartNumber.Name,
                 AltPartNumber = s.Alt,
                 SupplierId = s.SupplierId,
-                SupplierName = s.Supplier?.Name ?? "",
+                SupplierName = s.Supplier.Name,
                 Price = s.Price,
                 FixPrice = s.FixPrice,
                 Qty = s.Qty,
                 Condition = s.Condition,
-                RFQName = s.RFQItem?.RFQ?.Name
+                RFQName = s.RFQItem.RFQ.Name
             })
-            .Where(s => s.PartNumberId > 0 && s.SupplierId > 0)
-            .ToList();
+            .ToListAsync();
     }
 
     public async Task<BulkImportResult> BulkImportAsync(BulkImportCapListRequest request)

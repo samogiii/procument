@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -182,7 +183,7 @@ public class ILSQuoteService : IILSQuoteService
             {
                 ILSQuoteId = quote.Id,
                 PartNumberId = partNumberId,
-                AltPartNumber = item.AltPartNumber,
+                AltPartNumber = AltPartNumbers.Clean(item.AltPartNumber),
                 Condition = item.Condition,
                 CertName = item.CertName,
                 Qty = item.Qty,
@@ -231,7 +232,7 @@ public class ILSQuoteService : IILSQuoteService
             {
                 ILSQuoteId = quote.Id,
                 PartNumberId = partNumberId,
-                AltPartNumber = item.AltPartNumber,
+                AltPartNumber = AltPartNumbers.Clean(item.AltPartNumber),
                 Condition = item.Condition,
                 CertName = item.CertName,
                 Qty = item.Qty,

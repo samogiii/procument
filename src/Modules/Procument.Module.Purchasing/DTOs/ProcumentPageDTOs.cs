@@ -53,6 +53,8 @@ public class KnownSupplierDto
 
 public class RecentSupplierQuoteDto
 {
+    /// <summary>The user who first added this supplier for the part — a quote added from this chip keeps them as expert.</summary>
+    public long? ExpertUserId { get; set; }
     public long SupplierId { get; set; }
     public string SupplierName { get; set; } = string.Empty;
     public string SupplierDependency { get; set; } = "Normal";

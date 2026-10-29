@@ -84,59 +84,60 @@
         </table>
       </v-card-text>
     </v-card>
+  </v-dialog>
 
-    <!-- Add / edit -->
-    <v-dialog v-model="form.open" max-width="560">
-      <v-card>
-        <v-card-title class="pa-4">{{ form.id ? 'Edit preferred supplier' : 'Add preferred supplier' }}</v-card-title>
-        <v-card-text class="pt-0">
-          <v-text-field v-model="form.name" label="Supplier name" density="compact" variant="outlined" class="mb-3" autofocus hide-details="auto" />
-          <v-combobox
-            v-model="form.emails"
-            label="Emails"
-            placeholder="Type an email and press Enter"
-            multiple
-            chips
-            closable-chips
+  <!-- Add / edit (outside the list dialog so it can open on its own — Procurement Plus Preferred suppliers tab) -->
+  <v-dialog v-model="form.open" max-width="560">
+    <v-card>
+      <v-card-title class="pa-4">{{ form.id ? 'Edit preferred supplier' : 'Add preferred supplier' }}</v-card-title>
+      <v-card-text class="pt-0">
+        <v-text-field v-model="form.name" label="Supplier name" density="compact" variant="outlined" class="mb-3" autofocus hide-details="auto" />
+        <v-combobox
+          v-model="form.emails"
+          label="Emails"
+          placeholder="Type an email and press Enter"
+          multiple
+          chips
+          closable-chips
+          density="compact"
+          variant="outlined"
+          :delimiters="[',', ';', ' ']"
+          prepend-inner-icon="mdi-email-multiple-outline"
+          hint="Files match this supplier by these addresses and by their company domain"
+          persistent-hint
+          class="mb-3"
+        />
+        <div class="d-flex gap-3 mb-3">
+          <v-text-field v-model="form.phone" label="Phone" density="compact" variant="outlined" hide-details />
+          <v-select
+            v-model="form.sourceMethod"
+            :items="SOURCE_METHODS"
+            item-title="title"
+            item-value="value"
+            label="Sending method"
             density="compact"
             variant="outlined"
-            :delimiters="[',', ';', ' ']"
-            prepend-inner-icon="mdi-email-multiple-outline"
-            hint="Files match this supplier by these addresses and by their company domain"
-            persistent-hint
-            class="mb-3"
+            hide-details
           />
-          <div class="d-flex gap-3 mb-3">
-            <v-text-field v-model="form.phone" label="Phone" density="compact" variant="outlined" hide-details />
-            <v-select
-              v-model="form.sourceMethod"
-              :items="SOURCE_METHODS"
-              item-title="title"
-              item-value="value"
-              label="Sending method"
-              density="compact"
-              variant="outlined"
-              hide-details
-            />
-          </div>
-          <v-text-field v-model="form.note" label="Note" density="compact" variant="outlined" hide-details class="mb-3" />
-          <ProcurementPlusSupplierPicker
-            :key="form.pickerKey"
-            v-model="form.supplierId"
-            label="Catalog supplier (optional)"
-            :initial-search="form.emails[0] || form.name"
-            @select="onCatalogPicked"
-          />
-          <div class="text-caption text-medium-emphasis mt-1">Only needed to put this supplier's prices on RFQs — can be linked later.</div>
-          <v-alert v-if="form.error" type="error" variant="tonal" density="compact" class="mt-3">{{ form.error }}</v-alert>
-        </v-card-text>
-        <v-card-actions class="pa-4 pt-0">
-          <v-spacer />
-          <v-btn variant="text" @click="form.open = false">Cancel</v-btn>
-          <v-btn color="primary" variant="flat" :loading="form.saving" :disabled="!form.name?.trim() && !form.supplierId" @click="save">Save</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+        </div>
+        <v-text-field v-model="form.note" label="Note" density="compact" variant="outlined" hide-details class="mb-3" />
+        <ProcurementPlusSupplierPicker
+          :key="form.pickerKey"
+          v-model="form.supplierId"
+          label="Catalog supplier (optional)"
+          :initial-search="form.emails[0] || form.name"
+          :search-path="supplierSearchPath"
+          @select="onCatalogPicked"
+        />
+        <div class="text-caption text-medium-emphasis mt-1">Only needed to put this supplier's prices on RFQs — can be linked later.</div>
+        <v-alert v-if="form.error" type="error" variant="tonal" density="compact" class="mt-3">{{ form.error }}</v-alert>
+      </v-card-text>
+      <v-card-actions class="pa-4 pt-0">
+        <v-spacer />
+        <v-btn variant="text" @click="form.open = false">Cancel</v-btn>
+        <v-btn color="primary" variant="flat" :loading="form.saving" :disabled="!form.name?.trim() && !form.supplierId" @click="save">Save</v-btn>
+      </v-card-actions>
+    </v-card>
   </v-dialog>
 </template>
 
@@ -146,7 +147,12 @@ export interface PpPreferredSupplier {
   supplierId?: number; supplierName?: string; supplierStatus?: string; addedAt: string; addedBy?: string
 }
 
-const props = defineProps<{ modelValue: boolean }>()
+const props = withDefaults(defineProps<{
+  modelValue: boolean
+  /** The list API (same rows for both pages): ProMax, or the new Procurement Plus ('/ppe/preferred-suppliers' + ?asUser). */
+  url?: (path: string) => string
+  supplierSearchPath?: string
+}>(), { url: (path: string) => `/procurement-plus/preferred-suppliers${path}`, supplierSearchPath: undefined })
 const emit = defineEmits<{ 'update:modelValue': [v: boolean]; changed: [] }>()
 
 const api = useApi()
@@ -162,7 +168,7 @@ const filtered = computed(() => {
 async function load() {
   loading.value = true
   try {
-    rows.value = await api.get<PpPreferredSupplier[]>('/procurement-plus/preferred-suppliers')
+    rows.value = await api.get<PpPreferredSupplier[]>(props.url(''))
   } finally {
     loading.value = false
   }
@@ -174,7 +180,8 @@ const form = reactive({
   note: '', supplierId: null as number | null, hadSupplier: false, saving: false, error: '', pickerKey: 0,
 })
 
-function openForm(r?: PpPreferredSupplier) {
+/** r with an id = edit it; without = a new one, pre-filled (e.g. from a supplier in the ILS files). */
+function openForm(r?: Partial<PpPreferredSupplier>) {
   Object.assign(form, {
     open: true, id: r?.id ?? null, name: r?.name ?? '', emails: [...(r?.emails ?? [])], phone: r?.phone ?? '',
     sourceMethod: r?.sourceMethod ?? 'Email', note: r?.note ?? '', supplierId: r?.supplierId ?? null,
@@ -201,8 +208,8 @@ async function save() {
       // 0 = unlink an existing catalog link; null on a new entry = none.
       supplierId: form.supplierId ?? (form.hadSupplier ? 0 : null),
     }
-    if (form.id) await api.put(`/procurement-plus/preferred-suppliers/${form.id}`, body)
-    else await api.post('/procurement-plus/preferred-suppliers', body)
+    if (form.id) await api.put(props.url(`/${form.id}`), body)
+    else await api.post(props.url(''), body)
     form.open = false
     await load()
     emit('changed')
@@ -217,7 +224,7 @@ async function setMethod(r: PpPreferredSupplier, method: string) {
   const before = r.sourceMethod
   r.sourceMethod = method
   try {
-    await api.patch(`/procurement-plus/preferred-suppliers/${r.id}`, { sourceMethod: method })
+    await api.patch(props.url(`/${r.id}`), { sourceMethod: method })
     emit('changed')
   } catch {
     r.sourceMethod = before
@@ -225,12 +232,13 @@ async function setMethod(r: PpPreferredSupplier, method: string) {
 }
 
 async function remove(r: PpPreferredSupplier) {
-  await api.del(`/procurement-plus/preferred-suppliers/${r.id}`)
+  await api.del(props.url(`/${r.id}`))
   rows.value = rows.value.filter(x => x.id !== r.id)
   emit('changed')
 }
 
 watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true })
+defineExpose({ openForm })
 </script>
 
 <style scoped>

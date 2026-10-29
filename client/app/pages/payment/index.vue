@@ -3,8 +3,20 @@
     <div class="d-flex align-center mb-4 mb-md-6">
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Payments</h1>
       <v-spacer />
+      <v-btn v-if="whSyncEnabled" variant="tonal" size="small" color="primary" prepend-icon="mdi-cellphone-arrow-down"
+        class="mr-2" :loading="whSyncing" @click="runWarehouseSync">Sync warehouse</v-btn>
       <v-btn variant="text" size="small" prepend-icon="mdi-refresh" :loading="loading" @click="loadAll">Refresh</v-btn>
     </div>
+
+    <v-alert v-if="whSyncing" type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-sync">{{ whSyncText }}</v-alert>
+    <v-alert v-else-if="whSyncResult" :type="whSyncResult.skipped.length ? 'warning' : 'success'" variant="tonal" density="compact"
+      class="mb-4" closable @click:close="whSyncResult = null">
+      Warehouse: {{ whSyncResult.paymentsSent }} payment{{ whSyncResult.paymentsSent === 1 ? '' : 's' }} sent ·
+      {{ whSyncResult.paid }} paid and waiting for your review in Ready To pay · {{ whSyncResult.docs }} document{{ whSyncResult.docs === 1 ? '' : 's' }} sent
+      <ul v-if="whSyncResult.skipped.length" class="mt-1 ml-4 text-body-2">
+        <li v-for="(s, i) in whSyncResult.skipped" :key="i">{{ s }}</li>
+      </ul>
+    </v-alert>
 
     <v-card class="glass-card">
       <v-tabs v-model="activeTab" bg-color="transparent" color="primary">
@@ -122,7 +134,12 @@
               <template #item.totalAmount="{ item }">${{ formatPrice(item.totalAmount) }}</template>
               <template #item.paidAmount="{ item }">${{ formatPrice(item.paidAmount) }}</template>
               <template #item.remainingAmount="{ item }"><span :class="item.remainingAmount > 0 ? 'text-warning font-weight-bold' : 'text-success font-weight-bold'">${{ formatPrice(item.remainingAmount) }}</span></template>
-              <template #item.paymentStatus="{ item }"><v-chip size="small" color="warning" variant="tonal">{{ item.waitingForFinalAmount ? 'Waiting For Final Amount' : 'Remaining' }}</v-chip></template>
+              <template #item.paymentStatus="{ item }">
+                <v-chip v-if="item.warehousePaid" size="small" color="info" variant="flat" prepend-icon="mdi-cellphone-check">Paid in warehouse — review</v-chip>
+                <v-chip v-else size="small" color="warning" variant="tonal">
+                  {{ item.waitingForFinalAmount ? 'Waiting For Final Amount' : item.hasDetails ? 'Waiting For POP' : 'Remaining' }}
+                </v-chip>
+              </template>
               <template #item.actions="{ item }"><v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye" @click.stop="openPo(item, 'withdraw')">Open</v-btn></template>
             </v-data-table>
           </v-card-text>
@@ -359,17 +376,19 @@
               </v-expansion-panel-text>
             </v-expansion-panel>
 
-            <v-expansion-panel v-if="dialogMode === 'withdraw'" value="payment">
+            <v-expansion-panel value="payment">
               <v-expansion-panel-title>
                 <div class="d-flex align-center">
                   <v-icon icon="mdi-cash-check" size="20" class="mr-2" color="warning" />
                   <span class="font-weight-bold">Supplier Payment</span>
-                  <v-chip v-if="waitingForFinalAmount" size="x-small" color="warning" variant="flat" class="ml-2">Waiting For Final Amount</v-chip>
+                  <v-chip v-if="paymentDraft?.warehouse" size="x-small" color="info" variant="flat" class="ml-2">Paid in warehouse</v-chip>
+                  <v-chip v-else-if="waitingForFinalAmount" size="x-small" color="warning" variant="flat" class="ml-2">Waiting For Final Amount</v-chip>
+                  <span v-if="dialogMode === 'accept'" class="text-caption text-medium-emphasis ml-2">Saving these details accepts the request</span>
                 </div>
               </v-expansion-panel-title>
               <v-expansion-panel-text>
                 <!-- Supplier credit the PO's company holds with this supplier (or another company's, with a way to switch) -->
-                <SupplierCreditSuggestion :po-id="selectedPo.id" :refresh-key="creditRefreshKey" @applied="onCreditApplied" />
+                <SupplierCreditSuggestion v-if="dialogMode === 'withdraw'" :po-id="selectedPo.id" :refresh-key="creditRefreshKey" @applied="onCreditApplied" />
 
                 <!-- rowKey is unique across wallet payments and credit applications (their ids can collide) -->
                 <div v-for="payment in paymentHistory" :key="payment.rowKey ?? payment.id" class="d-flex align-center gap-2 mb-2 pa-2 rounded file-row">
@@ -385,29 +404,111 @@
                   <v-btn v-if="payment.popFileName" size="small" icon="mdi-eye-outline" @click="downloadPaymentProof(payment)" />
                 </div>
 
-                <template v-if="waitingForFinalAmount && paymentDraft?.pop">
+                <!-- Paid from the warehouse app: review its POP and final amount -->
+                <template v-if="dialogMode === 'withdraw' && paymentDraft?.warehouse">
+                  <v-alert type="info" variant="tonal" density="compact" icon="mdi-cellphone-check" class="my-3">
+                    Paid in the warehouse by <strong>{{ paymentDraft.warehouse.paidBy }}</strong>
+                    on {{ new Date(paymentDraft.warehouse.paidAt).toLocaleString() }}. Check the POP and amounts, then accept or send it back.
+                  </v-alert>
+                  <div class="d-flex align-center gap-2 pa-2 rounded file-row mb-3">
+                    <v-icon icon="mdi-file-document-check-outline" color="success" size="20" />
+                    <span class="text-body-2 font-weight-medium flex-grow-1 text-truncate">{{ paymentDraft.warehouse.fileName }}</span>
+                    <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-eye-outline" @click="previewWarehousePop">Preview</v-btn>
+                  </div>
+                  <v-row dense class="mb-2">
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Amount paid</div>
+                      <div class="font-weight-bold">${{ formatPrice(paymentDraft.amount) }}</div>
+                    </v-col>
+                    <v-col v-if="paymentDraft.walletCurrency !== 'USD'" cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Rate ({{ paymentDraft.walletCurrency }} per 1 USD)</div>
+                      <div class="font-weight-bold">{{ paymentDraft.warehouse.exchangeRate }}</div>
+                      <div v-if="paymentDraft.exchangeRate && paymentDraft.exchangeRate !== paymentDraft.warehouse.exchangeRate" class="text-caption text-medium-emphasis">
+                        saved here: {{ paymentDraft.exchangeRate }}
+                      </div>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Wallet debit ({{ paymentDraft.walletName }})</div>
+                      <div class="font-weight-medium">{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.warehouse.initialWalletAmount) }}</div>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Final amount (bank)</div>
+                      <div class="font-weight-bold text-success">{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.warehouse.finalAmount) }}</div>
+                    </v-col>
+                  </v-row>
+                  <PaymentFinalCalc class="mb-3" :amount="paymentDraft.amount" :currency="paymentDraft.walletCurrency"
+                    :rate="paymentDraft.warehouse.exchangeRate" :debit="paymentDraft.warehouse.initialWalletAmount"
+                    :handling="paymentDraft.warehouse.handlingFee" :wire="paymentDraft.warehouse.bankWireFee" />
+                  <div class="d-flex flex-wrap gap-2">
+                    <v-btn color="error" variant="tonal" prepend-icon="mdi-undo" @click="showWarehouseRejectDialog = true">Send Back</v-btn>
+                    <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="acceptingWarehouse" @click="acceptWarehousePayment">
+                      Accept &amp; Finish
+                    </v-btn>
+                  </div>
+                </template>
+
+                <template v-else-if="waitingForFinalAmount && paymentDraft?.pop">
                   <v-alert type="warning" variant="tonal" density="compact" class="my-3">
                     The POP is saved. Keep this payment in Ready To Pay until the bank reports its final withdrawn amount.
                   </v-alert>
-                  <v-text-field
-                    v-model.number="finalWalletAmount"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    :prefix="currencySymbol(paymentDraft.walletCurrency)"
-                    :label="`Final withdrawn amount (${paymentDraft.walletCurrency}) *`"
-                    :hint="`Original POP debit: ${formatPrice(paymentDraft.pop.initialWalletAmount)} ${paymentDraft.walletCurrency}`"
-                    persistent-hint
-                    variant="outlined"
-                    class="mb-3"
-                  />
-                  <v-alert v-if="calculatedBankFee >= 0" type="info" variant="tonal" density="compact" class="mb-3">
-                    Bank Fee and Others: <strong>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(calculatedBankFee) }} {{ paymentDraft.walletCurrency }}</strong>
-                  </v-alert>
+                  <v-row dense>
+                    <v-col cols="6">
+                      <v-text-field v-model.number="handlingFee" type="number" min="0" step="0.01"
+                        :prefix="currencySymbol(paymentDraft.walletCurrency)" :label="`Handling fee (${paymentDraft.walletCurrency})`"
+                        variant="outlined" hide-details />
+                    </v-col>
+                    <v-col cols="6">
+                      <v-text-field v-model.number="bankWireFee" type="number" min="0" step="0.01"
+                        :prefix="currencySymbol(paymentDraft.walletCurrency)" :label="`Wire fee (${paymentDraft.walletCurrency})`"
+                        variant="outlined" hide-details />
+                    </v-col>
+                  </v-row>
+                  <PaymentFinalCalc class="my-3" :amount="paymentDraft.amount" :currency="paymentDraft.walletCurrency"
+                    :rate="paymentDraft.walletCurrency === 'USD' ? null : paymentDraft.exchangeRate"
+                    :debit="paymentDraft.pop.initialWalletAmount" :handling="handlingFee" :wire="bankWireFee" />
                   <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="savingFinalAmount"
-                    :disabled="finalWalletAmount < Number(paymentDraft.pop.initialWalletAmount)" @click="saveFinalAmount">
-                    Save Final Amount &amp; Finish
+                    :disabled="!feesValid" @click="saveFinalAmount">
+                    Accept Final Price &amp; Finish
                   </v-btn>
+                </template>
+
+                <!-- Ready To Pay with saved details: only the POP (here or from the warehouse app) is left -->
+                <template v-else-if="dialogMode === 'withdraw' && paymentDraft && !editingDetails">
+                  <v-alert v-if="paymentDraft.warehouseRejectNote" type="warning" variant="tonal" density="compact" class="my-3">
+                    Sent back to the warehouse: {{ paymentDraft.warehouseRejectNote }}
+                  </v-alert>
+                  <v-row dense class="my-2">
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Payment Request</div>
+                      <div class="font-weight-medium">PR-{{ paymentDraft.prNumber }}</div>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Amount paid (USD)</div>
+                      <div class="font-weight-bold">${{ formatPrice(paymentDraft.amount) }}</div>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Wire Fee (USD)</div>
+                      <div class="font-weight-medium">${{ formatPrice(paymentDraft.wireFee) }}</div>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <div class="text-caption text-medium-emphasis">Withdrawn From Wallet</div>
+                      <div class="font-weight-medium">{{ paymentDraft.walletName }} ({{ paymentDraft.walletCurrency }})</div>
+                    </v-col>
+                    <v-col v-if="paymentDraft.walletCurrency !== 'USD'" cols="12">
+                      <div class="text-body-2">
+                        Wallet debit: {{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.amount * (paymentDraft.exchangeRate || 0)) }}
+                        {{ paymentDraft.walletCurrency }} at {{ paymentDraft.exchangeRate }} {{ paymentDraft.walletCurrency }} per 1 USD
+                        <span class="text-medium-emphasis">(the warehouse can enter the actual rate)</span>
+                      </div>
+                    </v-col>
+                  </v-row>
+                  <div class="d-flex flex-wrap gap-2">
+                    <v-btn color="warning" variant="flat" prepend-icon="mdi-upload" @click="openPopUploadDialog">Upload POP</v-btn>
+                    <v-btn variant="text" prepend-icon="mdi-pencil-outline" @click="editingDetails = true">Change details</v-btn>
+                  </div>
+                  <p v-if="whSyncEnabled" class="text-caption text-medium-emphasis mt-2">
+                    Or let the warehouse pay it: <strong>Sync warehouse</strong> sends it to the phone app, the next sync brings its POP back here.
+                  </p>
                 </template>
 
                 <template v-else>
@@ -424,15 +525,12 @@
                     type="number" min="0.000001" step="0.000001" :label="`${pickerWallet.currency} per 1 USD *`" variant="outlined" />
                   <p v-if="pickerWallet" class="text-body-2 mb-3">Wallet debit: {{ currencySymbol(pickerWallet.currency) }}{{ formatPrice(pickerAmount * (pickerWallet.currency === 'USD' ? 1 : pickerExchangeRate || 0)) }} {{ pickerWallet.currency }}</p>
 
-                  <div class="d-flex flex-wrap gap-2">
+                  <!-- The Payment Request tab saves (and accepts) from the buttons below the panels -->
+                  <div v-if="dialogMode === 'withdraw'" class="d-flex flex-wrap gap-2">
                     <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="savingPaymentDetails"
                       :disabled="!paymentDetailsValid" @click="savePaymentDetails">Save Payment Details</v-btn>
-                    <v-btn color="warning" variant="tonal" prepend-icon="mdi-upload" :disabled="!paymentDraft"
-                      @click="openPopUploadDialog">Upload POP</v-btn>
+                    <v-btn v-if="editingDetails" variant="text" @click="cancelEditDetails">Cancel</v-btn>
                   </div>
-                  <v-alert v-if="paymentDraft" type="success" variant="tonal" density="compact" class="mt-3">
-                    Details saved for PR-{{ paymentDraft.prNumber }}. You can close this window and upload the POP later.
-                  </v-alert>
                 </template>
               </v-expansion-panel-text>
             </v-expansion-panel>
@@ -445,8 +543,10 @@
             </v-alert>
             <div class="d-flex gap-3">
               <v-btn class="flex-grow-1" color="error" variant="tonal" prepend-icon="mdi-close-circle" :loading="rejecting" @click="showRejectDialog = true">Reject</v-btn>
-              <v-btn class="flex-grow-1" color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="accepting" @click="acceptPayment">Accept Payment</v-btn>
+              <v-btn class="flex-grow-1" color="success" variant="flat" prepend-icon="mdi-content-save-check" :loading="savingPaymentDetails"
+                :disabled="!paymentDetailsValid" @click="savePaymentDetails">Save Payment Details &amp; Accept</v-btn>
             </div>
+            <p class="text-caption text-medium-emphasis mt-2">Saving the payment details accepts the request and moves it to Ready To pay, where only the POP and final amount are left.</p>
           </div>
 
           <v-alert v-else type="info" variant="tonal" density="compact" class="mt-3">Each POP records the amount paid and debits the selected wallet. The PO is completed for payment automatically when its balance reaches zero.</v-alert>
@@ -471,6 +571,22 @@
           <v-spacer />
           <v-btn variant="text" @click="showRejectDialog = false">Cancel</v-btn>
           <v-btn color="error" variant="tonal" :disabled="!rejectionNote.trim()" :loading="rejecting" @click="confirmReject">Confirm Reject</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Warehouse payment: send back -->
+    <v-dialog v-model="showWarehouseRejectDialog" max-width="500">
+      <v-card class="glass-card">
+        <v-card-title class="pa-4">Send Back to Warehouse</v-card-title>
+        <v-card-text class="pa-4">
+          <div class="mb-4 text-body-2">The warehouse POP for <strong>{{ selectedPo?.poNumber }}</strong> is removed. After the next sync the phone shows your note and asks for a new POP and amount.</div>
+          <v-textarea v-model="warehouseRejectNote" label="What should the warehouse fix?" rows="3" variant="outlined" density="comfortable" counter="500" hide-details="auto" />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showWarehouseRejectDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="tonal" :disabled="!warehouseRejectNote.trim()" :loading="rejectingWarehouse" @click="rejectWarehousePayment">Send Back</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -518,6 +634,7 @@
 
 <script setup lang="ts">
 import type { ApplySupplierCreditResult } from '~/utils/supplierCredits'
+import type { WarehousePaymentSyncSummary } from '~/composables/useWarehouseSync'
 
 const api = useApi()
 const config = useRuntimeConfig()
@@ -553,10 +670,11 @@ const paymentProgressRows = computed(() => remainingPaymentQueue.value.map(po =>
     ? recordedPaidAmount
     : totalAmount
   return { ...po, totalAmount, paidAmount, prNumber: requests.map(pr => pr.prNumber).join(', '),
-    remainingAmount: Math.max(0, totalAmount - paidAmount), waitingForFinalAmount: po.paymentStatus === 'WaitingForFinalAmount' }
+    remainingAmount: Math.max(0, totalAmount - paidAmount), waitingForFinalAmount: po.paymentStatus === 'WaitingForFinalAmount',
+    hasDetails: requests.some(pr => pr.pendingUploadId), warehousePaid: requests.some(pr => pr.warehousePaidAt) }
 }))
-const remainingPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount > 0 || po.waitingForFinalAmount))
-const finishedPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount <= 0 && !po.waitingForFinalAmount))
+const remainingPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount > 0 || po.waitingForFinalAmount || po.warehousePaid))
+const finishedPoRows = computed(() => paymentProgressRows.value.filter(po => po.remainingAmount <= 0 && !po.waitingForFinalAmount && !po.warehousePaid))
 const remainingPaymentsTotal = computed(() => remainingPoRows.value.reduce((sum, po) => sum + po.remainingAmount, 0))
 const finishedPaymentsTotal = computed(() => finishedPoRows.value.reduce((sum, po) => sum + po.paidAmount, 0))
 const acceptancePoBadge = computed(() => acceptanceQueue.value.length)
@@ -574,8 +692,12 @@ const pickerWireFee = ref(0)
 const paymentDraft = ref<any>(null)
 const savingPaymentDetails = ref(false)
 const savingFinalAmount = ref(false)
-const finalWalletAmount = ref(0)
+// Bank charges on the POP (wallet currency); the final amount = wallet debit + handling + wire fee.
+const handlingFee = ref<number | null>(0)
+const bankWireFee = ref<number | null>(0)
 const paymentHistory = ref<any[]>([])
+/** Ready To Pay with saved details shows them read-only; "Change details" opens the form again. */
+const editingDetails = ref(false)
 /** Bumped whenever what is left to pay may have changed, so the credit suggestion reloads. */
 const creditRefreshKey = ref(0)
 const selectedRequests = computed(() => paymentRequests.value.filter(pr => pr.poId === selectedPo.value?.id))
@@ -595,7 +717,8 @@ const paymentDetailsValid = computed(() => !!pickerRequest.value && !!pickerWall
   && pickerWireFee.value >= 0 && pickerAmount.value > 0 && pickerAmount.value <= pickerRequestRemaining.value && pickerAmount.value <= selectedRemaining.value
   && (pickerWallet.value.currency === 'USD' || Number(pickerExchangeRate.value) > 0))
 const waitingForFinalAmount = computed(() => selectedPo.value?.paymentStatus === 'WaitingForFinalAmount' || !!paymentDraft.value?.pop)
-const calculatedBankFee = computed(() => finalWalletAmount.value - Number(paymentDraft.value?.pop?.initialWalletAmount || 0))
+const fee = (v: number | null) => Number(v || 0)
+const feesValid = computed(() => [handlingFee.value, bankWireFee.value].every(v => fee(v) >= 0 && Math.abs(Math.round(fee(v) * 100) - fee(v) * 100) < 1e-6))
 watch(pickerRequestId, () => {
   if (paymentDraft.value?.paymentRequestId === pickerRequestId.value) return
   pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
@@ -636,11 +759,20 @@ const customerTotalPaid = ref(0)
 const customerInvoiceTotal = ref<number | null>(null)
 const customerIsPaid = ref(false)
 
-const accepting = ref(false)
 const rejecting = ref(false)
 const showRejectDialog = ref(false)
 const rejectionNote = ref('')
-// popInputRef removed — POP upload is now handled via the dialog
+
+// ── Warehouse app (procument-warehouse): payments synced to the phone and paid there ──
+const warehouseSync = useWarehouseSync()
+const whSyncEnabled = ref(false)
+const whSyncing = ref(false)
+const whSyncText = ref('')
+const whSyncResult = ref<WarehousePaymentSyncSummary | null>(null)
+const acceptingWarehouse = ref(false)
+const rejectingWarehouse = ref(false)
+const showWarehouseRejectDialog = ref(false)
+const warehouseRejectNote = ref('')
 
 // ── Table headers ─────────────────────────────────────────────────────────────
 const acceptanceHeaders = [
@@ -702,7 +834,8 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
   paymentHistory.value = []
   paymentDraft.value = null
   creditRefreshKey.value++
-  detailPanels.value = mode === 'withdraw' ? ['payment'] : []
+  editingDetails.value = false
+  detailPanels.value = ['payment']
   try {
     await loadPaymentRequests()
     paymentHistory.value = await api.get<any[]>(`/supplier-payments/po/${po.id}`)
@@ -714,14 +847,16 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
     pickerExchangeRate.value = paymentDraft.value.exchangeRate
     pickerAmount.value = Number(paymentDraft.value.amount)
     pickerWireFee.value = Number(paymentDraft.value.wireFee ?? selectedRequests.value[0]?.wireFee ?? 0)
-    finalWalletAmount.value = Number(paymentDraft.value.pop?.initialWalletAmount || 0)
+    handlingFee.value = 0
+    bankWireFee.value = 0
   } else {
     pickerRequestId.value = openRequests.value[0]?.id ?? null
     pickerWalletId.value = null
     pickerExchangeRate.value = null
     pickerWireFee.value = Number(selectedRequests.value[0]?.wireFee ?? 0)
     pickerAmount.value = pickerRequest.value?.remainingAmount ?? 0
-    finalWalletAmount.value = 0
+    handlingFee.value = 0
+    bankWireFee.value = 0
   }
   dialogMode.value = mode
   showDetail.value = true
@@ -786,20 +921,6 @@ async function openPo(po: POItem, mode: 'accept' | 'withdraw') {
   }
 }
 
-async function acceptPayment() {
-  if (!selectedPo.value) return
-  accepting.value = true
-  try {
-    await api.patch(`/purchase-orders/${selectedPo.value.id}/payment-approval`, { decision: 'Accepted' })
-    showSnack('Payment request accepted — moved to Remaining Payments', 'success')
-    showDetail.value = false
-    await loadQueue()
-    activeTab.value = 'remaining'
-  } catch (e: any) {
-    showSnack(e?.data?.message || 'Accept failed', 'error')
-  } finally { accepting.value = false }
-}
-
 function openPopUploadDialog() {
   if (!paymentDraft.value) {
     showSnack('Save the payment details before uploading the POP', 'warning')
@@ -808,23 +929,100 @@ function openPopUploadDialog() {
   showWalletPickerDialog.value = true
 }
 
+/** In the Payment Request tab this also accepts the request (one transaction on the server). */
 async function savePaymentDetails() {
   if (!selectedPo.value || !paymentDetailsValid.value || savingPaymentDetails.value) return
+  const accept = dialogMode.value === 'accept'
   savingPaymentDetails.value = true
   try {
-    paymentDraft.value = await api.post(`/supplier-payments/po/${selectedPo.value.id}/draft`, {
+    await api.post(`/supplier-payments/po/${selectedPo.value.id}/draft`, {
       paymentRequestId: pickerRequestId.value,
       walletId: pickerWalletId.value,
       amount: pickerAmount.value,
       exchangeRate: pickerWallet.value?.currency === 'USD' ? 1 : pickerExchangeRate.value,
       wireFee: pickerWireFee.value,
+      accept,
     })
+    if (accept) {
+      showSnack('Accepted — moved to Ready To pay. Upload the POP there or sync it to the warehouse.', 'success')
+      showDetail.value = false
+      await loadAll()
+      activeTab.value = 'remaining'
+      return
+    }
+    // Re-read so the summary has the wallet name and every saved field.
+    paymentDraft.value = await api.get<any>(`/supplier-payments/po/${selectedPo.value.id}/draft`)
+    editingDetails.value = false
     showSnack('Payment details saved. You can upload the POP now or later.', 'success')
     await loadPaymentRequests()
     creditRefreshKey.value++
   } catch (e: any) {
     showSnack(e?.data?.message || 'Could not save payment details', 'error')
   } finally { savingPaymentDetails.value = false }
+}
+
+/** Back to the saved values, as they were when the dialog opened. */
+function cancelEditDetails() {
+  editingDetails.value = false
+  if (!paymentDraft.value) return
+  pickerRequestId.value = paymentDraft.value.paymentRequestId
+  pickerWalletId.value = paymentDraft.value.walletId
+  pickerExchangeRate.value = paymentDraft.value.exchangeRate
+  pickerAmount.value = Number(paymentDraft.value.amount)
+  pickerWireFee.value = Number(paymentDraft.value.wireFee ?? 0)
+}
+
+async function runWarehouseSync() {
+  if (whSyncing.value) return
+  whSyncing.value = true
+  whSyncResult.value = null
+  try {
+    whSyncResult.value = await warehouseSync.syncPayments(text => { whSyncText.value = text })
+    await loadAll()
+  } catch (e: any) {
+    showSnack(e?.data?.message || e?.message || 'Warehouse sync failed', 'error')
+  } finally { whSyncing.value = false }
+}
+
+async function previewWarehousePop() {
+  if (!selectedPo.value || !paymentDraft.value?.warehouse) return
+  try {
+    const blob = await $fetch<Blob>(`${api.baseURL}/supplier-payments/po/${selectedPo.value.id}/warehouse-pop`, {
+      responseType: 'blob', headers: { Authorization: `Bearer ${authStore.user?.token}` },
+    })
+    docPreview.previewBlob(blob, paymentDraft.value.warehouse.fileName)
+  } catch { showSnack('Failed to open the warehouse POP', 'error') }
+}
+
+async function acceptWarehousePayment() {
+  if (!selectedPo.value || acceptingWarehouse.value) return
+  acceptingWarehouse.value = true
+  try {
+    const result = await api.post<any>(`/supplier-payments/po/${selectedPo.value.id}/warehouse-accept`, {})
+    showSnack(result.bankFee > 0
+      ? `Warehouse payment accepted. ${formatPrice(result.bankFee)} ${result.walletCurrency} recorded as Bank Fee and Others.`
+      : 'Warehouse payment accepted.', 'success')
+    showDetail.value = false
+    await loadAll()
+    activeTab.value = result.complete ? 'finished' : 'remaining'
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not accept the warehouse payment', 'error')
+  } finally { acceptingWarehouse.value = false }
+}
+
+async function rejectWarehousePayment() {
+  if (!selectedPo.value || !warehouseRejectNote.value.trim()) return
+  rejectingWarehouse.value = true
+  try {
+    await api.post(`/supplier-payments/po/${selectedPo.value.id}/warehouse-reject`, { note: warehouseRejectNote.value.trim() })
+    showSnack('Sent back. The warehouse sees your note after the next sync.', 'warning')
+    showWarehouseRejectDialog.value = false
+    warehouseRejectNote.value = ''
+    await loadPaymentRequests()
+    await openPo(selectedPo.value, 'withdraw')
+  } catch (e: any) {
+    showSnack(e?.data?.message || 'Could not send the payment back', 'error')
+  } finally { rejectingWarehouse.value = false }
 }
 
 function historyChipColor(category: string) {
@@ -889,7 +1087,8 @@ async function saveFinalAmount() {
   savingFinalAmount.value = true
   try {
     const result = await api.post<any>(`/supplier-payments/po/${selectedPo.value.id}/final-amount`, {
-      finalWalletAmount: finalWalletAmount.value,
+      handlingFee: fee(handlingFee.value),
+      bankWireFee: fee(bankWireFee.value),
     })
     showSnack(result.bankFee > 0
       ? `Final amount saved. ${formatPrice(result.bankFee)} ${result.walletCurrency} recorded as Bank Fee and Others.`
@@ -969,7 +1168,10 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 function showSnack(t: string, c: string) { snackbarText.value = t; snackbarColor.value = c; snackbar.value = true }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadAll()
+  warehouseSync.getPaymentConfig().then(c => { whSyncEnabled.value = c.enabled }).catch(() => {})
+})
 </script>
 
 <style scoped>

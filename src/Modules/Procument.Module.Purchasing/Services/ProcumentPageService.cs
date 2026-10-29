@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Catalog.Services;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
@@ -372,43 +373,27 @@ public class ProcumentPageService : IProcumentPageService
     }
 
     /// <summary>
-    /// Part numbers whose history counts as this part's history: itself, part numbers that list
-    /// this one as an alternative, and part numbers sharing any of its alternatives.
+    /// Part numbers whose history counts as this part's history: every catalog part in its
+    /// alternative family (X → Y → Z chains both ways, see PartFamilies).
     /// </summary>
     private async Task<HashSet<long>> GetRelatedPartNumberIdsAsync(long partNumberId)
     {
-        var partNumberName = await _db.Set<PartNumber>()
-            .Where(p => p.Id == partNumberId)
-            .Select(p => p.Name)
-            .FirstOrDefaultAsync();
-
         var relatedPnIds = new HashSet<long> { partNumberId };
+        var part = await _db.Set<PartNumber>().AsNoTracking()
+            .Where(p => p.Id == partNumberId)
+            .Select(p => new { p.Name, p.NewName })
+            .FirstOrDefaultAsync();
+        if (part == null) return relatedPnIds;
 
-        if (!string.IsNullOrEmpty(partNumberName))
-        {
-            // Part numbers that have this name as an alternative
-            var pnIdsWithThisAsAlt = await _db.Set<Alternative>()
-                .Where(a => a.Name == partNumberName)
-                .Select(a => a.PartNumberId)
-                .ToListAsync();
-            foreach (var id in pnIdsWithThisAsAlt) relatedPnIds.Add(id);
-        }
-
-        // Part numbers that share any alternative with this one
-        var myAlts = await _db.Set<Alternative>()
-            .Where(a => a.PartNumberId == partNumberId)
-            .Select(a => a.Name)
+        var families = await PartFamilies.LoadAsync(_db, new[] { part.Name, part.NewName });
+        var names = families.Names.ToList();
+        var ids = await _db.Set<PartNumber>().AsNoTracking()
+            .Where(p => names.Contains(p.Name)
+                        || (p.NewName != null && names.Contains(p.NewName))
+                        || p.Alternatives.Any(a => names.Contains(a.Name)))
+            .Select(p => p.Id)
             .ToListAsync();
-
-        if (myAlts.Count > 0)
-        {
-            var pnIdsShareAlt = await _db.Set<Alternative>()
-                .Where(a => myAlts.Contains(a.Name))
-                .Select(a => a.PartNumberId)
-                .ToListAsync();
-            foreach (var id in pnIdsShareAlt) relatedPnIds.Add(id);
-        }
-
+        relatedPnIds.UnionWith(ids);
         return relatedPnIds;
     }
 
@@ -458,12 +443,24 @@ public class ProcumentPageService : IProcumentPageService
             .OrderByDescending(r => r.Id)
             .ToListAsync();
 
+        // The expert of a chip is whoever first added that supplier for this part (any age), not
+        // whoever imported it most recently (Sam) — adding from the chip keeps that expert.
+        var chipSupplierIds = recentRecords.Select(r => r.SupplierId).Distinct().ToList();
+        var firstExperts = chipSupplierIds.Count == 0 ? new Dictionary<long, long?>() : (await _db.Set<ProcumentRecord>().AsNoTracking()
+                .Where(r => chipSupplierIds.Contains(r.SupplierId) && r.UserId != null
+                         && relatedPnIds.Contains(r.RFQItem.PartNumberId) && (r.Type ?? "Procument") != "Shop")
+                .Select(r => new { r.SupplierId, r.UserId, r.CreatedAt, r.Id })
+                .ToListAsync())
+            .GroupBy(r => r.SupplierId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).First().UserId);
+
         // One chip per unique (supplier, condition) pair — most recent record wins
         var recentBySupplier = recentRecords
             .GroupBy(r => new { r.SupplierId, Condition = (r.Condition ?? "NE").ToUpper() })
             .Select(g => g.First())
             .Select(r => new RecentSupplierQuoteDto
             {
+                ExpertUserId = firstExperts.GetValueOrDefault(r.SupplierId) ?? r.UserId,
                 SupplierId = r.SupplierId,
                 SupplierName = r.Supplier.Name,
                 SupplierDependency = r.Supplier.Dependency,

@@ -532,7 +532,9 @@ const loading = ref(false)
 const saving = ref(false)
 const deleteSaving = ref(false)
 const supplierDeleteSaving = ref(false)
-const allItems = ref<any[]>([])
+// shallowRef: the page holds every inventory row, and deep reactivity proxied each one.
+// Rows are never mutated in place — updates replace the array.
+const allItems = shallowRef<any[]>([])
 const search = ref('')
 const conditionFilter = ref<string[]>([])
 const activeTab = ref('all')
@@ -588,18 +590,15 @@ const filteredItems = computed(() => {
   return result
 })
 
+// One pass over the rows (it used to re-scan every row once per supplier).
 const uniqueSuppliers = computed(() => {
   const supplierMap = new Map<number, any>()
-  allItems.value.forEach(item => {
-    if (item.companyId && !supplierMap.has(item.companyId)) {
-      const items = allItems.value.filter(i => i.companyId === item.companyId)
-      supplierMap.set(item.companyId, {
-        companyId: item.companyId,
-        companyName: item.companyName,
-        totalItems: items.length,
-      })
-    }
-  })
+  for (const item of allItems.value) {
+    if (!item.companyId) continue
+    const supplier = supplierMap.get(item.companyId)
+    if (supplier) supplier.totalItems++
+    else supplierMap.set(item.companyId, { companyId: item.companyId, companyName: item.companyName, totalItems: 1 })
+  }
   return Array.from(supplierMap.values())
 })
 
@@ -809,10 +808,9 @@ async function saveItem() {
     }
     const saved = await api.post<any>('/inventory', payload)
     if (isEditing.value) {
-      const idx = allItems.value.findIndex(i => i.id === editingId.value)
-      if (idx >= 0) allItems.value[idx] = saved
+      allItems.value = allItems.value.map(i => i.id === editingId.value ? saved : i)
     } else {
-      allItems.value.unshift(saved)
+      allItems.value = [saved, ...allItems.value]
     }
     showSnack(isEditing.value ? 'Item updated' : 'Item added')
     closeDialog()

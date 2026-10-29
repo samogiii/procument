@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Identity.Entities;
@@ -9,6 +9,7 @@ using Procument.Module.Identity.Services;
 using Procument.Module.Sales.Enums;
 using Procument.Module.Purchasing.Services;
 using Procument.Shared.DTOs;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Sales.Services;
 
@@ -105,7 +106,7 @@ public class QuoteService : IQuoteService
 
             bool inBase = userBases == null || rfq.Customer?.Base == null || userBases.Contains(rfq.Customer.Base.Value);
             bool isCreator = rfq.UserId == userId;
-            if (!inBase && !isCreator)
+            if (!inBase && !isCreator && !(await GetUserAssignedCustomerIdsAsync(userId)).Contains(rfq.CustomerId))
             {
                 var hasPermission = await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "View")
                                  || await _permissionService.HasPermissionAsync(userId, "RFQ", rfqId.ToString(), "Edit");
@@ -114,10 +115,10 @@ public class QuoteService : IQuoteService
         }
 
         var quotes = await _db.Set<Quote>()
+            .AsNoTracking()
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
-                .ThenInclude(r => r!.RFQItems)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
@@ -126,16 +127,15 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.ProcumentRecord!)
                     .ThenInclude(pr => pr.Certificates)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.RFQItem)
-                    .ThenInclude(ri => ri!.RFQ)
+            // One query per collection: as a single JOIN, items x certificates multiplied the rows.
+            .AsSplitQuery()
             .Where(q => q.RFQId == rfqId)
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
 
-        var rfqIds = quotes.Select(q => q.RFQId).Distinct();
-        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIds);
-        return quotes.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null)).ToList();
+        var rfqUserMap = await LoadRfqAssignedUsersAsync([rfqId]);
+        var rfqItemIds = await LoadRfqItemIdsAsync(rfqId);
+        return quotes.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null, rfqItemIds)).ToList();
     }
 
     public async Task<QuoteResponse?> GetByIdAsync(long id, long userId, bool isAdmin, int[]? userBases = null)
@@ -145,7 +145,6 @@ public class QuoteService : IQuoteService
             .Include(q => q.Customer)
             .Include(q => q.User)
             .Include(q => q.RFQ)
-                .ThenInclude(r => r!.RFQItems)
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.PartNumber)
             .Include(q => q.QuoteItems)
@@ -154,9 +153,7 @@ public class QuoteService : IQuoteService
             .Include(q => q.QuoteItems)
                 .ThenInclude(qi => qi.ProcumentRecord!)
                     .ThenInclude(pr => pr.Certificates)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.RFQItem)
-                    .ThenInclude(ri => ri!.RFQ)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(q => q.Id == id);
 
         if (quote == null) return null;
@@ -176,10 +173,9 @@ public class QuoteService : IQuoteService
             }
         }
 
-        if (quote == null) return null;
         var rfqUserMap = await LoadRfqAssignedUsersAsync([quote.RFQId]);
         var assignedUsers = rfqUserMap.TryGetValue(quote.RFQId, out var users) ? users : null;
-        return MapToResponse(quote, assignedUsers);
+        return MapToResponse(quote, assignedUsers, await LoadRfqItemIdsAsync(quote.RFQId));
     }
 
     /// <summary>
@@ -242,7 +238,7 @@ public class QuoteService : IQuoteService
                     UnitPrice = itemReq.UnitPrice,
                     TotalPrice = totalPrice,
                     Condition = itemReq.Condition,
-                    Alt = itemReq.Alt,
+                    Alt = AltPartNumbers.Clean(itemReq.Alt),
                     LeadTimeDays = itemReq.LeadTimeDays,
                     SortOrder = index
                 });
@@ -312,23 +308,9 @@ public class QuoteService : IQuoteService
 
     public async Task<PagedResult<QuoteResponse>> GetAllAsync(int page, int pageSize, long userId, bool isSuperAdmin, int[] userBases, List<string>? statuses = null, string? search = null, string? pnSearch = null, List<string>? assignedUserNames = null, List<string>? customerNames = null, List<string>? rfqNames = null, string? sortBy = null, bool sortDesc = false, List<string>? quoteNumbers = null, bool includeRejected = false, DateTime? createdFrom = null, DateTime? createdTo = null, List<int>? bases = null, DateTime? sentFrom = null, DateTime? sentTo = null)
     {
-        IQueryable<Quote> query = _db.Set<Quote>()
-            .AsNoTracking()
-            .Include(q => q.Customer)
-            .Include(q => q.User)
-            .Include(q => q.RFQ)
-                .ThenInclude(r => r!.RFQItems)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.PartNumber)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.ProcumentRecord!)
-                    .ThenInclude(pr => pr.Supplier)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.ProcumentRecord!)
-                    .ThenInclude(pr => pr.Certificates)
-            .Include(q => q.QuoteItems)
-                .ThenInclude(qi => qi.RFQItem)
-                    .ThenInclude(ri => ri!.RFQ);
+        // List rows only need header columns. The items/supplier/certificate graph is loaded per
+        // quote by GetByIdAsync when one is opened or picked.
+        IQueryable<Quote> query = _db.Set<Quote>().AsNoTracking();
 
         if (statuses?.Count > 0)
             query = query.Where(q => statuses.Contains(q.Status));
@@ -456,16 +438,48 @@ public class QuoteService : IQuoteService
         };
 
         var totalCount = await query.CountAsync();
+        // Projected in SQL to the header columns. Items and the long customer text fields
+        // (Bill/Ship To, T&C, contacts) stay empty here; GetByIdAsync returns them.
         var items = await query
             .ApplyPaging(page, pageSize)
+            .Select(q => new QuoteResponse
+            {
+                Id = q.Id,
+                QuoteNumber = q.QuoteNumber,
+                B1QuoteNumber = q.B1QuoteNumber,
+                TotalAmount = q.TotalAmount,
+                Status = q.Status,
+                ValidUntil = q.ValidUntil,
+                CreatedAt = q.CreatedAt,
+                RFQId = q.RFQId,
+                Type = q.Type,
+                TypeAdditional = q.TypeAdditional,
+                CustomerName = q.Customer.Name,
+                CustomerCode = q.Customer.CustomerCode,
+                CustomerContactPerson = q.Customer.ContactPerson,
+                CustomerCurrencyType = q.Customer.CurrencyType,
+                CustomerBase = q.Customer.Base,
+                CustomerId = q.Customer.Id,
+                CustomerEmail = q.Customer.Email,
+                UserName = q.User != null ? q.User.Name : null,
+                RejectionNote = q.RejectionNote,
+                RFQName = q.RFQ != null ? q.RFQ.Name : null,
+                FinalPrice = q.FinalPrice,
+                SentAt = q.SentAt,
+                RFQExType = q.RFQ != null ? q.RFQ.ExType : null,
+                RFQSenderMail = q.RFQ != null ? q.RFQ.SenderMail : null,
+                CoefYuan = q.CoefYuan,
+                ExchangeRateYuan = q.ExchangeRateYuan,
+            })
             .ToListAsync();
 
-        var rfqIdsString = items.Select(q => q.RFQId).Distinct();
-        var rfqUserMap = await LoadRfqAssignedUsersAsync(rfqIdsString);
+        var rfqUserMap = await LoadRfqAssignedUsersAsync(items.Select(q => q.RFQId).Distinct());
+        foreach (var item in items)
+            if (rfqUserMap.TryGetValue(item.RFQId, out var users)) item.AssignedUsers = users;
 
         return new PagedResult<QuoteResponse>
         {
-            Items = items.Select(q => MapToResponse(q, rfqUserMap.TryGetValue(q.RFQId, out var users) ? users : null)).ToList(),
+            Items = items,
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -610,11 +624,10 @@ public class QuoteService : IQuoteService
             .Select(r => string.IsNullOrEmpty(r.name) ? $"RFQ #{r.RFQId}" : r.name!)
             .Distinct().OrderBy(n => n).ToList();
 
-        var userScopeRfqIds = (await Build("assignedUsers").Select(q => q.RFQId).Distinct().ToListAsync())
-            .Select(id => id.ToString()).ToList();
+        // Semi-join in SQL instead of round-tripping every in-scope RFQ id through the app.
+        var userScopeRfqIds = Build("assignedUsers").Select(q => q.RFQId.ToString());
         var availableUsers = await _db.Set<EntityPermission>()
             .AsNoTracking()
-            .Include(p => p.User)
             .Where(p => p.EntityName == "RFQ" && userScopeRfqIds.Contains(p.EntityId))
             .Select(p => p.User.Name)
             .Distinct().OrderBy(n => n).ToListAsync();
@@ -731,7 +744,7 @@ public class QuoteService : IQuoteService
                 UnitPrice = itemReq.UnitPrice,
                 TotalPrice = totalPrice,
                 Condition = itemReq.Condition,
-                Alt = itemReq.Alt,
+                Alt = AltPartNumbers.Clean(itemReq.Alt),
                 LeadTimeDays = itemReq.LeadTimeDays,
                 SortOrder = index
             });
@@ -778,8 +791,9 @@ public class QuoteService : IQuoteService
         if (rfqIdStrings.Count == 0) return new();
 
         var permissions = await _db.Set<EntityPermission>()
-            .Include(p => p.User)
+            .AsNoTracking()
             .Where(p => p.EntityName == "RFQ" && rfqIdStrings.Contains(p.EntityId))
+            .Select(p => new { p.EntityId, UserId = p.User.Id, p.User.Name })
             .ToListAsync();
 
         return permissions
@@ -787,22 +801,32 @@ public class QuoteService : IQuoteService
             .Where(g => g.Key >= 0)
             .ToDictionary(
                 g => g.Key,
-                g => g.Select(p => new QuoteAssignedUserResponse { Id = p.User.Id, Name = p.User.Name })
+                g => g.Select(p => new QuoteAssignedUserResponse { Id = p.UserId, Name = p.Name })
                        .GroupBy(u => u.Id)
                        .Select(ug => ug.First())
                        .ToList()
             );
     }
 
-    private static QuoteResponse MapToResponse(Quote q, List<QuoteAssignedUserResponse>? assignedUsers = null)
+    /// <summary>
+    /// The RFQ's item ids, ascending. That is all MapToResponse needs from the RFQ's items,
+    /// so the full RFQItem rows aren't loaded just to number the quote lines.
+    /// </summary>
+    private Task<List<long>> LoadRfqItemIdsAsync(long rfqId)
+        => _db.Set<RFQItem>()
+            .Where(i => i.RFQId == rfqId)
+            .OrderBy(i => i.Id)
+            .Select(i => i.Id)
+            .ToListAsync();
+
+    private static QuoteResponse MapToResponse(Quote q, List<QuoteAssignedUserResponse>? assignedUsers = null, List<long>? rfqItemIds = null)
     {
         // Build a 1-based rank map using the FULL ordered RFQ item list so that
         // item positions are preserved even when only a subset is quoted.
         // e.g. if RFQ has items 1,2,3,4 and the quote covers items 1,2,4 → ranks are 1,2,4 (not 1,2,3)
-        var allRfqItems = q.RFQ?.RFQItems?.OrderBy(i => i.Id).ToList() ?? [];
-        var rfqItemRank = allRfqItems
-            .Select((item, idx) => new { item.Id, rank = idx + 1 })
-            .ToDictionary(x => x.Id, x => x.rank);
+        var rfqItemRank = (rfqItemIds ?? [])
+            .Select((id, idx) => new { id, rank = idx + 1 })
+            .ToDictionary(x => x.id, x => x.rank);
 
         return new()
         {

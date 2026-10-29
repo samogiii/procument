@@ -28,6 +28,15 @@ public class DocumentsController : ControllerBase
         ["customer_po"] = "Customer PO",
         ["our_pi"] = "Our PI",
         ["quote"] = "Quote",
+        ["delivery_receipt"] = DeliveryReceiptFolder,
+    };
+
+    private const string DeliveryReceiptFolder = "Delivery Receipt";
+
+    // Delivery receipts are photos or scans of the signed receipt.
+    private static readonly HashSet<string> DeliveryReceiptExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif", ".tif", ".tiff", ".pdf"
     };
 
     // Maps category key → folder name for supplier-level documents
@@ -154,7 +163,8 @@ public class DocumentsController : ControllerBase
 
     // ───────────── Customer POP with Amount ─────────────
 
-    /// <summary>Upload a Customer POP with a payment amount. Auto-marks the invoice Paid when total paid reaches invoice total.</summary>
+    /// <summary>Upload a Customer POP with a payment amount. Auto-finishes the invoice once total paid reaches
+    /// the invoice total and a Delivery Receipt is on file.</summary>
     [HttpPost("proforma-invoice/{invoiceId:long}/customer-pop")]
     [RequestSizeLimit(100_000_000)]
     [Authorize(Roles = "Admin,SuperAdmin")]
@@ -261,7 +271,8 @@ public class DocumentsController : ControllerBase
                         totalPaid = existingTotal,
                         invoiceTotal = currentInvoice.TotalAmount,
                         isPaid = existingTotal >= currentInvoice.TotalAmount,
-                        justPaid = false,
+                        justFinished = false,
+                        hasDeliveryReceipt = _storage.HasFilesInInvoiceCategory(invoiceNumber, DeliveryReceiptFolder),
                         walletId = currentInvoice.DefaultDepositWalletId,
                     });
                 }
@@ -297,14 +308,7 @@ public class DocumentsController : ControllerBase
                     .Where(p => p.InvoiceId == invoiceId)
                     .SumAsync(p => p.Amount);
 
-                bool justPaid = false;
-                if (totalPaid >= currentInvoice.TotalAmount && currentInvoice.Status != "Finish")
-                {
-                    currentInvoice.Status = "Finish";
-                    currentInvoice.PaidDate = DateTime.UtcNow;
-                    await _db.SaveChangesAsync();
-                    justPaid = true;
-                }
+                var justFinished = await TryAutoFinishAsync(currentInvoice, totalPaid);
 
                 await transaction.CommitAsync();
                 return Ok(new
@@ -317,7 +321,8 @@ public class DocumentsController : ControllerBase
                     totalPaid,
                     invoiceTotal = currentInvoice.TotalAmount,
                     isPaid = totalPaid >= currentInvoice.TotalAmount,
-                    justPaid,
+                    justFinished,
+                    hasDeliveryReceipt = _storage.HasFilesInInvoiceCategory(invoiceNumber, DeliveryReceiptFolder),
                     walletId = currentInvoice.DefaultDepositWalletId,
                 });
             });
@@ -410,6 +415,11 @@ public class DocumentsController : ControllerBase
 
         invoiceRows = invoiceRows.Where(r => !string.IsNullOrWhiteSpace(r.CustomerName)
             && r.CustomerName.StartsWith("C", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        // A PI is listed only once its PDF was generated. Generating the PDF
+        // auto-uploads it into the PI's "Our PI" folder, so that file is the marker.
+        var ourPiFolder = PiCategoryFolders["our_pi"];
+        invoiceRows = invoiceRows.Where(r => _storage.HasFilesInInvoiceCategory(r.InvoiceNumber, ourPiFolder)).ToList();
 
         var paidByInvoice = rows
             .GroupBy(r => r.InvoiceId)
@@ -524,13 +534,41 @@ public class DocumentsController : ControllerBase
         var isAdminUser = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         if (!isAdminUser) return Forbid();
 
+        // Dual-currency PI PDFs (dollar + yuan copies) both belong in "Our PI".
+        if (category is "our_pi_dollar" or "our_pi_yuan") category = "our_pi";
+
         if (string.IsNullOrWhiteSpace(category) || !PiCategoryFolders.TryGetValue(category, out var categoryFolder))
             return BadRequest("Invalid or missing category. Valid values: " + string.Join(", ", PiCategoryFolders.Keys));
+
+        var isDeliveryReceipt = categoryFolder == DeliveryReceiptFolder;
+        if (isDeliveryReceipt && !DeliveryReceiptExtensions.Contains(Path.GetExtension(file.FileName)))
+            return BadRequest(new { message = "Delivery Receipt must be an image (JPG, PNG, …) or a PDF scan." });
 
         using var stream = file.OpenReadStream();
         var savedName = _storage.SaveFileInInvoiceCategory(invoice.InvoiceNumber, categoryFolder, file.FileName, stream);
 
-        return Ok(new { fileName = savedName });
+        var justFinished = isDeliveryReceipt && await TryAutoFinishAsync(invoice);
+        return Ok(new { fileName = savedName, justFinished });
+    }
+
+    /// <summary>
+    /// A PI finishes automatically only when the Customer POPs cover the invoice total AND a Delivery
+    /// Receipt is on file. Runs only on new POP / receipt uploads, so already-finished PIs are never touched.
+    /// </summary>
+    private async Task<bool> TryAutoFinishAsync(Invoice invoice, decimal? totalPaid = null)
+    {
+        if (invoice.Status == "Finish" || invoice.IsCancelled) return false;
+        if (!_storage.HasFilesInInvoiceCategory(invoice.InvoiceNumber, DeliveryReceiptFolder)) return false;
+
+        totalPaid ??= await _db.Set<CustomerPayment>()
+            .Where(p => p.InvoiceId == invoice.Id)
+            .SumAsync(p => (decimal?)p.Amount) ?? 0m;
+        if (totalPaid < invoice.TotalAmount) return false;
+
+        invoice.Status = "Finish";
+        invoice.PaidDate ??= DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     [HttpPost("proforma-invoice/{invoiceId:long}/supplier/{supplierId:long}/upload")]

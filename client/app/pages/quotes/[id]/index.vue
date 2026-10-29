@@ -49,6 +49,7 @@
         <v-btn v-if="isAdmin" prepend-icon="mdi-history" variant="tonal" size="small" @click="showAudit = true">Audit</v-btn>
         <v-btn v-if="isAdmin && quote.status === 'Accepted' || quote.status === 'Sent'" prepend-icon="mdi-file-pdf-box" size="small" color="error" @click="showPdf = true">PDF</v-btn>
         <v-btn v-if="isAdmin" prepend-icon="mdi-file-excel" size="small" color="success" @click="exportToExcel">Excel Export</v-btn>
+        <v-btn v-if="canCreatePi" prepend-icon="mdi-file-document-plus-outline" size="small" color="primary" :to="`/quotes/${route.params.id}/create-invoice`">Create Proforma Invoice</v-btn>
       </div>
     </div>
 
@@ -470,7 +471,7 @@
                             ]"
                             :draggable="!rec.isShop"
                             @dragstart="!rec.isShop && onDragStart(item.id, rec.id, $event)"
-                            @dragover="!rec.isShop && onDragOver(rec.id, $event)"
+                            @dragover="!rec.isShop && onDragOver(item.id, rec.id, $event)"
                             @dragleave="onDragLeave($event)"
                             @drop="!rec.isShop && onDrop(item.id, rec.id, $event)"
                             @dragend="onDragEnd"
@@ -716,6 +717,13 @@ const snackbarText = ref('')
 const snackbarColor = ref('success')
 
 const isAdmin = computed(() => authStore.isAdmin)
+// A sent/accepted quote can go straight to the Create PI page. Base 5 quotes need the
+// "Base 5 Proforma Invoice" grant (SuperAdmin included); other bases are Admins only — same rule as the API.
+const canCreatePi = computed(() => {
+  if (!['Sent', 'Accepted'].includes(quote.value.status)) return false
+  if (['AHM', 'MOR'].includes((authStore.user?.name ?? '').toUpperCase())) return false
+  return quote.value.customerBase === 5 ? authStore.base5ProformaInvoice : isAdmin.value
+})
 
 // value 2 kept for legacy display; both 1 and 2 show as Vendor/Customer
 const exTypeOptions = [
@@ -749,7 +757,7 @@ const displayedItems = computed(() => {
         rfqItemId: rfqItem.id,
         rfqRef: rfqItem.rfqRef,
         partNumberName: rfqItem.partNumberName,
-        alt: rfqItem.alt,
+        alt: cleanAlt(rfqItem.alt),
         condition: rfqItem.condition,
         qty: rfqItem.qty,
         supplierName: null,
@@ -966,6 +974,16 @@ function getQuoteItemCount() {
 }
 
 // ── Procurement record (supplier) sort ordering ──
+// The PDF generator orders quote items by procumentRecordSortOrder, so keep it in step with the new order.
+function syncQuoteItemProcOrder(records: any[]) {
+  const orderMap = new Map<number, number>(records.map((r: any) => [r.id, r.sortOrder]))
+  for (const qi of (quote.value?.items || [])) {
+    if (qi.procumentRecordId != null && orderMap.has(qi.procumentRecordId)) {
+      qi.procumentRecordSortOrder = orderMap.get(qi.procumentRecordId)
+    }
+  }
+}
+
 function getParentProcs(rfqItemId: number) {
   return getProcRecords(rfqItemId).filter((r: any) => !r.isShop)
 }
@@ -1007,6 +1025,7 @@ async function moveProcRecord(rfqItemId: number, recId: number, direction: -1 | 
     reinserted.push(...shops)
   }
   allProcRecords.value = [...others, ...reinserted]
+  syncQuoteItemProcOrder(parents)
 
   try {
     await api.patch(`/rfqs/${quote.value.rfqId}/supplier-quotes/order`, {
@@ -1052,8 +1071,9 @@ function onDragStart(rfqItemId: number, recId: number, event: DragEvent) {
   event.dataTransfer!.setData('text/plain', String(recId))
 }
 
-function onDragOver(recId: number, event: DragEvent) {
-  if (!dragState.value || dragState.value.recId === recId) return
+function onDragOver(rfqItemId: number, recId: number, event: DragEvent) {
+  // Suppliers only reorder within their own part
+  if (!dragState.value || dragState.value.recId === recId || dragState.value.rfqItemId !== rfqItemId) return
   event.preventDefault()
   event.dataTransfer!.dropEffect = 'move'
   dragOverRecId.value = recId
@@ -1067,7 +1087,7 @@ function onDragLeave(event: DragEvent) {
 function onDrop(rfqItemId: number, targetRecId: number, event: DragEvent) {
   event.preventDefault()
   dragOverRecId.value = null
-  if (!dragState.value || dragState.value.recId === targetRecId) { dragState.value = null; return }
+  if (!dragState.value || dragState.value.recId === targetRecId || dragState.value.rfqItemId !== rfqItemId) { dragState.value = null; return }
   reorderProcByDrop(rfqItemId, dragState.value.recId, targetRecId)
   dragState.value = null
 }
@@ -1102,6 +1122,7 @@ async function reorderProcByDrop(rfqItemId: number, sourceRecId: number, targetR
     reinserted.push(...(shopByParent.get(p.id) || []))
   }
   allProcRecords.value = [...others, ...reinserted]
+  syncQuoteItemProcOrder(reordered)
 
   try {
     await api.patch(`/rfqs/${quote.value.rfqId}/supplier-quotes/order`, {

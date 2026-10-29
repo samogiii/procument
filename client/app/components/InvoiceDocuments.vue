@@ -48,6 +48,14 @@
                 />
               </div>
 
+              <!-- Finish needs a full POP and a Delivery Receipt -->
+              <div
+                v-if="cat.key === 'delivery_receipt' && paymentInfo?.isPaid && !piFilesByCategory('delivery_receipt').length"
+                class="text-caption text-warning mb-2"
+              >
+                Fully paid — upload the Delivery Receipt to finish this PI.
+              </div>
+
               <div class="flex-grow-1 overflow-y-auto" style="max-height: 150px;">
                 <div v-if="piFilesByCategory(cat.key).length === 0" class="text-caption text-medium-emphasis italic pa-2">
                   No files uploaded.
@@ -269,7 +277,7 @@ import { ref, computed, onMounted } from 'vue'
 
 type DepositWallet = { id: number; name: string; companyName?: string; currency: string }
 const props = defineProps<{ invoiceId: number | string; depositWallet?: DepositWallet | null; wallets?: DepositWallet[] }>()
-const emit = defineEmits<{ walletSelected: [walletId: number] }>()
+const emit = defineEmits<{ walletSelected: [walletId: number]; finished: [] }>()
 const depositWallet = computed(() => props.depositWallet ?? null)
 
 const config = useRuntimeConfig()
@@ -293,6 +301,7 @@ const piCategories = [
   { key: 'our_pi', label: 'Our PI', icon: 'mdi-file-pdf-box', color: 'error' },
   { key: 'customer_pop', label: 'Customer POP', icon: 'mdi-receipt-text-check', color: 'success' },
   { key: 'quote', label: 'Quote', icon: 'mdi-file-sign', color: 'warning' },
+  { key: 'delivery_receipt', label: 'Delivery Receipt', icon: 'mdi-truck-check-outline', color: 'teal' },
 ]
 
 const supplierCategories = [
@@ -454,8 +463,11 @@ async function submitPopUpload() {
 
     showPopDialog.value = false
     if (result.walletId) emit('walletSelected', Number(result.walletId))
-    if (result.justPaid) {
-      showSnack('Payment uploaded — Invoice is now marked as PAID!', 'success')
+    if (result.justFinished) {
+      showSnack('Payment uploaded — Invoice is now marked as FINISHED!', 'success')
+      emit('finished')
+    } else if (result.isPaid && !result.hasDeliveryReceipt) {
+      showSnack('Fully paid — upload the Delivery Receipt to finish this PI', 'warning')
     } else {
       const remaining = result.invoiceTotal - result.totalPaid
       showSnack(
@@ -478,6 +490,8 @@ async function submitPopUpload() {
 function triggerUpload(category: string, supplierId: number | null) {
   pendingCategory.value = category
   pendingSupplierId.value = supplierId
+  // Set directly: the input is clicked before Vue would re-render a bound accept.
+  if (fileInputRef.value) fileInputRef.value.accept = category === 'delivery_receipt' ? 'image/*,application/pdf' : ''
   fileInputRef.value?.click()
 }
 
@@ -495,17 +509,24 @@ async function onFileSelected(e: Event) {
     : `/documents/proforma-invoice/${props.invoiceId}/upload`
 
   try {
+    let justFinished = false
     for (const file of files) {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('category', category)
-      await $fetch(`${api.baseURL}${url}`, {
+      const result = await $fetch<any>(`${api.baseURL}${url}`, {
         method: 'POST',
         body: formData,
         headers: { Authorization: `Bearer ${authStore.user?.token}` },
       })
+      if (result?.justFinished) justFinished = true
     }
-    showSnack(files.length === 1 ? 'File uploaded successfully' : `${files.length} files uploaded successfully`, 'success')
+    if (justFinished) {
+      showSnack('Delivery Receipt uploaded — Invoice is now marked as FINISHED!', 'success')
+      emit('finished')
+    } else {
+      showSnack(files.length === 1 ? 'File uploaded successfully' : `${files.length} files uploaded successfully`, 'success')
+    }
     await loadDocuments()
   } catch (err: any) {
     showSnack(err?.data?.message || 'Upload failed', 'error')

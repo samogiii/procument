@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Procument.Shared.Services;
 
 namespace Procument.Module.Purchasing.Services;
 
@@ -62,7 +63,7 @@ public static class ProcurementPlusFileParser
                 if (partNo == null) continue; // blank / trailing ",,,," lines
                 var comment = Get(Col.Comment);
                 rows.Add(new PpParsedRow(
-                    partNo, Get(Col.AltPartNo), Get(Col.Company) ?? "(no company)", comment, Get(Col.Qty), Get(Col.Condition),
+                    partNo, AltPartNumbers.Clean(Get(Col.AltPartNo)), Get(Col.Company) ?? "(no company)", comment, Get(Col.Qty), Get(Col.Condition),
                     Get(Col.Description), Get(Col.Price), Get(Col.Phone), Get(Col.Fax),
                     // No email column value: the first address written in the comment ("sales@x.com AOG …").
                     FirstEmail(Get(Col.Email)) ?? FirstEmail(comment),

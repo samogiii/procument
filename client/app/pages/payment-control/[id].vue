@@ -397,7 +397,9 @@
 
         <!-- Base -->
         <template #item.base="{ item }">
-          <v-chip v-if="item.base" size="x-small" color="deep-purple" variant="tonal">{{ item.base }}</v-chip>
+          <span v-if="item.base" class="d-inline-flex flex-wrap ga-1">
+            <v-chip v-for="b in splitBases(item.base)" :key="b" size="x-small" color="deep-purple" variant="tonal">{{ b }}</v-chip>
+          </span>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
 
@@ -679,16 +681,22 @@
             </v-col>
           </v-row>
 
-          <!-- Base tag -->
+          <!-- Base tags — filled from the customer / PI / PR customers, still editable -->
           <v-select
             v-model="txForm.base"
             :items="bases"
-            label="Base (optional)"
+            label="Bases (optional)"
             variant="outlined"
             density="comfortable"
             class="mb-3"
+            multiple
+            chips
+            closable-chips
             clearable
             prepend-inner-icon="mdi-tag-outline"
+            :loading="basesSuggesting"
+            :hint="basesHint"
+            persistent-hint
           />
 
           <!-- Exchange Rate (only when currency differs from box currency) -->
@@ -746,6 +754,7 @@
                 :loading="invoicesLoading"
                 no-data-text="No invoices for this customer"
                 class="mb-3"
+                @update:model-value="suggestBases"
               >
                 <template v-if="txForm.invoiceId" #append>
                   <v-btn
@@ -803,6 +812,7 @@
                 clearable
                 no-data-text="No payment requests for this supplier"
                 class="mb-3"
+                @update:model-value="suggestBases"
               >
                 <template v-if="txForm.paymentRequestId" #append>
                   <v-btn
@@ -1021,10 +1031,44 @@ const txForm = ref({
   // Wallet-to-wallet
   toBoxId: null as number | null,
   transferExchangeRate: null as number | null,
-  base: null as string | null,
+  base: [] as string[],
   notes: '',
   createdAt: '',
 })
+
+// ── Base tags auto-fill ───────────────────────────────────────────────────────
+// Picking a customer, PI# or PR# fills the bases from the customers behind it
+// (a PR: every PI customer its PO lines belong to). The user can still edit them.
+const basesSuggesting = ref(false)
+const basesHint = ref('')
+let basesRequest = 0
+
+async function suggestBases() {
+  const form = txForm.value
+  const params = new URLSearchParams()
+  if (form.type === 'Withdraw' && form.paymentRequestId) params.set('paymentRequestId', String(form.paymentRequestId))
+  if (form.type === 'Deposit' && form.invoiceId) params.set('invoiceId', String(form.invoiceId))
+  if (form.type === 'Deposit' && form.fromType === 'Customer' && form.fromCustomerId) params.set('customerId', String(form.fromCustomerId))
+  if (!params.toString()) return
+
+  const request = ++basesRequest
+  basesSuggesting.value = true
+  try {
+    const res = await api.get<{ base: string | null }>(`/payment-boxes/suggest-bases?${params}`)
+    if (request !== basesRequest) return
+    const tags = splitBases(res.base)
+    if (tags.length) {
+      txForm.value.base = tags
+      basesHint.value = form.type === 'Withdraw' ? 'Filled from the PR\'s PI customers' : 'Filled from the customer'
+    } else {
+      basesHint.value = 'No customer base found — pick manually'
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    if (request === basesRequest) basesSuggesting.value = false
+  }
+}
 
 // ── Customer / supplier pickers ───────────────────────────────────────────────
 // Both catalogs run to thousands of rows, well past any single page, so the
@@ -1105,6 +1149,7 @@ function onCustomerPicked(id: number | null) {
   txForm.value.invoiceId = null
   selectedCustomer.value = customerItems.value.find(c => c.id === id) ?? null
   loadCustomerInvoices()
+  suggestBases()
 }
 
 function onFromTypeChange() {
@@ -1314,7 +1359,7 @@ const filteredPaymentRequests = computed(() =>
 const currencies = ['USD', 'EUR', 'CNY', 'GBP', 'AED', 'RUB']
 
 /** Wallet-side base tag options. */
-const bases = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7']
+const bases = WALLET_BASES
 /** Full list for the filter dropdown's "Show all", so unused bases stay visible. */
 const allBaseOptions = [...bases, '—']
 
@@ -1343,18 +1388,25 @@ const headers = [
 const colFilter = useColFilter()
 const rangeFilter = useRangeFilter()
 
-/** Column keys carrying a value-list filter, paired with the label shown in the cell. */
+/** Column keys carrying a value-list filter, paired with the label(s) shown in the cell. */
 const LIST_COLS = {
   fromName: (t: TransactionRow) => (t.type === 'Deposit' ? (t.fromName ?? 'Mother Wallet') : '—'),
   toName: (t: TransactionRow) => (t.type === 'Withdraw' ? (t.toName ?? 'Mother Wallet') : '—'),
   piNumber: (t: TransactionRow) => t.piNumber ?? '—',
   prNumber: (t: TransactionRow) => t.prNumber ?? '—',
-  base: (t: TransactionRow) => t.base ?? '—',
+  // A row tagged "B1,B3" shows under both B1 and B3.
+  base: (t: TransactionRow) => baseFilterValues(t.base),
   exchangeRate: (t: TransactionRow) =>
     t.exchangeRate != null ? `${t.txCurrency ?? detail.value?.currency ?? ''} ×${t.exchangeRate}` : '—',
   notes: (t: TransactionRow) => t.notes?.trim() || '—',
   isAuto: (t: TransactionRow) => (t.isNew ? 'New' : t.isAuto ? 'Auto' : 'Manual'),
-} satisfies Record<string, (t: TransactionRow) => string>
+} satisfies Record<string, (t: TransactionRow) => string | string[]>
+
+/** A cell's filter value(s) — multi-value columns (Base) match when any value is selected. */
+function cellValues(key: keyof typeof LIST_COLS, t: TransactionRow): string[] {
+  const v = LIST_COLS[key](t)
+  return Array.isArray(v) ? v : [v]
+}
 
 // Date column range filter (ColDateRangeMenu) — `YYYY-MM-DD`, both ends inclusive.
 const dateFrom = ref('')
@@ -1384,7 +1436,7 @@ const linkedBankFee = computed(() => {
 
 const cfOptions = computed(() => {
   const out = {} as Record<ListColKey, string[]>
-  for (const key of LIST_KEYS) out[key] = uniq(allTx.value.map(LIST_COLS[key]))
+  for (const key of LIST_KEYS) out[key] = uniq(allTx.value.flatMap(t => cellValues(key, t)))
   return out
 })
 
@@ -1411,7 +1463,7 @@ const displayedTransactions = computed(() =>
     if (showOnlyNew.value && !t.isNew) return false
     for (const key of LIST_KEYS) {
       const sel = colFilter.selected[key]
-      if (sel?.size && !sel.has(LIST_COLS[key](t))) return false
+      if (sel?.size && !cellValues(key, t).some(v => sel.has(v))) return false
     }
     if (!rangeFilter.matches('deposit', walletTransactionAmount(t, 'deposit'))) return false
     if (!rangeFilter.matches('withdraw', walletTransactionAmount(t, 'withdraw'))) return false
@@ -1524,10 +1576,11 @@ function openEditTx(tx: TransactionRow) {
     paymentRequestId: tx.prId,
     toBoxId: null,
     transferExchangeRate: null,
-    base: tx.base,
+    base: splitBases(tx.base),
     notes: tx.notes || '',
     createdAt: tx.createdAt ? toDateTimeLocal(tx.createdAt) : toDateTimeLocal(),
   }
+  basesHint.value = ''
   // The picked customer/supplier may sit outside the seeded page — pull it back in by label.
   selectedCustomer.value = null
   selectedSupplier.value = null
@@ -1565,7 +1618,7 @@ function buildSubmitFn(): (() => Promise<void>) | null {
       invoiceId: form.type === 'Deposit' ? form.invoiceId : null,
       paymentRequestId: form.type === 'Withdraw' ? form.paymentRequestId : null,
       notes: form.notes || null,
-      base: form.base || null,
+      base: form.base.length ? form.base.join(',') : null,
       currency: isSameCurrency ? null : form.currency,
       exchangeRate: isSameCurrency ? null : form.exchangeRate,
       toPaymentBoxId: null,
@@ -1657,10 +1710,11 @@ function resetForm() {
     paymentRequestId: null,
     toBoxId: null,
     transferExchangeRate: null,
-    base: null,
+    base: [],
     notes: '',
     createdAt: toDateTimeLocal(),
   }
+  basesHint.value = ''
 }
 
 /** Format an instant for a datetime-local input without changing the user's local time. */

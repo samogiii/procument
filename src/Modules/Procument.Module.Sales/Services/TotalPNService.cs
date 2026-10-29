@@ -285,6 +285,13 @@ public class TotalPNService : ITotalPNService
                 (x.poi == null && (poStatuses.Contains(x.ii.Status)
                     || (wantsNotStarted && (x.ii.Status == null || x.ii.Status == "")))));
         }
+        else
+        {
+            // Cancelled lines stay hidden until "Cancelled" is picked in the Status filter.
+            baseQuery = baseQuery.Where(x => x.poi != null
+                ? x.poi.Status != PurchaseOrderStatusFlow.Cancelled
+                : x.ii.Status != PurchaseOrderStatusFlow.Cancelled);
+        }
 
         if (shippingStatuses?.Count > 0)
             baseQuery = baseQuery.Where(x =>
@@ -528,6 +535,8 @@ public class TotalPNService : ITotalPNService
             var stockQuery = StockPoLineQuery(page.Search, customers, invoiceNumbers, partNumbers, conditions, poNumbers,
                 suppliers, paymentTerms, poStatuses, shippingStatuses);
             if (bases?.Count > 0) stockQuery = stockQuery.Where(_ => false);
+            if (!(poStatuses?.Count > 0))
+                stockQuery = stockQuery.Where(i => i.Status != PurchaseOrderStatusFlow.Cancelled);
             stockCount = await stockQuery.CountAsync();
             var stockSkip = Math.Max(0, skip - customerCount);
             var stockTake = take == int.MaxValue ? int.MaxValue : take - customerTake;
@@ -907,6 +916,9 @@ public class TotalPNService : ITotalPNService
                 query = query.Where(x => paymentTerms.Contains(x.PaymentTerm ?? ""));
             if (excludedColumn != "status" && poStatuses?.Count > 0)
                 query = query.Where(x => poStatuses.Contains(x.Status ?? ""));
+            // Like the list: no Status filter = cancelled lines hidden (the Status list still offers "Cancelled").
+            else if (excludedColumn != "status")
+                query = query.Where(x => x.Status != PurchaseOrderStatusFlow.Cancelled);
             if (excludedColumn != "shippingStatus" && shippingStatuses?.Count > 0)
                 query = query.Where(x => x.ShippingStatuses.Any(shippingStatuses.Contains));
             return query;

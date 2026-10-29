@@ -407,6 +407,7 @@ watch(mobile, (isMobile) => {
 
 const allNavItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard', adminOnly: false, ilsOnly: false },
+  { title: 'BI', icon: 'mdi-chart-timeline-variant-shimmer', to: '/bi', bi: true },
   { title: 'Total Project', icon: 'mdi-table-large', to: '/total-pn', totalPnMenu: true, adminOnly: false, ilsOnly: false },
   { title: 'Customer Follow Ups', icon: 'mdi-account-clock-outline', to: '/customer-follow-ups', customerFollowUps: true },
   // Action Center hidden from the menu for now (route /attention and its Menu Access grant still exist).
@@ -555,6 +556,8 @@ const navItems = computed(() => {
     if (item.customerFollowUps) return authStore.customerFollowUps
     // Procurement Plus — granted per user in Menu Access, whatever the role.
     if (item.procurementPlus) return authStore.procurementPlus
+    // BI — granted per user in Menu Access, whatever the role.
+    if (item.bi) return authStore.bi
 
     // ── Hardcoded per-username whitelist — overrides everything else ────────
     // Users in RESTRICTED_USER_NAV see ONLY their allowed routes.
@@ -679,7 +682,7 @@ async function loadNotifications() {
     const [list, count, taskCount] = await Promise.all([
       api.get<any[]>('/notifications'),
       api.get<number>('/notifications/unread-count'),
-      api.get<number>('/tasks/pending-count'),
+      api.get<number>('/task-board/pending-count'),
     ])
     notifications.value = list
     unreadCount.value = count

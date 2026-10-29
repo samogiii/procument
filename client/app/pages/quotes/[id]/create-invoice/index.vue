@@ -244,6 +244,7 @@
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
+const authStore = useAuthStore()
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -391,11 +392,19 @@ async function createInvoice() {
       paymentStatus: paymentStatus.value || null,
       paymentTermDays: ['CAD', 'Net'].includes(paymentStatus.value) ? paymentTermDays.value : null,
       prepaymentPercent: paymentStatus.value === 'Prepayment' ? prepaymentPercent.value : null,
+      // Every merged quote is kept on the Sales Order so "Add Item" can offer its lines later.
+      additionalQuoteIds: quoteIds.value.slice(1),
       items: selectedEntries
     }
 
     const res = await api.post<any>('/invoices', payload)
     showSnack('Sales Order created successfully', 'success')
+
+    // Base 5 Proforma Invoice grant is creating only — back to the quote, no wallet pick or PI page.
+    if (!authStore.isAdmin) {
+      setTimeout(() => { router.push(`/quotes/${route.params.id}`) }, 500)
+      return
+    }
 
     // Check wallets for this customer
     const customerId = quote.value?.customerId

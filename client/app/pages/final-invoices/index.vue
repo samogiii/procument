@@ -194,7 +194,7 @@
       </v-card-text>
     </v-card>
 
-    <!-- Pick a Sales Order, then the parts (finished shipping track) that go on this Final Invoice -->
+    <!-- Pick a Sales Order, then the parts (track received in warehouse) that go on this Final Invoice -->
     <CreateFinalInvoiceDialog
       v-model="showAddDialog"
       @created="onFinalInvoiceCreated"

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Catalog.Services;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.RFQ.Entities;
@@ -90,6 +91,7 @@ public class SupplierQuoteService : ISupplierQuoteService
         // 1. Check Permissions
         // Since we don't have RFQId easily in Update case, we need to fetch it.
         long rfqId;
+        long partNumberId;
         if (request.Id.HasValue && request.Id > 0)
         {
             var existing = await _db.Set<ProcumentRecord>()
@@ -97,6 +99,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 .FirstOrDefaultAsync(r => r.Id == request.Id.Value);
             if (existing == null) throw new KeyNotFoundException($"Supplier quote {request.Id} not found.");
             rfqId = existing.RFQItem.RFQId;
+            partNumberId = existing.RFQItem.PartNumberId;
         }
         else
         {
@@ -104,6 +107,7 @@ public class SupplierQuoteService : ISupplierQuoteService
             var rfqItem = await _db.Set<RFQItem>().FindAsync(request.RFQItemId)
                 ?? throw new KeyNotFoundException("RFQ Item not found");
             rfqId = rfqItem.RFQId;
+            partNumberId = rfqItem.PartNumberId;
         }
 
         // Check if user is Admin OR has Edit permission
@@ -128,6 +132,17 @@ public class SupplierQuoteService : ISupplierQuoteService
         var supplier = await ResolveSupplierAsync(
             request.SupplierName, userId, AllowsSupplierCreation(request.Condition, request.Type));
 
+        // Alt P/N = the part's own P/N (or its new name) is no alternate: the quote is for the part itself.
+        var part = await _db.Set<PartNumber>().AsNoTracking()
+            .Where(p => p.Id == partNumberId)
+            .Select(p => new { p.Name, p.NewName })
+            .FirstAsync();
+        var alt = AltPartNumbers.IsPlaceholder(request.Alt)
+                  || PartFamilies.Key(request.Alt) == PartFamilies.Key(part.Name)
+                  || PartFamilies.Key(request.Alt) == PartFamilies.Key(part.NewName)
+            ? null
+            : request.Alt!.Trim();
+
         ProcumentRecord record;
 
 
@@ -144,13 +159,15 @@ public class SupplierQuoteService : ISupplierQuoteService
             record.Qty = request.Qty;
             record.Price = request.Price;
             record.Condition = request.Condition;
-            record.Alt = request.Alt;
+            record.Alt = alt;
             record.Unit = request.Unit;
             record.SellLeadTime = ResolveSellLeadTime(request, record, customerBase); // before LeadTime is overwritten
             record.LeadTime = request.LeadTime;
             if (request.Coef_1 != null && request.Coef_2 != null && request.Coef_3 != null)
             {
-                record.Coef_1 = request.Coef_1;
+                // A Procurement Plus commission locks Coef 1: only SuperAdmin changes it.
+                if (!CommissionRules.IsActive(record.CommissionAt) || user?.Role == "SuperAdmin")
+                    record.Coef_1 = request.Coef_1;
                 record.Coef_2 = request.Coef_2;
                 record.Coef_3 = request.Coef_3;
                 record.UnitPrice = request.UnitPrice;
@@ -191,7 +208,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 Qty = request.Qty,
                 Price = request.Price,
                 Condition = request.Condition,
-                Alt = request.Alt,
+                Alt = alt,
                 Unit = request.Unit,
                 LeadTime = request.LeadTime,
                 SellLeadTime = ResolveSellLeadTime(request, null, customerBase),
@@ -214,7 +231,7 @@ public class SupplierQuoteService : ISupplierQuoteService
                 SourceStockItemId = request.SourceStockItemId,
                 CompanyPresetId = request.CompanyPresetId > 0 ? request.CompanyPresetId : null,
                 SupplierEmail = CleanSupplierEmail(request.SupplierEmail),
-                UserId = userId
+                UserId = await ExpertForNewQuoteAsync(request.ExpertUserId, supplier.Id) ?? userId
             };
             ApplyQuoteDetails(request, record);
             _db.Set<ProcumentRecord>().Add(record);
@@ -267,28 +284,20 @@ public class SupplierQuoteService : ISupplierQuoteService
             }
         }
 
-        // ── Auto-add Alt P/N to Alternatives table if not exists ──
-        if (!string.IsNullOrWhiteSpace(request.Alt))
+        // ── Auto-add Alt P/N to Alternatives table unless it is in the part's family already ──
+        // (case/spaces ignored; X → Y → Z: Z typed on X needs no X → Z row)
+        if (alt != null)
         {
-            var rfqItem = await _db.Set<RFQItem>()
-                .FirstOrDefaultAsync(i => i.Id == request.RFQItemId);
-
-            if (rfqItem != null)
+            var families = await PartFamilies.LoadAsync(_db, new[] { part.Name, part.NewName });
+            if (!families.FamilyOf(part.Name).Contains(PartFamilies.Key(alt)))
             {
-                var altTrimmed = request.Alt.Trim();
-                var exists = await _db.Set<Alternative>()
-                    .AnyAsync(a => a.PartNumberId == rfqItem.PartNumberId && a.Name == altTrimmed);
-
-                if (!exists)
+                _db.Set<Alternative>().Add(new Alternative
                 {
-                    _db.Set<Alternative>().Add(new Alternative
-                    {
-                        Name = altTrimmed,
-                        PartNumberId = rfqItem.PartNumberId,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                    await _db.SaveChangesAsync();
-                }
+                    Name = alt,
+                    PartNumberId = partNumberId,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync();
             }
         }
 
@@ -733,6 +742,18 @@ public class SupplierQuoteService : ISupplierQuoteService
         if (request.CR != null) record.CR = QuoteDetailFields.Clean(request.CR, QuoteDetailFields.CRLength);
     }
 
+    /// <summary>
+    /// A quote added from a "recent" suggestion keeps the expert who first added that supplier (Sam) — only when
+    /// that user really has a quote from this supplier, so a client can't name anyone.
+    /// </summary>
+    private async Task<long?> ExpertForNewQuoteAsync(long? expertUserId, long supplierId)
+    {
+        if (expertUserId is not > 0) return null;
+        return await _db.Set<ProcumentRecord>().AnyAsync(r => r.SupplierId == supplierId && r.UserId == expertUserId)
+            ? expertUserId
+            : null;
+    }
+
     private static string? CleanSupplierEmail(string? email)
     {
         var trimmed = email?.Trim().ToLowerInvariant();
@@ -796,6 +817,8 @@ public class SupplierQuoteService : ISupplierQuoteService
         CR = r.CR,
         ExpertUserId = r.UserId,
         ExpertName = r.User?.Name,
+        CoefLocked = CommissionRules.IsActive(r.CommissionAt), // a commission locks Coef 1 for 7 days
+        CommissionAt = r.CommissionAt,
         ParentProcumentId = r.ParentProcumentId,
         SortOrder = r.SortOrder,
         CertificateCount = r.Certificates?.Count ?? 0,

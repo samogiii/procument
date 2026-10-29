@@ -54,7 +54,7 @@
         hide-details="auto"
         @blur="flush"
       />
-      <v-text-field v-model="form.alt" label="Alt P/N (offered instead)" density="compact" variant="outlined" clearable hide-details @blur="flush" />
+      <v-text-field v-model="form.alt" label="Alt P/N (offered instead)" density="compact" variant="outlined" clearable hide-details @blur="form.alt = cleanAlt(form.alt); flush()" />
     </div>
     <div class="eqf-row">
       <v-text-field v-model.number="form.price" type="number" label="Price ($)" density="compact" variant="outlined" hide-details @blur="flush" />

@@ -56,6 +56,14 @@ public class PendingRfqItem : BaseEntity
     /// <summary>The source email (body + attachments), stored like Email Quotes' emails.</summary>
     public long? EmailId { get; set; }
 
+    /// <summary>
+    /// Accepted lines: the PPE (Procurement Part Expert) — the user this part is assigned to on Procurement Plus.
+    /// Every accepted line with the same P/N carries the same PPE (Sam). Plain id, no FK.
+    /// </summary>
+    public long? PpeUserId { get; set; }
+    public DateTime? PpeAssignedAt { get; set; }
+    public long? PpeAssignedByUserId { get; set; }
+
     public Customer? Customer { get; set; }
     public PendingQuoteEmail? Email { get; set; }
 }

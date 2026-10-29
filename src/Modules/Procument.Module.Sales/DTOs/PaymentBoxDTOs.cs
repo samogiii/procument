@@ -13,6 +13,9 @@ public record CreateUpcomingWithdrawRequest(decimal Price, string Description);
 public record WalletSettingsResponse(bool AutoImport);
 public record UpdateWalletSettingsRequest(bool AutoImport);
 
+/// <summary>Customer bases behind a PR / PI / customer, as transaction Base tags ("B1,B3"); null = none found.</summary>
+public record SuggestedBasesResponse(string? Base);
+
 public record PaymentBoxSummaryResponse(
     long Id,
     long CompanyPresetId,
@@ -27,7 +30,9 @@ public record PaymentBoxSummaryResponse(
     string? BankAddress = null,
     string? AccountNumber = null,
     string? BeneficiaryName = null,
-    string? SwiftCode = null);
+    string? SwiftCode = null,
+    // Same as CurrencyBreakdowns, but only the transactions tagged Base "B1"
+    List<CurrencyBreakdown>? B1Breakdowns = null);
 
 public record PaymentTransactionRow(
     long Id,
@@ -51,7 +56,7 @@ public record PaymentTransactionRow(
     decimal Balance,
     string? TxCurrency,
     decimal? ExchangeRate,
-    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    /// <summary>Wallet-side tags, one or more of "B1".."B7" comma-separated ("B1,B3").</summary>
     string? Base = null,
     string? PONumber = null,
     string? POType = null,
@@ -98,7 +103,7 @@ public record AllTransactionRow(
     decimal Balance,
     string? TxCurrency,
     decimal? ExchangeRate,
-    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    /// <summary>Wallet-side tags, one or more of "B1".."B7" comma-separated ("B1,B3").</summary>
     string? Base = null,
     string? PONumber = null,
     string? POType = null,
@@ -137,7 +142,7 @@ public record CreateTransactionRequest(
     long? ToPaymentBoxId,
     /// <summary>When the transaction occurred. Defaults to the current time when omitted.</summary>
     DateTime? CreatedAt = null,
-    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    /// <summary>Wallet-side tags, one or more of "B1".."B7" comma-separated ("B1,B3").</summary>
     string? Base = null);
 
 public record UpdateTransactionRequest(
@@ -154,7 +159,7 @@ public record UpdateTransactionRequest(
     decimal? ExchangeRate,
     long? ToPaymentBoxId,
     DateTime CreatedAt,
-    /// <summary>Wallet-side tag, "B1".."B7".</summary>
+    /// <summary>Wallet-side tags, one or more of "B1".."B7" comma-separated ("B1,B3").</summary>
     string? Base = null);
 
 public record UpdateExchangeRateRequest(decimal? ExchangeRate, string? Note = null);

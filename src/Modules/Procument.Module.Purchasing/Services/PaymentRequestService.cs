@@ -232,6 +232,7 @@ public class PaymentRequestService : IPaymentRequestService
             PendingPaymentAmount = pr.PendingPaymentAmount,
             PendingExchangeRate = pr.PendingExchangeRate,
             PendingUploadId = pr.PendingUploadId,
+            WarehousePaidAt = pr.WarehousePaidAt,
         };
 
         if (po != null)

@@ -633,13 +633,15 @@
                   <div class="d-flex flex-wrap align-center gap-1">
                     <v-chip
                       v-for="alt in item.alternatives"
-                      :key="alt.id"
+                      :key="alt.linked ? 'f-' + alt.name : alt.id"
                       size="x-small"
                       color="warning"
-                      variant="tonal"
-                      closable
+                      :variant="alt.linked ? 'outlined' : 'tonal'"
+                      :closable="!alt.linked"
                       class="cursor-pointer chip-close-left"
-                      :title="'Click to copy: ' + alt.name"
+                      :title="alt.linked
+                        ? 'Alternative through its family (listed on another part) — click to copy: ' + alt.name
+                        : 'Click to copy: ' + alt.name"
                       @click.stop="copyPartNumber(alt.name)"
                       @click:close="removeAlternative(item, alt)"
                     >
@@ -2154,7 +2156,7 @@ async function loadData() {
       priority: i.priority || '',
       remark: i.remark || '',
       isHighlighted: i.isHighlighted || false,
-      alternatives: (i.alternatives || []).map((a: any) => ({ id: a.id, name: a.name }))
+      alternatives: (i.alternatives || []).map((a: any) => ({ id: a.id, name: a.name, linked: !!a.linked }))
     }))
     supplierQuotes.value = quotesData.map((q: any) => ({
       ...q,
@@ -2446,6 +2448,7 @@ function applySuggestion(item: any, suggestion: any) {
     note: suggestion.note || '',
     myNotes: suggestion.myNotes || '',
     ...quoteDetailsOf(suggestion, ''),
+    expertUserId: suggestion.expertUserId ?? null,
   })
 }
 
@@ -2755,7 +2758,7 @@ async function saveAll() {
     const itemPromises = editableItems.value.flatMap(item => {
       const promises: Promise<any>[] = []
       promises.push(api.put(`/rfqs/items/${item.id}`, {
-        alt: item.alt || null,
+        alt: cleanAlt(item.alt),
         priority: item.priority || "noraml",
         note: item.note,
         qty: item.qty,
@@ -2907,7 +2910,7 @@ function onPartSelected(val: any) {
 
 function pushAddItemAlt() {
   const val = addItemAltInput.value.trim()
-  if (!val) return
+  if (isPlaceholderAlt(val)) { addItemAltInput.value = ''; return }
   if (!addItemForm.value.alternatives.includes(val)) {
     addItemForm.value.alternatives.push(val)
   }
@@ -2995,6 +2998,7 @@ function openAddAlt(item: any) {
 async function submitAddAlt() {
   const val = addAltInput.value.trim()
   if (!val || !addAltTargetItem.value) return
+  if (isPlaceholderAlt(val)) { showSnack('"-", "_" or "no" means no alternative — nothing added', 'warning'); return }
 
   addAltSaving.value = true
   try {
@@ -3002,7 +3006,10 @@ async function submitAddAlt() {
       `/partnumbers/${addAltTargetItem.value.partNumberId}/alternatives`,
       { name: val }
     )
-    // Update local state
+    // Update local state (it replaces the family chip of the same P/N, if any)
+    const key = (s: string) => s.replace(/\s+/g, '').toUpperCase()
+    addAltTargetItem.value.alternatives = addAltTargetItem.value.alternatives
+      .filter((a: any) => !(a.linked && key(a.name) === key(result.name)))
     addAltTargetItem.value.alternatives.push({ id: result.id, name: result.name })
     showAddAlt.value = false
     showSnack('Alternative added', 'success')

@@ -26,7 +26,10 @@ public class PaymentTransaction
     /// PI/PO paid totals and supplier credits, but no wallet balance or ledger includes it.
     /// </summary>
     public bool InWallet { get; set; } = true;
-    /// <summary>Wallet-side tag, "B1".."B7". Unrelated to Customer.Base access control.</summary>
+    /// <summary>
+    /// Wallet-side tags, one or more of "B1".."B7" comma-separated ("B1,B3"). Automatic rows are filled from
+    /// the customers' bases (see TransactionBases); this is not used for access control.
+    /// </summary>
     public string? Base { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

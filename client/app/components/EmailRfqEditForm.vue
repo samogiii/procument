@@ -96,7 +96,7 @@ const canRetry = ref(false)
 // ── Autosave ── (see EmailQuoteEditForm: one form object per line, saves serialised)
 const payloadOf = (f: any) => JSON.stringify({
   partNumber: f.partNumber ?? '',
-  alternatives: (f.alternatives ?? []).map((a: string) => a.trim()).filter(Boolean),
+  alternatives: cleanAltList(f.alternatives),
   description: f.description || null,
   qty: f.qty === '' || f.qty == null ? null : Number(f.qty),
   condition: f.condition || null,

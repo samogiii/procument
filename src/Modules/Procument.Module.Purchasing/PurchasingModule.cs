@@ -24,7 +24,11 @@ public static class PurchasingModule
         services.AddScoped<IShipmentNoteService, ShipmentNoteService>();
         services.AddScoped<IPendingSupplierQuoteService, PendingSupplierQuoteService>();
         services.AddScoped<Procument.Shared.Services.IRfqItemsCreatedHandler, PendingSupplierQuoteService>();
+        // After the auto-fill above (handlers run in this order): active commissions reach the new RFQs' quotes.
+        services.AddScoped<Procument.Shared.Services.IRfqItemsCreatedHandler, CommissionAutoApplyHandler>();
         services.AddScoped<IProcurementPlusService, ProcurementPlusService>();
+        // New Procurement Plus page (PPE parts) — same class, it reuses the part / file / price helpers.
+        services.AddScoped<IPpeService, ProcurementPlusService>();
         services.AddScoped<IPendingRfqService, PendingRfqService>();
         // Every 3 min: ask MailFlow for new quote + RFQ emails (MailFlow:AutoFetchSeconds, 0 = off).
         services.AddHostedService<MailFlowAutoFetchService>();

@@ -112,6 +112,7 @@ public class RFQsController : ControllerBase
             permitted = permitted.Where(r =>
                 r.Customer.Base == null ||
                 userBases.Contains(r.Customer.Base.Value) ||
+                _db.Set<UserCustomer>().Any(uc => uc.UserId == userId && uc.CustomerId == r.CustomerId) ||
                 permittedIds.Contains(r.Id) ||
                 r.UserId == userId);
         }
@@ -293,6 +294,7 @@ public class RFQsController : ControllerBase
             query = query.Where(i =>
                 i.RFQ.Customer.Base == null ||
                 userBases.Contains(i.RFQ.Customer.Base.Value) ||
+                _db.Set<UserCustomer>().Any(uc => uc.UserId == userId && uc.CustomerId == i.RFQ.CustomerId) ||
                 rfqIds.Contains(i.RFQId) ||
                 i.RFQ.UserId == userId);
         }
@@ -396,6 +398,7 @@ public class RFQsController : ControllerBase
             permitted = permitted.Where(i =>
                 i.RFQ.Customer.Base == null ||
                 userBases.Contains(i.RFQ.Customer.Base.Value) ||
+                _db.Set<UserCustomer>().Any(uc => uc.UserId == userId && uc.CustomerId == i.RFQ.CustomerId) ||
                 permittedRfqIds.Contains(i.RFQId) ||
                 i.RFQ.UserId == userId);
         }

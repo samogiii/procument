@@ -191,6 +191,39 @@ export function messageCountText(count: number): string {
     return count > 0 ? `${count} message${count === 1 ? '' : 's'}` : ''
 }
 
+export interface HighlightPart {
+    text: string
+    match: boolean
+}
+
+/**
+ * Splits text around every case-insensitive occurrence of `term`, for <mark>-ing search hits.
+ * With `around`, long text is cut to that many characters on each side of the first hit ("…").
+ */
+export function highlightParts(text: string, term: string, around?: number): HighlightPart[] {
+    const needle = term.trim().toLowerCase()
+    if (!needle) return [{ text, match: false }]
+    let source = text
+    if (around != null) {
+        const first = text.toLowerCase().indexOf(needle)
+        if (first >= 0) {
+            const start = Math.max(0, first - around)
+            const end = Math.min(text.length, first + needle.length + around * 2)
+            source = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
+        }
+    }
+    const parts: HighlightPart[] = []
+    const lower = source.toLowerCase()
+    let from = 0
+    for (let at = lower.indexOf(needle); at >= 0; at = lower.indexOf(needle, at + needle.length)) {
+        if (at > from) parts.push({ text: source.slice(from, at), match: false })
+        parts.push({ text: source.slice(at, at + needle.length), match: true })
+        from = at + needle.length
+    }
+    if (from < source.length) parts.push({ text: source.slice(from), match: false })
+    return parts
+}
+
 /** Distinct, readable-on-both-themes colors for chat senders. */
 const SENDER_PALETTE = [
     '#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',

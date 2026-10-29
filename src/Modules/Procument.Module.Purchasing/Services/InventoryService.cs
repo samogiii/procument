@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Procument.Module.Purchasing.DTOs;
 using Procument.Module.Purchasing.Entities;
@@ -23,23 +24,36 @@ public class InventoryService : IInventoryService
         _db = db;
     }
 
+    /// <summary>
+    /// List row built in SQL. The page reads every row, so loading and tracking whole
+    /// InventoryItem/PartNumber/Supplier entities only to copy these columns was the cost.
+    /// </summary>
+    private static readonly Expression<Func<InventoryItem, InventoryItemResponse>> ToResponse = item => new InventoryItemResponse
+    {
+        Id = item.Id,
+        PartNumberId = item.PartNumberId,
+        PartNumberName = item.PartNumber.Name,
+        Description = item.Description,
+        Qty = item.Qty,
+        CompanyId = item.CompanyId,
+        CompanyName = item.Company.Name,
+        Condition = item.Condition,
+        Price = item.Price,
+        SerialNumber = item.SerialNumber,
+        CreatedAt = item.CreatedAt
+    };
+
     public async Task<List<InventoryItemResponse>> GetAllAsync()
     {
-        var items = await _db.Set<InventoryItem>()
-            .Include(i => i.PartNumber)
-            .Include(i => i.Company)
+        return await _db.Set<InventoryItem>()
             .OrderByDescending(i => i.CreatedAt)
+            .Select(ToResponse)
             .ToListAsync();
-
-        return items.Select(MapToResponse).ToList();
     }
     public async Task<List<InventoryItemResponse>> BulkSearchInventory(BulkSearch search)
     {
         // 1. Start building the query
-        var query = _db.Set<InventoryItem>()
-            .Include(i => i.PartNumber)
-            .Include(i => i.Company)
-            .AsQueryable();
+        var query = _db.Set<InventoryItem>().AsQueryable();
 
         // 2. Apply the IN clause filter safely
         if (search?.Names != null && search.Names.Any())
@@ -47,13 +61,11 @@ public class InventoryService : IInventoryService
             query = query.Where(i => search.Names.Contains(i.PartNumber.Name));
         }
 
-        // 3. Execute the query and fetch the results from the database
-        var items = await query
+        // 3. Execute the query, projected to the response DTO in SQL
+        return await query
             .OrderByDescending(i => i.CreatedAt)
+            .Select(ToResponse)
             .ToListAsync();
-
-        // 4. Map the database entities to your response DTOs
-        return items.Select(MapToResponse).ToList();
 
     }
     public async Task<InventoryItemResponse> SaveAsync(SaveInventoryItemRequest request)

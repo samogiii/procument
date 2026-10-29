@@ -13,6 +13,7 @@ public interface IDocumentStorageService
     string SaveFileInInvoiceCategory(string invoiceNumber, string categoryFolder, string fileName, Stream content);
     string SaveFileInSupplierCategory(string invoiceNumber, string supplierName, string categoryFolder, string fileName, Stream content);
     IEnumerable<DocumentFileInfo> ListFilesInInvoiceCategories(string invoiceNumber, IEnumerable<(string Key, string Folder)> categories);
+    bool HasFilesInInvoiceCategory(string invoiceNumber, string categoryFolder);
     IEnumerable<DocumentFileInfo> ListFilesInSupplierCategories(string invoiceNumber, string supplierName, IEnumerable<(string Key, string Folder)> categories);
     (Stream Stream, string AbsolutePath)? OpenFileInInvoiceCategory(string invoiceNumber, string categoryFolder, string fileName);
     (Stream Stream, string AbsolutePath)? OpenFileInSupplierCategory(string invoiceNumber, string supplierName, string categoryFolder, string fileName);
@@ -191,6 +192,15 @@ public class DocumentStorageService : IDocumentStorageService
                 .Select(f => new DocumentFileInfo { Name = f.Name, Category = key, Size = f.Length, ModifiedAt = f.LastWriteTimeUtc }));
         }
         return result;
+    }
+
+    /// <summary>True when the PI's category folder holds a file. Read-only: never creates folders.</summary>
+    public bool HasFilesInInvoiceCategory(string invoiceNumber, string categoryFolder)
+    {
+        var safe = Sanitize(invoiceNumber);
+        if (string.IsNullOrEmpty(safe)) return false;
+        var catDir = Path.Combine(_rootPath, safe, categoryFolder);
+        return Directory.Exists(catDir) && Directory.EnumerateFiles(catDir).Any();
     }
 
     public IEnumerable<DocumentFileInfo> ListFilesInSupplierCategories(string invoiceNumber, string supplierName, IEnumerable<(string Key, string Folder)> categories)

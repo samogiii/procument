@@ -90,6 +90,7 @@ public class CustomersController : ControllerBase
                 c.Emails,
                 c.Website,
                 c.Contacts,
+                c.MinCoef,
                 c.Coef1,
                 c.Coef2,
                 c.Coef3,
@@ -208,6 +209,7 @@ public class CustomersController : ControllerBase
         // Quote coefficients are SuperAdmin-only
         if (User.IsInRole("SuperAdmin"))
         {
+            entity.MinCoef = dto.MinCoef;
             entity.Coef1 = dto.Coef1;
             entity.Coef2 = dto.Coef2;
             entity.Coef3 = dto.Coef3;
@@ -249,6 +251,7 @@ public class CustomersController : ControllerBase
         // Quote coefficients are SuperAdmin-only — other roles leave the stored values untouched
         if (User.IsInRole("SuperAdmin"))
         {
+            entity.MinCoef = dto.MinCoef;
             entity.Coef1 = dto.Coef1;
             entity.Coef2 = dto.Coef2;
             entity.Coef3 = dto.Coef3;
@@ -326,6 +329,8 @@ public class CustomerDto
     public string? Website { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
+    /// <summary>Procurement Plus commission minimum coef with Trusted suppliers (SuperAdmin only).</summary>
+    public decimal? MinCoef { get; set; }
     /// <summary>Customer-specific quote coefficients (SuperAdmin only). Override the base/currency defaults on the create-quote page.</summary>
     public decimal? Coef1 { get; set; }
     public decimal? Coef2 { get; set; }
@@ -351,6 +356,7 @@ public class SuppliersController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 200, [FromQuery] string? search = null)
     {
         var pq = new PageQuery { Page = page, PageSize = pageSize };
+        long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var me);
         IQueryable<Supplier> query = _db.Set<Supplier>().Where(s => s.IsActive);
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -377,8 +383,9 @@ public class SuppliersController : ControllerBase
                 s.CreatedAt,
                 s.Status,
                 s.RequestedByUserId,
-                // Procurement Plus lists preferred suppliers first.
-                IsPreferred = _db.Set<Preferred>().Any(p => p.Kind == PreferredKinds.Supplier && p.SupplierId == s.Id),
+                s.Trusted,
+                // Procurement Plus lists preferred suppliers first — each user has their own list.
+                IsPreferred = _db.Set<Preferred>().Any(p => p.Kind == PreferredKinds.Supplier && p.UserId == me && p.SupplierId == s.Id),
             })
             .ToListAsync();
 
@@ -695,6 +702,8 @@ public class SuppliersController : ControllerBase
             Phone = dto.Phone,
             Address = dto.Address,
             Contacts = dto.Contacts,
+            // Trusted (commission rule) is SuperAdmin-only.
+            Trusted = User.IsInRole("SuperAdmin") && dto.Trusted == true,
             CreatedAt = DateTime.UtcNow,
             IsActive = true,
             Status = "Approved" // Admin creates via catalog = always approved
@@ -718,6 +727,8 @@ public class SuppliersController : ControllerBase
         entity.Phone = dto.Phone;
         entity.Address = dto.Address;
         entity.Contacts = dto.Contacts;
+        // Trusted (commission rule) is SuperAdmin-only; null = keep.
+        if (dto.Trusted != null && User.IsInRole("SuperAdmin")) entity.Trusted = dto.Trusted.Value;
 
         await _db.SaveChangesAsync();
         return Ok(new { entity.Id, entity.Name });
@@ -743,21 +754,24 @@ public class SuppliersController : ControllerBase
         return Ok(new { entity.Id, entity.Name, entity.Email, entity.Phone, entity.Address });
     }
 
-    /// <summary>Star on the Catalog page: mark / unmark a preferred supplier (also managed on Procurement Plus).</summary>
+    /// <summary>Star on the Catalog page: mark / unmark a preferred supplier on MY list (also managed on Procurement Plus).</summary>
     [HttpPut("{id:long}/preferred")]
     public async Task<ActionResult> SetPreferred(long id, [FromBody] SetPreferredSupplierDto dto)
     {
         var supplier = await _db.Set<Supplier>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == id);
         if (supplier == null) return NotFound();
+        if (!long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId) || userId <= 0) return Unauthorized();
         // Preferreds keep their own copy (name, emails, phone); the catalog supplier is just the link.
-        var rows = await _db.Set<Preferred>().Where(p => p.Kind == PreferredKinds.Supplier && p.SupplierId == id).ToListAsync();
+        var rows = await _db.Set<Preferred>()
+            .Where(p => p.Kind == PreferredKinds.Supplier && p.UserId == userId && p.SupplierId == id)
+            .ToListAsync();
         if (dto.Preferred && rows.Count == 0)
         {
-            long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId);
             var emails = string.Join(", ", SupplierEmails.AllEmails(supplier));
             _db.Set<Preferred>().Add(new Preferred
             {
                 Kind = PreferredKinds.Supplier,
+                UserId = userId,
                 Name = supplier.Name,
                 NameKey = SupplierNameNormalizer.Key(supplier.Name),
                 Emails = emails.Length == 0 ? null : emails[..Math.Min(emails.Length, 2000)],
@@ -765,7 +779,7 @@ public class SuppliersController : ControllerBase
                 SupplierId = id,
                 SourceMethod = PreferredSupplierMethods.Normalize(dto.SourceMethod),
                 AddedAt = DateTime.UtcNow,
-                AddedByUserId = userId > 0 ? userId : null,
+                AddedByUserId = userId,
             });
         }
         else if (!dto.Preferred && rows.Count > 0) _db.Set<Preferred>().RemoveRange(rows);
@@ -806,6 +820,8 @@ public class SupplierDto
     public string? Address { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
+    /// <summary>Trusted for Procurement Plus commission (SuperAdmin only; null = keep).</summary>
+    public bool? Trusted { get; set; }
 }
 
 public class QuickAddSupplierDto
@@ -951,7 +967,7 @@ public class PartNumbersController : ControllerBase
                 foreach (var altName in item.Alternatives ?? [])
                 {
                     var alt = altName.Trim();
-                    if (string.IsNullOrWhiteSpace(alt)) continue;
+                    if (AltPartNumbers.IsPlaceholder(alt)) continue;
                     if (!existing.Alternatives.Any(a => a.Name == alt))
                     {
                         _db.Set<Alternative>().Add(new Alternative
@@ -979,7 +995,7 @@ public class PartNumbersController : ControllerBase
                 foreach (var altName in item.Alternatives ?? [])
                 {
                     var alt = altName.Trim();
-                    if (string.IsNullOrWhiteSpace(alt)) continue;
+                    if (AltPartNumbers.IsPlaceholder(alt)) continue;
                     _db.Set<Alternative>().Add(new Alternative
                     {
                         Name = alt,
@@ -1028,10 +1044,12 @@ public class PartNumbersController : ControllerBase
     {
         var part = await _db.Set<PartNumber>().FindAsync(id);
         if (part == null) return NotFound();
+        if (AltPartNumbers.IsPlaceholder(dto.Name))
+            return BadRequest(new { message = "\"-\", \"_\" or \"no\" means no alternative — nothing to add." });
 
         var alt = new Alternative
         {
-            Name = dto.Name,
+            Name = dto.Name.Trim(),
             PartNumberId = id,
             CreatedAt = DateTime.UtcNow
         };

@@ -58,6 +58,8 @@ export interface PpQuoteLine {
   fromFile?: boolean
   /** An Email Quotes line (MailFlow) shown under the part, not a Procurement Plus line. */
   isEmail?: boolean
+  /** New Procurement Plus: a line without condition / alt waiting for its price — it stands for every listing of that supplier. */
+  coversSupplier?: boolean
   /** The supplier also quoted this line by email (same part + condition) — the price came from that mail. */
   emailQuote?: { id: number; subject?: string; date?: string; supplierEmail?: string; price?: number; status: string } | null
   /** Copied from my own supplier quote on this RFQ (last 2 weeks) — Done puts it on the other RFQs, never back on this one. */
@@ -137,7 +139,8 @@ export const offerAlt = (row: PpOfferRow) => (pnKey(row.filePartNo) === pnKey(ro
 
 /**
  * A file row already has a supplier line under the part: same preferred / catalog supplier / company name,
- * same condition and the same P/N (each alternative a supplier lists is its own line).
+ * same condition and the same P/N (each alternative a supplier lists is its own line). A line that covers the
+ * supplier (new Procurement Plus: no condition / alt yet) counts for every row of it.
  */
 export function offerAdded(row: PpOfferRow, lines: PpQuoteLine[]) {
   const key = (s?: string | null) => (s || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
@@ -145,8 +148,7 @@ export function offerAdded(row: PpOfferRow, lines: PpQuoteLine[]) {
   return lines.some(l => ((row.preferredId && l.preferredId === row.preferredId)
     || (row.supplierId && l.line.supplierId === row.supplierId)
     || (key(l.line.supplierNameRaw) && key(l.line.supplierNameRaw) === key(row.companyRaw)))
-    && cond(l.line.condition) === cond(row.condition)
-    && pnKey(l.line.alt) === offerAlt(row))
+    && (l.coversSupplier || (cond(l.line.condition) === cond(row.condition) && pnKey(l.line.alt) === offerAlt(row))))
 }
 
 export function methodMeta(method?: string | null) {
@@ -274,7 +276,7 @@ export function splitAlternatives(raw: string, ownPartNumber = ''): string[] {
   const seen = new Set([key(ownPartNumber)])
   return raw.split(/[,;|\n]+/).map(a => a.trim()).filter((a) => {
     const k = key(a)
-    if (!k || seen.has(k)) return false
+    if (!k || seen.has(k) || isPlaceholderAlt(a)) return false
     seen.add(k)
     return true
   })
@@ -319,10 +321,14 @@ function splitPasted(text: string): string[][] {
  * header row is found by its names — Part Number / P/N, Description, Qty, Condition, Target price,
  * Alternatives, in any order, title lines above it skipped; without one the columns are read as Part
  * Number | Description | Qty | Condition | [Target price, when `withTarget`] | Alternatives (a single
- * column = just part numbers). Alternatives in one cell are split on , ; |. Rows without a part number
- * and repeated header rows are skipped; the same part twice is kept once.
+ * column = just part numbers), or as `noHeaderOrder` when given. Alternatives in one cell are split on , ; |.
+ * Rows without a part number and repeated header rows are skipped; the same part twice is kept once.
  */
-export function readPartsFromText(text: string, withTarget = true): { parts: ImportedPart[]; skipped: number; hasHeader: boolean } {
+export function readPartsFromText(
+  text: string,
+  withTarget = true,
+  noHeaderOrder?: (keyof ImportedPart)[],
+): { parts: ImportedPart[]; skipped: number; hasHeader: boolean } {
   const rows = splitPasted(text)
   if (!rows.length) return { parts: [], skipped: 0, hasHeader: false }
 
@@ -344,7 +350,9 @@ export function readPartsFromText(text: string, withTarget = true): { parts: Imp
       break
     }
   }
-  if (headerIndex < 0) {
+  if (headerIndex < 0 && noHeaderOrder) {
+    columns = Object.fromEntries(noHeaderOrder.map((f, i) => [f, i]))
+  } else if (headerIndex < 0) {
     columns = withTarget
       ? { partNumber: 0, description: 1, qty: 2, condition: 3, targetPrice: 4, alternatives: 5 }
       : { partNumber: 0, description: 1, qty: 2, condition: 3, alternatives: 4 }

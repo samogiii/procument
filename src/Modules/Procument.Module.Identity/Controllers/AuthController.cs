@@ -387,12 +387,18 @@ public class MenuPermissionsController : ControllerBase
         "pendingRfqs",
         // Quote page: send the quote to the customer through the SMTP email dialog.
         "sendQuoteEmail",
+        // Quote page: create a Proforma Invoice for a Base 5 customer (InvoicesController.Create; creating only).
+        "base5ProformaInvoice",
         // Customer Follow Ups page (CustomerFollowUpsController in Sales).
         "customerFollowUps",
         // Customer Follow Ups: procurement users (Procurement Status workflow; no SuperAdmin bypass).
         "followUpProcurement",
         // Procurement Plus page (ProcurementPlusController in Purchasing).
         "procurementPlus",
+        // Procurement ProMax (the old Procurement Plus page; never in the menu, ProcurementPlusController).
+        "procurementProMax",
+        // BI page (BIController in the API project).
+        "bi",
         // Shipping: the customer bases each user sees (ShippingBaseAccess in Purchasing).
         "shippingBase1", "shippingBase2", "shippingBase3", "shippingBase4", "shippingBase5"
     ];

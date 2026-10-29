@@ -26,6 +26,12 @@ public class Invoice : BaseEntity
     public string? CustomerPONumber { get; set; }
     public DateTime? CustomerPODate { get; set; }
     public string? Subject { get; set; }
+    /// <summary>
+    /// Comma-separated ids of every quote merged into this Sales Order when it was created (primary
+    /// included), so "Add Item" can offer their lines even when none of a quote's lines were picked.
+    /// Null for orders created before this was recorded.
+    /// </summary>
+    public string? SourceQuoteIds { get; set; }
 
     // ─── Cost adjustments (rendered in the PI PDF totals block) ───
     public decimal? Tax { get; set; }

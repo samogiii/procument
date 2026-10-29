@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.DTOs;
+using Procument.Module.Purchasing.Entities;
 using Procument.Module.Purchasing.Services;
 using Procument.Shared.Audit;
 
@@ -33,12 +34,14 @@ public class PendingSupplierQuotesController : ControllerBase
     public const string SupplierEmailsFeature = "emailQuotesSupplierEmails";
 
     private readonly IPendingSupplierQuoteService _service;
+    private readonly IPpeService _ppe;
     private readonly DbContext _db;
     private readonly IConfiguration _config;
 
-    public PendingSupplierQuotesController(IPendingSupplierQuoteService service, DbContext db, IConfiguration config)
+    public PendingSupplierQuotesController(IPendingSupplierQuoteService service, IPpeService ppe, DbContext db, IConfiguration config)
     {
         _service = service;
+        _ppe = ppe;
         _db = db;
         _config = config;
     }
@@ -114,13 +117,17 @@ public class PendingSupplierQuotesController : ControllerBase
         return Ok(await _service.GetKnownAsync(messageId));
     }
 
-    /// <summary>Pending lines, one page of whole emails (?page=1&amp;pageSize=20); ?search= narrows by P/N or Alt P/N.</summary>
+    /// <summary>
+    /// Pending lines, one page of whole emails (?page=1&amp;pageSize=20); ?search= narrows by P/N or Alt P/N;
+    /// ?value=under|over keeps lines whose Qty × Price is under / at least 5K.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<PendingQuotePageResponse>> GetPending(
-        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? mailbox = null)
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? mailbox = null,
+        [FromQuery] string? value = null)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.GetPendingPageAsync(search, page, pageSize, mailbox, await AllowedMailboxesAsync()));
+        return Ok(await _service.GetPendingPageAsync(search, page, pageSize, mailbox, await AllowedMailboxesAsync(), value));
     }
 
     /// <summary>The MailFlow mailboxes lines came in through (mailbox dropdown; "-" = unknown).</summary>
@@ -248,8 +255,15 @@ public class PendingSupplierQuotesController : ControllerBase
     public async Task<ActionResult<AcceptPendingQuotesResponse>> Accept([FromBody] PendingQuoteIdsRequest request)
     {
         if (!await CanReviewAsync()) return Forbidden();
-        return Ok(await _service.AcceptAsync(await VisibleIdsAsync(request.Ids), GetUserId(),
-            addSenderEmails: await HasFeatureAsync(SupplierEmailsFeature)));
+        var ids = await VisibleIdsAsync(request.Ids);
+        var pending = await _db.Set<PendingSupplierQuote>().AsNoTracking()
+            .Where(p => ids.Contains(p.Id) && p.Status == "Pending")
+            .Select(p => p.Id)
+            .ToListAsync();
+        var result = await _service.AcceptAsync(ids, GetUserId(), addSenderEmails: await HasFeatureAsync(SupplierEmailsFeature));
+        // The suppliers' lines under Procurement Plus parts take these prices (and go onto the parts' RFQs).
+        await _ppe.PriceFromAcceptedEmailsAsync(pending, GetUserId());
+        return Ok(result);
     }
 
     /// <summary>Accepted lines: write their current values to their RFQs again (rewrite or add).</summary>

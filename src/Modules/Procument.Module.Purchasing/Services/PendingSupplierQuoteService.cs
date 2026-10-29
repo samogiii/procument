@@ -17,7 +17,7 @@ public interface IPendingSupplierQuoteService
     Task<ImportPendingQuotesResponse> ImportAsync(ImportPendingQuotesRequest request);
     Task<KnownEmailResponse> GetKnownAsync(string messageId);
     // allowedMailboxes: the viewer's mailboxes (Users page); null = every mailbox (SuperAdmin).
-    Task<PendingQuotePageResponse> GetPendingPageAsync(string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null);
+    Task<PendingQuotePageResponse> GetPendingPageAsync(string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null, string? value = null);
     Task<PendingQuotePageResponse> GetAcceptedPageAsync(int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null);
     Task<List<PendingSupplierQuoteResponse>> GetAcceptedExportAsync(int? days, long? reviewedByUserId, string? search, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null);
     Task<List<MailboxOption>> GetMailboxesAsync(IReadOnlyCollection<string>? allowedMailboxes = null);
@@ -27,7 +27,12 @@ public interface IPendingSupplierQuoteService
     Task<bool> EmailVisibleAsync(long emailId, IReadOnlyCollection<string>? allowedMailboxes);
     Task<PendingSupplierQuoteResponse?> UpdateAsync(long id, UpdatePendingSupplierQuoteRequest request);
     Task<SetPendingSupplierResponse> SetSupplierAsync(List<long> ids, long? supplierId);
-    Task<ReapplyPendingQuotesResponse> ReapplyAsync(List<long> ids, long userId);
+    Task<ReapplyPendingQuotesResponse> ReapplyAsync(List<long> ids, long userId, int graceDays = PendingSupplierQuoteService.DeadlineGraceDays);
+    /// <summary>
+    /// Writes an accepted line onto these RFQ items only (deadline at most <paramref name="graceDays"/> days ago),
+    /// skipping the ones where it has a quote already — quotes already there are never touched.
+    /// </summary>
+    Task<int> WriteToItemsAsync(long id, IReadOnlyCollection<long> rfqItemIds, long userId, int graceDays = PendingSupplierQuoteService.DeadlineGraceDays);
     Task<int> RemoveAsync(List<long> ids, long userId);
     Task<int> RemoveAllPendingAsync(long userId, IReadOnlyCollection<string>? allowedMailboxes = null);
     Task<PendingQuotePageResponse> GetRemovedPageAsync(int? days, long? reviewedByUserId, string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null);
@@ -49,7 +54,9 @@ public interface IPendingSupplierQuoteService
     /// <paramref name="addSenderEmails"/> (Menu Access "emailQuotesSupplierEmails") each accepted line's sender
     /// address is also added to its supplier's catalog contacts; otherwise the supplier is only written to the RFQs.
     /// </summary>
-    Task<AcceptPendingQuotesResponse> AcceptAsync(List<long> ids, long userId, bool allowWithoutRfq = false, bool addSenderEmails = false);
+    /// <param name="graceDays">RFQs whose deadline is at most this many days ago get the quote (Procurement Plus: 14).</param>
+    Task<AcceptPendingQuotesResponse> AcceptAsync(List<long> ids, long userId, bool allowWithoutRfq = false, bool addSenderEmails = false,
+        int graceDays = PendingSupplierQuoteService.DeadlineGraceDays);
     /// <summary>
     /// Catalog supplier id per (normalised) address: exact address, else same company domain. With
     /// <paramref name="addDomainContacts"/> an address found by its domain is added to that supplier's contacts.
@@ -107,14 +114,18 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
 
         // A line already seen — pending, accepted or removed — is never imported twice. Removed
         // lines stay as tombstones (Sam: a removed email must not come back), and an email whose
-        // lines were all removed takes nothing new at all.
+        // lines were all removed takes nothing new at all. Seen = the same P/N with every field equal
+        // (Sam 2026-10-26): a second price the supplier gives for a P/N is a line of its own. The price
+        // compared is the one read from the mail (PriceRaw), so a reviewer's edit does not count as new.
         var active = existing.Where(p => p.Status != Removed).ToList();
         var emailRemoved = existing.Count > 0 && active.Count == 0;
-        var seenParts = existing.Select(p => PnKey(p.PartNumber)).ToHashSet();
+        var asRead = existing.Select(p => (Line: p, Price: ParseDecimal(p.PriceRaw) ?? p.Price)).ToList();
+        bool Seen(PendingSupplierQuote q) => asRead.Any(s => PnKey(s.Line.PartNumber) == PnKey(q.PartNumber)
+            && s.Price == q.Price && QuoteIdentity.SameExceptPrice(s.Line, s.Line.Alt, q, q.Alt));
         var items = emailRemoved
             ? []
             : request.Items
-                .Where(i => !string.IsNullOrWhiteSpace(i.PartNumber) && !seenParts.Contains(PnKey(i.PartNumber)))
+                .Where(i => !string.IsNullOrWhiteSpace(i.PartNumber) && !Seen(FromMail(i)))
                 .ToList();
 
         // One stored email per message: reuse it, or store it now (also fills in rows imported
@@ -145,36 +156,19 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
 
         var supplier = await MatchSupplierAsync(supplierEmail, request.SupplierName);
         var rows = items
-            .Select(i => new PendingSupplierQuote
+            .Select(i =>
             {
-                MessageId = messageId,
-                EmailSubject = subject,
-                EmailDate = emailDate,
-                SupplierEmail = supplierEmail,
-                SupplierNameRaw = Trunc(request.SupplierName?.Trim(), 300),
-                Mailbox = mailbox,
-                MailboxLabel = mailboxLabel,
-                SupplierId = supplier?.Id,
-                PartNumber = Trunc(i.PartNumber!.Trim(), 200)!,
-                PriceRaw = Trunc(i.Price?.Trim(), 100),
-                Price = ParseDecimal(i.Price),
-                Qty = ParseDouble(i.Qty),
-                Condition = Trunc(NullIfBlank(i.Condition)?.ToUpperInvariant(), 100),
-                CertName = Trunc(NullIfBlank(i.Cert), 200),
-                Alt = Trunc(NullIfBlank(i.Alt), 200),
-                TagDateRaw = Trunc(NullIfBlank(i.TagDate), 100),
-                TagDate = ParseTagDate(i.TagDate),
-                LeadTime = Trunc(LeadTimeRules.NormalizeImported(i.LeadTime), 100),
-                Remark = Trunc(NullIfBlank(i.Remark), 2000),
-                SerialNumber = QuoteDetailFields.Clean(i.SerialNumber, QuoteDetailFields.SerialNumberLength),
-                TraceTo = QuoteDetailFields.Clean(i.TraceTo, QuoteDetailFields.TraceToLength),
-                TagType = QuoteDetailFields.Clean(i.TagType, QuoteDetailFields.TagTypeLength),
-                PriceType = QuoteDetailFields.Clean(i.PriceType, QuoteDetailFields.PriceTypeLength),
-                TaggedBy = QuoteDetailFields.Clean(i.TaggedBy, QuoteDetailFields.TaggedByLength),
-                MoQ = QuoteDetailFields.Clean(i.MoQ, QuoteDetailFields.MoQLength),
-                Warranty = QuoteDetailFields.Clean(i.Warranty, QuoteDetailFields.WarrantyLength),
-                CR = QuoteDetailFields.Clean(i.CR, QuoteDetailFields.CRLength),
-                EmailId = emailId,
+                var row = FromMail(i);
+                row.MessageId = messageId;
+                row.EmailSubject = subject;
+                row.EmailDate = emailDate;
+                row.SupplierEmail = supplierEmail;
+                row.SupplierNameRaw = Trunc(request.SupplierName?.Trim(), 300);
+                row.Mailbox = mailbox;
+                row.MailboxLabel = mailboxLabel;
+                row.SupplierId = supplier?.Id;
+                row.EmailId = emailId;
+                return row;
             })
             .ToList();
 
@@ -188,6 +182,30 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             SupplierName = supplier?.Name,
         };
     }
+
+    /// <summary>The quote fields of one line MailFlow read from the mail (who sent it is set by the caller).</summary>
+    private static PendingSupplierQuote FromMail(ImportPendingQuoteItem i) => new()
+    {
+        PartNumber = Trunc(i.PartNumber!.Trim(), 200)!,
+        PriceRaw = Trunc(i.Price?.Trim(), 100),
+        Price = ParseDecimal(i.Price),
+        Qty = ParseDouble(i.Qty),
+        Condition = Trunc(NullIfBlank(i.Condition)?.ToUpperInvariant(), 100),
+        CertName = Trunc(NullIfBlank(i.Cert), 200),
+        Alt = Trunc(AltPartNumbers.Clean(i.Alt), 200),
+        TagDateRaw = Trunc(NullIfBlank(i.TagDate), 100),
+        TagDate = ParseTagDate(i.TagDate),
+        LeadTime = Trunc(LeadTimeRules.NormalizeImported(i.LeadTime), 100),
+        Remark = Trunc(NullIfBlank(i.Remark), 2000),
+        SerialNumber = QuoteDetailFields.Clean(i.SerialNumber, QuoteDetailFields.SerialNumberLength),
+        TraceTo = QuoteDetailFields.Clean(i.TraceTo, QuoteDetailFields.TraceToLength),
+        TagType = QuoteDetailFields.Clean(i.TagType, QuoteDetailFields.TagTypeLength),
+        PriceType = QuoteDetailFields.Clean(i.PriceType, QuoteDetailFields.PriceTypeLength),
+        TaggedBy = QuoteDetailFields.Clean(i.TaggedBy, QuoteDetailFields.TaggedByLength),
+        MoQ = QuoteDetailFields.Clean(i.MoQ, QuoteDetailFields.MoQLength),
+        Warranty = QuoteDetailFields.Clean(i.Warranty, QuoteDetailFields.WarrantyLength),
+        CR = QuoteDetailFields.Clean(i.CR, QuoteDetailFields.CRLength),
+    };
 
     /// <summary>
     /// Procurement Plus lines being priced for the same supplier, part and condition as these new email lines
@@ -203,7 +221,9 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             .Where(p => p.Source == PendingSupplierQuote.SourceProcurementPlus && p.Status == Pending
                 && (names.Contains(p.PartNumber) || (p.Alt != null && names.Contains(p.Alt))))
             .ToListAsync();
-        foreach (var line in lines)
+        // Only a line without a price takes it: a price already there is never replaced (Sam 2026-10-26) — the email
+        // line stays on Email Quotes beside it.
+        foreach (var line in lines.Where(l => l.Price == null))
         {
             var email = emailRows.Where(e => e.Price != null).FirstOrDefault(e => EmailQuoteMatch.Matches(line, e));
             if (email != null) EmailQuoteMatch.CopyInto(line, email);
@@ -388,10 +408,21 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
         return new EmailPage(ids, page, pageSize, emails.Count, heads.Count);
     }
 
-    /// <summary>Pending lines, one page of emails; a search keeps only lines whose P/N or Alt P/N contains it, across every page.</summary>
-    public async Task<PendingQuotePageResponse> GetPendingPageAsync(string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null)
+    /// <summary>Line value (Qty × Price) that splits the Pending tabs: under it vs. this much and above.</summary>
+    public const decimal PendingValueSplit = 5000m;
+
+    /// <summary>
+    /// Pending lines, one page of emails; a search keeps only lines whose P/N or Alt P/N contains it, across every page.
+    /// value "under" / "over" keeps lines whose Qty × Price is under / at least <see cref="PendingValueSplit"/>
+    /// (no price = 0, no qty = 1), so one email can show on both tabs.
+    /// </summary>
+    public async Task<PendingQuotePageResponse> GetPendingPageAsync(string? search, int page, int pageSize, string? mailbox = null, IReadOnlyCollection<string>? allowedMailboxes = null, string? value = null)
     {
         var all = ForMailbox(Visible(EmailLines().AsNoTracking(), allowedMailboxes).Where(p => p.Status == Pending), mailbox, p => p.Mailbox);
+        if (value == "under")
+            all = all.Where(p => (p.Price ?? 0) * (decimal)(p.Qty ?? 1) < PendingValueSplit);
+        else if (value == "over")
+            all = all.Where(p => (p.Price ?? 0) * (decimal)(p.Qty ?? 1) >= PendingValueSplit);
         var query = all;
         var q = search?.Trim();
         if (!string.IsNullOrEmpty(q))
@@ -461,10 +492,8 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
         var supplierIds = rows.Where(r => r.SupplierId != null).Select(r => r.SupplierId!.Value).Distinct().ToList();
         var existing = (await _db.Set<ProcumentRecord>().AsNoTracking()
                 .Where(r => matchedItemIds.Contains(r.RFQItemId) && supplierIds.Contains(r.SupplierId) && (r.Type ?? "Procument") != "Shop")
-                .Select(r => new { r.RFQItemId, r.SupplierId, r.Condition, r.Alt, r.SerialNumber })
                 .ToListAsync())
-            .Select(r => (r.RFQItemId, r.SupplierId, QuoteKey(r.Condition, r.Alt, r.SerialNumber)))
-            .ToHashSet();
+            .ToLookup(r => (r.RFQItemId, r.SupplierId));
 
         return rows.Select(r => new PendingSupplierQuoteResponse
         {
@@ -516,8 +545,10 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
                     CustomerCode = x.Item.RFQ.Customer?.CustomerCode,
                     RequestedQty = x.Item.Qty,
                     MatchedAsAlt = x.MatchedAsAlt,
+                    // Accepting rewrites a quote only when it is exactly this offer (else it adds one beside it).
                     UpdatesExisting = r.SupplierId != null
-                        && existing.Contains((x.Item.Id, r.SupplierId.Value, QuoteKey(r.Condition ?? x.Item.Condition, AltFor(r, x), r.SerialNumber))),
+                        && existing[(x.Item.Id, r.SupplierId.Value)].Any(q => q.SourcePendingQuoteId == r.Id
+                            || QuoteIdentity.Same(q, r, r.Condition ?? x.Item.Condition, AltFor(r, x), r.Qty ?? x.Item.Qty)),
                 })
                 .OrderBy(x => x.Deadline)
                 .ToList(),
@@ -728,7 +759,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
         row.Qty = request.Qty;
         row.Condition = Trunc(NullIfBlank(request.Condition)?.ToUpperInvariant(), 100);
         row.CertName = Trunc(NullIfBlank(request.CertName), 200);
-        row.Alt = Trunc(NullIfBlank(request.Alt), 200);
+        row.Alt = Trunc(AltPartNumbers.Clean(request.Alt), 200);
         if (row.TagDate != request.TagDate)
         {
             row.TagDate = request.TagDate;
@@ -875,7 +906,8 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
 
     // ──── Accept ────
 
-    public async Task<AcceptPendingQuotesResponse> AcceptAsync(List<long> ids, long userId, bool allowWithoutRfq = false, bool addSenderEmails = false)
+    public async Task<AcceptPendingQuotesResponse> AcceptAsync(List<long> ids, long userId, bool allowWithoutRfq = false, bool addSenderEmails = false,
+        int graceDays = DeadlineGraceDays)
     {
         var result = new AcceptPendingQuotesResponse();
         var rows = await _db.Set<PendingSupplierQuote>()
@@ -884,7 +916,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             .ToListAsync();
         if (rows.Count == 0) return result;
 
-        var matches = await FindOpenRfqItemsAsync(rows.SelectMany(PartKeys));
+        var matches = await FindOpenRfqItemsAsync(rows.SelectMany(PartKeys), graceDays);
         var suppliers = await SuppliersOfAsync(rows);
         var sourceItemIds = await SourceItemIdsAsync(rows);
 
@@ -893,7 +925,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             var targets = WithoutSourceItem(row, TargetsFor(row, matches), sourceItemIds);
             var reason = CannotWriteReason(row, suppliers);
             if (reason == null && targets.Count == 0 && !allowWithoutRfq)
-                reason = $"No RFQ for this part whose deadline is less than {DeadlineGraceDays} days ago.";
+                reason = $"No RFQ for this part whose deadline is less than {graceDays} days ago.";
             if (reason == null)
             {
                 if (targets.Count > 0) result.QuotesWritten += (await WriteSupplierQuotesAsync(row, targets, userId)).Total;
@@ -923,7 +955,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
     /// values — rewrites the supplier quotes each line wrote before, even on RFQs past the deadline,
     /// and adds the line to every open RFQ for the part that doesn't have it yet.
     /// </summary>
-    public async Task<ReapplyPendingQuotesResponse> ReapplyAsync(List<long> ids, long userId)
+    public async Task<ReapplyPendingQuotesResponse> ReapplyAsync(List<long> ids, long userId, int graceDays = DeadlineGraceDays)
     {
         var result = new ReapplyPendingQuotesResponse();
         var rows = await _db.Set<PendingSupplierQuote>()
@@ -945,8 +977,8 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
             .Where(i => ownedIds.Contains(i.Id))
             .ToListAsync();
-        var owned = IndexByPartKeys(ownedItems, rows.SelectMany(PartKeys).Select(PnKey).ToHashSet());
-        var matches = await FindOpenRfqItemsAsync(rows.SelectMany(PartKeys));
+        var owned = IndexByPartKeys(ownedItems, rows.SelectMany(PartKeys).Select(PnKey).ToHashSet(), await FamiliesOfAsync(ownedItems));
+        var matches = await FindOpenRfqItemsAsync(rows.SelectMany(PartKeys), graceDays);
         var suppliers = await SuppliersOfAsync(rows);
         var sourceItemIds = await SourceItemIdsAsync(rows);
 
@@ -961,7 +993,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             targets = WithoutSourceItem(row, targets, sourceItemIds);
             var reason = CannotWriteReason(row, suppliers);
             if (reason == null && targets.Count == 0)
-                reason = $"No RFQ for this part whose deadline is less than {DeadlineGraceDays} days ago.";
+                reason = $"No RFQ for this part whose deadline is less than {graceDays} days ago.";
             if (reason == null)
             {
                 var written = await WriteSupplierQuotesAsync(row, targets, userId);
@@ -975,6 +1007,30 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
                 result.Failed.Add(new PendingQuoteFailure { Id = row.Id, PartNumber = row.PartNumber, Reason = reason });
         }
         return result;
+    }
+
+    public async Task<int> WriteToItemsAsync(long id, IReadOnlyCollection<long> rfqItemIds, long userId, int graceDays = DeadlineGraceDays)
+    {
+        if (rfqItemIds.Count == 0) return 0;
+        var row = await _db.Set<PendingSupplierQuote>()
+            .Include(p => p.Certificates)
+            .FirstOrDefaultAsync(p => p.Id == id && p.Status == Accepted);
+        if (row == null || CannotWriteReason(row, await SuppliersOfAsync([row])) != null) return 0;
+
+        var owned = (await _db.Set<ProcumentRecord>().AsNoTracking()
+                .Where(q => q.SourcePendingQuoteId == row.Id && rfqItemIds.Contains(q.RFQItemId))
+                .Select(q => q.RFQItemId)
+                .ToListAsync())
+            .ToHashSet();
+        var matches = await FindOpenRfqItemsAsync(PartKeys(row), graceDays);
+        var targets = WithoutSourceItem(row, TargetsFor(row, matches), await SourceItemIdsAsync([row]))
+            .Where(t => rfqItemIds.Contains(t.Item.Id) && !owned.Contains(t.Item.Id))
+            .ToList();
+        if (targets.Count == 0) return 0;
+        var written = await WriteSupplierQuotesAsync(row, targets, userId);
+        row.AppliedCount += written.Added;
+        await _db.SaveChangesAsync();
+        return written.Total;
     }
 
     private async Task<Dictionary<long, Supplier>> SuppliersOfAsync(List<PendingSupplierQuote> rows)
@@ -1045,10 +1101,11 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             var condition = row.Condition ?? item.Condition;
             var alt = AltFor(row, target);
             var customerBase = item.RFQ.Customer?.Base;
-            var key = QuoteKey(condition, alt, row.SerialNumber);
+            // The quote this line wrote before, else another quote of the supplier only when it is exactly the same
+            // offer (Sam 2026-10-26): a second price for the P/N never replaces the first — it is a quote of its own.
             var quote = existingQuotes.FirstOrDefault(q => q.RFQItemId == item.Id && q.SourcePendingQuoteId == row.Id)
                 ?? existingQuotes.FirstOrDefault(q => q.RFQItemId == item.Id && q.SupplierId == supplierId
-                    && QuoteKey(q.Condition, q.Alt, q.SerialNumber) == key);
+                    && QuoteIdentity.Same(q, row, condition, alt, row.Qty ?? item.Qty));
             if (quote == null)
             {
                 quote = new ProcumentRecord
@@ -1137,9 +1194,9 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             }
             written.Add((quote, item));
 
-            // Like the RFQ page: an offered alternate joins the part's catalog alternatives.
-            if (alt != null && PnKey(alt) != PnKey(item.PartNumber.Name)
-                && !item.PartNumber.Alternatives.Any(a => PnKey(a.Name) == PnKey(alt))
+            // Like the RFQ page: an offered alternate joins the part's catalog alternatives,
+            // unless it is in the part's family already (Z quoted on X via Y needs no X → Z row).
+            if (alt != null && !target.Family.Contains(PnKey(alt))
                 && addedAlternatives.Add((item.PartNumberId, PnKey(alt))))
                 _db.Set<Alternative>().Add(new Alternative
                 {
@@ -1163,21 +1220,18 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
     }
 
     /// <summary>
-    /// The P/N the supplier quotes for this RFQ item when it isn't the item's own (null = same P/N):
-    /// the offered alternate, else the alternative of the item the email's part number matched.
+    /// The P/N the supplier quotes (the offered alternate, else the line's P/N) when it isn't this RFQ item's own
+    /// (null = same P/N). Y quoted: on X's RFQ Alt = Y, on Y's RFQ Alt is empty — never the line's other P/N.
     /// </summary>
     private static string? AltFor(PendingSupplierQuote row, RfqItemMatch target)
     {
         var own = new[] { target.Item.PartNumber.Name, target.Item.PartNumber.NewName }
             .Where(n => !string.IsNullOrWhiteSpace(n)).Select(PnKey).ToHashSet();
-        if (row.Alt != null && !own.Contains(PnKey(row.Alt))) return row.Alt;
-        if (target.MatchedAsAlt != null) return target.MatchedAsAlt;
-        return own.Contains(PnKey(row.PartNumber)) ? null : row.PartNumber.Trim();
+        var quoted = AltPartNumbers.Clean(row.Alt) ?? row.PartNumber;
+        if (own.Contains(PnKey(quoted))) return null;
+        // The item's catalog spelling of it, when it matched by that.
+        return target.MatchedAsAlt != null && PnKey(target.MatchedAsAlt) == PnKey(quoted) ? target.MatchedAsAlt : quoted.Trim();
     }
-
-    /// <summary>One supplier's quotes on an RFQ item are told apart by condition, alt P/N and serial number.</summary>
-    private static string QuoteKey(string? condition, string? alt, string? serialNumber) =>
-        $"{CondKey(condition)}|{PnKey(alt)}|{PnKey(serialNumber)}";
 
     /// <summary>The line's value; keeps the current one when the line has none, unless <paramref name="replace"/>.</summary>
     private static T Pick<T>(bool replace, T value, T current) => replace || value != null ? value : current;
@@ -1245,7 +1299,8 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
 
     // ──── Matching ────
 
-    private sealed record RfqItemMatch(RFQItem Item, string? MatchedAsAlt);
+    /// <param name="Family">Keys of every part in the item's alternative family, its own P/N included.</param>
+    private sealed record RfqItemMatch(RFQItem Item, string? MatchedAsAlt, IReadOnlySet<string> Family);
 
     /// <summary>The requested part number, plus the supplier's offered alternate.</summary>
     private static IEnumerable<string> PartKeys(PendingSupplierQuote row) =>
@@ -1260,20 +1315,24 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
 
     /// <summary>
     /// RFQ items whose RFQ deadline is no more than DeadlineGraceDays before today, keyed by every part number they answer to
-    /// (name, new name, RFQ-item alt, catalog alternatives). Keys ignore case and whitespace.
+    /// (name, new name, RFQ-item alt, and every part in its alternative family). Keys ignore case and whitespace.
     /// </summary>
-    private async Task<Dictionary<string, List<RfqItemMatch>>> FindOpenRfqItemsAsync(IEnumerable<string> partNumbers)
+    private async Task<Dictionary<string, List<RfqItemMatch>>> FindOpenRfqItemsAsync(IEnumerable<string> partNumbers, int graceDays = DeadlineGraceDays)
     {
         var wanted = partNumbers.Select(PnKey).Where(k => k.Length > 0).ToHashSet();
-        var names = partNumbers.Select(p => p.Trim())
-            .Concat(partNumbers.Select(p => Whitespace.Replace(p, "")))
+        var result = new Dictionary<string, List<RfqItemMatch>>();
+        if (wanted.Count == 0) return result;
+
+        // X asked, Z quoted: Z's family (Z → Y → X) brings in the RFQ items for X too.
+        var families = await PartFamilies.LoadAsync(_db, partNumbers);
+        var spellings = partNumbers.Select(p => p.Trim()).Concat(families.Names).ToList();
+        var names = spellings
+            .Concat(spellings.Select(p => Whitespace.Replace(p, "")))
             .Where(p => p.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var result = new Dictionary<string, List<RfqItemMatch>>();
-        if (names.Count == 0) return result;
 
-        var earliestDeadline = DateTime.UtcNow.Date.AddDays(-DeadlineGraceDays);
+        var earliestDeadline = DateTime.UtcNow.Date.AddDays(-graceDays);
         var items = await _db.Set<RFQItem>().AsNoTracking()
             .Include(i => i.RFQ).ThenInclude(r => r.Customer)
             .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
@@ -1284,27 +1343,41 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
                         || i.PartNumber.Alternatives.Any(a => names.Contains(a.Name)))
             .ToListAsync();
 
-        return IndexByPartKeys(items, wanted);
+        return IndexByPartKeys(items, wanted, families);
     }
 
+    /// <summary>The alternative families of these RFQ items' part numbers (items must include PartNumber.Alternatives).</summary>
+    private Task<PartFamilyMap> FamiliesOfAsync(IEnumerable<RFQItem> items, CancellationToken cancellationToken = default) =>
+        PartFamilies.LoadAsync(_db, items.SelectMany(i => new[] { i.PartNumber.Name, i.PartNumber.NewName }
+            .Concat(i.PartNumber.Alternatives.Select(a => a.Name))), cancellationToken);
+
     /// <summary>
-    /// Keys each RFQ item by every part number it answers to (name, new name, RFQ-item alt,
-    /// catalog alternatives), keeping only keys in <paramref name="wanted"/>.
+    /// Keys each RFQ item by every part number it answers to (name, new name, RFQ-item alt, and every
+    /// part in its alternative family), keeping only keys in <paramref name="wanted"/>. A key that isn't
+    /// the item's own P/N matches as an alternate: X asked, Y or Z quoted → Alt = the quoted P/N.
     /// Items must include RFQ.Customer and PartNumber.Alternatives.
     /// </summary>
-    private static Dictionary<string, List<RfqItemMatch>> IndexByPartKeys(IEnumerable<RFQItem> items, HashSet<string> wanted)
+    private static Dictionary<string, List<RfqItemMatch>> IndexByPartKeys(IEnumerable<RFQItem> items, HashSet<string> wanted, PartFamilyMap families)
     {
         var result = new Dictionary<string, List<RfqItemMatch>>();
         foreach (var item in items)
         {
-            var own = new[] { item.PartNumber.Name, item.PartNumber.NewName }.Select(PnKey).ToHashSet();
-            var alts = item.PartNumber.Alternatives.Select(a => a.Name).Append(item.Alt ?? "");
-            foreach (var key in own.Where(wanted.Contains))
-                Add(key, new RfqItemMatch(item, null));
-            foreach (var alt in alts)
+            var own = new[] { item.PartNumber.Name, item.PartNumber.NewName }.Select(PnKey).Where(k => k.Length > 0).ToHashSet();
+            // The item's own spelling of an alternate wins over the family's.
+            var spellings = item.PartNumber.Alternatives.Select(a => a.Name).Append(item.Alt ?? "")
+                .Where(n => PnKey(n).Length > 0)
+                .GroupBy(PnKey)
+                .ToDictionary(g => g.Key, g => g.First().Trim());
+            var family = own.SelectMany(families.FamilyOf)
+                .Concat(item.PartNumber.Alternatives.Select(a => PnKey(a.Name)))
+                .Where(k => k.Length > 0)
+                .ToHashSet();
+            foreach (var key in wanted)
             {
-                var key = PnKey(alt);
-                if (wanted.Contains(key) && !own.Contains(key)) Add(key, new RfqItemMatch(item, alt.Trim()));
+                if (own.Contains(key))
+                    Add(key, new RfqItemMatch(item, null, family));
+                else if (family.Contains(key) || spellings.ContainsKey(key))
+                    Add(key, new RfqItemMatch(item, spellings.GetValueOrDefault(key) ?? families.NameOf(key) ?? key, family));
             }
         }
         return result;
@@ -1346,7 +1419,7 @@ public class PendingSupplierQuoteService : IPendingSupplierQuoteService, IRfqIte
             .Include(i => i.PartNumber).ThenInclude(p => p.Alternatives)
             .Where(i => rfqItemIds.Contains(i.Id))
             .ToListAsync(cancellationToken);
-        var index = IndexByPartKeys(items, accepted.SelectMany(PartKeys).Select(PnKey).ToHashSet());
+        var index = IndexByPartKeys(items, accepted.SelectMany(PartKeys).Select(PnKey).ToHashSet(), await FamiliesOfAsync(items, cancellationToken));
         if (index.Count == 0) return;
 
         foreach (var row in accepted.Where(r => approved.Contains(r.SupplierId!.Value)))

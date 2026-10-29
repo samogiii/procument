@@ -36,6 +36,10 @@
               @click="togglePreferred(item)"
             />
           </template>
+          <template #item.trusted="{ item }">
+            <v-chip v-if="item.trusted" size="x-small" color="success" variant="tonal" prepend-icon="mdi-shield-check-outline">Trusted</v-chip>
+            <span v-else class="text-medium-emphasis text-caption">Not trusted</span>
+          </template>
           <template #item.status="{ item }">
             <StatusChip v-if="item.status" :status="item.status" size="small" />
             <span v-else class="text-medium-emphasis">—</span>
@@ -82,6 +86,18 @@
         class="mb-2"
         variant="outlined"
         density="compact"
+      />
+      <!-- Trusted (Procurement Plus commission rule) — SuperAdmin only -->
+      <v-switch
+        v-if="isSuperAdmin"
+        v-model="form.trusted"
+        color="success"
+        inset
+        density="compact"
+        label="Trusted supplier"
+        hint="Not used for now — the Procurement Plus commission has no minimum coef."
+        persistent-hint
+        class="mb-3"
       />
       <v-text-field v-model="form.email" label="Email" class="mb-2" />
       <v-text-field v-model="form.phone" label="Phone" class="mb-2" />
@@ -170,7 +186,8 @@ const showDialog = ref(false)
 const editingId = ref<number | null>(null)
 const isEditing = computed(() => editingId.value !== null)
 
-const defaultForm = () => ({ name: '', username: '', dependency: '', description: '', email: '', phone: '', address: '' })
+const isSuperAdmin = computed(() => useAuthStore().isSuperAdmin)
+const defaultForm = () => ({ name: '', username: '', dependency: '', description: '', email: '', phone: '', address: '', trusted: false })
 const form = ref(defaultForm())
 
 // Contacts JSON: [{ name, email, emails[], phone, ...extra }]. `email` stays the first address so
@@ -250,6 +267,7 @@ async function save() {
     const payload = {
       ...form.value,
       contacts: serializeContacts(contactsList.value),
+      trusted: isSuperAdmin.value ? form.value.trusted : null, // null = keep (SuperAdmin only)
     }
     if (editingId.value) {
       await api.put(`/suppliers/${editingId.value}`, payload)
@@ -297,6 +315,7 @@ const headers = [
   { title: 'Name', key: 'name' },
   { title: 'Username', key: 'username' },
   { title: 'Dependency', key: 'dependency' },
+  { title: 'Trusted', key: 'trusted', width: '110px' },
   { title: 'Email', key: 'email' },
   { title: 'Contacts', key: 'contacts', sortable: false },
   { title: 'Phone', key: 'phone' },

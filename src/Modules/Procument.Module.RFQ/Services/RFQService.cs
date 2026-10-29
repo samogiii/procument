@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Catalog.Services;
 using Procument.Module.Identity.DTOs;
 using Procument.Module.Identity.Entities;
 using Procument.Module.Identity.Services;
@@ -172,7 +173,8 @@ public class RFQService : IRFQService
         if (!isSuperAdmin)
         {
             var inBase = rfq.Customer?.Base == null || userBases.Contains(rfq.Customer.Base.Value);
-            if (!inBase && rfq.UserId != userId)
+            if (!inBase && rfq.UserId != userId
+                && !await _db.Set<UserCustomer>().AnyAsync(uc => uc.UserId == userId && uc.CustomerId == rfq.CustomerId))
             {
                 var hasPermission = await _db.Set<EntityPermission>()
                     .AnyAsync(p => p.UserId == userId && p.EntityName == "RFQ" && p.EntityId == id.ToString());
@@ -181,6 +183,7 @@ public class RFQService : IRFQService
         }
 
         var response = MapToResponse(rfq);
+        await AddFamilyAlternativesAsync(response.Items);
 
         // Populate IsUnread
         var readRecord = await _db.Set<RFQUserRead>()
@@ -240,6 +243,7 @@ public class RFQService : IRFQService
 
             query = query.Where(r =>
                 (r.Customer.Base != null && userBases.Contains(r.Customer.Base.Value)) ||
+                _db.Set<UserCustomer>().Any(uc => uc.UserId == userId && uc.CustomerId == r.CustomerId) ||
                 permittedIds.Contains(r.Id) ||
                 r.UserId == userId);
         }
@@ -445,7 +449,7 @@ public class RFQService : IRFQService
 
         if (item == null) return null;
 
-        item.Alt = request.Alt;
+        item.Alt = AltPartNumbers.Clean(request.Alt);
         item.Qty = request.Qty;
         item.Priority = request.Priority;
         item.Note = request.Note;
@@ -455,7 +459,7 @@ public class RFQService : IRFQService
 
         await _db.SaveChangesAsync();
 
-        return new RFQItemResponse
+        var response = new RFQItemResponse
         {
             Id = item.Id,
             PartNumberName = item.PartNumber.Name,
@@ -471,6 +475,25 @@ public class RFQService : IRFQService
             Remark = item.PartNumber.Remark,
             Alternatives = item.PartNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
+        await AddFamilyAlternativesAsync([response]);
+        return response;
+    }
+
+    /// <summary>
+    /// Adds the rest of each part's alternative family to its chips (Linked): X lists Y and Y lists Z →
+    /// Y's chips show Z and X too, X's show Y and Z (PartFamilies).
+    /// </summary>
+    private async Task AddFamilyAlternativesAsync(IReadOnlyCollection<RFQItemResponse> items)
+    {
+        if (items.Count == 0) return;
+        var families = await PartFamilies.LoadAsync(_db,
+            items.SelectMany(i => i.Alternatives.Select(a => a.Name).Append(i.PartNumberName)));
+        foreach (var item in items)
+        {
+            var shown = item.Alternatives.Select(a => PartFamilies.Key(a.Name)).Append(PartFamilies.Key(item.PartNumberName)).ToHashSet();
+            foreach (var key in families.FamilyOf(item.PartNumberName).Where(k => !shown.Contains(k)).OrderBy(k => k))
+                item.Alternatives.Add(new AlternativeResponse { Name = families.NameOf(key) ?? key, Linked = true });
+        }
     }
 
     public async Task<RFQItemResponse?> AddItemAsync(long rfqId, AddRFQItemRequest request)
@@ -509,9 +532,11 @@ public class RFQService : IRFQService
         foreach (var altName in request.Alternatives)
         {
             var trimmedAlt = altName.Trim();
-            if (string.IsNullOrWhiteSpace(trimmedAlt)) continue;
+            if (AltPartNumbers.IsPlaceholder(trimmedAlt)) continue;
+            // A part is never its own alternative.
+            if (PartFamilies.Key(trimmedAlt) == PartFamilies.Key(partNumber.Name)) continue;
 
-            var exists = partNumber.Alternatives.Any(a => a.Name == trimmedAlt);
+            var exists = partNumber.Alternatives.Any(a => PartFamilies.Key(a.Name) == PartFamilies.Key(trimmedAlt));
             if (!exists)
             {
                 var alt = new Alternative
@@ -532,7 +557,7 @@ public class RFQService : IRFQService
             PartNumberId = partNumber.Id,
             Qty = request.Qty,
             Condition = request.Condition,
-            Alt = request.Alt,
+            Alt = AltPartNumbers.Clean(request.Alt),
             Note = request.Note,
             Unit = request.Unit,
         };
@@ -543,7 +568,7 @@ public class RFQService : IRFQService
         // Reload alternatives
         await _db.Entry(partNumber).Collection(p => p.Alternatives).LoadAsync();
 
-        return new RFQItemResponse
+        var response = new RFQItemResponse
         {
             Id = item.Id,
             PartNumberName = partNumber.Name,
@@ -559,6 +584,8 @@ public class RFQService : IRFQService
             Remark = partNumber.Remark,
             Alternatives = partNumber.Alternatives.Select(a => new AlternativeResponse { Id = a.Id, Name = a.Name }).ToList()
         };
+        await AddFamilyAlternativesAsync([response]);
+        return response;
     }
 
     public async Task<bool> UpdateExTypeAsync(long rfqId, int? exType)
@@ -876,7 +903,7 @@ public class RFQService : IRFQService
                     foreach (var altName in src.Alternatives ?? new List<string>())
                     {
                         var trimmedAlt = altName?.Trim();
-                        if (string.IsNullOrWhiteSpace(trimmedAlt)) continue;
+                        if (AltPartNumbers.IsPlaceholder(trimmedAlt)) continue;
                         if (pn.Alternatives.Any(a => string.Equals(a.Name, trimmedAlt, StringComparison.OrdinalIgnoreCase))) continue;
 
                         pn.Alternatives.Add(new Alternative { Name = trimmedAlt, CreatedAt = now, PartNumber = pn });

@@ -463,7 +463,7 @@
                               class="quote-input"
                               placeholder="Alt P/N..."
                               :readonly="isFinalizedOrCancelled(item) || sq.hasActivePOItem"
-                              @blur="saveSupplierQuote(item, sq)"
+                              @blur="sq.alt = cleanAlt(sq.alt); saveSupplierQuote(item, sq)"
                               @click.stop
                             />
                           </td>
@@ -889,7 +889,7 @@ async function saveSupplierQuote(item: any, sq: any) {
       shippingCost: sq.shippingCost,
       qty: sq.qty,
       condition: sq.condition,
-      alt: sq.alt,
+      alt: cleanAlt(sq.alt),
       leadTime: sq.leadTime,
       note: sq.note
     }

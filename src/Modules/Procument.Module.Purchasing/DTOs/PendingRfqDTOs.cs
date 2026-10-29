@@ -75,6 +75,8 @@ public class PendingRfqItemResponse
     public string? ReviewedByName { get; set; }
     public long? RfqId { get; set; }
     public string? CreatedRfqName { get; set; }
+    /// <summary>Accepted: the created RFQ's deadline (RFQHeader.LeadTime) — it may have been changed on the RFQ since.</summary>
+    public DateTime? RfqDeadline { get; set; }
     /// <summary>
     /// Pending: the RFQ this line will land in — the RFQ name, split ABA(1), ABA(2)... in deadline order when
     /// the email's lines with that name carry different deadlines (same rule as the RFQ bulk import).
@@ -84,6 +86,90 @@ public class PendingRfqItemResponse
     public DateTime? PlannedDeadline { get; set; }
     /// <summary>Pending: an RFQ named PlannedRfqName already exists, so Accept would skip it until it is renamed.</summary>
     public bool RfqNameTaken { get; set; }
+
+    /// <summary>Accepted: the PPE (Procurement Part Expert) the part is assigned to on Procurement Plus.</summary>
+    public long? PpeUserId { get; set; }
+    public string? PpeUserName { get; set; }
+    public DateTime? PpeAssignedAt { get; set; }
+    // Known PPE, average price and customers come from POST part-insights after the list loads (PartInsight).
+}
+
+/// <summary>
+/// Part insights for a page of lines, loaded after the list (the list itself returns without them, so it shows
+/// at once). Recent = last 5 customers (Pending), Week = customers this week (Accepted), Ppe = known PPE (Pending).
+/// </summary>
+public class PartInsightsRequest
+{
+    public List<string> PartNumbers { get; set; } = new();
+    public bool RecentCustomers { get; set; }
+    public bool WeekCustomers { get; set; }
+    public bool KnownPpe { get; set; }
+}
+
+/// <summary>One asked P/N (exactly as sent) and its insights.</summary>
+public class PartInsight
+{
+    public string PartNumber { get; set; } = string.Empty;
+    public string? KnownPpeName { get; set; }
+    public decimal? AvgPrice { get; set; }
+    public int AvgPriceCount { get; set; }
+    public List<PartConditionPrice> AvgPriceByCondition { get; set; } = new();
+    public List<PartCustomerCount> RecentCustomers { get; set; } = new();
+    public List<PartCustomerQty> WeekCustomers { get; set; } = new();
+}
+
+public record PartConditionPrice(string Condition, decimal Average, int Count);
+
+public record PartCustomerCount(long CustomerId, string? CustomerCode, string CustomerName, int Count);
+
+/// <summary>A customer asking for a part this week: total qty over their RFQ items (Count).</summary>
+public record PartCustomerQty(long CustomerId, string? CustomerCode, string CustomerName, double Qty, int Count);
+
+/// <summary>Info dialog: the last customers who asked for a part — each request with what we quoted them.</summary>
+public class PartCustomersResponse
+{
+    public string PartNumber { get; set; } = string.Empty;
+    public List<PartCustomerHistory> Customers { get; set; } = new();
+}
+
+public class PartCustomerHistory
+{
+    public long CustomerId { get; set; }
+    public string? CustomerCode { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    /// <summary>Every request for the part by this customer (newest first).</summary>
+    public int RequestCount { get; set; }
+    public List<PartCustomerRequest> Requests { get; set; } = new();
+}
+
+public class PartCustomerRequest
+{
+    public long RfqId { get; set; }
+    public string RfqName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; }
+    public DateTime? Deadline { get; set; }
+    /// <summary>The P/N on the RFQ item (the part itself or one of its alternatives).</summary>
+    public string PartNumber { get; set; } = string.Empty;
+    public double Qty { get; set; }
+    public string? Condition { get; set; }
+    /// <summary>Our quote to the customer for this item (latest), if any.</summary>
+    public Services.CustomerQuotePrice? Quoted { get; set; }
+}
+
+/// <summary>Assign accepted lines' parts to a PPE (null = unassign) — every accepted line with those P/Ns.</summary>
+public class AssignPpeRequest
+{
+    public List<long> Ids { get; set; } = new();
+    public long? UserId { get; set; }
+}
+
+public class AssignPpeResponse
+{
+    public int Lines { get; set; }
+    public int Parts { get; set; }
+    /// <summary>RFQ supplier quotes whose old commission was taken off (no customer quote yet) — the PPE adds a new one.</summary>
+    public int CommissionsReset { get; set; }
+    public string? UserName { get; set; }
 }
 
 /// <summary>Edits one pending/accepted line. RFQ name and deadline apply to the line only — the panel sends them for each line of the email.</summary>

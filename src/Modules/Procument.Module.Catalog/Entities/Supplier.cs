@@ -12,6 +12,8 @@ public class Supplier : AuditableEntity
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public string Status { get; set; } = "Approved"; // "Approved", "Pending", "Rejected"
+    /// <summary>Trusted supplier: Procurement Plus commission may use the customer's MinCoef (else at least 1.13). SuperAdmin only.</summary>
+    public bool Trusted { get; set; }
     public long? RequestedByUserId { get; set; }
     /// <summary>JSON array of contact persons: [{name, email, phone?, title?}]</summary>
     public string? Contacts { get; set; }
