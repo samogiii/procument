@@ -3,24 +3,32 @@ import { markRaw } from 'vue'
 import type { BiCustomerOption, BiSummary } from '~/utils/bi'
 
 /**
- * BI page selection — which customers (all, whole bases, or picked ones) and how many days. Mirrored to
+ * BI page selection — which customers (all, bases, optionally narrowed to some of their customers, or picked ones) and how many days. Mirrored to
  * localStorage per user, so the user's last BI comes back on reload until they press Clear. Nothing is saved
  * server-side. The last summary is kept in memory only (markRaw, never proxied) so returning to the page is instant.
  */
 export interface BiSelection {
     allCustomers: boolean
-    /** Whole customer bases, e.g. [5] = every Base 5 customer (resolved by the API on each request). */
+    /** Customer bases, e.g. [5] = every Base 5 customer (resolved by the API on each request). */
     bases: number[]
+    /** Picked customers; with `bases` set, only these customers of those bases (empty = all of them). */
     customers: BiCustomerOption[]
     days: number | null
 }
 
 const EMPTY: BiSelection = { allCustomers: false, bases: [], customers: [], days: null }
 
-/** Keeps exactly one scope: all customers, bases, or picked customers. */
+/** Keeps exactly one scope: all customers, bases (with customers of those bases only), or picked customers. */
 function normalize(s: BiSelection): BiSelection {
     if (s.allCustomers) return { allCustomers: true, bases: [], customers: [], days: s.days }
-    if (s.bases.length) return { allCustomers: false, bases: [...new Set(s.bases)].sort((a, b) => a - b), customers: [], days: s.days }
+    if (s.bases.length) {
+        return {
+            allCustomers: false,
+            bases: [...new Set(s.bases)].sort((a, b) => a - b),
+            customers: s.customers.filter(c => c.base != null && s.bases.includes(c.base)).map(c => ({ ...c })),
+            days: s.days,
+        }
+    }
     return { allCustomers: false, bases: [], customers: s.customers.map(c => ({ ...c })), days: s.days }
 }
 
@@ -57,14 +65,15 @@ export const useBiStore = defineStore('bi', {
     getters: {
         isConfigured: (s): boolean => s.days != null && (s.allCustomers || s.bases.length > 0 || s.customers.length > 0),
         /** Ids sent to the API; null = no customer filter (all customers, or whole bases). */
-        customerIds: (s): number[] | null => (s.allCustomers || s.bases.length ? null : s.customers.map(c => c.id)),
+        customerIds: (s): number[] | null => (s.allCustomers || !s.customers.length ? null : s.customers.map(c => c.id)),
         /** Bases sent to the API; null = no base filter. */
         baseFilter: (s): number[] | null => (!s.allCustomers && s.bases.length ? [...s.bases] : null),
         /** Identifies one selection — a cached summary is reused only for the same key. */
         selectionKey: (s): string => {
+            const ids = s.customers.map(c => c.id).sort((a, b) => a - b).join(',')
             const who = s.allCustomers ? 'all'
-                : s.bases.length ? `bases:${s.bases.join(',')}`
-                : s.customers.map(c => c.id).sort((a, b) => a - b).join(',')
+                : s.bases.length ? `bases:${s.bases.join(',')}|${ids}`
+                : ids
             return `${s.days}|${who}`
         },
     },

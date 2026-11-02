@@ -757,13 +757,14 @@ const { isLocked, checkLock } = useFinalInvoiceLock('invoice', entityId)
 
 const invoiceStatuses = [
   { value: 'Draft',                  label: 'Draft',                  icon: 'mdi-file-edit-outline',   color: 'grey'    },
+  { value: 'Checking',               label: 'Checking',               icon: 'mdi-clipboard-search-outline', color: 'indigo' },
   { value: 'Waiting For Prepayment', label: 'Waiting For Prepayment', icon: 'mdi-cash-clock',          color: 'orange'  },
   { value: 'Running',                label: 'Running',                icon: 'mdi-play-circle-outline', color: 'blue'    },
   { value: 'Finish',                 label: 'Finish',                 icon: 'mdi-check-circle',        color: 'success' },
 ]
 const availableInvoiceStatuses = computed(() => isAdmin.value
   ? invoiceStatuses
-  : invoiceStatuses.filter(s => ['Waiting For Prepayment', 'Running'].includes(s.value)))
+  : invoiceStatuses.filter(s => ['Checking', 'Waiting For Prepayment', 'Running'].includes(s.value)))
 
 function paymentStatusColor(ps: string): string {
   if (ps === 'Net') return 'indigo'

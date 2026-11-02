@@ -16,6 +16,20 @@ public record UpdateWalletSettingsRequest(bool AutoImport);
 /// <summary>Customer bases behind a PR / PI / customer, as transaction Base tags ("B1,B3"); null = none found.</summary>
 public record SuggestedBasesResponse(string? Base);
 
+/// <summary>A currency in a wallet group that has no rate to the main wallet's currency.</summary>
+public record UnconvertedBalance(string Currency, string Symbol, decimal Balance);
+
+/// <summary>
+/// A main wallet plus its sub-wallets, in the main wallet's currency. Display only — sub-wallet money
+/// is converted at the fixed page rate and never posted anywhere. NotConverted is left out of the totals.
+/// </summary>
+public record WalletGroupTotals(
+    int SubWalletCount,
+    decimal TotalDeposit,
+    decimal TotalWithdraw,
+    decimal Balance,
+    List<UnconvertedBalance> NotConverted);
+
 public record PaymentBoxSummaryResponse(
     long Id,
     long CompanyPresetId,
@@ -32,7 +46,18 @@ public record PaymentBoxSummaryResponse(
     string? BeneficiaryName = null,
     string? SwiftCode = null,
     // Same as CurrencyBreakdowns, but only the transactions tagged Base "B1"
-    List<CurrencyBreakdown>? B1Breakdowns = null);
+    List<CurrencyBreakdown>? B1Breakdowns = null,
+    // Null = a main wallet; set = a sub-wallet of that wallet
+    long? ParentBoxId = null,
+    // Sub-wallets only (full wallet list): Balance in the main wallet's currency, null when there is no rate
+    decimal? BalanceInParentCurrency = null,
+    // Main wallets with sub-wallets only (full wallet list)
+    WalletGroupTotals? Group = null,
+    // What the warehouse app sees instead of Name
+    string? Surname = null,
+    // Fixed bank charges in the wallet currency, they fill the phone's fee boxes
+    decimal? HandlingFee = null,
+    decimal? WireFee = null);
 
 public record PaymentTransactionRow(
     long Id,
@@ -115,17 +140,19 @@ public record AllTransactionRow(
     DateTime? RateEditedAt = null,
     string? RateEditedByName = null);
 
-/// <summary>CompanyPresetId is optional — omit it for a wallet that belongs to no company.</summary>
+/// <summary>CompanyPresetId is optional — omit it for a wallet that belongs to no company. ParentBoxId makes it a sub-wallet.</summary>
 public record CreatePaymentBoxRequest(long? CompanyPresetId, string Currency, string Name = "",
     string? BankName = null, string? BankAddress = null, string? AccountNumber = null,
-    string? BeneficiaryName = null, string? SwiftCode = null);
+    string? BeneficiaryName = null, string? SwiftCode = null, long? ParentBoxId = null,
+    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null);
 
 public record UpdateWalletBankDetailsRequest(
     string? BankName, string? BankAddress, string? AccountNumber,
     string? BeneficiaryName, string? SwiftCode);
 
-/// <summary>A null CompanyPresetId detaches the wallet from any company.</summary>
-public record RenamePaymentBoxRequest(string Name, long? CompanyPresetId = null);
+/// <summary>A null CompanyPresetId detaches the wallet from any company; a null ParentBoxId makes it a main wallet.</summary>
+public record RenamePaymentBoxRequest(string Name, long? CompanyPresetId = null, long? ParentBoxId = null,
+    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null);
 
 public record CreateTransactionRequest(
     string Type,

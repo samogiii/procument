@@ -10,6 +10,43 @@ public class PaymentPush
 {
     public DateTime SentAt { get; set; }
     public List<PaymentPushItem> Payments { get; set; } = new();
+    public List<ShippingCostDecision> CostDecisions { get; set; } = new();
+    public List<DepositPushItem> Deposits { get; set; } = new();
+}
+
+/// <summary>A Customer POP waiting for the warehouse to confirm it against the bank.</summary>
+public class DepositPushItem
+{
+    public Guid UploadId { get; set; }
+    public long MainDepositId { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public string? Customer { get; set; }
+    /// <summary>The POP's price, in Currency.</summary>
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
+    /// <summary>The wallet's surname when it has one; then no CompanyName is sent.</summary>
+    public string WalletName { get; set; } = string.Empty;
+    public string? CompanyName { get; set; }
+    public string WalletCurrency { get; set; } = "USD";
+    /// <summary>Wallet currency per 1 Currency; null when they match.</summary>
+    public decimal? OfficeRate { get; set; }
+    /// <summary>Amount × OfficeRate, wallet currency.</summary>
+    public decimal OfficeAmount { get; set; }
+    public string? Notes { get; set; }
+    public bool OfficeHasResult { get; set; }
+    public string? RejectNote { get; set; }
+    public PaymentDocInfo? Pop { get; set; }
+}
+
+/// <summary>What the office decided about a shipment's cost (ShipmentId = the warehouse's id).</summary>
+public class ShippingCostDecision
+{
+    public long ShipmentId { get; set; }
+    public int Version { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Note { get; set; }
+    public decimal FixedCost { get; set; }
+    public decimal OtherCost { get; set; }
 }
 
 public class PaymentPushItem
@@ -42,12 +79,16 @@ public class PaymentPushItem
     public decimal AmountUsd { get; set; }
     public decimal WireFee { get; set; }
     public decimal? PrAmount { get; set; }
+    /// <summary>The wallet's surname when it has one: the warehouse runs on a public server.</summary>
     public string WalletName { get; set; } = string.Empty;
-    /// <summary>Our company that owns the wallet (pays the supplier).</summary>
+    /// <summary>Our company that owns the wallet (pays the supplier). Not sent for a wallet with a surname.</summary>
     public string? PayingFrom { get; set; }
     public string WalletCurrency { get; set; } = "USD";
     /// <summary>Wallet currency per 1 USD as saved in the office (1 for USD wallets).</summary>
     public decimal? OfficeRate { get; set; }
+    /// <summary>The wallet's fixed bank charges in its currency; they fill the phone's fee boxes.</summary>
+    public decimal? WalletHandlingFee { get; set; }
+    public decimal? WalletWireFee { get; set; }
 
     /// <summary>The warehouse result is stored here and waits for office review.</summary>
     public bool OfficeHasResult { get; set; }
@@ -70,6 +111,40 @@ public class PaymentDocInfo
 public class PaymentResults
 {
     public List<PaymentResult> Payments { get; set; } = new();
+    public List<ShippingCostChange> Costs { get; set; } = new();
+    public List<DepositResult> Deposits { get; set; } = new();
+}
+
+/// <summary>What reached the bank for a Customer POP: the bank POP, its price and (wallet differs) the rate.</summary>
+public class DepositResult
+{
+    public long DepositId { get; set; }
+    public int Version { get; set; }
+    public Guid UploadId { get; set; }
+    /// <summary>In the POP's currency.</summary>
+    public decimal Amount { get; set; }
+    /// <summary>Wallet currency per 1 POP currency (null when they match).</summary>
+    public decimal? ExchangeRate { get; set; }
+    public string? By { get; set; }
+    public DateTime At { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string MimeType { get; set; } = "application/octet-stream";
+    public string DataBase64 { get; set; } = string.Empty;
+}
+
+/// <summary>A shipment's cost (CNY), entered or changed on the phone. Totals 0 when it was removed.</summary>
+public class ShippingCostChange
+{
+    public long ShipmentId { get; set; }
+    public int Version { get; set; }
+    public string TrackNumber { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? WarehouseName { get; set; }
+    public List<long> MainTrackIds { get; set; } = new();
+    public decimal FixedCost { get; set; }
+    public decimal OtherCost { get; set; }
+    public string? By { get; set; }
+    public DateTime At { get; set; }
 }
 
 public class PaymentResult
@@ -94,11 +169,29 @@ public class PaymentResult
 public class PaymentAck
 {
     public List<PaymentResultAck> Payments { get; set; } = new();
+    public List<ShippingCostAck> Costs { get; set; } = new();
+    public List<DepositResultAck> Deposits { get; set; } = new();
+}
+
+public class DepositResultAck
+{
+    public long DepositId { get; set; }
+    public int Version { get; set; }
+    public bool Stored { get; set; }
+    public string? Reason { get; set; }
 }
 
 public class PaymentResultAck
 {
     public long PaymentId { get; set; }
+    public int Version { get; set; }
+    public bool Stored { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ShippingCostAck
+{
+    public long ShipmentId { get; set; }
     public int Version { get; set; }
     public bool Stored { get; set; }
     public string? Reason { get; set; }

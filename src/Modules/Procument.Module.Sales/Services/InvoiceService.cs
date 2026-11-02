@@ -232,6 +232,9 @@ public class InvoiceService : IInvoiceService
             "customerBase"   => sortDesc ? query.OrderByDescending(i => i.Customer != null ? i.Customer.Base : null) : query.OrderBy(i => i.Customer != null ? i.Customer.Base : null),
             "subject"        => sortDesc ? query.OrderByDescending(i => i.Subject) : query.OrderBy(i => i.Subject),
             "totalAmount"    => sortDesc ? query.OrderByDescending(i => i.TotalAmount) : query.OrderBy(i => i.TotalAmount),
+            "totalPaid"      => sortDesc
+                ? query.OrderByDescending(i => _db.Set<CustomerPayment>().Where(p => p.InvoiceId == i.Id).Sum(p => (decimal?)p.Amount) ?? 0m)
+                : query.OrderBy(i => _db.Set<CustomerPayment>().Where(p => p.InvoiceId == i.Id).Sum(p => (decimal?)p.Amount) ?? 0m),
             "status"         => sortDesc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
             "createdAt"      => sortDesc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
             "customerPODate" => sortDesc ? query.OrderByDescending(i => i.CustomerPODate) : query.OrderBy(i => i.CustomerPODate),
@@ -1013,7 +1016,7 @@ public class InvoiceService : IInvoiceService
         // Allowed invoice workflow statuses
         var allowedStatuses = new[]
         {
-            "Draft", "Waiting For Prepayment", "Running", "Finish"
+            "Draft", "Checking", "Waiting For Prepayment", "Running", "Finish"
         };
         if (!allowedStatuses.Contains(status)) return false;
 
@@ -1043,11 +1046,13 @@ public class InvoiceService : IInvoiceService
 
         if (status == "Running" && invoice.PaymentStatus == InvoicePaymentTerms.Credit)
             await InvoicePaymentTerms.EnsureCreditAvailableAsync(_db, invoice.CustomerId, invoice.TotalAmount, invoice.Id);
+        var previousStatus = invoice.Status;
         invoice.Status = status;
 
         if (status is "Running" or "Waiting For Prepayment")
         {
-            foreach (var item in invoice.InvoiceItems)
+            // Checking only pauses the order, so lines that already moved on keep their progress.
+            foreach (var item in invoice.InvoiceItems.Where(item => previousStatus != "Checking" || item.Status == "Not Started"))
                 item.Status = "Sourcing";
         }
 

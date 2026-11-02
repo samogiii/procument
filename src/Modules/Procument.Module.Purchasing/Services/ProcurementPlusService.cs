@@ -1751,26 +1751,7 @@ public partial class ProcurementPlusService : IProcurementPlusService
         }
     }
 
-    private static readonly Regex NonAlphaNum = new(@"[^A-Z0-9]+", RegexOptions.Compiled);
-    private static readonly HashSet<string> CompanySuffixes = new(StringComparer.Ordinal)
-    {
-        "INC", "INCORPORATED", "LLC", "LTD", "LIMITED", "CORP", "CORPORATION", "CO", "COMPANY", "GMBH", "AG",
-        "SA", "SAS", "SARL", "SRL", "SPA", "BV", "NV", "PLC", "PTE", "PTY", "LLP", "LP", "KG", "OY", "AB", "AS",
-    };
-
-    /// <summary>
-    /// A company name for matching only: upper case, "&amp;" = AND, punctuation dropped, a leading THE and trailing
-    /// company suffixes (INC, LLC, LTD, CORP, GMBH…) removed, spaces squeezed out. "" when nothing is left.
-    /// </summary>
-    private static string CompanyMatchKey(string? name)
-    {
-        var words = NonAlphaNum.Split(SupplierNameNormalizer.Key(name).Replace("&", " AND "))
-            .Where(w => w.Length > 0)
-            .ToList();
-        if (words.Count > 1 && words[0] == "THE") words.RemoveAt(0);
-        while (words.Count > 1 && CompanySuffixes.Contains(words[^1])) words.RemoveAt(words.Count - 1);
-        return string.Concat(words);
-    }
+    private static string CompanyMatchKey(string? name) => SupplierNameNormalizer.CompanyKey(name);
 
     /// <summary>
     /// Links the user's current file rows that are still without a catalog supplier, for these parts — so a

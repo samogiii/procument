@@ -102,6 +102,8 @@ public class AppDbContext : DbContext
   public DbSet<FinalInvoiceItem> FinalInvoiceItems => Set<FinalInvoiceItem>();
   public DbSet<PaymentBox> PaymentBoxes => Set<PaymentBox>();
   public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+  public DbSet<WarehouseShippingCost> WarehouseShippingCosts => Set<WarehouseShippingCost>();
+  public DbSet<IncomingDeposit> IncomingDeposits => Set<IncomingDeposit>();
   public DbSet<WalletTransferPending> WalletTransferPendings => Set<WalletTransferPending>();
   public DbSet<UpcomingWithdraw> UpcomingWithdraws => Set<UpcomingWithdraw>();
   public DbSet<CustomerFollowUp> CustomerFollowUps => Set<CustomerFollowUp>();
@@ -1653,11 +1655,19 @@ public class AppDbContext : DbContext
       entity.ToTable("PaymentBoxes");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.Currency).HasMaxLength(10);
+      entity.Property(e => e.Surname).HasMaxLength(200);
+      entity.Property(e => e.HandlingFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFee).HasColumnType("decimal(18,2)");
 
       entity.HasOne(e => e.CompanyPreset)
                 .WithMany()
                 .HasForeignKey(e => e.CompanyPresetId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ParentBox)
+                .WithMany(e => e.SubWallets)
+                .HasForeignKey(e => e.ParentBoxId)
+                .OnDelete(DeleteBehavior.NoAction);
 
       entity.HasMany(e => e.Transactions)
                 .WithOne(t => t.PaymentBox)
@@ -1727,6 +1737,67 @@ public class AppDbContext : DbContext
       entity.HasIndex(e => new { e.IsAuto, e.ReviewedAt })
                 .HasDatabaseName("IX_PaymentTransactions_Unreviewed")
                 .HasFilter("[ReviewedAt] IS NULL");
+    });
+
+    modelBuilder.Entity<WarehouseShippingCost>(entity =>
+    {
+      entity.ToTable("WarehouseShippingCosts");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.TrackNumber).HasMaxLength(200);
+      entity.Property(e => e.Carrier).HasMaxLength(200);
+      entity.Property(e => e.WarehouseName).HasMaxLength(200);
+      entity.Property(e => e.TrackIds).HasMaxLength(2000);
+      entity.Property(e => e.FixedCost).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.OtherCost).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.EnteredBy).HasMaxLength(200);
+      entity.Property(e => e.Status).HasMaxLength(20);
+      entity.Property(e => e.RejectNote).HasMaxLength(500);
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WalletAmount).HasColumnType("decimal(18,2)");
+
+      entity.HasOne(e => e.PaymentBox).WithMany()
+            .HasForeignKey(e => e.PaymentBoxId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.PaymentTransaction).WithMany()
+            .HasForeignKey(e => e.PaymentTransactionId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.ReviewedBy).WithMany()
+            .HasForeignKey(e => e.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
+
+      entity.HasIndex(e => e.WarehouseShipmentId).IsUnique();
+      entity.HasIndex(e => e.Status);
+    });
+
+    modelBuilder.Entity<IncomingDeposit>(entity =>
+    {
+      entity.ToTable("IncomingDeposits");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Currency).HasMaxLength(10);
+      entity.Property(e => e.WalletRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.OfficeAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BankPopFileName).HasMaxLength(500);
+      entity.Property(e => e.BankAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BankRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.BankWalletAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BankBy).HasMaxLength(200);
+      entity.Property(e => e.RejectNote).HasMaxLength(500);
+      entity.Property(e => e.Status).HasMaxLength(20);
+      entity.Property(e => e.BankFee).HasColumnType("decimal(18,2)");
+
+      // Goes with its POP (and so with the PI, which cascades to its POPs).
+      entity.HasOne(e => e.CustomerPayment).WithMany()
+            .HasForeignKey(e => e.CustomerPaymentId).OnDelete(DeleteBehavior.Cascade);
+      entity.HasOne(e => e.PaymentBox).WithMany()
+            .HasForeignKey(e => e.PaymentBoxId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.ReviewedBy).WithMany()
+            .HasForeignKey(e => e.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.DepositTransaction).WithMany()
+            .HasForeignKey(e => e.DepositTransactionId).OnDelete(DeleteBehavior.NoAction);
+      entity.HasOne(e => e.FeeTransaction).WithMany()
+            .HasForeignKey(e => e.FeeTransactionId).OnDelete(DeleteBehavior.NoAction);
+
+      entity.HasIndex(e => e.UploadId).IsUnique();
+      entity.HasIndex(e => e.CustomerPaymentId).IsUnique();
+      entity.HasIndex(e => e.Status);
     });
 
     modelBuilder.Entity<CustomerFollowUp>(entity =>

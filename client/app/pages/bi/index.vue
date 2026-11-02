@@ -39,7 +39,7 @@
       <!-- What this BI covers -->
       <div class="bi-scope mb-4">
         <v-chip v-if="bi.allCustomers" color="primary" variant="tonal" prepend-icon="mdi-account-group-outline">All customers</v-chip>
-        <template v-else-if="bi.bases.length">
+        <template v-else>
           <v-chip
             v-for="b in bi.bases"
             :key="b"
@@ -50,10 +50,8 @@
             :close-label="`Remove Base ${b}`"
             @click:close="removeBase(b)"
           >
-            All Base {{ b }} customers
+            {{ bi.customers.length ? `Base ${b}` : `All Base ${b} customers` }}
           </v-chip>
-        </template>
-        <template v-else>
           <v-chip
             v-for="c in visibleScopeCustomers"
             :key="c.id"
@@ -83,7 +81,13 @@
       <!-- ═══ KPI tiles ═══ -->
       <div class="bi-kpis mb-6" aria-live="polite">
         <template v-if="summary">
-          <v-card v-for="k in kpis" :key="k.key" class="glass-card bi-kpi" :style="{ '--bi-accent': k.accent }">
+          <v-card
+            v-for="k in kpis"
+            :key="k.key"
+            class="glass-card bi-kpi"
+            :style="{ '--bi-accent': k.accent }"
+            v-bind="k.opensUnfinished ? unfinishedTile : undefined"
+          >
             <div class="bi-kpi__head">
               <v-icon :icon="k.icon" size="18" class="bi-kpi__icon" />
               <span class="bi-kpi__label">{{ k.label }}</span>
@@ -100,7 +104,7 @@
           </v-card>
         </template>
         <template v-else>
-          <v-skeleton-loader v-for="n in 8" :key="n" type="article" class="bi-kpi bi-kpi--skeleton" />
+          <v-skeleton-loader v-for="n in 11" :key="n" type="article" class="bi-kpi bi-kpi--skeleton" />
         </template>
       </div>
 
@@ -258,8 +262,28 @@
           <template v-if="summary.totals.unconvertedFeeCount">
             {{ summary.totals.unconvertedFeeCount }} fee withdraw{{ summary.totals.unconvertedFeeCount === 1 ? '' : 's' }} left out — no USD rate.
           </template>
-          PI → Final invoice is the time to the first final invoice. Amounts in USD.
+          PI → Final invoice is the time to the first final invoice.
+          Unfinished proformas and their remaining cover every date, not only this period. Amounts in USD.
         </p>
+
+        <!-- ═══ Unfinished proformas ═══ -->
+        <v-dialog v-model="unfinishedOpen" max-width="1500" scrollable>
+          <v-card class="glass-card">
+            <v-card-title class="d-flex align-center flex-wrap ga-2">
+              <v-icon icon="mdi-receipt-clock-outline" size="20" />
+              Unfinished proforma invoices
+              <v-chip size="small" variant="tonal">{{ biCount(summary.unfinished.count) }}</v-chip>
+              <v-chip size="small" color="warning" variant="tonal">{{ biMoney(summary.unfinished.remaining) }} remaining</v-chip>
+              <v-chip size="small" variant="tonal">of {{ biMoney(summary.unfinished.totalAmount) }}</v-chip>
+              <v-spacer />
+              <v-btn icon="mdi-close" variant="text" size="small" aria-label="Close" @click="unfinishedOpen = false" />
+            </v-card-title>
+            <v-divider />
+            <v-card-text class="pa-3">
+              <LazyBiProformaTable unfinished :customer-ids="bi.customerIds" :bases="bi.baseFilter" :days="bi.days!" />
+            </v-card-text>
+          </v-card>
+        </v-dialog>
       </template>
     </template>
   </div>
@@ -291,6 +315,7 @@ const error = ref('')
 const tab = ref<'customers' | 'proformas'>('customers')
 const proformasOpened = ref(false)
 const chartsVisible = ref(false)
+const unfinishedOpen = ref(false)
 /** Expanded customer ids (Vuetify types this as string[], but it holds the item-value as given). */
 const expanded = ref<any[]>([])
 const customerSearch = ref('')
@@ -347,14 +372,14 @@ function applySelection(selection: BiSelection & { days: number }) {
 
 function removeCustomer(id: number) {
   const rest = bi.customers.filter(c => c.id !== id)
-  if (!rest.length) return clearBi()
-  applySelection({ allCustomers: false, bases: [], customers: rest, days: bi.days! })
+  if (!rest.length && !bi.bases.length) return clearBi()
+  applySelection({ allCustomers: false, bases: bi.bases, customers: rest, days: bi.days! })
 }
 
 function removeBase(base: number) {
   const rest = bi.bases.filter(b => b !== base)
   if (!rest.length) return clearBi()
-  applySelection({ allCustomers: false, bases: rest, customers: [], days: bi.days! })
+  applySelection({ allCustomers: false, bases: rest, customers: bi.customers, days: bi.days! })
 }
 
 function clearBi() {
@@ -382,8 +407,22 @@ const hiddenScopeCount = computed(() => Math.max(0, bi.customers.length - SCOPE_
 // ── KPIs ──
 const palette = computed(() => (isDark.value ? BI_SERIES_COLORS.dark : BI_SERIES_COLORS.light))
 
+/** Attributes that make a KPI tile open the unfinished proformas, by mouse or keyboard. */
+const unfinishedTile = {
+  role: 'button',
+  tabindex: 0,
+  'aria-haspopup': 'dialog',
+  onClick: () => { unfinishedOpen.value = true },
+  onKeydown: (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    unfinishedOpen.value = true
+  },
+}
+
 const kpis = computed(() => {
   const t = summary.value!.totals
+  const u = summary.value!.unfinished
   const p = palette.value
   const margin = biMargin(t.profit, t.boughtValue)
   const neutral = isDark.value ? '#8B949E' : '#64748b'
@@ -424,6 +463,14 @@ const kpis = computed(() => {
       value: biDays(t.avgDaysToFinal), sub: t.finalizedCount
         ? `avg · ${biDays(t.minDaysToFinal)}–${biDays(t.maxDaysToFinal)} · ${t.finalizedCount}/${t.piCount} invoiced`
         : 'No final invoice yet' },
+    // ── Still open today, whatever their date ──
+    { key: 'unfinished', label: 'Unfinished proformas', icon: 'mdi-receipt-clock-outline', accent: '#e8a317', opensUnfinished: true,
+      value: biCount(u.count), sub: u.count ? `${biMoney(u.totalAmount, true)} total · click to open` : 'All finished',
+      hint: 'Proforma invoices of these customers that are not finished or cancelled, from any date — not only this period.' },
+    { key: 'remaining', label: 'Remaining', icon: 'mdi-cash-clock', accent: '#e8a317', opensUnfinished: true,
+      value: biMoney(u.remaining, true),
+      sub: u.withBalanceCount ? `${plural(u.withBalanceCount, 'proforma')} not fully paid` : 'Nothing left to collect',
+      hint: 'Sum of each unfinished proforma\'s total minus its Customer POPs, from any date.' },
   ]
 })
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Purchasing.Services;
@@ -20,6 +21,7 @@ public class DocumentsController : ControllerBase
     private readonly DbContext _db;
     private readonly IDocumentStorageService _storage;
     private readonly IPaymentBoxService _paymentBoxService;
+    private readonly IConfiguration _config;
 
     // Maps category key → folder name for PI-level documents
     private static readonly Dictionary<string, string> PiCategoryFolders = new(StringComparer.OrdinalIgnoreCase)
@@ -60,12 +62,16 @@ public class DocumentsController : ControllerBase
         ["packing_list"] = "Packing List",
     };
 
-    public DocumentsController(DbContext db, IDocumentStorageService storage, IPaymentBoxService paymentBoxService)
+    public DocumentsController(DbContext db, IDocumentStorageService storage, IPaymentBoxService paymentBoxService, IConfiguration config)
     {
         _db = db;
         _storage = storage;
         _paymentBoxService = paymentBoxService;
+        _config = config;
     }
+
+    /// <summary>With a warehouse, Customer POP money waits for it; without one (a satellite server) it deposits at once.</summary>
+    private bool WarehouseConfirmsDeposits => !string.IsNullOrWhiteSpace(_config["WarehouseSync:Url"]);
 
     // ───────────── List ─────────────
 
@@ -291,10 +297,22 @@ public class DocumentsController : ControllerBase
                 _db.Set<CustomerPayment>().Add(payment);
                 await _db.SaveChangesAsync();
 
-                var deposited = await _paymentBoxService.TryAutoDepositAsync(
+                if (WarehouseConfirmsDeposits)
+                {
+                    _db.Set<IncomingDeposit>().Add(new IncomingDeposit
+                    {
+                        CustomerPaymentId = payment.Id,
+                        PaymentBoxId = currentInvoice.DefaultDepositWalletId!.Value,
+                        Amount = amount,
+                        Currency = normalizedCurrency,
+                        WalletRate = walletExchangeRate,
+                        OfficeAmount = IncomingDeposit.WalletAmount(amount, walletExchangeRate),
+                    });
+                    await _db.SaveChangesAsync();
+                }
+                else if (!await _paymentBoxService.TryAutoDepositAsync(
                     invoiceId, amount, currentInvoice.CustomerId, normalizedCurrency, walletExchangeRate,
-                    currentInvoice.DefaultDepositWalletId, savedName);
-                if (!deposited)
+                    currentInvoice.DefaultDepositWalletId, savedName))
                 {
                     await transaction.RollbackAsync();
                     _storage.DeleteFileInInvoiceCategory(invoiceNumber, "Customer POP", savedName);
@@ -496,7 +514,7 @@ public class DocumentsController : ControllerBase
         var invoice = await _db.Set<Invoice>().FirstOrDefaultAsync(i => i.Id == invoiceId);
         if (invoice == null) return NotFound();
 
-        var payments = await _db.Set<CustomerPayment>()
+        var rows = await _db.Set<CustomerPayment>()
             .Where(p => p.InvoiceId == invoiceId)
             .OrderBy(p => p.CreatedAt)
             .Select(p => new
@@ -512,6 +530,16 @@ public class DocumentsController : ControllerBase
             })
             .ToListAsync();
 
+        var incoming = await _db.Set<IncomingDeposit>().AsNoTracking()
+            .Where(d => d.CustomerPayment.InvoiceId == invoiceId)
+            .Select(d => new { d.CustomerPaymentId, d.Status, d.BankAt })
+            .ToDictionaryAsync(d => d.CustomerPaymentId);
+
+        var payments = rows.Select(p => new
+        {
+            p.Id, p.FileName, p.Amount, p.ReceivedAmount, p.Currency, p.ExchangeRate, p.Notes, p.CreatedAt,
+            WalletStage = incoming.TryGetValue(p.Id, out var d) ? IncomingDeposit.Stage(d.Status, d.BankAt) : null,
+        }).ToList();
         var totalPaid = payments.Sum(p => p.Amount);
 
         return Ok(new
@@ -520,6 +548,7 @@ public class DocumentsController : ControllerBase
             totalPaid,
             invoiceTotal = invoice.TotalAmount,
             isPaid = totalPaid >= invoice.TotalAmount,
+            warehouseConfirms = WarehouseConfirmsDeposits,
         });
     }
 
@@ -779,6 +808,15 @@ public class DocumentsController : ControllerBase
                     && t.Type == "Deposit"
                     && t.FromType == "Customer")
                 .ToListAsync();
+            var incoming = await _db.Set<IncomingDeposit>().FirstOrDefaultAsync(d => d.CustomerPaymentId == payment.Id);
+            if (incoming != null)
+            {
+                _db.Set<IncomingDeposit>().Remove(incoming);
+                if (incoming.FeeTransactionId is { } feeId)
+                    walletDeposits.AddRange(await _db.Set<PaymentTransaction>().Where(t => t.Id == feeId).ToListAsync());
+                if (incoming.BankPopFileName != null)
+                    _storage.DeleteFileInInvoiceCategory(invoice.InvoiceNumber, IncomingDeposit.BankPopFolder, incoming.BankPopFileName);
+            }
             _db.Set<PaymentTransaction>().RemoveRange(walletDeposits);
             _db.Set<CustomerPayment>().Remove(payment);
             await _db.SaveChangesAsync();

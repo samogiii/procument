@@ -4442,6 +4442,105 @@ namespace Procument.Data.Migrations
                     b.ToTable("InvoiceItems", (string)null);
                 });
 
+            modelBuilder.Entity("Procument.Module.Sales.Entities.IncomingDeposit", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("BankAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("BankAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("BankBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal?>("BankFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("BankPopFileName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<decimal?>("BankRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal?>("BankWalletAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<long>("CustomerPaymentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("DepositTransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("FeeTransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("OfficeAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long>("PaymentBoxId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RejectNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("ReviewedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("UploadId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("WalletRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerPaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("DepositTransactionId");
+
+                    b.HasIndex("FeeTransactionId");
+
+                    b.HasIndex("PaymentBoxId");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UploadId")
+                        .IsUnique();
+
+                    b.ToTable("IncomingDeposits", (string)null);
+                });
+
             modelBuilder.Entity("Procument.Module.Sales.Entities.Invoice", b =>
                 {
                     b.Property<long>("Id")
@@ -4628,16 +4727,31 @@ namespace Procument.Data.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
+                    b.Property<decimal?>("HandlingFee")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<long?>("ParentBoxId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Surname")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("SwiftCode")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("WireFee")
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyPresetId");
+
+                    b.HasIndex("ParentBoxId");
 
                     b.ToTable("PaymentBoxes", (string)null);
                 });
@@ -5268,6 +5382,97 @@ namespace Procument.Data.Migrations
                     b.HasIndex("ToBoxId");
 
                     b.ToTable("WalletTransferPendings", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.WarehouseShippingCost", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("EnteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EnteredBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal>("FixedCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("OtherCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long?>("PaymentBoxId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PaymentTransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RejectNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("ReviewedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("TrackIds")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("TrackNumber")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("WalletAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WarehouseName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<long>("WarehouseShipmentId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentBoxId");
+
+                    b.HasIndex("PaymentTransactionId");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("WarehouseShipmentId")
+                        .IsUnique();
+
+                    b.ToTable("WarehouseShippingCosts", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskBoardColumn", b =>
@@ -6922,6 +7127,46 @@ namespace Procument.Data.Migrations
                     b.Navigation("PartNumber");
                 });
 
+            modelBuilder.Entity("Procument.Module.Sales.Entities.IncomingDeposit", b =>
+                {
+                    b.HasOne("Procument.Module.Sales.Entities.CustomerPayment", "CustomerPayment")
+                        .WithMany()
+                        .HasForeignKey("CustomerPaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentTransaction", "DepositTransaction")
+                        .WithMany()
+                        .HasForeignKey("DepositTransactionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentTransaction", "FeeTransaction")
+                        .WithMany()
+                        .HasForeignKey("FeeTransactionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentBox", "PaymentBox")
+                        .WithMany()
+                        .HasForeignKey("PaymentBoxId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "ReviewedBy")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("CustomerPayment");
+
+                    b.Navigation("DepositTransaction");
+
+                    b.Navigation("FeeTransaction");
+
+                    b.Navigation("PaymentBox");
+
+                    b.Navigation("ReviewedBy");
+                });
+
             modelBuilder.Entity("Procument.Module.Sales.Entities.Invoice", b =>
                 {
                     b.HasOne("Procument.Module.Catalog.Entities.Customer", "Customer")
@@ -6967,7 +7212,14 @@ namespace Procument.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentBox", "ParentBox")
+                        .WithMany("SubWallets")
+                        .HasForeignKey("ParentBoxId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.Navigation("CompanyPreset");
+
+                    b.Navigation("ParentBox");
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.PaymentTransaction", b =>
@@ -7193,6 +7445,30 @@ namespace Procument.Data.Migrations
                     b.Navigation("FromBox");
 
                     b.Navigation("ToBox");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.WarehouseShippingCost", b =>
+                {
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentBox", "PaymentBox")
+                        .WithMany()
+                        .HasForeignKey("PaymentBoxId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentTransaction", "PaymentTransaction")
+                        .WithMany()
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Procument.Module.Identity.Entities.User", "ReviewedBy")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("PaymentBox");
+
+                    b.Navigation("PaymentTransaction");
+
+                    b.Navigation("ReviewedBy");
                 });
 
             modelBuilder.Entity("Procument.Module.Tasks.Entities.TaskBoardColumn", b =>
@@ -7445,6 +7721,8 @@ namespace Procument.Data.Migrations
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.PaymentBox", b =>
                 {
+                    b.Navigation("SubWallets");
+
                     b.Navigation("Transactions");
                 });
 

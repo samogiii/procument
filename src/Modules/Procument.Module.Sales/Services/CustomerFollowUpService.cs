@@ -14,12 +14,19 @@ namespace Procument.Module.Sales.Services;
 
 public interface ICustomerFollowUpService
 {
-    /// <summary>All active rows; message counts and unread flags are for <paramref name="userName"/>.</summary>
-    Task<List<CustomerFollowUpResponse>> GetAllAsync(string userName);
+    /// <summary>
+    /// Active rows assigned to <paramref name="assignedTo"/> (null = every row, for a SuperAdmin);
+    /// message counts and unread flags are for <paramref name="userName"/>.
+    /// </summary>
+    Task<List<CustomerFollowUpResponse>> GetAllAsync(string userName, string? assignedTo);
     /// <summary>One active row (null when it does not exist), e.g. to pick up a status the server changed.</summary>
     Task<CustomerFollowUpResponse?> GetByIdAsync(long id, string userName);
-    Task<CustomerFollowUpOptionsResponse> GetOptionsAsync(string userName);
-    Task<CustomerFollowUpResponse> CreateAsync(CreateCustomerFollowUpRequest request, string userName);
+    /// <summary>The active row exists and is assigned to the user.</summary>
+    Task<bool> IsAssignedAsync(long id, string userName);
+    /// <summary>Used values come from the rows of <paramref name="assignedTo"/>; only a SuperAdmin (null) gets the assignees.</summary>
+    Task<CustomerFollowUpOptionsResponse> GetOptionsAsync(string userName, string? assignedTo);
+    /// <summary>The new row is assigned to <paramref name="assignedTo"/>.</summary>
+    Task<CustomerFollowUpResponse> CreateAsync(CreateCustomerFollowUpRequest request, string userName, string? assignedTo);
     /// <summary>Returns null when the row does not exist. Throws ArgumentException for an unknown field or a bad value.</summary>
     Task<CustomerFollowUpResponse?> UpdateFieldAsync(long id, UpdateCustomerFollowUpFieldRequest request, string userName);
 
@@ -52,15 +59,16 @@ public interface ICustomerFollowUpService
     /// </summary>
     Task<List<CustomerFollowUpMessageResponse>?> SendMessageAsync(long id, string? text, IEnumerable<IFormFile> files, string userName);
     /// <summary>
-    /// Messages of every active row whose text or file name contains <paramref name="query"/> (case-insensitive),
-    /// newest first, at most <see cref="MaxMessageSearchHits"/>. Throws ArgumentException for a too short query.
+    /// Messages of the active rows of <paramref name="assignedTo"/> (null = every row) whose text or file name contains
+    /// <paramref name="query"/> (case-insensitive), newest first, at most <see cref="MaxMessageSearchHits"/>.
+    /// Throws ArgumentException for a too short query.
     /// </summary>
-    Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query);
+    Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query, string? assignedTo);
     /// <summary>Deletes the message and its document. Only the sender may delete it.</summary>
     Task<DeleteMessageResult> DeleteMessageAsync(long id, long messageId, string userName);
 
-    /// <summary>Rows that have messages or are marked unread, with the user's unread flag.</summary>
-    Task<List<CustomerFollowUpMessageStatusResponse>> GetMessageStatusesAsync(string userName);
+    /// <summary>Rows of <paramref name="assignedTo"/> (null = every row) that have messages or are marked unread, with the user's unread flag.</summary>
+    Task<List<CustomerFollowUpMessageStatusResponse>> GetMessageStatusesAsync(string userName, string? assignedTo);
     /// <summary>The user has seen every message of the row (clears "marked unread"). False when the row does not exist.</summary>
     Task<bool> MarkMessagesReadAsync(long id, string userName);
     /// <summary>Flags the row unread for the user until they open its chat again. False when the row does not exist.</summary>
@@ -120,11 +128,11 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         _rfqService = rfqService;
     }
 
-    public async Task<List<CustomerFollowUpResponse>> GetAllAsync(string userName)
+    public async Task<List<CustomerFollowUpResponse>> GetAllAsync(string userName, string? assignedTo)
     {
         var rows = await _db.Set<CustomerFollowUp>()
             .AsNoTracking()
-            .Where(f => f.IsActive)
+            .Where(f => f.IsActive && (assignedTo == null || f.Assign == assignedTo))
             .OrderByDescending(f => f.Id)
             .ToListAsync();
         // Documents of deleted rows are removed with the row, so every remaining document belongs to an active row.
@@ -133,7 +141,7 @@ public class CustomerFollowUpService : ICustomerFollowUpService
             .GroupBy(d => d.CustomerFollowUpId)
             .Select(g => new { Id = g.Key, Count = g.Count() })
             .ToDictionaryAsync(g => g.Id, g => g.Count);
-        var chats = (await GetMessageStatusesAsync(userName)).ToDictionary(s => s.Id);
+        var chats = (await GetMessageStatusesAsync(userName, assignedTo)).ToDictionary(s => s.Id);
         var rfqs = await RfqRefsAsync(rows.Where(f => f.RfqId != null).Select(f => f.RfqId!.Value));
         // Refs of deleted rows are removed with the row too.
         var refs = await RowRefsAsync(null);
@@ -153,15 +161,18 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         var row = await _db.Set<CustomerFollowUp>().AsNoTracking().FirstOrDefaultAsync(f => f.Id == id && f.IsActive);
         if (row == null) return null;
         var response = await FullResponseAsync(row);
-        response.HasUnreadMessages = (await GetMessageStatusesAsync(userName)).Any(s => s.Id == id && s.HasUnreadMessages);
+        response.HasUnreadMessages = (await GetMessageStatusesAsync(userName, null)).Any(s => s.Id == id && s.HasUnreadMessages);
         return response;
     }
 
-    public async Task<CustomerFollowUpOptionsResponse> GetOptionsAsync(string userName)
+    public Task<bool> IsAssignedAsync(long id, string userName) =>
+        _db.Set<CustomerFollowUp>().AnyAsync(f => f.Id == id && f.IsActive && f.Assign == userName);
+
+    public async Task<CustomerFollowUpOptionsResponse> GetOptionsAsync(string userName, string? assignedTo)
     {
         var used = await _db.Set<CustomerFollowUp>()
             .AsNoTracking()
-            .Where(f => f.IsActive)
+            .Where(f => f.IsActive && (assignedTo == null || f.Assign == assignedTo))
             .Select(f => new { f.CustomerCode, f.Assign, f.Category, f.IssueStatus })
             .ToListAsync();
 
@@ -181,7 +192,7 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         return new CustomerFollowUpOptionsResponse
         {
             Customers = Merge(catalogCustomers, used.Select(u => u.CustomerCode), sort: true),
-            Assignees = Merge(userNames, used.Select(u => u.Assign), sort: true),
+            Assignees = assignedTo == null ? Merge(userNames, used.Select(u => u.Assign), sort: true) : [],
             // Defaults keep their workflow order; values users added follow alphabetically.
             Categories = Merge(DefaultCategories, used.Select(u => u.Category), sort: false),
             IssueStatuses = Merge(DefaultIssueStatuses, used.Select(u => u.IssueStatus), sort: false),
@@ -190,11 +201,12 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         };
     }
 
-    public async Task<CustomerFollowUpResponse> CreateAsync(CreateCustomerFollowUpRequest request, string userName)
+    public async Task<CustomerFollowUpResponse> CreateAsync(CreateCustomerFollowUpRequest request, string userName, string? assignedTo)
     {
         var row = new CustomerFollowUp
         {
             DateOfRequest = ParseDate(request.DateOfRequest) ?? DateTime.UtcNow.Date,
+            Assign = assignedTo,
             // New rows start as an open issue that neither procurement nor sales has worked on yet.
             IssueStatus = "Open",
             ProcurementStatus = StatusOpen,
@@ -786,7 +798,7 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         return messages.Select(MapMessage).ToList();
     }
 
-    public async Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query)
+    public async Task<CustomerFollowUpMessageSearchResponse> SearchMessagesAsync(string? query, string? assignedTo)
     {
         var term = query?.Trim() ?? "";
         if (term.Length < 2) throw new ArgumentException("Type at least 2 characters to search.");
@@ -795,6 +807,7 @@ public class CustomerFollowUpService : ICustomerFollowUpService
         var matches = _db.Set<CustomerFollowUpMessage>()
             .AsNoTracking()
             .Where(m => m.CustomerFollowUp.IsActive
+                && (assignedTo == null || m.CustomerFollowUp.Assign == assignedTo)
                 && ((m.Text != null && m.Text.Contains(term)) || (m.DocumentName != null && m.DocumentName.Contains(term))));
         var total = await matches.CountAsync();
         var messages = await matches
@@ -828,11 +841,12 @@ public class CustomerFollowUpService : ICustomerFollowUpService
 
     // ── Read / unread (per user) ─────────────────────────────────────────────
 
-    public async Task<List<CustomerFollowUpMessageStatusResponse>> GetMessageStatusesAsync(string userName)
+    public async Task<List<CustomerFollowUpMessageStatusResponse>> GetMessageStatusesAsync(string userName, string? assignedTo)
     {
         // Messages of deleted rows are removed with the row, so these are all active rows.
         var chats = await _db.Set<CustomerFollowUpMessage>()
             .AsNoTracking()
+            .Where(m => assignedTo == null || m.CustomerFollowUp.Assign == assignedTo)
             .GroupBy(m => m.CustomerFollowUpId)
             .Select(g => new
             {
@@ -844,7 +858,8 @@ public class CustomerFollowUpService : ICustomerFollowUpService
             .ToListAsync();
         var reads = await _db.Set<CustomerFollowUpMessageRead>()
             .AsNoTracking()
-            .Where(r => r.UserName == userName && r.CustomerFollowUp.IsActive)
+            .Where(r => r.UserName == userName && r.CustomerFollowUp.IsActive
+                && (assignedTo == null || r.CustomerFollowUp.Assign == assignedTo))
             .ToDictionaryAsync(r => r.CustomerFollowUpId);
 
         var statuses = chats.Select(c =>

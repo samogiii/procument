@@ -29,6 +29,7 @@ public class BIController : ControllerBase
     /// <summary>POs in these statuses no longer cost anything against the proforma.</summary>
     private static readonly string[] ClosedPoStatuses = ["Cancelled", "Returned"];
     private const string CancelledLineStatus = "Cancelled";
+    private const string FinishedStatus = "Finish";
     /// <summary>Wallet withdraw category shown as "Bank Fee and Others" (bank fees, shipping, other costs).</summary>
     private const string BankFeeToType = "BankFee";
     /// <summary>A PO counts as paid once wallet payments + credit reach its total within a cent.</summary>
@@ -120,22 +121,35 @@ public class BIController : ControllerBase
         return filter == null ? invoices : invoices.Where(i => filter.Contains(i.CustomerId));
     }
 
-    /// <summary>Lazy customer search for the picker — at most <paramref name="take"/> matches.</summary>
+    /// <summary>Proformas (not cancelled) still open for the covered customers, whatever their date.</summary>
+    private IQueryable<Invoice> UnfinishedInvoices(IQueryable<long>? filter)
+    {
+        var invoices = _db.Invoices.AsNoTracking().Where(i => !i.IsCancelled && i.Status != FinishedStatus);
+        return filter == null ? invoices : invoices.Where(i => filter.Contains(i.CustomerId));
+    }
+
+    /// <summary>
+    /// Customers for the pickers — at most <paramref name="take"/> matches. With <paramref name="bases"/> it
+    /// returns those bases' customers by code, so a base's whole list can fill a dropdown.
+    /// </summary>
     [HttpGet("customers")]
-    public async Task<ActionResult<List<BICustomerOption>>> SearchCustomers([FromQuery] string? search = null, [FromQuery] int take = 30)
+    public async Task<ActionResult<List<BICustomerOption>>> SearchCustomers(
+        [FromQuery] string? search = null, [FromQuery] int take = 30, [FromQuery] List<int>? bases = null)
     {
         if (!await HasAccessAsync()) return Forbid();
-        take = Math.Clamp(take, 1, 100);
+        var byBase = bases is { Count: > 0 };
+        take = Math.Clamp(take, 1, byBase ? MaxCustomerIds : 100);
 
         var query = ScopedCustomers().Where(c => c.IsActive);
+        if (byBase) query = query.Where(c => c.Base != null && bases!.Contains(c.Base.Value));
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim();
             query = query.Where(c => c.Name.Contains(s) || (c.CustomerCode != null && c.CustomerCode.Contains(s)));
         }
 
-        return Ok(await query
-            .OrderBy(c => c.Name)
+        var ordered = byBase ? query.OrderBy(c => c.CustomerCode).ThenBy(c => c.Name) : query.OrderBy(c => c.Name);
+        return Ok(await ordered
             .Take(take)
             .Select(c => new BICustomerOption { Id = c.Id, Name = c.Name, Code = c.CustomerCode, Base = c.Base })
             .ToListAsync());
@@ -186,6 +200,7 @@ public class BIController : ControllerBase
             .GroupBy(f => f.ProformaInvoiceId)
             .Select(g => new { InvoiceId = g.Key, First = g.Min(f => f.CreatedAt) })
             .ToDictionaryAsync(f => f.InvoiceId, f => f.First);
+        var unfinished = await UnfinishedSummaryAsync(filter);
 
         // ── Per customer ──
         var rows = new Dictionary<long, BICustomerRow>();
@@ -300,6 +315,7 @@ public class BIController : ControllerBase
             Days = request.Days,
             Bucket = bucket,
             Totals = totals,
+            Unfinished = unfinished,
             Customers = rows.Values
                 .OrderByDescending(r => r.BoughtValue).ThenByDescending(r => r.SentQuoteSum).ThenByDescending(r => r.RfqCount)
                 .ThenBy(r => r.CustomerName)
@@ -308,9 +324,26 @@ public class BIController : ControllerBase
         });
     }
 
+    /// <summary>How many proformas are still open and what the customers still owe on them (Customer POPs in USD).</summary>
+    private async Task<BIUnfinishedSummary> UnfinishedSummaryAsync(IQueryable<long>? filter)
+    {
+        // Summed here: SQL Server cannot aggregate over the POP subquery.
+        var balances = await UnfinishedInvoices(filter)
+            .Select(i => new { i.TotalAmount, Paid = _db.CustomerPayments.Where(p => p.InvoiceId == i.Id).Sum(p => (decimal?)p.Amount) ?? 0m })
+            .ToListAsync();
+        var remaining = balances.Select(b => Math.Max(0, b.TotalAmount - b.Paid)).ToList();
+        return new BIUnfinishedSummary
+        {
+            Count = balances.Count,
+            WithBalanceCount = remaining.Count(r => r > 0),
+            TotalAmount = balances.Sum(b => b.TotalAmount),
+            Remaining = remaining.Sum(),
+        };
+    }
+
     /// <summary>
-    /// Proforma invoices in the window, one page at a time, with bought value, supplier cost, fees, profit and
-    /// time to final invoice. Profit and fees are allocated in memory, so sorting and paging happen here too.
+    /// Proforma invoices in the window (or every unfinished one), one page at a time, with bought value, supplier cost,
+    /// fees, profit and time to final invoice. Profit and fees are allocated in memory, so sorting and paging happen here too.
     /// </summary>
     [HttpPost("proformas")]
     public async Task<ActionResult<BIProformaPage>> Proformas([FromBody] BIProformaQuery request)
@@ -320,13 +353,15 @@ public class BIController : ControllerBase
         var take = Math.Clamp(request.Take, 1, 100);
         var skip = Math.Max(0, request.Skip);
 
-        var invoices = WindowInvoices(WindowStart(request.Days), CustomerFilter(request));
+        var filter = CustomerFilter(request);
+        var invoices = request.UnfinishedOnly ? UnfinishedInvoices(filter) : WindowInvoices(WindowStart(request.Days), filter);
         var baseRows = await invoices.Select(i => new
         {
             i.Id, i.InvoiceNumber, i.B1InvoiceNumber, i.Status, i.CreatedAt, i.TotalAmount,
             i.CustomerId, CustomerName = i.Customer.Name, CustomerCode = i.Customer.CustomerCode,
             QuoteNumber = i.Quote.QuoteNumber,
             Lines = i.InvoiceItems.Count(x => x.Status != CancelledLineStatus),
+            Paid = _db.CustomerPayments.Where(p => p.InvoiceId == i.Id).Sum(p => (decimal?)p.Amount) ?? 0m,
             FirstFinalAt = _db.FinalInvoices.Where(f => f.ProformaInvoiceId == i.Id).Min(f => (DateTime?)f.CreatedAt),
             LastFinalAt = _db.FinalInvoices.Where(f => f.ProformaInvoiceId == i.Id).Max(f => (DateTime?)f.CreatedAt),
             FinalCount = _db.FinalInvoices.Count(f => f.ProformaInvoiceId == i.Id),
@@ -351,6 +386,8 @@ public class BIController : ControllerBase
                 CustomerCode = r.CustomerCode,
                 QuoteNumber = r.QuoteNumber,
                 TotalAmount = r.TotalAmount,
+                Paid = r.Paid,
+                Remaining = Math.Max(0, r.TotalAmount - r.Paid),
                 LineCount = r.Lines,
                 BoughtLineCount = e?.BoughtLines ?? 0,
                 PoCount = e?.PoIds.Count ?? 0,
@@ -381,6 +418,10 @@ public class BIController : ControllerBase
             "fees" => By(r => r.Fees),
             "profit" => By(r => r.Profit),
             "daysToFinal" => By(r => r.DaysToFinal),
+            "totalAmount" => By(r => (decimal?)r.TotalAmount),
+            "paid" => By(r => (decimal?)r.Paid),
+            "remaining" => By(r => (decimal?)r.Remaining),
+            "status" => desc ? rows.OrderByDescending(r => r.Status) : rows.OrderBy(r => r.Status),
             "customer" => desc ? rows.OrderByDescending(r => r.CustomerName) : rows.OrderBy(r => r.CustomerName),
             _ => desc ? rows.OrderByDescending(r => r.CreatedAt) : rows.OrderBy(r => r.CreatedAt),
         };
@@ -539,13 +580,18 @@ public class BIController : ControllerBase
                 && t.InvoiceId != null && invoiceIds.Contains(t.InvoiceId.Value))
             .Select(t => new FeeRow
             {
-                InvoiceId = t.InvoiceId!.Value,
+                TransactionId = t.Id, InvoiceId = t.InvoiceId!.Value,
                 Amount = t.Amount, ExchangeRate = t.ExchangeRate, TxCurrency = t.TxCurrency, WalletCurrency = t.PaymentBox.Currency,
             })
             .ToListAsync();
+        // A USD Customer POP into a yuan wallet: its bank fee is in yuan, and the POP's rate turns it back.
+        var depositFeeRates = await _db.IncomingDeposits.AsNoTracking()
+            .Where(d => d.FeeTransactionId != null && d.WalletRate != null && d.Currency == "USD"
+                && invoiceIds.Contains(d.CustomerPayment.InvoiceId))
+            .ToDictionaryAsync(d => d.FeeTransactionId!.Value, d => d.WalletRate);
         foreach (var f in directFees)
         {
-            if (ToUsd(f, null) is { } usd) Pi(f.InvoiceId).Fees += usd;
+            if (ToUsd(f, depositFeeRates.GetValueOrDefault(f.TransactionId)) is { } usd) Pi(f.InvoiceId).Fees += usd;
             else result.UnconvertedFeeCount++;
         }
 
@@ -554,6 +600,7 @@ public class BIController : ControllerBase
 
     private sealed class FeeRow
     {
+        public long TransactionId { get; set; }
         public long POId { get; set; }
         public long InvoiceId { get; set; }
         public long? PaymentRequestId { get; set; }
@@ -652,9 +699,11 @@ public class BIProformaQuery : BIQuery
 {
     public int Skip { get; set; }
     public int Take { get; set; } = 25;
-    /// <summary>createdAt (default) | boughtValue | supplierCost | fees | profit | daysToFinal | customer</summary>
+    /// <summary>createdAt (default) | boughtValue | supplierCost | fees | profit | daysToFinal | totalAmount | paid | remaining | status | customer</summary>
     public string? SortBy { get; set; }
     public bool SortDesc { get; set; } = true;
+    /// <summary>Every proforma not finished or cancelled, whatever its date (Days is not used to filter).</summary>
+    public bool UnfinishedOnly { get; set; }
 }
 
 public class BICustomerOption
@@ -721,6 +770,17 @@ public class BITrendPoint
     public decimal BoughtValue { get; set; }
 }
 
+/// <summary>Proformas not finished or cancelled, whatever their date — not limited to the report's window.</summary>
+public class BIUnfinishedSummary
+{
+    public int Count { get; set; }
+    /// <summary>Those the customer has not fully paid (the rest are paid and waiting for delivery).</summary>
+    public int WithBalanceCount { get; set; }
+    public decimal TotalAmount { get; set; }
+    /// <summary>Sum of each proforma's total − its Customer POPs, never below zero.</summary>
+    public decimal Remaining { get; set; }
+}
+
 public class BISummaryResponse
 {
     public DateTime From { get; set; }
@@ -729,6 +789,7 @@ public class BISummaryResponse
     /// <summary>day | week | month — the trend's bucket size.</summary>
     public string Bucket { get; set; } = "day";
     public BIMetrics Totals { get; set; } = new();
+    public BIUnfinishedSummary Unfinished { get; set; } = new();
     public List<BICustomerRow> Customers { get; set; } = [];
     public List<BITrendPoint> Trend { get; set; } = [];
 }
@@ -746,6 +807,10 @@ public class BIProformaRow
     public string? QuoteNumber { get; set; }
     /// <summary>Whole proforma total, for context only.</summary>
     public decimal TotalAmount { get; set; }
+    /// <summary>Customer POPs so far, in USD.</summary>
+    public decimal Paid { get; set; }
+    /// <summary>TotalAmount − Paid, never below zero.</summary>
+    public decimal Remaining { get; set; }
     public int LineCount { get; set; }
     public int BoughtLineCount { get; set; }
     public int PoCount { get; set; }

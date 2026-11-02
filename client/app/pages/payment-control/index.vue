@@ -155,6 +155,10 @@
       <v-tab value="wallets" prepend-icon="mdi-wallet-outline">Wallets</v-tab>
       <v-tab value="ledger" prepend-icon="mdi-format-list-bulleted">All Transactions</v-tab>
       <v-tab value="transfers" prepend-icon="mdi-swap-horizontal">Ready To Transfer</v-tab>
+      <v-tab value="incoming" prepend-icon="mdi-cash-plus">
+        Incoming Money
+        <v-chip v-if="incomingPending" size="x-small" color="warning" variant="tonal" class="ml-2">{{ incomingPending }}</v-chip>
+      </v-tab>
     </v-tabs>
 
     <!-- ── Wallets Tab ── -->
@@ -162,7 +166,7 @@
       <v-tabs-window-item value="wallets">
         <v-row v-if="!loading">
           <v-col
-            v-for="box in boxes"
+            v-for="box in mainBoxes"
             :key="box.id"
             cols="12"
             md="6"
@@ -172,7 +176,7 @@
               class="glass-card cursor-pointer"
               rounded="lg"
               hover
-              @click="navigateTo('/payment-control/' + box.id)"
+              @click="openWallet(box)"
             >
               <v-card-text class="pa-5">
                 <div class="d-flex align-center justify-space-between mb-4">
@@ -181,6 +185,7 @@
                     <div>
                       <div class="text-subtitle-1 font-weight-bold">{{ boxLabel(box) }}</div>
                       <div v-if="box.name && box.companyPresetName" class="text-body-2 text-medium-emphasis">{{ box.companyPresetName }}</div>
+                      <div v-if="box.surname" class="text-caption text-medium-emphasis">Warehouse sees: {{ box.surname }}</div>
                     </div>
                   </div>
                   <div class="d-flex align-center gap-1">
@@ -209,6 +214,8 @@
                       size="x-small"
                       variant="text"
                       color="error"
+                      :disabled="!!box.group"
+                      :title="box.group ? 'Move its sub-wallets out first' : 'Delete wallet'"
                       @click.stop="confirmDelete(box)"
                     />
                   </div>
@@ -216,12 +223,18 @@
 
                 <!-- Remaining balance — right-aligned and oversized so it reads at a glance -->
                 <div class="text-right my-4">
-                  <div class="text-caption text-medium-emphasis text-uppercase mb-1">Remaining Balance</div>
+                  <div class="text-caption text-medium-emphasis text-uppercase mb-1">{{ box.group ? 'Total Balance' : 'Remaining Balance' }}</div>
                   <div
                     class="wallet-balance-amount font-weight-bold"
-                    :class="box.balance >= 0 ? 'text-success' : 'text-error'"
+                    :class="(box.group ?? box).balance >= 0 ? 'text-success' : 'text-error'"
                   >
-                    {{ currencySymbol(box.currency) }}{{ formatPrice(box.balance) }}
+                    {{ currencySymbol(box.currency) }}{{ formatPrice((box.group ?? box).balance) }}
+                  </div>
+                  <div v-if="box.group" class="text-caption text-medium-emphasis mt-1">
+                    Includes {{ box.group.subWalletCount }} sub-wallet{{ box.group.subWalletCount === 1 ? '' : 's' }}
+                  </div>
+                  <div v-for="u in box.group?.notConverted ?? []" :key="u.currency" class="text-caption text-warning">
+                    + {{ u.symbol }}{{ formatPrice(u.balance) }} not converted
                   </div>
                 </div>
 
@@ -243,13 +256,13 @@
                   <div class="text-center">
                     <div class="text-caption text-medium-emphasis">Deposits</div>
                     <div class="wallet-balance-amount-DW font-weight-medium text-success">
-                      +{{ currencySymbol(box.currency) }}{{ formatPrice(box.totalDeposit) }}
+                      +{{ currencySymbol(box.currency) }}{{ formatPrice((box.group ?? box).totalDeposit) }}
                     </div>
                   </div>
                   <div class="text-center">
                     <div class="text-caption text-medium-emphasis">Withdraws</div>
                     <div class="wallet-balance-amount-DW font-weight-medium text-error">
-                      -{{ currencySymbol(box.currency) }}{{ formatPrice(box.totalWithdraw) }}
+                      -{{ currencySymbol(box.currency) }}{{ formatPrice((box.group ?? box).totalWithdraw) }}
                     </div>
                   </div>
                 </div>
@@ -745,6 +758,11 @@
       <v-tabs-window-item value="transfers">
         <WalletTransfersPanel />
       </v-tabs-window-item>
+
+      <!-- ── Incoming Money Tab (eager: the tab badge needs its count) ── -->
+      <v-tabs-window-item value="incoming" eager>
+        <IncomingMoneyTab @pending="incomingPending = $event" @accepted="onIncomingAccepted" />
+      </v-tabs-window-item>
     </v-tabs-window>
 
     <WalletRateCorrectionDialog
@@ -771,6 +789,27 @@
             class="mb-3"
             prepend-inner-icon="mdi-wallet-outline"
           />
+          <v-text-field
+            v-model="form.surname"
+            label="Surname"
+            :hint="SURNAME_HINT"
+            persistent-hint
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-incognito"
+          />
+          <v-row dense class="mb-1">
+            <v-col cols="6">
+              <v-text-field v-model="form.handlingFee" :label="`Handling Fee (${form.currency})`" type="number" min="0" step="0.01"
+                variant="outlined" density="comfortable" hide-details />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field v-model="form.wireFee" :label="`Wire Fee (${form.currency})`" type="number" min="0" step="0.01"
+                variant="outlined" density="comfortable" hide-details />
+            </v-col>
+          </v-row>
+          <div class="text-caption text-medium-emphasis mt-1 mb-3">{{ FEES_HINT }}</div>
           <v-autocomplete
             v-model="form.companyPresetId"
             :items="presets"
@@ -788,6 +827,18 @@
             label="Currency"
             variant="outlined"
             density="comfortable"
+            class="mb-3"
+          />
+          <v-autocomplete
+            v-model="form.parentBoxId"
+            :items="mainBoxes"
+            :item-title="(b) => `${boxLabel(b)} (${b.currency})`"
+            item-value="id"
+            label="Main Wallet (optional)"
+            placeholder="None — this is a main wallet"
+            variant="outlined"
+            density="comfortable"
+            clearable
             class="mb-3"
           />
           <v-divider class="mb-3" />
@@ -826,6 +877,7 @@
             variant="outlined"
             density="comfortable"
           />
+          <v-alert v-if="saveError" type="error" variant="tonal" density="compact">{{ saveError }}</v-alert>
         </v-card-text>
         <v-divider />
         <v-card-actions class="pa-4">
@@ -902,6 +954,28 @@
             prepend-inner-icon="mdi-pencil-outline"
             @keyup.enter="doRename"
           />
+          <v-text-field
+            v-model="renameSurname"
+            label="Surname"
+            :hint="SURNAME_HINT"
+            persistent-hint
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-incognito"
+            @keyup.enter="doRename"
+          />
+          <v-row dense class="mb-1">
+            <v-col cols="6">
+              <v-text-field v-model="renameHandlingFee" :label="`Handling Fee (${renameTarget?.currency})`" type="number" min="0" step="0.01"
+                variant="outlined" density="comfortable" hide-details />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field v-model="renameWireFee" :label="`Wire Fee (${renameTarget?.currency})`" type="number" min="0" step="0.01"
+                variant="outlined" density="comfortable" hide-details />
+            </v-col>
+          </v-row>
+          <div class="text-caption text-medium-emphasis mt-1 mb-3">{{ FEES_HINT }}</div>
           <v-autocomplete
             v-model="renamePresetId"
             :items="presets"
@@ -915,14 +989,125 @@
             hide-details
             prepend-inner-icon="mdi-domain"
           />
-          <div class="text-caption text-medium-emphasis mt-2">
+          <div class="text-caption text-medium-emphasis mt-2 mb-3">
             Clear this field to detach the wallet from any company.
           </div>
+          <v-autocomplete
+            v-model="renameParentId"
+            :items="parentOptions"
+            :item-title="(b) => `${boxLabel(b)} (${b.currency})`"
+            item-value="id"
+            label="Main Wallet"
+            placeholder="None — this is a main wallet"
+            variant="outlined"
+            density="comfortable"
+            clearable
+            hide-details
+            :disabled="!!renameTarget?.group"
+            prepend-inner-icon="mdi-wallet-outline"
+          />
+          <div class="text-caption text-medium-emphasis mt-2">
+            {{ renameTarget?.group
+              ? 'This wallet has sub-wallets, so it stays a main wallet.'
+              : 'Pick a main wallet to make this a sub-wallet. Its transactions and balance do not change.' }}
+          </div>
+          <v-alert v-if="renameError" type="error" variant="tonal" density="compact" class="mt-3">{{ renameError }}</v-alert>
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="renameDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="renaming" :disabled="!renameValue.trim()" @click="doRename">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Main wallet + sub-wallets -->
+    <v-dialog v-model="groupDialog" max-width="720">
+      <v-card v-if="groupBox" rounded="lg">
+        <v-card-title class="pa-4 d-flex align-center gap-2">
+          <v-icon icon="mdi-bank-outline" color="primary" />
+          <span class="text-h6">{{ boxLabel(groupBox) }}</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="groupDialog = false" />
+        </v-card-title>
+        <v-divider />
+        <v-list class="py-0">
+          <v-list-item
+            v-for="w in groupWallets"
+            :key="w.id"
+            class="py-3"
+            @click="navigateTo('/payment-control/' + w.id)"
+          >
+            <div class="d-flex align-center gap-3">
+              <div class="flex-1-1">
+                <div class="font-weight-bold">{{ boxLabel(w) }}</div>
+                <div class="d-flex align-center ga-1 mt-1">
+                  <v-chip size="x-small" :color="w.parentBoxId ? 'secondary' : 'primary'" variant="tonal">
+                    {{ w.parentBoxId ? 'Sub-wallet' : 'Main wallet' }}
+                  </v-chip>
+                  <v-chip size="x-small" variant="tonal">{{ currencySymbol(w.currency) }} {{ w.currency }}</v-chip>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="font-weight-bold" :class="w.balance >= 0 ? 'text-success' : 'text-error'">
+                  {{ currencySymbol(w.currency) }}{{ formatPrice(w.balance) }}
+                </div>
+                <div v-if="w.currency !== groupBox.currency" class="text-caption text-medium-emphasis">
+                  <template v-if="w.balanceInParentCurrency != null">
+                    ≈ {{ currencySymbol(groupBox.currency) }}{{ formatPrice(w.balanceInParentCurrency) }}
+                  </template>
+                  <template v-else>Not converted</template>
+                </div>
+              </div>
+              <div class="d-flex align-center">
+                <v-btn
+                  v-if="authStore.isAdmin"
+                  icon="mdi-pencil-outline"
+                  size="x-small"
+                  variant="text"
+                  color="primary"
+                  title="Edit wallet"
+                  @click.stop="openRename(w)"
+                />
+                <v-btn
+                  v-if="authStore.isAdmin"
+                  icon="mdi-bank-outline"
+                  size="x-small"
+                  variant="text"
+                  color="secondary"
+                  title="Edit bank details"
+                  @click.stop="openBankDetails(w)"
+                />
+                <v-btn
+                  v-if="authStore.isSuperAdmin"
+                  icon="mdi-delete-outline"
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  :disabled="!!w.group"
+                  :title="w.group ? 'Move its sub-wallets out first' : 'Delete wallet'"
+                  @click.stop="confirmDelete(w)"
+                />
+                <v-icon icon="mdi-chevron-right" class="text-medium-emphasis" title="Open transactions" />
+              </div>
+            </div>
+          </v-list-item>
+        </v-list>
+        <v-divider />
+        <v-card-actions class="pa-4">
+          <span class="text-body-2 text-medium-emphasis">Total</span>
+          <span
+            class="ml-2 text-h6 font-weight-bold"
+            :class="groupBox.group!.balance >= 0 ? 'text-success' : 'text-error'"
+          >
+            {{ currencySymbol(groupBox.currency) }}{{ formatPrice(groupBox.group!.balance) }}
+          </span>
+          <span v-for="u in groupBox.group!.notConverted" :key="u.currency" class="ml-2 text-caption text-warning">
+            + {{ u.symbol }}{{ formatPrice(u.balance) }} not converted
+          </span>
+          <v-spacer />
+          <span v-if="groupHasYuanRate" class="text-caption text-medium-emphasis mr-2">$1 = ¥7</span>
+          <v-btn variant="text" @click="groupDialog = false">Close</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1087,6 +1272,14 @@ interface CurrencyBreakdown {
   totalWithdraw: number
 }
 
+interface WalletGroupTotals {
+  subWalletCount: number
+  totalDeposit: number
+  totalWithdraw: number
+  balance: number
+  notConverted: { currency: string; symbol: string; balance: number }[]
+}
+
 interface PaymentBox {
   id: number
   companyPresetId: number
@@ -1103,6 +1296,12 @@ interface PaymentBox {
   accountNumber?: string | null
   beneficiaryName?: string | null
   swiftCode?: string | null
+  parentBoxId?: number | null
+  balanceInParentCurrency?: number | null
+  group?: WalletGroupTotals | null
+  surname?: string | null
+  handlingFee?: number | null
+  wireFee?: number | null
 }
 
 interface AllTransactionRow {
@@ -1160,7 +1359,8 @@ const api = useApi()
 const showSupplierCredits = computed(() =>
   ['SuperAdmin', 'Admin', 'Payment', 'AHM'].includes(authStore.user?.role ?? ''))
 
-const tab = ref<'wallets' | 'ledger' | 'transfers'>('wallets')
+const tab = ref<'wallets' | 'ledger' | 'transfers' | 'incoming'>('wallets')
+const incomingPending = ref(0)
 const boxes = ref<PaymentBox[]>([])
 const allTransactions = ref<AllTransactionRow[]>([])
 const presets = ref<CompanyPreset[]>([])
@@ -1182,28 +1382,73 @@ const exportForm = ref({
   toDate: '',
 })
 
+/** Sub-wallets show inside their main wallet's modal, not as cards of their own. */
+const mainBoxes = computed(() => boxes.value.filter(b => !b.parentBoxId))
+
+// Group modal. Keyed by id so it follows reloads, and closes once the last sub-wallet has moved out.
+const groupBoxId = ref<number | null>(null)
+const groupBox = computed(() => boxes.value.find(b => b.id === groupBoxId.value && b.group) ?? null)
+const groupWallets = computed(() => {
+  const main = groupBox.value
+  return main ? [main, ...boxes.value.filter(b => b.parentBoxId === main.id)] : []
+})
+const groupDialog = computed({
+  get: () => !!groupBox.value,
+  set: (open: boolean) => { if (!open) groupBoxId.value = null },
+})
+const groupHasYuanRate = computed(() => {
+  const currencies = new Set(groupWallets.value.map(w => w.currency))
+  return currencies.has('USD') && currencies.has('CNY')
+})
+
+function openWallet(box: PaymentBox) {
+  if (box.group) groupBoxId.value = box.id
+  else navigateTo('/payment-control/' + box.id)
+}
+
 const currencies = ['USD', 'EUR', 'CNY', 'GBP', 'AED', 'RUB']
 
 function currencySymbol(c: string) {
   return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[c] ?? c
 }
+const SURNAME_HINT = 'The warehouse app is on a public server: it gets this instead of the wallet name and company. Empty = the real name is sent.'
+const FEES_HINT = 'Fixed bank charges for this wallet. Leave empty if they change. They fill the phone\'s fee boxes after the next Sync warehouse.'
+
+/** An empty number field gives '' (or null when cleared), which means no fixed fee. */
+function feeValue(v: string | number | null | undefined) {
+  return v === '' || v == null ? null : Number(v)
+}
+
 const form = ref({
   companyPresetId: null as number | null,
+  parentBoxId: null as number | null,
   currency: 'USD',
   name: '',
+  surname: '',
+  handlingFee: '' as string | number,
+  wireFee: '' as string | number,
   bankName: '',
   bankAddress: '',
   accountNumber: '',
   beneficiaryName: '',
   swiftCode: '',
 })
+const saveError = ref('')
 
 // Rename wallet state
 const renameDialog = ref(false)
 const renameTarget = ref<PaymentBox | null>(null)
 const renameValue = ref('')
 const renamePresetId = ref<number | null>(null)
+const renameParentId = ref<number | null>(null)
+const renameSurname = ref('')
+const renameHandlingFee = ref<string | number>('')
+const renameWireFee = ref<string | number>('')
+const renameError = ref('')
 const renaming = ref(false)
+
+/** Sub-wallets go one level deep, so only main wallets can take sub-wallets. */
+const parentOptions = computed(() => mainBoxes.value.filter(b => b.id !== renameTarget.value?.id))
 
 // Edit bank details state
 const bankDialog = ref(false)
@@ -1227,16 +1472,16 @@ async function saveBankDetails() {
   if (!bankTarget.value) return
   bankSaving.value = true
   try {
-    const updated = await api.patch<PaymentBox>(`/payment-boxes/${bankTarget.value.id}/bank-details`, {
+    await api.patch<PaymentBox>(`/payment-boxes/${bankTarget.value.id}/bank-details`, {
       bankName: bankForm.value.bankName || null,
       bankAddress: bankForm.value.bankAddress || null,
       accountNumber: bankForm.value.accountNumber || null,
       beneficiaryName: bankForm.value.beneficiaryName || null,
       swiftCode: bankForm.value.swiftCode || null,
     })
-    const idx = boxes.value.findIndex(b => b.id === bankTarget.value!.id)
-    if (idx >= 0) boxes.value[idx] = updated
     bankDialog.value = false
+    // The list is what carries the group totals, so reload instead of swapping in the one wallet.
+    await loadBoxes()
   } catch (e) {
     console.error(e)
   } finally {
@@ -1249,6 +1494,11 @@ function openRename(box: PaymentBox) {
   renameValue.value = box.name || boxLabel(box)
   // Preset-less wallets sit on a hidden placeholder, which the picker never lists — show them as empty.
   renamePresetId.value = box.companyPresetName ? box.companyPresetId : null
+  renameParentId.value = box.parentBoxId ?? null
+  renameSurname.value = box.surname ?? ''
+  renameHandlingFee.value = box.handlingFee ?? ''
+  renameWireFee.value = box.wireFee ?? ''
+  renameError.value = ''
   // Admins can reach this dialog but don't preload presets on mount.
   if (presets.value.length === 0) loadPresets()
   renameDialog.value = true
@@ -1257,15 +1507,21 @@ function openRename(box: PaymentBox) {
 async function doRename() {
   if (!renameTarget.value || !renameValue.value.trim()) return
   renaming.value = true
+  renameError.value = ''
   try {
-    const updated = await api.patch<PaymentBox>(`/payment-boxes/${renameTarget.value.id}/rename`, {
+    await api.patch<PaymentBox>(`/payment-boxes/${renameTarget.value.id}/rename`, {
       name: renameValue.value.trim(),
       companyPresetId: renamePresetId.value ?? null,
+      parentBoxId: renameParentId.value ?? null,
+      surname: renameSurname.value.trim() || null,
+      handlingFee: feeValue(renameHandlingFee.value),
+      wireFee: feeValue(renameWireFee.value),
     })
-    const idx = boxes.value.findIndex(b => b.id === renameTarget.value!.id)
-    if (idx >= 0) boxes.value[idx] = updated
     renameDialog.value = false
-  } catch (e) {
+    // Moving a wallet changes the totals of both main wallets involved.
+    await loadBoxes()
+  } catch (e: any) {
+    renameError.value = e?.data?.message || 'Could not save the wallet.'
     console.error(e)
   } finally {
     renaming.value = false
@@ -1559,24 +1815,36 @@ watch(tab, (val) => {
   }
 })
 
+/** Accepted money changes the balances, and the ledger when it was already opened. */
+function onIncomingAccepted() {
+  loadBoxes()
+  if (allTransactions.value.length) loadAllTransactions()
+}
+
 async function saveBox() {
   saving.value = true
+  saveError.value = ''
   try {
     // Company preset is optional — the backend files preset-less wallets under a hidden placeholder.
-    const created = await api.post<PaymentBox>('/payment-boxes', {
+    await api.post<PaymentBox>('/payment-boxes', {
       companyPresetId: form.value.companyPresetId || null,
+      parentBoxId: form.value.parentBoxId || null,
       currency: form.value.currency,
       name: form.value.name,
+      surname: form.value.surname.trim() || null,
+      handlingFee: feeValue(form.value.handlingFee),
+      wireFee: feeValue(form.value.wireFee),
       bankName: form.value.bankName || null,
       bankAddress: form.value.bankAddress || null,
       accountNumber: form.value.accountNumber || null,
       beneficiaryName: form.value.beneficiaryName || null,
       swiftCode: form.value.swiftCode || null,
     })
-    boxes.value.push(created)
     addDialog.value = false
-    form.value = { companyPresetId: null, currency: 'USD', name: '', bankName: '', bankAddress: '', accountNumber: '', beneficiaryName: '', swiftCode: '' }
-  } catch (e) {
+    form.value = { companyPresetId: null, parentBoxId: null, currency: 'USD', name: '', surname: '', handlingFee: '', wireFee: '', bankName: '', bankAddress: '', accountNumber: '', beneficiaryName: '', swiftCode: '' }
+    await loadBoxes()
+  } catch (e: any) {
+    saveError.value = e?.data?.message || 'Could not create the wallet.'
     console.error(e)
   } finally {
     saving.value = false
@@ -1593,8 +1861,8 @@ async function deleteBox() {
   deleting.value = true
   try {
     await api.del(`/payment-boxes/${deleteTarget.value.id}`)
-    boxes.value = boxes.value.filter(b => b.id !== deleteTarget.value!.id)
     deleteDialog.value = false
+    await loadBoxes()
   } catch (e) {
     console.error(e)
   } finally {

@@ -60,12 +60,23 @@ export interface BiTrendPoint {
 
 export type BiBucket = 'day' | 'week' | 'month'
 
+/** Proformas not finished or cancelled, whatever their date — not limited to the report's days. */
+export interface BiUnfinishedSummary {
+    count: number
+    /** Those the customer has not fully paid. */
+    withBalanceCount: number
+    totalAmount: number
+    /** Sum of each proforma's total − its Customer POPs. */
+    remaining: number
+}
+
 export interface BiSummary {
     from: string
     to: string
     days: number
     bucket: BiBucket
     totals: BiMetrics
+    unfinished: BiUnfinishedSummary
     customers: BiCustomerRow[]
     trend: BiTrendPoint[]
 }
@@ -82,6 +93,10 @@ export interface BiProformaRow {
     quoteNumber?: string | null
     /** Whole proforma total, for context only. */
     totalAmount: number
+    /** Customer POPs so far. */
+    paid: number
+    /** totalAmount − paid, never below zero. */
+    remaining: number
     lineCount: number
     boughtLineCount: number
     poCount: number
@@ -104,7 +119,8 @@ export interface BiProformaPage {
     items: BiProformaRow[]
 }
 
-export type BiProformaSort = 'createdAt' | 'boughtValue' | 'supplierCost' | 'fees' | 'profit' | 'daysToFinal' | 'customer'
+export type BiProformaSort = 'createdAt' | 'boughtValue' | 'supplierCost' | 'fees' | 'profit' | 'daysToFinal'
+    | 'totalAmount' | 'paid' | 'remaining' | 'status' | 'customer'
 
 export const BI_DAY_PRESETS = [7, 30, 90, 180, 365] as const
 export const BI_MAX_DAYS = 3650

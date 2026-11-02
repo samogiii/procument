@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Procument.API.Services;
 using Procument.Data;
+using Procument.Module.Catalog.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Sales.Entities;
 using Procument.Shared.Services;
@@ -17,7 +18,10 @@ namespace Procument.API.Controllers;
 ///   prepare (payments saved in Ready To Pay, no POP yet) → warehouse exchange → import its paid
 ///   results (POP + final amount, kept on the PR for review) → ack back;
 ///   then docs: the supplier files the warehouse is missing, in size-capped batches.
-/// Accepting a warehouse result is SupplierPaymentsController.WarehouseAccept.
+/// Accepting a warehouse result is SupplierPaymentsController.WarehouseAccept. Shipping costs entered on
+/// the phone travel the same way and are reviewed in ShippingCostsController; decisions go back on prepare.
+/// So do Customer POPs: pushed here with their file, confirmed on the phone (bank POP, price, rate) and
+/// accepted in IncomingMoneyController.
 /// </summary>
 [Authorize(Roles = "Payment,AHM,Admin,SuperAdmin")]
 [ApiController]
@@ -29,6 +33,8 @@ public class WarehousePaymentSyncController : ControllerBase
     private const long DocBudgetBytes = 12 * 1024 * 1024;
     private const int DocBatchMax = 40;
     private const long DocMaxBytes = 15 * 1024 * 1024;
+    // Decisions are resent until then, so a phone that missed a sync still gets them.
+    private const int CostDecisionDays = 90;
 
     /// <summary>Supplier folders shown on the phone (Key, folder, label), as on the Payment page.</summary>
     private static readonly (string Key, string Folder, string Kind)[] CustomerPoDocs =
@@ -90,7 +96,7 @@ public class WarehousePaymentSyncController : ControllerBase
 
         var walletIds = rows.Select(r => r.WalletId).Distinct().ToList();
         var wallets = await _db.Set<PaymentBox>().AsNoTracking().Where(w => walletIds.Contains(w.Id))
-            .Select(w => new { w.Id, w.Name, w.Currency, Company = w.CompanyPreset.Name })
+            .Select(w => new { w.Id, w.Name, w.Surname, w.Currency, w.HandlingFee, w.WireFee, Company = w.CompanyPreset.Name })
             .ToDictionaryAsync(w => w.Id);
         var invoiceIds = rows.Where(r => r.InvoiceId != null).Select(r => r.InvoiceId!.Value).Distinct().ToList();
         var invoices = await _db.Set<Invoice>().AsNoTracking().Where(i => invoiceIds.Contains(i.Id))
@@ -100,6 +106,7 @@ public class WarehousePaymentSyncController : ControllerBase
         foreach (var r in rows)
         {
             var wallet = wallets.GetValueOrDefault(r.WalletId);
+            var (walletName, payingFrom) = PaymentBox.ForWarehouse(wallet?.Name ?? "?", wallet?.Surname, wallet?.Company);
             var salesOrder = r.InvoiceId is { } invoiceId ? invoices.GetValueOrDefault(invoiceId) : null;
             push.Payments.Add(new PaymentPushItem
             {
@@ -127,10 +134,12 @@ public class WarehousePaymentSyncController : ControllerBase
                 AmountUsd = r.Amount,
                 WireFee = r.Bank?.Wirefee ?? 0,
                 PrAmount = r.PrAmount,
-                WalletName = wallet?.Name ?? "?",
-                PayingFrom = wallet?.Company,
+                WalletName = walletName,
+                PayingFrom = payingFrom,
                 WalletCurrency = wallet?.Currency ?? "USD",
                 OfficeRate = r.PendingExchangeRate,
+                WalletHandlingFee = wallet?.HandlingFee,
+                WalletWireFee = wallet?.WireFee,
                 OfficeHasResult = r.WarehousePaidAt != null,
                 RejectNote = r.WarehouseRejectNote,
                 Docs = ListDocs(r.Origin == "Stock", salesOrder ?? r.PONumber, r.SupplierName, r.PONumber)
@@ -139,8 +148,54 @@ public class WarehousePaymentSyncController : ControllerBase
             });
         }
 
+        var decidedSince = DateTime.UtcNow.AddDays(-CostDecisionDays);
+        push.CostDecisions = await _db.Set<WarehouseShippingCost>().AsNoTracking()
+            .Where(c => c.Status != WarehouseShippingCost.Pending && c.ReviewedAt >= decidedSince)
+            .Select(c => new ShippingCostDecision
+            {
+                ShipmentId = c.WarehouseShipmentId, Version = c.Version, Status = c.Status, Note = c.RejectNote,
+                FixedCost = c.FixedCost, OtherCost = c.OtherCost,
+            })
+            .ToListAsync();
+
+        var deposits = await (
+            from d in OpenDeposits()
+            join c in _db.Set<Customer>() on d.CustomerPayment.Invoice.CustomerId equals c.Id into customers
+            from c in customers.DefaultIfEmpty()
+            select new
+            {
+                d.Id, d.UploadId, d.CustomerPayment.Invoice.InvoiceNumber, Customer = c != null ? c.CustomerCode : null,
+                d.Amount, d.Currency, d.WalletRate, d.OfficeAmount, d.BankAt, d.RejectNote,
+                WalletName = d.PaymentBox.Name, d.PaymentBox.Surname, WalletCurrency = d.PaymentBox.Currency, Company = d.PaymentBox.CompanyPreset.Name,
+                PopFileName = d.CustomerPayment.FileName, d.CustomerPayment.Notes,
+            })
+            .ToListAsync();
+        foreach (var d in deposits)
+        {
+            var pop = CustomerPopDoc(d.InvoiceNumber, d.PopFileName);
+            var (walletName, company) = PaymentBox.ForWarehouse(d.WalletName, d.Surname, d.Company);
+            push.Deposits.Add(new DepositPushItem
+            {
+                UploadId = d.UploadId,
+                MainDepositId = d.Id,
+                InvoiceNumber = d.InvoiceNumber,
+                Customer = d.Customer,
+                Amount = d.Amount,
+                Currency = d.Currency,
+                WalletName = walletName,
+                CompanyName = company,
+                WalletCurrency = d.WalletCurrency,
+                OfficeRate = d.WalletRate,
+                OfficeAmount = d.OfficeAmount,
+                Notes = d.Notes,
+                OfficeHasResult = d.BankAt != null,
+                RejectNote = d.RejectNote,
+                Pop = pop == null ? null : new PaymentDocInfo { Key = pop.Key, Kind = pop.Kind, Name = pop.Name, Size = pop.Size },
+            });
+        }
+
         var cipher = _crypto.EncryptBrowser(JsonSerializer.Serialize(push, Json), SharedKey, out var iv);
-        return Ok(new { CipherText = cipher, Iv = iv, PaymentCount = push.Payments.Count });
+        return Ok(new { CipherText = cipher, Iv = iv, PaymentCount = push.Payments.Count, DepositCount = push.Deposits.Count });
     }
 
     /// <summary>Store paid results from the warehouse; each one waits on its PR for review.</summary>
@@ -163,6 +218,18 @@ public class WarehousePaymentSyncController : ControllerBase
                 ack.Payments.Add(new PaymentResultAck { PaymentId = r.PaymentId, Version = r.Version, Stored = reason == null, Reason = reason });
                 if (reason != null) skipped.Add(reason);
             }
+            foreach (var c in results.Costs)
+            {
+                var reason = await ImportCostAsync(c);
+                ack.Costs.Add(new ShippingCostAck { ShipmentId = c.ShipmentId, Version = c.Version, Stored = reason == null, Reason = reason });
+                if (reason != null) skipped.Add(reason);
+            }
+            foreach (var d in results.Deposits)
+            {
+                var reason = await ImportDepositAsync(d);
+                ack.Deposits.Add(new DepositResultAck { DepositId = d.DepositId, Version = d.Version, Stored = reason == null, Reason = reason });
+                if (reason != null) skipped.Add(reason);
+            }
         }
         finally
         {
@@ -173,8 +240,92 @@ public class WarehousePaymentSyncController : ControllerBase
         return Ok(new
         {
             Ack = new WarehouseSyncEnvelope { CipherText = cipher, Iv = iv },
-            Summary = new { Stored = ack.Payments.Count(a => a.Stored), Skipped = skipped },
+            Summary = new
+            {
+                Stored = ack.Payments.Count(a => a.Stored), Costs = ack.Costs.Count(a => a.Stored),
+                Deposits = ack.Deposits.Count(a => a.Stored), Skipped = skipped,
+            },
         });
+    }
+
+    /// <summary>Null = stored; otherwise why not (the phone shows it and the user can fix and resend).</summary>
+    private async Task<string?> ImportDepositAsync(DepositResult r)
+    {
+        _db.ChangeTracker.Clear();
+        var row = await _db.Set<IncomingDeposit>()
+            .Include(d => d.CustomerPayment).ThenInclude(p => p.Invoice)
+            .Include(d => d.PaymentBox)
+            .FirstOrDefaultAsync(d => d.UploadId == r.UploadId);
+        if (row == null) return "This customer POP was removed in the office.";
+        var invoiceNumber = row.CustomerPayment.Invoice.InvoiceNumber;
+        if (row.Status != IncomingDeposit.Pending) return $"{invoiceNumber}: this deposit was already accepted.";
+
+        if (r.Amount <= 0 || decimal.Round(r.Amount, 2) != r.Amount)
+            return $"{invoiceNumber}: the price must be above 0 with at most two decimals.";
+        var walletCurrency = row.PaymentBox.Currency;
+        var sameCurrency = string.Equals(row.Currency, walletCurrency, StringComparison.OrdinalIgnoreCase);
+        var rate = sameCurrency ? null : r.ExchangeRate;
+        if (!sameCurrency && (rate is null or <= 0 || decimal.Round(rate.Value, 6) != rate.Value))
+            return $"{invoiceNumber}: enter the rate as {walletCurrency} per 1 {row.Currency} (up to six decimals).";
+
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(r.DataBase64); }
+        catch (FormatException) { return $"{invoiceNumber}: the bank POP file was damaged on the way."; }
+        if (bytes.Length == 0) return $"{invoiceNumber}: the bank POP file is empty.";
+
+        // A resend (edited on the phone after it was stored) replaces the earlier POP.
+        if (row.BankPopFileName != null)
+            _storage.DeleteFileInInvoiceCategory(invoiceNumber, IncomingDeposit.BankPopFolder, row.BankPopFileName);
+        using (var stream = new MemoryStream(bytes))
+        {
+            row.BankPopFileName = _storage.SaveFileInInvoiceCategory(invoiceNumber, IncomingDeposit.BankPopFolder,
+                $"{r.UploadId:N}-{Path.GetFileName(r.FileName)}", stream);
+        }
+        row.BankAmount = r.Amount;
+        row.BankRate = rate;
+        // Worked out here, like the Procument side, so both are rounded the same way.
+        row.BankWalletAmount = IncomingDeposit.WalletAmount(r.Amount, rate);
+        row.BankBy = string.IsNullOrWhiteSpace(r.By) ? "Warehouse" : r.By.Trim()[..Math.Min(200, r.By.Trim().Length)];
+        row.BankAt = r.At == default ? DateTime.UtcNow : r.At;
+        row.RejectNote = null;
+        await _db.SaveChangesAsync();
+        return null;
+    }
+
+    /// <summary>Null = stored; otherwise why not (the phone shows it).</summary>
+    private async Task<string?> ImportCostAsync(ShippingCostChange c)
+    {
+        _db.ChangeTracker.Clear();
+        var row = await _db.Set<WarehouseShippingCost>().FirstOrDefaultAsync(x => x.WarehouseShipmentId == c.ShipmentId);
+        if (row?.Status == WarehouseShippingCost.Accepted) return $"{c.TrackNumber}: the shipping cost was already accepted.";
+        if (row != null && row.Version >= c.Version) return null;   // already here, ack lost on the way back
+        if (c.FixedCost < 0 || c.OtherCost < 0 || decimal.Round(c.FixedCost, 2) != c.FixedCost || decimal.Round(c.OtherCost, 2) != c.OtherCost)
+            return $"{c.TrackNumber}: the shipping cost must be 0 or more with at most two decimals.";
+
+        // Cleared on the phone: nothing to pay, nothing to review.
+        if (c.FixedCost + c.OtherCost == 0)
+        {
+            if (row != null) _db.Set<WarehouseShippingCost>().Remove(row);
+            await _db.SaveChangesAsync();
+            return null;
+        }
+
+        if (row == null) _db.Set<WarehouseShippingCost>().Add(row = new WarehouseShippingCost { WarehouseShipmentId = c.ShipmentId });
+        row.Version = c.Version;
+        row.TrackNumber = c.TrackNumber;
+        row.Carrier = c.Carrier;
+        row.WarehouseName = c.WarehouseName;
+        row.TrackIds = string.Join(",", c.MainTrackIds);
+        row.FixedCost = c.FixedCost;
+        row.OtherCost = c.OtherCost;
+        row.EnteredBy = string.IsNullOrWhiteSpace(c.By) ? "Warehouse" : c.By.Trim()[..Math.Min(200, c.By.Trim().Length)];
+        row.EnteredAt = c.At == default ? DateTime.UtcNow : c.At;
+        row.Status = WarehouseShippingCost.Pending;
+        row.RejectNote = null;
+        row.ReviewedAt = null;
+        row.ReviewedByUserId = null;
+        await _db.SaveChangesAsync();
+        return null;
     }
 
     /// <summary>Null = stored; otherwise why not (the phone shows it and the user can fix and resend).</summary>
@@ -244,15 +395,31 @@ public class WarehousePaymentSyncController : ControllerBase
         long budget = 0;
         foreach (var group in request.Items.GroupBy(i => i.UploadId))
         {
-            var payment = await OpenPayments()
-                .Where(p => p.PendingUploadId == group.Key)
-                .Select(p => new { p.PO!.PONumber, p.PO.Origin, p.PO.InvoiceId, SupplierName = p.PO.Supplier.Name })
+            Dictionary<string, DocFile> docs;
+            Func<DocFile, (Stream Stream, string AbsolutePath)?> open;
+            var deposit = await OpenDeposits()
+                .Where(d => d.UploadId == group.Key)
+                .Select(d => new { d.CustomerPayment.Invoice.InvoiceNumber, d.CustomerPayment.FileName })
                 .FirstOrDefaultAsync();
-            if (payment == null) continue;   // finished meanwhile: the warehouse closes it on the next sync
-            var salesOrder = payment.InvoiceId == null ? null
-                : await _db.Set<Invoice>().Where(i => i.Id == payment.InvoiceId).Select(i => i.InvoiceNumber).FirstOrDefaultAsync();
-            var root = salesOrder ?? payment.PONumber;
-            var docs = ListDocs(payment.Origin == "Stock", root, payment.SupplierName, payment.PONumber).ToDictionary(d => d.Key);
+            if (deposit != null)
+            {
+                var pop = CustomerPopDoc(deposit.InvoiceNumber, deposit.FileName);
+                docs = pop == null ? new() : new() { [pop.Key] = pop };
+                open = d => _storage.OpenFileInInvoiceCategory(deposit.InvoiceNumber, d.Folder, d.Name);
+            }
+            else
+            {
+                var payment = await OpenPayments()
+                    .Where(p => p.PendingUploadId == group.Key)
+                    .Select(p => new { p.PO!.PONumber, p.PO.Origin, p.PO.InvoiceId, SupplierName = p.PO.Supplier.Name })
+                    .FirstOrDefaultAsync();
+                if (payment == null) continue;   // finished meanwhile: the warehouse closes it on the next sync
+                var salesOrder = payment.InvoiceId == null ? null
+                    : await _db.Set<Invoice>().Where(i => i.Id == payment.InvoiceId).Select(i => i.InvoiceNumber).FirstOrDefaultAsync();
+                var root = salesOrder ?? payment.PONumber;
+                docs = ListDocs(payment.Origin == "Stock", root, payment.SupplierName, payment.PONumber).ToDictionary(d => d.Key);
+                open = d => _storage.OpenFileInSupplierCategory(root, payment.SupplierName, d.Folder, d.Name);
+            }
 
             foreach (var item in group)
             {
@@ -270,7 +437,7 @@ public class WarehousePaymentSyncController : ControllerBase
                 }
                 else
                 {
-                    var file = _storage.OpenFileInSupplierCategory(root, payment.SupplierName, doc.Folder, doc.Name);
+                    var file = open(doc);
                     if (file == null) continue;
                     await using (file.Value.Stream)
                     using (var ms = new MemoryStream())
@@ -302,7 +469,19 @@ public class WarehousePaymentSyncController : ControllerBase
             && p.PO!.PaymentApproval == "Accepted" && p.PO.Status != "Cancelled" && p.PO.Status != "Returned"
             && !_db.Set<PaymentTransaction>().Any(t => t.PopUploadId == p.PendingUploadId));
 
+    /// <summary>Customer POPs not accepted yet (still on the phone, or waiting in Wallets).</summary>
+    private IQueryable<IncomingDeposit> OpenDeposits() => _db.Set<IncomingDeposit>().AsNoTracking()
+        .Where(d => d.Status == IncomingDeposit.Pending);
+
     private record DocFile(string Key, string Kind, string Folder, string Name, long Size);
+
+    private DocFile? CustomerPopDoc(string invoiceNumber, string fileName)
+    {
+        var file = _storage.ListFilesInInvoiceCategories(invoiceNumber, [("customer_pop", IncomingDeposit.CustomerPopFolder)])
+            .FirstOrDefault(f => f.Name == fileName);
+        return file == null ? null
+            : new DocFile($"customer_pop/{file.Name}/{file.ModifiedAt.Ticks}", "Customer POP", IncomingDeposit.CustomerPopFolder, file.Name, file.Size);
+    }
 
     /// <summary>Key = folder key + name + modified time, so a replaced file is fetched again.</summary>
     private List<DocFile> ListDocs(bool isStock, string root, string supplierName, string poNumber)

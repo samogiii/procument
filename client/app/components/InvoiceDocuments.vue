@@ -70,6 +70,7 @@
                       <span v-if="getPaymentForFile(f.name)!.currency !== 'USD'" class="d-block text-medium-emphasis">
                         {{ currencySymbol(getPaymentForFile(f.name)!.currency) }}{{ formatAmount(getPaymentForFile(f.name)!.receivedAmount) }} {{ getPaymentForFile(f.name)!.currency }}
                       </span>
+                      <span v-if="getPaymentForFile(f.name)!.walletStage" class="d-block text-medium-emphasis">{{ getPaymentForFile(f.name)!.walletStage }}</span>
                     </div>
                   </div>
                   <v-btn size="x-small" variant="text" color="info" icon="mdi-download" @click="downloadPI(f)" />
@@ -165,8 +166,9 @@
             class="mb-4"
             icon="mdi-wallet-check-outline"
           >
-            Automatic deposit to <strong>{{ depositWallet.name }}</strong>
+            {{ paymentInfo?.warehouseConfirms ? 'Deposit to' : 'Automatic deposit to' }} <strong>{{ depositWallet.name }}</strong>
             ({{ depositWallet.currency }})<span v-if="depositWallet.companyName"> · {{ depositWallet.companyName }}</span>
+            <span v-if="paymentInfo?.warehouseConfirms" class="d-block text-caption">It pays the PI now. The money reaches the wallet after the warehouse confirms it and it is accepted in Wallets, Incoming Money.</span>
           </v-alert>
           <v-select
             v-else-if="walletOptions.length"
@@ -286,8 +288,8 @@ const api = useApi()
 
 type FileInfo = { name: string; category: string; size: number; modifiedAt: string }
 type SupplierSection = { supplierId: number; supplierName: string; files: FileInfo[] }
-type PaymentRecord = { id: number; fileName: string; amount: number; receivedAmount: number; currency: string; exchangeRate?: number; notes?: string; createdAt: string }
-type PaymentInfo = { payments: PaymentRecord[]; totalPaid: number; invoiceTotal: number; isPaid: boolean }
+type PaymentRecord = { id: number; fileName: string; amount: number; receivedAmount: number; currency: string; exchangeRate?: number; notes?: string; createdAt: string; walletStage?: string | null }
+type PaymentInfo = { payments: PaymentRecord[]; totalPaid: number; invoiceTotal: number; isPaid: boolean; warehouseConfirms?: boolean }
 
 const loading = ref(false)
 const uploading = ref<string | null>(null)

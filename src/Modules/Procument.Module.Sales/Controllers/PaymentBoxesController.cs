@@ -76,15 +76,31 @@ public class PaymentBoxesController : ControllerBase
     [HttpPost]
     [Authorize(Roles = "SuperAdmin")]
     public async Task<ActionResult<PaymentBoxSummaryResponse>> CreateBox([FromBody] CreatePaymentBoxRequest req)
-        => Ok(await _service.CreateBoxAsync(req));
+    {
+        try
+        {
+            return Ok(await _service.CreateBoxAsync(req));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     [HttpPatch("{id:long}/rename")]
     [Authorize(Roles = "SuperAdmin,Admin")]
     public async Task<ActionResult<PaymentBoxSummaryResponse>> RenameBox(long id, [FromBody] RenamePaymentBoxRequest req)
     {
-        var result = await _service.RenameBoxAsync(id, req);
-        if (result == null) return NotFound();
-        return Ok(result);
+        try
+        {
+            var result = await _service.RenameBoxAsync(id, req);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id:long}/bank-details")]
@@ -110,8 +126,15 @@ public class PaymentBoxesController : ControllerBase
     [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> DeleteBox(long id)
     {
-        if (!await _service.DeleteBoxAsync(id)) return NotFound();
-        return Ok();
+        try
+        {
+            if (!await _service.DeleteBoxAsync(id)) return NotFound();
+            return Ok();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:long}/transactions")]

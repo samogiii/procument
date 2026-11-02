@@ -160,7 +160,7 @@
             <tr v-if="!displayRows.length">
               <td :colspan="orderedKeys.length + 1" class="text-center pa-8 text-medium-emphasis">
                 <v-icon icon="mdi-table-off" size="36" color="grey" class="mb-1" /><br>
-                {{ rows.length ? 'No rows match the filters.' : 'No follow ups yet — click Add Row to start.' }}
+                {{ rows.length ? 'No rows match the filters.' : auth.isSuperAdmin ? 'No follow ups yet — click Add Row to start.' : 'No follow ups are assigned to you yet.' }}
               </td>
             </tr>
           </tbody>
@@ -250,12 +250,18 @@ import {
 import { MIN_COLUMN_WIDTH, useTableLayoutStore } from '~/stores/tableLayout'
 
 const api = useApi()
+const auth = useAuthStore()
 const layoutStore = useTableLayoutStore()
 const colFilter = useColFilterPersisted('customer-follow-ups')
 
 const TABLE_KEY = 'customer-follow-ups'
 const RESIZE_EDGE_PX = 7
 const EMPTY_SET = new Set<string>()
+
+/** A SuperAdmin assigns the rows; everyone else only gets the rows assigned to them, without the Assign column. */
+const sheetColumns = computed(() => auth.isSuperAdmin
+  ? FOLLOW_UP_COLUMNS
+  : FOLLOW_UP_COLUMNS.filter(column => column.key !== 'assign'))
 
 interface FollowUpOptions {
   customers: string[]
@@ -330,13 +336,14 @@ const layout = computed(() => layoutStore.layouts[layoutStore.storageKey(TABLE_K
  * user last reordered) goes right after the column that precedes it by default.
  */
 const orderedColumns = computed<FollowUpColumn[]>(() => {
+  const columns = sheetColumns.value
   const result = layout.value.order
     .map(key => COLUMN[key as FollowUpKey])
-    .filter((column): column is FollowUpColumn => !!column)
+    .filter((column): column is FollowUpColumn => !!column && columns.includes(column))
   const placed = new Set(result.map(column => column.key))
-  FOLLOW_UP_COLUMNS.forEach((column, index) => {
+  columns.forEach((column, index) => {
     if (placed.has(column.key)) return
-    const previousKey = FOLLOW_UP_COLUMNS[index - 1]?.key
+    const previousKey = columns[index - 1]?.key
     const at = previousKey ? result.findIndex(c => c.key === previousKey) : -1
     result.splice(index === 0 ? 0 : at < 0 ? result.length : at + 1, 0, column)
     placed.add(column.key)
@@ -490,14 +497,14 @@ function filterValue(row: FollowUpRow, key: FollowUpKey) {
 }
 
 const activeFilterKeys = computed(() =>
-  FOLLOW_UP_COLUMNS.map(column => column.key).filter(key => (colFilter.selected[key]?.size ?? 0) > 0))
+  sheetColumns.value.map(column => column.key).filter(key => (colFilter.selected[key]?.size ?? 0) > 0))
 
 const activeFilterCount = computed(() => activeFilterKeys.value.length)
 
 const searchedRows = computed(() => {
   const query = (search.value ?? '').trim().toLowerCase()
   if (!query) return rows.value
-  return rows.value.filter(row => FOLLOW_UP_COLUMNS.some(column =>
+  return rows.value.filter(row => sheetColumns.value.some(column =>
     column.type !== 'docs' && column.type !== 'chat' && followUpCellText(row, column.key).toLowerCase().includes(query)))
 })
 
@@ -596,19 +603,20 @@ function toggleSort(key: FollowUpKey) {
  * be widened again); "all" lists every value in the sheet.
  */
 const filterOptions = computed(() => {
+  const columns = sheetColumns.value
   const all: Record<string, Set<string>> = {}
   const available: Record<string, Set<string>> = {}
-  for (const column of FOLLOW_UP_COLUMNS) {
+  for (const column of columns) {
     all[column.key] = new Set()
     available[column.key] = new Set()
   }
   for (const row of rows.value) {
-    for (const column of FOLLOW_UP_COLUMNS) all[column.key]!.add(filterValue(row, column.key))
+    for (const column of columns) all[column.key]!.add(filterValue(row, column.key))
   }
   for (const row of searchedRows.value) {
     const failed = failedFilter(row)
     if (failed === null) {
-      for (const column of FOLLOW_UP_COLUMNS) available[column.key]!.add(filterValue(row, column.key))
+      for (const column of columns) available[column.key]!.add(filterValue(row, column.key))
     } else if (failedFilter(row, failed) === null) {
       // Fails only this column's filter — its value is still available in this column.
       available[failed]!.add(filterValue(row, failed))
@@ -616,7 +624,7 @@ const filterOptions = computed(() => {
   }
   const sorted = (values: Set<string>) => [...values].sort((a, b) =>
     a === BLANK_FILTER_VALUE ? -1 : b === BLANK_FILTER_VALUE ? 1 : compareValues(a, b))
-  return Object.fromEntries(FOLLOW_UP_COLUMNS.map(column => [column.key, {
+  return Object.fromEntries(columns.map(column => [column.key, {
     all: sorted(all[column.key]!),
     available: sorted(available[column.key]!),
   }])) as Record<FollowUpKey, { all: string[]; available: string[] }>

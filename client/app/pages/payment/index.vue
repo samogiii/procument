@@ -12,7 +12,9 @@
     <v-alert v-else-if="whSyncResult" :type="whSyncResult.skipped.length ? 'warning' : 'success'" variant="tonal" density="compact"
       class="mb-4" closable @click:close="whSyncResult = null">
       Warehouse: {{ whSyncResult.paymentsSent }} payment{{ whSyncResult.paymentsSent === 1 ? '' : 's' }} sent ·
-      {{ whSyncResult.paid }} paid and waiting for your review in Ready To pay · {{ whSyncResult.docs }} document{{ whSyncResult.docs === 1 ? '' : 's' }} sent
+      {{ whSyncResult.paid }} paid and waiting for your review in Ready To pay · {{ whSyncResult.costs }} shipping cost{{ whSyncResult.costs === 1 ? '' : 's' }} received ·
+      {{ whSyncResult.deposits }} deposit{{ whSyncResult.deposits === 1 ? '' : 's' }} waiting in Wallets, Incoming Money ·
+      {{ whSyncResult.docs }} document{{ whSyncResult.docs === 1 ? '' : 's' }} sent
       <ul v-if="whSyncResult.skipped.length" class="mt-1 ml-4 text-body-2">
         <li v-for="(s, i) in whSyncResult.skipped" :key="i">{{ s }}</li>
       </ul>
@@ -36,6 +38,11 @@
           <v-icon start size="18">mdi-check-circle-outline</v-icon>
           Finished Payments
           <v-chip v-if="finishedPoRows.length" size="x-small" color="success" variant="tonal" class="ml-2">{{ finishedPoRows.length }}</v-chip>
+        </v-tab>
+        <v-tab value="shipping">
+          <v-icon start size="18">mdi-truck-delivery-outline</v-icon>
+          Shipping Costs
+          <v-chip v-if="shippingCostsPending" size="x-small" color="warning" variant="tonal" class="ml-2">{{ shippingCostsPending }}</v-chip>
         </v-tab>
       </v-tabs>
 
@@ -186,6 +193,11 @@
               <template #item.actions="{ item }"><v-btn size="small" variant="tonal" color="success" prepend-icon="mdi-eye" @click.stop="openPo(item, 'withdraw')">Open</v-btn></template>
             </v-data-table>
           </v-card-text>
+        </v-tabs-window-item>
+
+        <!-- ═══════ TAB 5: Shipping costs from the warehouse app (eager: the tab badge needs its count) ═══════ -->
+        <v-tabs-window-item value="shipping" eager>
+          <ShippingCostsTab :wallets="walletBoxes" :refresh-key="shippingCostsRefresh" @pending="shippingCostsPending = $event" />
         </v-tabs-window-item>
       </v-tabs-window>
     </v-card>
@@ -647,7 +659,9 @@ type POItem = any
 type WalletBox = { id: number; label: string; currency: string; company?: string }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-const activeTab = ref<'acceptance' | 'remaining' | 'finished'>('acceptance')
+const activeTab = ref<'acceptance' | 'remaining' | 'finished' | 'shipping'>('acceptance')
+const shippingCostsPending = ref(0)
+const shippingCostsRefresh = ref(0)
 
 // ── PO Queue ──────────────────────────────────────────────────────────────────
 const loading = ref(false)
@@ -978,6 +992,7 @@ async function runWarehouseSync() {
   whSyncResult.value = null
   try {
     whSyncResult.value = await warehouseSync.syncPayments(text => { whSyncText.value = text })
+    shippingCostsRefresh.value++
     await loadAll()
   } catch (e: any) {
     showSnack(e?.data?.message || e?.message || 'Warehouse sync failed', 'error')

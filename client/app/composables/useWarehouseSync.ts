@@ -12,6 +12,12 @@ export interface WarehousePaymentSyncSummary {
   paymentsSent: number
   /** Paid results (POP + final amount) received for review. */
   paid: number
+  /** Shipping costs received for review. */
+  costs: number
+  /** Customer POPs waiting in the warehouse. */
+  depositsSent: number
+  /** Customer POPs the warehouse confirmed (Wallets, Incoming Money). */
+  deposits: number
   docs: number
   skipped: string[]
 }
@@ -24,7 +30,7 @@ interface ImportResult {
   ack: Envelope
   summary: Omit<WarehouseSyncSummary, 'tracksSent'>
 }
-interface PaymentImportResult { ack: Envelope; summary: { stored: number; skipped: string[] } }
+interface PaymentImportResult { ack: Envelope; summary: { stored: number; costs: number; deposits: number; skipped: string[] } }
 interface DocsResult { batch: Envelope; count: number; next: Envelope | null; remaining: number }
 
 // Same relay pattern as useSatelliteSync: the main API encrypts/decrypts, the browser only carries
@@ -88,17 +94,20 @@ export function useWarehouseSync() {
   }
 
   /**
-   * Payment page: payments saved in Ready To Pay → warehouse; its paid results (POP + final amount)
-   * come back for review; then the supplier documents it is missing go over in batches.
+   * Payment page and Wallets Incoming Money tab: payments saved in Ready To Pay and open Customer POPs →
+   * warehouse; its paid results (POP + final amount), shipping costs and confirmed deposits come back for
+   * review; then the documents it is missing go over in batches.
    */
   async function syncPayments(onProgress?: (text: string) => void): Promise<WarehousePaymentSyncSummary> {
     const cfg = await getPaymentConfig()
     if (!cfg.enabled) throw new Error('Warehouse sync is not configured (WarehouseSync:Url).')
 
     onProgress?.('Sending payments…')
-    const push = await api.get<Envelope & { paymentCount: number }>('/warehouse-sync/payments/prepare')
+    const push = await api.get<Envelope & { paymentCount: number; depositCount: number }>('/warehouse-sync/payments/prepare')
     const exchange = await relay<PaymentExchange>(cfg, 'payments/exchange', { cipherText: push.cipherText, iv: push.iv })
-    const total: WarehousePaymentSyncSummary = { paymentsSent: push.paymentCount, paid: 0, docs: 0, skipped: [] }
+    const total: WarehousePaymentSyncSummary = {
+      paymentsSent: push.paymentCount, paid: 0, costs: 0, depositsSent: push.depositCount, deposits: 0, docs: 0, skipped: [],
+    }
 
     // Paid results: a resend is acked with its reason, so every round answers each item and moves on.
     let batch: WarehouseBatch = exchange
@@ -107,6 +116,8 @@ export function useWarehouseSync() {
       onProgress?.(`Receiving paid payments (batch ${round})…`)
       const result = await api.post<PaymentImportResult>('/warehouse-sync/payments/import', { cipherText: batch.cipherText, iv: batch.iv })
       total.paid += result.summary.stored
+      total.costs += result.summary.costs
+      total.deposits += result.summary.deposits
       total.skipped.push(...result.summary.skipped)
       await relay(cfg, 'payments/ack', result.ack)
       if (!batch.hasMore) break
@@ -116,7 +127,7 @@ export function useWarehouseSync() {
     // Supplier documents the warehouse doesn't have yet.
     let need = exchange.needDocs
     for (let round = 1; need && round <= 50; round++) {
-      onProgress?.(`Sending supplier documents (${total.docs} of ${exchange.needDocCount})…`)
+      onProgress?.(`Sending documents (${total.docs} of ${exchange.needDocCount})…`)
       const docs = await api.post<DocsResult>('/warehouse-sync/payments/docs', need)
       if (docs.count) await relay(cfg, 'payments/docs', docs.batch)
       total.docs += docs.count

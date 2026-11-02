@@ -33,9 +33,54 @@
                   <span class="ml-1 text-medium-emphasis bi-form__code">· {{ b.customerCount }}</span>
                 </v-chip>
               </v-chip-group>
-              <p class="text-caption text-medium-emphasis mt-1 mb-0">
-                <template v-if="pickedBases.length">
+              <v-autocomplete
+                v-if="pickedBases.length"
+                v-model="basePicked"
+                :items="baseCustomers"
+                :item-title="biCustomerLabel"
+                item-value="id"
+                :loading="baseCustomersLoading"
+                label="Customer codes"
+                placeholder="All customers of the picked bases"
+                prepend-inner-icon="mdi-account-search-outline"
+                variant="outlined"
+                density="comfortable"
+                multiple
+                chips
+                closable-chips
+                clearable
+                return-object
+                clear-on-select
+                hide-selected
+                :menu-props="{ maxHeight: 320 }"
+                class="mt-3"
+                hide-details="auto"
+                :error-messages="baseCustomersError || undefined"
+              >
+                <template #chip="{ props: chipProps, item, index }">
+                  <v-chip v-if="index < CHIP_LIMIT" v-bind="chipProps" size="small" :text="biCustomerLabel(item.raw)" />
+                  <span v-else-if="index === CHIP_LIMIT" class="text-caption text-medium-emphasis ml-1">
+                    +{{ basePicked.length - CHIP_LIMIT }} more
+                  </span>
+                </template>
+                <template #item="{ props: itemProps, item }">
+                  <v-list-item v-bind="itemProps" :title="item.raw.name" density="compact">
+                    <template #prepend>
+                      <v-chip v-if="item.raw.code" size="x-small" variant="tonal" class="mr-2 bi-form__code">{{ item.raw.code }}</v-chip>
+                    </template>
+                    <template v-if="pickedBases.length > 1 && item.raw.base" #append>
+                      <span class="text-caption text-medium-emphasis">Base {{ item.raw.base }}</span>
+                    </template>
+                  </v-list-item>
+                </template>
+              </v-autocomplete>
+              <p class="text-caption text-medium-emphasis mt-2 mb-0">
+                <template v-if="basePicked.length">
+                  Only the {{ basePicked.length }} picked customer{{ basePicked.length === 1 ? '' : 's' }} of {{ pickedBaseLabel }}.
+                </template>
+                <template v-else-if="pickedBases.length">
                   Every customer of {{ pickedBaseLabel }} — {{ pickedBaseCustomerCount }} today; customers added later are included too.
+                  Pick customer codes to narrow it down.
                 </template>
                 <template v-else>Pick one or more bases.</template>
               </p>
@@ -175,7 +220,10 @@ const api = useApi()
 const scope = ref<'all' | 'bases' | 'pick'>(
   props.allCustomers ? 'all' : props.bases.length ? 'bases' : props.customers.length ? 'pick' : 'all')
 const pickedBases = ref<number[]>([...props.bases])
-const picked = ref<BiCustomerOption[]>(props.customers.map(c => ({ ...c })))
+/** Customers picked one by one (Select customers). */
+const picked = ref<BiCustomerOption[]>(props.bases.length ? [] : props.customers.map(c => ({ ...c })))
+/** Customers the picked bases are narrowed to; empty = all of them. */
+const basePicked = ref<BiCustomerOption[]>(props.bases.length ? props.customers.map(c => ({ ...c })) : [])
 const days = ref<number | null>(props.days ?? 30)
 
 // ── Days ──
@@ -219,6 +267,40 @@ const pickedBaseCustomerCount = computed(() => baseOptions.value
   .filter(b => pickedBases.value.includes(b.base))
   .reduce((sum, b) => sum + b.customerCount, 0))
 
+// ── Customer codes of the picked bases (reloaded when the bases change, stale responses dropped) ──
+const baseCustomers = shallowRef<BiCustomerOption[]>([])
+const baseCustomersLoading = ref(false)
+const baseCustomersError = ref('')
+let baseController: AbortController | null = null
+
+async function loadBaseCustomers() {
+  baseController?.abort()
+  baseController = null
+  baseCustomersLoading.value = false
+  baseCustomersError.value = ''
+  if (scope.value !== 'bases' || !pickedBases.value.length) return
+  const current = new AbortController()
+  baseController = current
+  baseCustomersLoading.value = true
+  try {
+    const query = pickedBases.value.map(b => `bases=${b}`).join('&')
+    const res = await api.get<BiCustomerOption[]>(`/bi/customers?take=${MAX_PICK}&${query}`, { signal: current.signal })
+    if (baseController === current) baseCustomers.value = res
+  } catch {
+    if (baseController === current) {
+      baseCustomers.value = []
+      baseCustomersError.value = 'Could not load the customer codes.'
+    }
+  } finally {
+    if (baseController === current) baseCustomersLoading.value = false
+  }
+}
+watch([scope, pickedBases], loadBaseCustomers, { immediate: true })
+// A base taken off takes its picked customers with it.
+watch(pickedBases, (bases) => {
+  basePicked.value = basePicked.value.filter(c => c.base != null && bases.includes(c.base))
+})
+
 // ── Customer search (lazy, debounced, stale responses dropped) ──
 const search = ref('')
 const results = shallowRef<BiCustomerOption[]>([])
@@ -246,7 +328,7 @@ watch(search, (term) => {
   timer = setTimeout(() => runSearch((term ?? '').trim()), 250)
 })
 watch(scope, (s) => { if (s === 'pick' && !results.value.length) runSearch('') }, { immediate: true })
-onBeforeUnmount(() => { clearTimeout(timer); controller?.abort() })
+onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); baseController?.abort() })
 
 /** Picked customers stay in the item list so their chips keep a title. */
 const options = computed(() => {
@@ -269,17 +351,21 @@ const canSubmit = computed(() => validDays.value && (
   || (scope.value === 'pick' && picked.value.length > 0 && !tooMany.value)))
 const summaryText = computed(() => {
   const who = scope.value === 'all' ? 'All customers'
-    : scope.value === 'bases' ? (pickedBases.value.length ? `All customers of ${pickedBaseLabel.value}` : 'No base picked')
+    : scope.value === 'bases'
+      ? (!pickedBases.value.length ? 'No base picked'
+        : basePicked.value.length ? `${basePicked.value.length} customer${basePicked.value.length === 1 ? '' : 's'} of ${pickedBaseLabel.value}`
+        : `All customers of ${pickedBaseLabel.value}`)
     : `${picked.value.length} customer${picked.value.length === 1 ? '' : 's'}`
   return validDays.value ? `${who} · last ${days.value} day${days.value === 1 ? '' : 's'}` : who
 })
 
 function submit() {
   if (!canSubmit.value) return
+  const customers = scope.value === 'pick' ? picked.value : scope.value === 'bases' ? basePicked.value : []
   emit('apply', {
     allCustomers: scope.value === 'all',
     bases: scope.value === 'bases' ? [...pickedBases.value] : [],
-    customers: scope.value !== 'pick' ? [] : picked.value.map(c => ({ id: c.id, name: c.name, code: c.code ?? null, base: c.base ?? null })),
+    customers: customers.map(c => ({ id: c.id, name: c.name, code: c.code ?? null, base: c.base ?? null })),
     days: days.value!,
   })
 }

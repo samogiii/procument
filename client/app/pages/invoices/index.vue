@@ -9,7 +9,7 @@
     :server-side="true"
     :extra-params="extraParams"
     page-key="invoices"
-    :status-options="['Draft', 'Waiting For Prepayment', 'Running', 'Finish']"
+    :status-options="['Draft', 'Checking', 'Waiting For Prepayment', 'Running', 'Finish']"
     :custom-filter="invoiceCustomFilter"
   >
     <template #filters>
@@ -221,6 +221,10 @@
 
     <template #item.totalAmount="{ item }">
       ${{ formatPrice(item.totalAmount) }}
+    </template>
+
+    <template #item.totalPaid="{ item }">
+      ${{ formatPrice(item.totalPaid) }}
     </template>
 
     <template #item.customerPODate="{ item }">
@@ -483,6 +487,7 @@ const headers = [
   { title: 'PO Date', key: 'customerPODate' },
   { title: 'Created At', key: 'createdAt' },
   { title: 'Total', key: 'totalAmount' },
+  { title: 'Paid POP', key: 'totalPaid' },
   { title: 'Status', key: 'status' },
   { title: '', key: 'actions', sortable: false, width: '60px' },
 ]

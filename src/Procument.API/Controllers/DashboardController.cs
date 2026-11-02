@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Procument.Data;
+using Procument.Shared.Services;
 using System.Security.Claims;
 
 namespace Procument.API.Controllers;
@@ -248,8 +249,9 @@ public class DashboardController : ControllerBase
                 .OrderByDescending(u => u.TotalValue)
                 .ToList();
 
-            // Top suppliers by PO value (scoped)
-            response.TopSuppliers = await pos
+            // Top suppliers by PO value (scoped). Look-alike catalog names ("Supplier1", "Supplier 1 INC.",
+            // "Supplier 1inc") are shown as one bar, named after the variant with the most PO value.
+            var perSupplier = await pos
                 .GroupBy(p => new { p.SupplierId, p.Supplier.Name })
                 .Select(g => new SupplierStatItem
                 {
@@ -257,9 +259,19 @@ public class DashboardController : ControllerBase
                     POCount = g.Count(),
                     TotalValue = g.Sum(p => p.TotalAmount ?? 0),
                 })
+                .ToListAsync();
+            response.TopSuppliers = perSupplier
+                .GroupBy(s => SupplierNameNormalizer.CompanyKey(s.SupplierName) is { Length: > 0 } key
+                    ? key : SupplierNameNormalizer.Key(s.SupplierName))
+                .Select(g => new SupplierStatItem
+                {
+                    SupplierName = g.MaxBy(s => s.TotalValue)!.SupplierName,
+                    POCount = g.Sum(s => s.POCount),
+                    TotalValue = g.Sum(s => s.TotalValue),
+                })
                 .OrderByDescending(s => s.TotalValue)
                 .Take(10)
-                .ToListAsync();
+                .ToList();
         }
 
         if (isAdmin && (isSuperAdmin || HasFeature("ourInventoryMenu")))

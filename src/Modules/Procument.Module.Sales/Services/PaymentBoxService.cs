@@ -30,7 +30,10 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             query = query.Where(b => b.CompanyPresetId == companyPresetId.Value);
 
         var boxes = await query.ToListAsync();
-        return boxes.Select(ToSummary).ToList();
+        var summaries = boxes.Select(ToSummary).ToList();
+
+        // A company filter can cut a group in half, and those lists only feed wallet pickers.
+        return companyPresetId.HasValue ? summaries : WithGroupTotals(summaries);
     }
 
     public async Task<PaymentBoxDetailResponse?> GetByIdAsync(long id)
@@ -233,8 +236,49 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         return placeholder.Id;
     }
 
+    /// <summary>
+    /// Sub-wallets go one level deep: the main wallet can't be a sub-wallet itself, and a wallet with
+    /// sub-wallets can't become one. That also makes a loop impossible, without walking any chain.
+    /// </summary>
+    private async Task EnsureValidParentAsync(long? boxId, long parentId)
+    {
+        if (parentId == boxId)
+            throw new ArgumentException("A wallet cannot be its own main wallet.");
+
+        var parent = await _db.Set<PaymentBox>()
+            .Where(b => b.Id == parentId)
+            .Select(b => new { b.ParentBoxId })
+            .FirstOrDefaultAsync();
+        if (parent == null)
+            throw new ArgumentException("The selected main wallet no longer exists.");
+        if (parent.ParentBoxId != null)
+            throw new ArgumentException("The selected wallet is a sub-wallet, so it cannot have sub-wallets of its own.");
+
+        if (boxId.HasValue && await _db.Set<PaymentBox>().AnyAsync(b => b.ParentBoxId == boxId))
+            throw new ArgumentException("This wallet has sub-wallets, so it cannot become a sub-wallet. Move them out first.");
+    }
+
+    /// <summary>Blank = no surname, so the real name is what the warehouse gets.</summary>
+    private static string? CleanSurname(string? surname)
+    {
+        var clean = surname?.Trim();
+        if (string.IsNullOrEmpty(clean)) return null;
+        if (clean.Length > 200) throw new ArgumentException("The surname can be at most 200 characters.");
+        return clean;
+    }
+
+    private static decimal? CleanFee(decimal? fee, string label)
+    {
+        if (fee is < 0 || (fee is { } value && decimal.Round(value, 2) != value))
+            throw new ArgumentException($"{label} must be 0 or more with at most two decimals.");
+        return fee;
+    }
+
     public async Task<PaymentBoxSummaryResponse> CreateBoxAsync(CreatePaymentBoxRequest req)
     {
+        var parentId = req.ParentBoxId is > 0 ? req.ParentBoxId : null;
+        if (parentId.HasValue) await EnsureValidParentAsync(null, parentId.Value);
+
         var presetId = req.CompanyPresetId is > 0
             ? req.CompanyPresetId.Value
             : await GetNoCompanyPresetIdAsync();
@@ -244,12 +288,16 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             CompanyPresetId = presetId,
             Currency = req.Currency,
             Name = req.Name,
+            ParentBoxId = parentId,
             CreatedAt = DateTime.UtcNow,
             BankName = req.BankName,
             BankAddress = req.BankAddress,
             AccountNumber = req.AccountNumber,
             BeneficiaryName = req.BeneficiaryName,
             SwiftCode = req.SwiftCode,
+            Surname = CleanSurname(req.Surname),
+            HandlingFee = CleanFee(req.HandlingFee, "The handling fee"),
+            WireFee = CleanFee(req.WireFee, "The wire fee"),
         };
         _db.Set<PaymentBox>().Add(box);
         await _db.SaveChangesAsync();
@@ -266,7 +314,14 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             .FirstOrDefaultAsync(b => b.Id == id);
         if (box == null) return null;
 
+        var parentId = req.ParentBoxId is > 0 ? req.ParentBoxId : null;
+        if (parentId.HasValue && parentId != box.ParentBoxId) await EnsureValidParentAsync(id, parentId.Value);
+
         box.Name = req.Name;
+        box.ParentBoxId = parentId;
+        box.Surname = CleanSurname(req.Surname);
+        box.HandlingFee = CleanFee(req.HandlingFee, "The handling fee");
+        box.WireFee = CleanFee(req.WireFee, "The wire fee");
         // CompanyPresetId is a required FK, so "no company" maps to the placeholder preset.
         box.CompanyPresetId = req.CompanyPresetId is > 0
             ? req.CompanyPresetId.Value
@@ -394,6 +449,11 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
     {
         var box = await _db.Set<PaymentBox>().FindAsync(id);
         if (box == null) return false;
+        if (await _db.Set<PaymentBox>().AnyAsync(b => b.ParentBoxId == id))
+            throw new ArgumentException("This wallet has sub-wallets. Move them out before deleting it.");
+        if (await _db.Set<IncomingDeposit>().AnyAsync(d => d.PaymentBoxId == id)
+            || await _db.Set<WarehouseShippingCost>().AnyAsync(c => c.PaymentBoxId == id))
+            throw new ArgumentException("This wallet has customer deposits or shipping costs recorded against it, so it can't be deleted.");
         _db.Set<PaymentBox>().Remove(box);
         await _db.SaveChangesAsync();
         return true;
@@ -867,7 +927,69 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             box.AccountNumber,
             box.BeneficiaryName,
             box.SwiftCode,
-            b1Breakdowns);
+            b1Breakdowns,
+            box.ParentBoxId,
+            Surname: box.Surname,
+            HandlingFee: box.HandlingFee,
+            WireFee: box.WireFee);
+    }
+
+    /// <summary>Same fixed rate as the Wallets page's Net Balance. For display only, never posted to a wallet.</summary>
+    private const decimal CnyPerUsd = 7m;
+
+    /// <summary>The amount in the target currency, or null when there is no rate for the pair.</summary>
+    private static decimal? ConvertForDisplay(decimal amount, string from, string to)
+    {
+        if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase)) return amount;
+        if (from == "CNY" && to == "USD") return amount / CnyPerUsd;
+        if (from == "USD" && to == "CNY") return amount * CnyPerUsd;
+        return null;
+    }
+
+    /// <summary>Adds the group figures, which need the whole wallet list. Each wallet's own numbers stay as they are.</summary>
+    private static List<PaymentBoxSummaryResponse> WithGroupTotals(List<PaymentBoxSummaryResponse> boxes)
+    {
+        var byId = boxes.ToDictionary(b => b.Id);
+        var subsByParent = boxes.Where(b => b.ParentBoxId.HasValue).ToLookup(b => b.ParentBoxId!.Value);
+
+        return boxes.Select(box =>
+        {
+            if (box.ParentBoxId is long parentId)
+                return byId.TryGetValue(parentId, out var parent)
+                    ? box with { BalanceInParentCurrency = ConvertForDisplay(box.Balance, box.Currency, parent.Currency) }
+                    : box;
+
+            var subs = subsByParent[box.Id].ToList();
+            if (subs.Count == 0) return box;
+
+            var deposit = box.TotalDeposit;
+            var withdraw = box.TotalWithdraw;
+            var notConverted = new List<PaymentBoxSummaryResponse>();
+            foreach (var sub in subs)
+            {
+                if (ConvertForDisplay(sub.TotalDeposit, sub.Currency, box.Currency) is not decimal subDeposit
+                    || ConvertForDisplay(sub.TotalWithdraw, sub.Currency, box.Currency) is not decimal subWithdraw)
+                {
+                    notConverted.Add(sub);
+                    continue;
+                }
+                deposit += subDeposit;
+                withdraw += subWithdraw;
+            }
+
+            return box with
+            {
+                Group = new WalletGroupTotals(
+                    subs.Count,
+                    deposit,
+                    withdraw,
+                    deposit - withdraw,
+                    notConverted
+                        .GroupBy(s => s.Currency)
+                        .Select(g => new UnconvertedBalance(g.Key, CurrencySymbol(g.Key), g.Sum(s => s.Balance)))
+                        .ToList())
+            };
+        }).ToList();
     }
 
     private static string CurrencySymbol(string currency) => currency switch

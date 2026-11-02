@@ -30,7 +30,7 @@
       <template #no-data>
         <div class="py-6 text-center text-medium-emphasis">
           <v-icon icon="mdi-receipt-text-outline" size="28" class="mb-1" />
-          <div>No proforma invoices in this period.</div>
+          <div>{{ unfinished ? 'No unfinished proforma invoices.' : 'No proforma invoices in this period.' }}</div>
         </div>
       </template>
 
@@ -46,6 +46,22 @@
       </template>
 
       <template #item.createdAt="{ item }">{{ biDate(item.createdAt) }}</template>
+
+      <template #item.status="{ item }">
+        <StatusChip :status="item.status" size="x-small" class="bi-pi__status" />
+      </template>
+
+      <template #item.totalAmount="{ item }">
+        <span class="bi-num">{{ biMoney(item.totalAmount) }}</span>
+      </template>
+
+      <template #item.paid="{ item }">
+        <span class="bi-num">{{ biMoney(item.paid) }}</span>
+      </template>
+
+      <template #item.remaining="{ item }">
+        <span class="bi-num font-weight-medium" :class="{ 'text-warning': item.remaining > 0 }">{{ biMoney(item.remaining) }}</span>
+      </template>
 
       <template #item.boughtValue="{ item }">
         <template v-if="item.boughtValue != null">
@@ -120,7 +136,9 @@ const props = withDefaults(defineProps<{
   days: number
   /** Inside an expanded customer row — hides the customer column. */
   nested?: boolean
-}>(), { nested: false })
+  /** Every unfinished proforma whatever its date (days is ignored), with status, price, paid and remaining. */
+  unfinished?: boolean
+}>(), { nested: false, unfinished: false })
 
 const api = useApi()
 
@@ -130,12 +148,20 @@ const loading = ref(false)
 const error = ref('')
 const page = ref(1)
 const itemsPerPage = ref(props.nested ? 10 : 25)
-const sortBy = ref<{ key: string; order: 'asc' | 'desc' }[]>([{ key: 'createdAt', order: 'desc' }])
+const sortBy = ref<{ key: string; order: 'asc' | 'desc' }[]>([{ key: props.unfinished ? 'remaining' : 'createdAt', order: 'desc' }])
 
 const headers = computed(() => [
   { title: 'Proforma #', key: 'invoiceNumber', sortable: false },
   ...(props.nested ? [] : [{ title: 'Customer', key: 'customer', sortable: true }]),
   { title: 'Created', key: 'createdAt', sortable: true },
+  ...(props.unfinished
+    ? [
+        { title: 'Status', key: 'status', sortable: true },
+        { title: 'Price', key: 'totalAmount', align: 'end' as const, sortable: true },
+        { title: 'Paid', key: 'paid', align: 'end' as const, sortable: true },
+        { title: 'Remaining', key: 'remaining', align: 'end' as const, sortable: true },
+      ]
+    : []),
   { title: 'Bought value', key: 'boughtValue', align: 'end' as const, sortable: true },
   { title: 'Supplier cost', key: 'supplierCost', align: 'end' as const, sortable: true },
   { title: 'Shipping, wire fee & others', key: 'fees', align: 'end' as const, sortable: true },
@@ -147,6 +173,7 @@ const headers = computed(() => [
 const SORT_KEYS: Record<string, BiProformaSort> = {
   customer: 'customer', createdAt: 'createdAt', boughtValue: 'boughtValue', supplierCost: 'supplierCost',
   fees: 'fees', profit: 'profit', daysToFinal: 'daysToFinal',
+  status: 'status', totalAmount: 'totalAmount', paid: 'paid', remaining: 'remaining',
 }
 
 function speedColor(days: number) {
@@ -174,6 +201,7 @@ async function load() {
       take: itemsPerPage.value,
       sortBy: SORT_KEYS[sort?.key ?? 'createdAt'] ?? 'createdAt',
       sortDesc: (sort?.order ?? 'desc') === 'desc',
+      unfinishedOnly: props.unfinished,
     }, { signal: current.signal })
     if (controller !== current) return
     items.value = res.items
@@ -210,6 +238,9 @@ onBeforeUnmount(() => controller?.abort())
 }
 .bi-pi__link:hover {
   text-decoration: underline;
+}
+.bi-pi__status {
+  white-space: nowrap;
 }
 .bi-num {
   font-variant-numeric: tabular-nums;

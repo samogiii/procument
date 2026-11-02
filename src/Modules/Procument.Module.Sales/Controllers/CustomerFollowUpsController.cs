@@ -11,8 +11,9 @@ using Procument.Shared.Audit;
 namespace Procument.Module.Sales.Controllers;
 
 /// <summary>
-/// Customer Follow Ups — one shared, spreadsheet-style list. Granted per user in Menu Access
-/// ("customerFollowUps"); SuperAdmin always passes.
+/// Customer Follow Ups — one spreadsheet-style list. Granted per user in Menu Access
+/// ("customerFollowUps"); SuperAdmin always passes, sees every row and is the only one who assigns.
+/// Everyone else works only on the rows assigned to them.
 /// </summary>
 [ApiController]
 [Route("api/customer-follow-ups")]
@@ -32,38 +33,47 @@ public class CustomerFollowUpsController : ControllerBase
 
     private string CurrentUserName => User.Identity?.Name ?? "System";
 
+    private bool IsSuperAdmin => User.IsInRole(UserRoles.SuperAdmin);
+
+    /// <summary>Whose rows the current user works on: null = every row (SuperAdmin), otherwise their own name.</summary>
+    private string? AssignedTo => IsSuperAdmin ? null : CurrentUserName;
+
     private async Task<bool> HasAccessAsync()
     {
-        if (User.IsInRole(UserRoles.SuperAdmin)) return true;
+        if (IsSuperAdmin) return true;
         var userName = User.Identity?.Name;
         return !string.IsNullOrEmpty(userName) && await _db.Set<MenuPermission>()
             .AnyAsync(p => p.Feature == Feature && p.UserName == userName);
     }
 
+    /// <summary>Page access, and the row is assigned to the current user (SuperAdmin reaches every row).</summary>
+    private async Task<bool> HasRowAccessAsync(long id) =>
+        await HasAccessAsync() && (IsSuperAdmin || await _service.IsAssignedAsync(id, CurrentUserName));
+
     [HttpGet]
     public async Task<ActionResult<List<CustomerFollowUpResponse>>> GetAll()
     {
         if (!await HasAccessAsync()) return Forbid();
-        return Ok(await _service.GetAllAsync(CurrentUserName));
+        return Ok(await _service.GetAllAsync(CurrentUserName, AssignedTo));
     }
 
     [HttpGet("{id:long}")]
     public async Task<ActionResult<CustomerFollowUpResponse>> GetById(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         var row = await _service.GetByIdAsync(id, CurrentUserName);
         return row == null ? NotFound() : Ok(row);
     }
 
     /// <summary>
     /// Dropdown values: catalog customer codes, user names, categories and the status defaults, plus every
-    /// value already used on a row — and whether the current user is a procurement user.
+    /// value already used on the user's rows — and whether the current user is a procurement user.
     /// </summary>
     [HttpGet("options")]
     public async Task<ActionResult<CustomerFollowUpOptionsResponse>> GetOptions()
     {
         if (!await HasAccessAsync()) return Forbid();
-        return Ok(await _service.GetOptionsAsync(CurrentUserName));
+        return Ok(await _service.GetOptionsAsync(CurrentUserName, AssignedTo));
     }
 
     // ── RFQ Ref# and Other Refs ──────────────────────────────────────────────
@@ -97,26 +107,26 @@ public class CustomerFollowUpsController : ControllerBase
     [HttpPut("{id:long}/rfq")]
     [Auditable("CustomerFollowUp", "SetRfq", CaptureBody = true)]
     public Task<ActionResult<CustomerFollowUpResponse>> SetRfq(long id, [FromBody] SetCustomerFollowUpRfqRequest request) =>
-        RowActionAsync(() => _service.SetRfqAsync(id, request.RfqId, CurrentUserName));
+        RowActionAsync(id, () => _service.SetRfqAsync(id, request.RfqId, CurrentUserName));
 
     /// <summary>Creates a new RFQ (owner = current user) and links it to the row.</summary>
     [HttpPost("{id:long}/rfq")]
     [Auditable("CustomerFollowUp", "CreateRfq", CaptureBody = true)]
     public Task<ActionResult<CustomerFollowUpResponse>> CreateRfq(long id, [FromBody] CreateCustomerFollowUpRfqRequest request) =>
-        RowActionAsync(() => _service.CreateRfqAsync(id, request, CurrentUserName, CurrentUserId));
+        RowActionAsync(id, () => _service.CreateRfqAsync(id, request, CurrentUserName, CurrentUserId));
 
     /// <summary>Replaces the row's Other Refs with the given set.</summary>
     [HttpPut("{id:long}/refs")]
     [Auditable("CustomerFollowUp", "SetRefs", CaptureBody = true)]
     public Task<ActionResult<CustomerFollowUpResponse>> SetRefs(long id, [FromBody] SetCustomerFollowUpRefsRequest request) =>
-        RowActionAsync(() => _service.SetRefsAsync(id, request.Refs, CurrentUserName));
+        RowActionAsync(id, () => _service.SetRefsAsync(id, request.Refs, CurrentUserName));
 
     private long CurrentUserId =>
         long.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
-    private async Task<ActionResult<CustomerFollowUpResponse>> RowActionAsync(Func<Task<CustomerFollowUpResponse?>> action)
+    private async Task<ActionResult<CustomerFollowUpResponse>> RowActionAsync(long id, Func<Task<CustomerFollowUpResponse?>> action)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         try
         {
             var row = await action();
@@ -128,6 +138,7 @@ public class CustomerFollowUpsController : ControllerBase
         }
     }
 
+    /// <summary>A row added by anyone but a SuperAdmin is assigned to them, so they keep seeing it.</summary>
     [HttpPost]
     [Auditable("CustomerFollowUp", "Create", CaptureBody = true)]
     public async Task<ActionResult<CustomerFollowUpResponse>> Create([FromBody] CreateCustomerFollowUpRequest? request)
@@ -135,7 +146,7 @@ public class CustomerFollowUpsController : ControllerBase
         if (!await HasAccessAsync()) return Forbid();
         try
         {
-            return Ok(await _service.CreateAsync(request ?? new CreateCustomerFollowUpRequest(), CurrentUserName));
+            return Ok(await _service.CreateAsync(request ?? new CreateCustomerFollowUpRequest(), CurrentUserName, AssignedTo));
         }
         catch (ArgumentException ex)
         {
@@ -147,7 +158,8 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "UpdateCell", CaptureBody = true)]
     public async Task<ActionResult<CustomerFollowUpResponse>> UpdateField(long id, [FromBody] UpdateCustomerFollowUpFieldRequest request)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
+        if (request.Field == "assign" && !IsSuperAdmin) return Forbid();
         try
         {
             var row = await _service.UpdateFieldAsync(id, request, CurrentUserName);
@@ -164,7 +176,7 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "Delete")]
     public async Task<IActionResult> Delete(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         return await _service.DeleteAsync(id) ? NoContent() : NotFound();
     }
 
@@ -173,7 +185,7 @@ public class CustomerFollowUpsController : ControllerBase
     [HttpGet("{id:long}/documents")]
     public async Task<ActionResult<List<CustomerFollowUpDocumentResponse>>> GetDocuments(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         var documents = await _service.GetDocumentsAsync(id);
         return documents == null ? NotFound() : Ok(documents);
     }
@@ -183,7 +195,7 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "UploadDocument")]
     public async Task<ActionResult<List<CustomerFollowUpDocumentResponse>>> UploadDocuments(long id, [FromForm] List<IFormFile> files)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         try
         {
             var documents = await _service.UploadDocumentsAsync(id, files, CurrentUserName);
@@ -198,7 +210,7 @@ public class CustomerFollowUpsController : ControllerBase
     [HttpGet("{id:long}/documents/{documentId:long}/download")]
     public async Task<IActionResult> DownloadDocument(long id, long documentId)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         var result = await _service.OpenDocumentAsync(id, documentId);
         if (result == null) return NotFound();
         var (stream, fileName, mimeType) = result.Value;
@@ -209,7 +221,7 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "DeleteDocument")]
     public async Task<IActionResult> DeleteDocument(long id, long documentId)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         return await _service.DeleteDocumentAsync(id, documentId) ? NoContent() : NotFound();
     }
 
@@ -218,7 +230,7 @@ public class CustomerFollowUpsController : ControllerBase
     [HttpGet("{id:long}/messages")]
     public async Task<ActionResult<List<CustomerFollowUpMessageResponse>>> GetMessages(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         var messages = await _service.GetMessagesAsync(id);
         return messages == null ? NotFound() : Ok(messages);
     }
@@ -229,7 +241,7 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "SendMessage")]
     public async Task<ActionResult<List<CustomerFollowUpMessageResponse>>> SendMessage(long id, [FromForm] string? text, [FromForm] List<IFormFile>? files)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         try
         {
             var messages = await _service.SendMessageAsync(id, text, files ?? [], CurrentUserName);
@@ -241,14 +253,14 @@ public class CustomerFollowUpsController : ControllerBase
         }
     }
 
-    /// <summary>Searches the text and file names of every row's messages, newest first.</summary>
+    /// <summary>Searches the text and file names of the messages of the user's rows, newest first.</summary>
     [HttpGet("messages/search")]
     public async Task<ActionResult<CustomerFollowUpMessageSearchResponse>> SearchMessages([FromQuery] string? q)
     {
         if (!await HasAccessAsync()) return Forbid();
         try
         {
-            return Ok(await _service.SearchMessagesAsync(q));
+            return Ok(await _service.SearchMessagesAsync(q, AssignedTo));
         }
         catch (ArgumentException ex)
         {
@@ -256,19 +268,19 @@ public class CustomerFollowUpsController : ControllerBase
         }
     }
 
-    /// <summary>Message count + unread flag (for the current user) of every row with a chat — polled by the page.</summary>
+    /// <summary>Message count + unread flag (for the current user) of every row of theirs with a chat — polled by the page.</summary>
     [HttpGet("message-status")]
     public async Task<ActionResult<List<CustomerFollowUpMessageStatusResponse>>> GetMessageStatuses()
     {
         if (!await HasAccessAsync()) return Forbid();
-        return Ok(await _service.GetMessageStatusesAsync(CurrentUserName));
+        return Ok(await _service.GetMessageStatusesAsync(CurrentUserName, AssignedTo));
     }
 
     /// <summary>The current user has seen the row's chat.</summary>
     [HttpPut("{id:long}/messages/read")]
     public async Task<IActionResult> MarkMessagesRead(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         return await _service.MarkMessagesReadAsync(id, CurrentUserName) ? NoContent() : NotFound();
     }
 
@@ -276,7 +288,7 @@ public class CustomerFollowUpsController : ControllerBase
     [HttpPut("{id:long}/messages/unread")]
     public async Task<IActionResult> MarkMessagesUnread(long id)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         return await _service.MarkMessagesUnreadAsync(id, CurrentUserName) ? NoContent() : NotFound();
     }
 
@@ -285,7 +297,7 @@ public class CustomerFollowUpsController : ControllerBase
     [Auditable("CustomerFollowUp", "DeleteMessage")]
     public async Task<IActionResult> DeleteMessage(long id, long messageId)
     {
-        if (!await HasAccessAsync()) return Forbid();
+        if (!await HasRowAccessAsync(id)) return Forbid();
         return await _service.DeleteMessageAsync(id, messageId, CurrentUserName) switch
         {
             DeleteMessageResult.Deleted => NoContent(),
