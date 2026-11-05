@@ -14,5 +14,13 @@ public class WalletSettings
     /// </summary>
     public bool AutoImport { get; set; }
     public DateTime? UpdatedAt { get; set; }
+
+    // ── The latest Bank of China USD rate the warehouse read, saved on each Payment sync (shown on Wallets) ──
+    /// <summary>中行折算价, CNY per 1 USD, as published (no +0.2).</summary>
+    public decimal? WarehouseCnyPerUsd { get; set; }
+    public string? WarehouseRatePublishedAt { get; set; }
+    public DateTime? WarehouseRateFetchedAt { get; set; }
+    public bool WarehouseRateStale { get; set; }
+    public DateTime? WarehouseRateSyncedAt { get; set; }
     public long? UpdatedByUserId { get; set; }
 }

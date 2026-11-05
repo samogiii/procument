@@ -24,6 +24,9 @@ namespace Procument.Module.Purchasing.Entities
         public decimal? WarehouseBankWireFee { get; set; }
         public decimal? WarehouseFinalAmount { get; set; }
         public decimal? WarehouseExchangeRate { get; set; }
+        /// <summary>The Bank of China rate behind WarehouseExchangeRate (before +0.2) and when BOC published it; null = office rate.</summary>
+        public decimal? WarehouseBocRate { get; set; }
+        public string? WarehouseRateAt { get; set; }
         public string? WarehousePaidBy { get; set; }
         public DateTime? WarehousePaidAt { get; set; }
         /// <summary>Why the office sent the last warehouse payment back; shown on the phone.</summary>

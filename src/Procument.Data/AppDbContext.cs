@@ -105,6 +105,8 @@ public class AppDbContext : DbContext
   public DbSet<WarehouseShippingCost> WarehouseShippingCosts => Set<WarehouseShippingCost>();
   public DbSet<IncomingDeposit> IncomingDeposits => Set<IncomingDeposit>();
   public DbSet<WalletTransferPending> WalletTransferPendings => Set<WalletTransferPending>();
+  public DbSet<WalletWithdrawPending> WalletWithdrawPendings => Set<WalletWithdrawPending>();
+  public DbSet<PopReading> PopReadings => Set<PopReading>();
   public DbSet<UpcomingWithdraw> UpcomingWithdraws => Set<UpcomingWithdraw>();
   public DbSet<CustomerFollowUp> CustomerFollowUps => Set<CustomerFollowUp>();
   public DbSet<CustomerFollowUpDocument> CustomerFollowUpDocuments => Set<CustomerFollowUpDocument>();
@@ -1620,6 +1622,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.WarehouseHandlingFee).HasColumnType("decimal(18,2)");
       entity.Property(e => e.WarehouseBankWireFee).HasColumnType("decimal(18,2)");
       entity.Property(e => e.WarehouseExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WarehouseBocRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WarehouseRateAt).HasMaxLength(50);
       entity.Property(e => e.WarehousePaidBy).HasMaxLength(200);
       entity.Property(e => e.WarehouseRejectNote).HasMaxLength(500);
       entity.Property(e => e.Status).HasMaxLength(50);
@@ -1658,6 +1662,7 @@ public class AppDbContext : DbContext
       entity.Property(e => e.Surname).HasMaxLength(200);
       entity.Property(e => e.HandlingFee).HasColumnType("decimal(18,2)");
       entity.Property(e => e.WireFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFeePaidBy).HasMaxLength(10);
 
       entity.HasOne(e => e.CompanyPreset)
                 .WithMany()
@@ -1777,6 +1782,8 @@ public class AppDbContext : DbContext
       entity.Property(e => e.BankPopFileName).HasMaxLength(500);
       entity.Property(e => e.BankAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.BankRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.BocRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.RateAt).HasMaxLength(50);
       entity.Property(e => e.BankWalletAmount).HasColumnType("decimal(18,2)");
       entity.Property(e => e.BankBy).HasMaxLength(200);
       entity.Property(e => e.RejectNote).HasMaxLength(500);
@@ -1895,7 +1902,57 @@ public class AppDbContext : DbContext
       entity.ToTable("WalletSettings");
       entity.HasKey(e => e.Id);
       entity.Property(e => e.Id).ValueGeneratedNever();
+      entity.Property(e => e.WarehouseCnyPerUsd).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.WarehouseRatePublishedAt).HasMaxLength(50);
       entity.HasData(new WalletSettings { Id = Procument.Module.Sales.Entities.WalletSettings.SingletonId, AutoImport = false });
+    });
+
+    modelBuilder.Entity<WalletWithdrawPending>(entity =>
+    {
+      entity.ToTable("WalletWithdrawPendings");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.Currency).HasMaxLength(10);
+      entity.Property(e => e.OfficeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.ToType).HasMaxLength(30);
+      entity.Property(e => e.Base).HasMaxLength(50);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.Status).HasMaxLength(20);
+      entity.Property(e => e.PopFileName).HasMaxLength(500);
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.HandlingFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WalletAmount).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WarehouseBy).HasMaxLength(200);
+      entity.Property(e => e.BankFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFeePaidBy).HasMaxLength(10);
+      entity.Property(e => e.BocRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.RateAt).HasMaxLength(50);
+
+      entity.HasOne(e => e.PaymentBox).WithMany().HasForeignKey(e => e.PaymentBoxId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasOne(e => e.ToSupplier).WithMany().HasForeignKey(e => e.ToSupplierId).OnDelete(DeleteBehavior.Restrict);
+      entity.HasIndex(e => e.Status);
+    });
+
+    modelBuilder.Entity<PopReading>(entity =>
+    {
+      entity.ToTable("PopReadings");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Kind).HasMaxLength(20);
+      entity.Property(e => e.Status).HasMaxLength(20);
+      foreach (var p in new[] { nameof(PopReading.Amount), nameof(PopReading.Fees), nameof(PopReading.TotalDebited), nameof(PopReading.ReceivedAmount) })
+        entity.Property(p).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.Confidence).HasColumnType("decimal(5,2)");
+      foreach (var p in new[] { nameof(PopReading.Currency), nameof(PopReading.FeesCurrency), nameof(PopReading.TotalDebitedCurrency), nameof(PopReading.ReceivedCurrency), nameof(PopReading.ChargesOption) })
+        entity.Property(p).HasMaxLength(10);
+      entity.Property(e => e.ValueDate).HasMaxLength(50);
+      entity.Property(e => e.Reference).HasMaxLength(200);
+      entity.Property(e => e.Note).HasMaxLength(1000);
+      entity.Property(e => e.Error).HasMaxLength(1000);
+      entity.Property(e => e.Model).HasMaxLength(100);
+      entity.HasIndex(e => new { e.Kind, e.RefId }).IsUnique();
+      entity.HasIndex(e => e.Status);
     });
 
     modelBuilder.Entity<WalletTransferPending>(entity =>
@@ -1906,6 +1963,16 @@ public class AppDbContext : DbContext
       entity.Property(e => e.PopFileName).HasMaxLength(500);
       entity.Property(e => e.Notes).HasMaxLength(1000);
       entity.Property(e => e.RejectionNote).HasMaxLength(1000);
+      entity.Property(e => e.ExchangeRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.RateBaseCurrency).HasMaxLength(10);
+      entity.Property(e => e.HandlingFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.SourceWireFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.BankFee).HasColumnType("decimal(18,2)");
+      entity.Property(e => e.WireFeePaidBy).HasMaxLength(10);
+      entity.Property(e => e.BocRate).HasColumnType("decimal(18,6)");
+      entity.Property(e => e.RateAt).HasMaxLength(50);
+      entity.Property(e => e.WarehouseBy).HasMaxLength(200);
 
       entity.HasOne(e => e.FromBox)
             .WithMany()

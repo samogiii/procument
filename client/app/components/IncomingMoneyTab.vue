@@ -2,7 +2,8 @@
   <div>
     <div class="d-flex align-center mb-3">
       <p class="text-body-2 text-medium-emphasis mb-0">
-        Customer POPs on their way to a wallet. The warehouse adds the bank POP, the price and the rate, then you accept the money here.
+        Customer POPs on their way to a wallet. The warehouse uploads the bank POP (the rate is saved with it), the local AI reads
+        what arrived, then you check and accept the money here. Fees on a customer's POP are theirs, never ours.
       </p>
       <v-spacer />
       <v-btn v-if="syncEnabled" variant="tonal" size="small" color="primary" prepend-icon="mdi-cellphone-arrow-down"
@@ -37,7 +38,10 @@
         <template #item.amount="{ item }">{{ currencySymbol(item.currency) }}{{ formatPrice(item.amount) }}</template>
         <template #item.officeAmount="{ item }">{{ currencySymbol(item.walletCurrency) }}{{ formatPrice(item.officeAmount) }}</template>
         <template #item.bankWalletAmount="{ item }">
-          <template v-if="item.bankWalletAmount != null">{{ currencySymbol(item.walletCurrency) }}{{ formatPrice(item.bankWalletAmount) }}</template>
+          <template v-if="(item.proposal?.walletAmount ?? item.bankWalletAmount) != null">
+            {{ currencySymbol(item.walletCurrency) }}{{ formatPrice(item.proposal?.walletAmount ?? item.bankWalletAmount) }}
+            <v-icon v-if="item.reading?.status === 'Done'" icon="mdi-robot-outline" size="14" class="ml-1" title="Read by the local AI" />
+          </template>
           <span v-else>—</span>
         </template>
         <template #item.difference="{ item }">
@@ -67,12 +71,31 @@
             Sent back: {{ selected.rejectNote }}
           </v-alert>
 
+          <!-- ── Waiting for acceptance: the AI's reading, then the office's own numbers ── -->
+          <template v-if="selected.status === 'Pending' && selected.bankAt">
+            <PopReadingCard kind="Deposit" :ref-id="selected.id" :reading="selected.reading" :notes="selected.proposal?.notes" :check="selected.proposal?.check" class="mb-3" @queued="load" />
+            <v-row dense class="mb-1">
+              <v-col cols="12" sm="6">
+                <v-text-field v-model.number="confirm.amount" :label="`What arrived (${selected.currency})`" type="number" step="0.01" variant="outlined" density="compact"
+                  hint="From the bank POP — the customer's fees are not ours" persistent-hint />
+              </v-col>
+              <v-col v-if="needsRate(selected)" cols="12" sm="6">
+                <v-text-field v-model.number="confirm.rate" :label="`Rate: ${selected.walletCurrency} per 1 ${selected.currency}`" type="number" step="0.0001" variant="outlined" density="compact"
+                  :hint="selected.bocRate ? `BOC ${selected.bocRate} + 0.2 · ${selected.rateAt ?? ''}` : ''" persistent-hint />
+              </v-col>
+            </v-row>
+          </template>
+
           <div class="pa-3 rounded calc mb-4">
             <div class="d-flex justify-space-between ga-3">
               <span class="text-medium-emphasis">Procument: {{ formula(selected.amount, selected.currency, selected.walletRate) }}</span>
               <span>{{ currencySymbol(selected.walletCurrency) }}{{ formatPrice(selected.officeAmount) }}</span>
             </div>
-            <div class="d-flex justify-space-between ga-3 mt-1">
+            <div v-if="selected.status === 'Pending' && selected.bankAt" class="d-flex justify-space-between ga-3 mt-1">
+              <span class="text-medium-emphasis">Arrived: {{ formula(Number(confirm.amount) || 0, selected.currency, needsRate(selected) ? Number(confirm.rate) || 0 : null) }}</span>
+              <span>{{ currencySymbol(selected.walletCurrency) }}{{ formatPrice(confirmWalletAmount) }}</span>
+            </div>
+            <div v-else class="d-flex justify-space-between ga-3 mt-1">
               <span class="text-medium-emphasis">
                 Warehouse:
                 <template v-if="selected.bankAmount != null">{{ formula(selected.bankAmount, selected.currency, selected.bankRate) }}</template>
@@ -80,7 +103,14 @@
               </span>
               <span>{{ selected.bankWalletAmount != null ? `${currencySymbol(selected.walletCurrency)}${formatPrice(selected.bankWalletAmount)}` : '—' }}</span>
             </div>
-            <template v-if="selected.difference != null">
+            <template v-if="selected.status === 'Pending' && selected.bankAt">
+              <v-divider class="my-2" />
+              <div class="d-flex justify-space-between ga-3 font-weight-bold">
+                <span>{{ confirmDifference < 0 ? 'Received more than expected' : 'Bank fee' }}</span>
+                <span :class="confirmDifference < 0 ? 'text-success' : ''">{{ confirmDifference < 0 ? '+' : '' }}{{ currencySymbol(selected.walletCurrency) }}{{ formatPrice(Math.abs(confirmDifference)) }}</span>
+              </div>
+            </template>
+            <template v-else-if="selected.difference != null">
               <v-divider class="my-2" />
               <div class="d-flex justify-space-between ga-3 font-weight-bold">
                 <span>{{ selected.difference < 0 ? 'Received more than expected' : 'Bank fee' }}</span>
@@ -122,7 +152,7 @@
           <v-spacer />
           <template v-if="selected.status === 'Pending' && selected.bankAt">
             <v-btn color="warning" variant="tonal" prepend-icon="mdi-undo" @click="showSendBack = true">Send Back</v-btn>
-            <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="accepting" @click="accept">Accept Money</v-btn>
+            <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="accepting" :disabled="!confirmValid" @click="accept">Accept Money</v-btn>
           </template>
         </v-card-actions>
       </v-card>
@@ -157,6 +187,7 @@
 
 <script setup lang="ts">
 import type { WarehousePaymentSyncSummary } from '~/composables/useWarehouseSync'
+import type { PopCheck, PopReading } from '~/components/PopReadingCard.vue'
 
 type IncomingRow = {
   id: number
@@ -184,6 +215,10 @@ type IncomingRow = {
   createdAt: string
   stage: string
   difference: number | null
+  bocRate: number | null
+  rateAt: string | null
+  reading: PopReading | null
+  proposal: { amount: number; rate: number | null; walletAmount: number; notes: string[]; check?: PopCheck | null } | null
 }
 
 const emit = defineEmits<{ pending: [count: number]; accepted: [] }>()
@@ -216,16 +251,49 @@ const syncing = ref(false)
 const syncText = ref('')
 const syncResult = ref<WarehousePaymentSyncSummary | null>(null)
 
+// What the office confirms arrived (the AI's reading, maybe changed). Follows a new reading while untouched.
+const confirm = reactive({ amount: 0, rate: null as number | null })
+const confirmTouched = ref(false)
+watch(confirm, () => { confirmTouched.value = true }, { deep: true })
+const needsRate = (r: IncomingRow) => r.currency.toUpperCase() !== r.walletCurrency.toUpperCase()
+const confirmWalletAmount = computed(() => {
+  const r = selected.value
+  if (!r) return 0
+  const rate = needsRate(r) ? Number(confirm.rate) || 0 : 1
+  return Math.round((Number(confirm.amount) || 0) * rate * 100) / 100
+})
+const confirmDifference = computed(() => Math.round(((selected.value?.officeAmount ?? 0) - confirmWalletAmount.value) * 100) / 100)
+const confirmValid = computed(() => !!selected.value && Number(confirm.amount) > 0 && (!needsRate(selected.value) || Number(confirm.rate) > 0))
+function fillConfirm(r: IncomingRow) {
+  confirm.amount = r.proposal?.amount ?? r.bankAmount ?? r.amount
+  confirm.rate = r.proposal?.rate ?? r.bankRate ?? r.walletRate
+  nextTick(() => { confirmTouched.value = false })
+}
+
+// While the AI is still reading a POP, look again every few seconds.
+let poll: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   load()
   warehouseSync.getPaymentConfig().then(c => { syncEnabled.value = c.enabled }).catch(() => {})
+  poll = setInterval(() => {
+    if (!loading.value && rows.value.some(r => r.status === 'Pending' && r.reading?.status === 'Waiting')) load()
+  }, 8000)
 })
+onBeforeUnmount(() => clearInterval(poll))
 
 async function load() {
   loading.value = true
   try {
     rows.value = await api.get<IncomingRow[]>('/incoming-money')
     emit('pending', rows.value.filter(r => r.status === 'Pending' && r.bankAt).length)
+    if (selected.value) {
+      const fresh = rows.value.find(r => r.id === selected.value!.id)
+      if (fresh) {
+        const readingChanged = fresh.reading?.status !== selected.value.reading?.status || fresh.reading?.readAt !== selected.value.reading?.readAt
+        selected.value = fresh
+        if (readingChanged && !confirmTouched.value) fillConfirm(fresh)
+      }
+    }
   } catch { showSnack('Failed to load incoming money', 'error') }
   finally { loading.value = false }
 }
@@ -243,6 +311,7 @@ async function runSync() {
 
 function open(row: IncomingRow) {
   selected.value = row
+  fillConfirm(row)
   showDialog.value = true
 }
 
@@ -260,7 +329,10 @@ async function accept() {
   if (!selected.value || accepting.value) return
   accepting.value = true
   try {
-    const result = await api.post<any>(`/incoming-money/${selected.value.id}/accept`, {})
+    const result = await api.post<any>(`/incoming-money/${selected.value.id}/accept`, {
+      amount: Math.round(Number(confirm.amount) * 100) / 100,
+      exchangeRate: needsRate(selected.value) ? Number(confirm.rate) : null,
+    })
     const symbol = currencySymbol(result.walletCurrency)
     showSnack(`${symbol}${formatPrice(result.received)} went into ${result.walletName}` +
       (result.bankFee > 0 ? ` (bank fee ${symbol}${formatPrice(result.bankFee)}).` : '.'), 'success')

@@ -22,6 +22,11 @@ public class PaymentBox
     public decimal? HandlingFee { get; set; }
     /// <summary>This wallet's fixed wire charge, in its currency; fills the phone's fee box. Null = not fixed.</summary>
     public decimal? WireFee { get; set; }
+    /// <summary>
+    /// Who pays the wire fee when this wallet sends money (WireFeePayer: Ours / Split / Theirs). Null = not set: a transfer
+    /// takes it off the destination, a withdraw off this wallet. Yuan wallets send transfers with no wire fee at all.
+    /// </summary>
+    public string? WireFeePaidBy { get; set; }
 
     // Bank details — override the company preset's bank details when set
     public string? BankName { get; set; }

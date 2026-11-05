@@ -69,6 +69,9 @@ builder.Services.AddSingleton<ICryptoService, CryptoService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddHttpClient();
+// Local AI that reads warehouse POPs (PopReader:Url = llama-server's /v1); see PopReaderWorker.
+builder.Services.AddScoped<PopReader>();
+builder.Services.AddHostedService<PopReaderWorker>();
 
 // ─── JWT Authentication ───
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");

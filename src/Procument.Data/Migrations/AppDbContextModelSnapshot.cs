@@ -1980,6 +1980,9 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("WarehouseBankWireFee")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("WarehouseBocRate")
+                        .HasColumnType("decimal(18,6)");
+
                     b.Property<decimal?>("WarehouseExchangeRate")
                         .HasColumnType("decimal(18,6)");
 
@@ -1999,6 +2002,10 @@ namespace Procument.Data.Migrations
                     b.Property<string>("WarehousePopFileName")
                         .HasMaxLength(400)
                         .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("WarehouseRateAt")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("WarehouseRejectNote")
                         .HasMaxLength(500)
@@ -4476,6 +4483,9 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("BankWalletAmount")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("BocRate")
+                        .HasColumnType("decimal(18,6)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -4498,6 +4508,10 @@ namespace Procument.Data.Migrations
 
                     b.Property<long>("PaymentBoxId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("RateAt")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("RejectNote")
                         .HasMaxLength(500)
@@ -4747,6 +4761,10 @@ namespace Procument.Data.Migrations
                     b.Property<decimal?>("WireFee")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("WireFeePaidBy")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyPresetId");
@@ -4877,6 +4895,110 @@ namespace Procument.Data.Migrations
                         .HasFilter("[ReviewedAt] IS NULL");
 
                     b.ToTable("PaymentTransactions", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.PopReading", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ChargesOption")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal?>("Confidence")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<decimal?>("Fees")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("FeesCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<bool?>("IsPaymentProof")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("RawJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("ReceivedAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("ReceivedCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<long>("RefId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal?>("TotalDebited")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("TotalDebitedCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("ValueDate")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("Kind", "RefId")
+                        .IsUnique();
+
+                    b.ToTable("PopReadings", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.Quote", b =>
@@ -5301,6 +5423,22 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("UpdatedByUserId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("WarehouseCnyPerUsd")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<DateTime?>("WarehouseRateFetchedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("WarehouseRatePublishedAt")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("WarehouseRateStale")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("WarehouseRateSyncedAt")
+                        .HasColumnType("datetime2");
+
                     b.HasKey("Id");
 
                     b.ToTable("WalletSettings", (string)null);
@@ -5309,7 +5447,8 @@ namespace Procument.Data.Migrations
                         new
                         {
                             Id = 1L,
-                            AutoImport = false
+                            AutoImport = false,
+                            WarehouseRateStale = false
                         });
                 });
 
@@ -5327,6 +5466,12 @@ namespace Procument.Data.Migrations
                     b.Property<long?>("AcceptedByUserId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("BankFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("BocRate")
+                        .HasColumnType("decimal(18,6)");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("datetime2");
 
@@ -5343,22 +5488,39 @@ namespace Procument.Data.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal?>("ExchangeRate")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(18,6)");
 
                     b.Property<long>("FromBoxId")
                         .HasColumnType("bigint");
+
+                    b.Property<decimal?>("HandlingFee")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<DateTime?>("PopAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("PopFileName")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("RateAt")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("RateBaseCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
                     b.Property<string>("RejectionNote")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("SourceWireFee")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -5367,6 +5529,17 @@ namespace Procument.Data.Migrations
 
                     b.Property<long>("ToBoxId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("WarehouseBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal?>("WireFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WireFeePaidBy")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
 
                     b.Property<decimal>("WithdrawAmount")
                         .HasColumnType("decimal(18,2)");
@@ -5382,6 +5555,114 @@ namespace Procument.Data.Migrations
                     b.HasIndex("ToBoxId");
 
                     b.ToTable("WalletTransferPendings", (string)null);
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.WalletWithdrawPending", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("BankFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Base")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal?>("BocRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<long?>("FeeTransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("HandlingFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("OfficeRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<long>("PaymentBoxId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PaymentRequestId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("PopAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PopFileName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RateAt")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<long?>("ToSupplierId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ToType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<long?>("TransactionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("WalletAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WarehouseBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal?>("WireFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WireFeePaidBy")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentBoxId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("ToSupplierId");
+
+                    b.ToTable("WalletWithdrawPendings", (string)null);
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.WarehouseShippingCost", b =>
@@ -7445,6 +7726,24 @@ namespace Procument.Data.Migrations
                     b.Navigation("FromBox");
 
                     b.Navigation("ToBox");
+                });
+
+            modelBuilder.Entity("Procument.Module.Sales.Entities.WalletWithdrawPending", b =>
+                {
+                    b.HasOne("Procument.Module.Sales.Entities.PaymentBox", "PaymentBox")
+                        .WithMany()
+                        .HasForeignKey("PaymentBoxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Procument.Module.Catalog.Entities.Supplier", "ToSupplier")
+                        .WithMany()
+                        .HasForeignKey("ToSupplierId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("PaymentBox");
+
+                    b.Navigation("ToSupplier");
                 });
 
             modelBuilder.Entity("Procument.Module.Sales.Entities.WarehouseShippingCost", b =>

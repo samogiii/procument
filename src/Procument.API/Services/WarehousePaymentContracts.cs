@@ -12,6 +12,63 @@ public class PaymentPush
     public List<PaymentPushItem> Payments { get; set; } = new();
     public List<ShippingCostDecision> CostDecisions { get; set; } = new();
     public List<DepositPushItem> Deposits { get; set; } = new();
+    public List<TransferPushItem> Transfers { get; set; } = new();
+    public List<WithdrawPushItem> Withdraws { get; set; } = new();
+}
+
+/// <summary>
+/// A wallet withdraw the warehouse pays (MainWithdrawId = WalletWithdrawPending.Id). The phone answers with the POP,
+/// rate and fees; the import completes it straight away, like a transfer.
+/// </summary>
+public class WithdrawPushItem
+{
+    public long MainWithdrawId { get; set; }
+    /// <summary>The wallet's surname when it has one; then no company is sent.</summary>
+    public string WalletName { get; set; } = string.Empty;
+    public string? CompanyName { get; set; }
+    public string WalletCurrency { get; set; } = "USD";
+    /// <summary>In Currency.</summary>
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
+    /// <summary>Wallet currency per 1 Currency as the office expects it; null when they match or none was set.</summary>
+    public decimal? OfficeRate { get; set; }
+    /// <summary>The wallet's fixed bank charges in its currency; they fill the phone's fee boxes.</summary>
+    public decimal? WalletHandlingFee { get; set; }
+    public decimal? WalletWireFee { get; set; }
+    /// <summary>"Mother Wallet" or the supplier's name.</summary>
+    public string ToName { get; set; } = string.Empty;
+    public long? PrNumber { get; set; }
+    public string? Notes { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// A wallet-to-wallet transfer waiting for its POP (MainTransferId = WalletTransferPending.Id). The phone sends the
+/// money and answers with the POP, exact amount, rate and fees; the import completes it straight away.
+/// </summary>
+public class TransferPushItem
+{
+    public long MainTransferId { get; set; }
+    /// <summary>Wallet surnames when they have one; then no company is sent.</summary>
+    public string FromWallet { get; set; } = string.Empty;
+    public string? FromCompany { get; set; }
+    public string FromCurrency { get; set; } = "USD";
+    public string ToWallet { get; set; } = string.Empty;
+    public string? ToCompany { get; set; }
+    public string ToCurrency { get; set; } = "USD";
+    /// <summary>To send, From currency.</summary>
+    public decimal Amount { get; set; }
+    /// <summary>1 RateBase = rate (the other currency); null when the currencies match or the office set none.</summary>
+    public decimal? OfficeRate { get; set; }
+    /// <summary>Amount in the To currency as the office expects it, before the wire fee.</summary>
+    public decimal OfficeReceived { get; set; }
+    /// <summary>The source wallet's fixed handling fee (From currency) and the destination's wire fee (To currency).</summary>
+    public decimal? FromHandlingFee { get; set; }
+    public decimal? ToWireFee { get; set; }
+    public string? Notes { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 /// <summary>A Customer POP waiting for the warehouse to confirm it against the bank.</summary>
@@ -113,6 +170,64 @@ public class PaymentResults
     public List<PaymentResult> Payments { get; set; } = new();
     public List<ShippingCostChange> Costs { get; set; } = new();
     public List<DepositResult> Deposits { get; set; } = new();
+    public List<TransferResult> Transfers { get; set; } = new();
+    public List<WithdrawResult> Withdraws { get; set; } = new();
+    /// <summary>The latest Bank of China USD rate the warehouse read (first batch only); shown on Wallets.</summary>
+    public LatestRateInfo? LatestRate { get; set; }
+}
+
+/// <summary>Bank of China 中行折算价: CNY per 1 USD, as published (no +0.2).</summary>
+public class LatestRateInfo
+{
+    public decimal CnyPerUsd { get; set; }
+    public string? PublishedAt { get; set; }
+    public DateTime FetchedAt { get; set; }
+    /// <summary>BOC could not be reached just now: this is the last good value.</summary>
+    public bool Stale { get; set; }
+}
+
+/// <summary>
+/// A withdraw paid from the phone: the POP and the rate saved with it (wallet currency per 1 Currency). The fees are
+/// no longer typed there (0): the office reads the POP and works them out.
+/// </summary>
+public class WithdrawResult
+{
+    public long WithdrawId { get; set; }
+    public int Version { get; set; }
+    public long MainWithdrawId { get; set; }
+    public decimal? ExchangeRate { get; set; }
+    /// <summary>The BOC rate behind ExchangeRate (before +0.2) and its publish time; null = not from BOC.</summary>
+    public decimal? BocRate { get; set; }
+    public string? RateAt { get; set; }
+    public decimal HandlingFee { get; set; }
+    public decimal WireFee { get; set; }
+    public string? By { get; set; }
+    public DateTime At { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string MimeType { get; set; } = "application/octet-stream";
+    public string DataBase64 { get; set; } = string.Empty;
+}
+
+/// <summary>A transfer sent from the phone: POP, exact amount (From currency), rate and fees.</summary>
+public class TransferResult
+{
+    public long TransferId { get; set; }
+    public int Version { get; set; }
+    public long MainTransferId { get; set; }
+    public decimal Amount { get; set; }
+    /// <summary>1 RateBase = rate (the other currency); null when the currencies match.</summary>
+    public decimal? ExchangeRate { get; set; }
+    public decimal? BocRate { get; set; }
+    public string? RateAt { get; set; }
+    /// <summary>From currency, taken from the source wallet.</summary>
+    public decimal HandlingFee { get; set; }
+    /// <summary>To currency, taken from what reaches the destination wallet.</summary>
+    public decimal WireFee { get; set; }
+    public string? By { get; set; }
+    public DateTime At { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string MimeType { get; set; } = "application/octet-stream";
+    public string DataBase64 { get; set; } = string.Empty;
 }
 
 /// <summary>What reached the bank for a Customer POP: the bank POP, its price and (wallet differs) the rate.</summary>
@@ -125,6 +240,8 @@ public class DepositResult
     public decimal Amount { get; set; }
     /// <summary>Wallet currency per 1 POP currency (null when they match).</summary>
     public decimal? ExchangeRate { get; set; }
+    public decimal? BocRate { get; set; }
+    public string? RateAt { get; set; }
     public string? By { get; set; }
     public DateTime At { get; set; }
     public string FileName { get; set; } = string.Empty;
@@ -157,8 +274,11 @@ public class PaymentResult
     /// <summary>Bank handling and wire charges, wallet currency.</summary>
     public decimal HandlingFee { get; set; }
     public decimal BankWireFee { get; set; }
-    /// <summary>Wallet currency per 1 USD (null for USD wallets).</summary>
+    /// <summary>Wallet currency per 1 USD (null for USD wallets). Saved with the POP: BOC + 0.2 for yuan wallets.</summary>
     public decimal? ExchangeRate { get; set; }
+    /// <summary>The BOC rate behind ExchangeRate (before +0.2) and its publish time; null = not from BOC.</summary>
+    public decimal? BocRate { get; set; }
+    public string? RateAt { get; set; }
     public string? PaidBy { get; set; }
     public DateTime PaidAt { get; set; }
     public string FileName { get; set; } = string.Empty;
@@ -171,6 +291,26 @@ public class PaymentAck
     public List<PaymentResultAck> Payments { get; set; } = new();
     public List<ShippingCostAck> Costs { get; set; } = new();
     public List<DepositResultAck> Deposits { get; set; } = new();
+    public List<TransferResultAck> Transfers { get; set; } = new();
+    public List<WithdrawResultAck> Withdraws { get; set; } = new();
+}
+
+/// <summary>Stored = the withdraw is completed in the office.</summary>
+public class WithdrawResultAck
+{
+    public long WithdrawId { get; set; }
+    public int Version { get; set; }
+    public bool Stored { get; set; }
+    public string? Reason { get; set; }
+}
+
+/// <summary>Stored = the transfer is completed in the office.</summary>
+public class TransferResultAck
+{
+    public long TransferId { get; set; }
+    public int Version { get; set; }
+    public bool Stored { get; set; }
+    public string? Reason { get; set; }
 }
 
 public class DepositResultAck

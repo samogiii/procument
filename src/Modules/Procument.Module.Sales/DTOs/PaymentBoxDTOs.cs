@@ -57,7 +57,9 @@ public record PaymentBoxSummaryResponse(
     string? Surname = null,
     // Fixed bank charges in the wallet currency, they fill the phone's fee boxes
     decimal? HandlingFee = null,
-    decimal? WireFee = null);
+    decimal? WireFee = null,
+    // WireFeePayer: who pays the wire fee when this wallet sends money (null = not set)
+    string? WireFeePaidBy = null);
 
 public record PaymentTransactionRow(
     long Id,
@@ -144,7 +146,7 @@ public record AllTransactionRow(
 public record CreatePaymentBoxRequest(long? CompanyPresetId, string Currency, string Name = "",
     string? BankName = null, string? BankAddress = null, string? AccountNumber = null,
     string? BeneficiaryName = null, string? SwiftCode = null, long? ParentBoxId = null,
-    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null);
+    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null, string? WireFeePaidBy = null);
 
 public record UpdateWalletBankDetailsRequest(
     string? BankName, string? BankAddress, string? AccountNumber,
@@ -152,7 +154,7 @@ public record UpdateWalletBankDetailsRequest(
 
 /// <summary>A null CompanyPresetId detaches the wallet from any company; a null ParentBoxId makes it a main wallet.</summary>
 public record RenamePaymentBoxRequest(string Name, long? CompanyPresetId = null, long? ParentBoxId = null,
-    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null);
+    string? Surname = null, decimal? HandlingFee = null, decimal? WireFee = null, string? WireFeePaidBy = null);
 
 public record CreateTransactionRequest(
     string Type,
@@ -206,13 +208,30 @@ public record WalletTransferRequest(
 
 // ── Wallet transfer workflow ──────────────────────────────────────────────────
 
+/// <summary>
+/// ExchangeRate is "1 base = rate other" (WalletTransferPending.RateBase). With a rate, or one currency, the server
+/// works DepositAmount out itself. WireFeePaidBy = WireFeePayer (null = the source wallet's setting).
+/// </summary>
 public record CreateWalletTransferPendingRequest(
     long FromBoxId,
     long ToBoxId,
     decimal WithdrawAmount,
     decimal DepositAmount,
     decimal? ExchangeRate,
-    string? Notes);
+    string? Notes,
+    string? WireFeePaidBy = null);
+
+/// <summary>
+/// The office's final numbers for a transfer in Review (the POP reader's proposal, maybe changed). Amount, handling,
+/// bank fee and our part of the wire fee are in the source currency; DestWireFee in the destination currency.
+/// </summary>
+public record AcceptWalletTransferRequest(
+    decimal Amount,
+    decimal? ExchangeRate,
+    decimal HandlingFee,
+    decimal BankFee,
+    decimal SourceWireFee,
+    decimal DestWireFee);
 
 public record WalletTransferPendingResponse(
     long Id,
@@ -225,6 +244,9 @@ public record WalletTransferPendingResponse(
     decimal WithdrawAmount,
     decimal DepositAmount,
     decimal? ExchangeRate,
+    string? RateText,
+    decimal? HandlingFee,
+    decimal? WireFee,
     string? Notes,
     string Status,
     string? PopFileName,
@@ -233,4 +255,74 @@ public record WalletTransferPendingResponse(
     string CreatedByName,
     DateTime CreatedAt,
     DateTime? AcceptedAt,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    string? WarehouseBy,
+    decimal? SourceWireFee = null,
+    decimal? BankFee = null,
+    string? WireFeePaidBy = null,
+    decimal? BocRate = null,
+    string? RateAt = null,
+    DateTime? PopAt = null,
+    string? RateBase = null,
+    string? RateQuote = null,
+    Procument.Module.Sales.Services.PopReadingDto? Reading = null,
+    /// <summary>Review only: the numbers worked out from the POP reading (PopFees).</summary>
+    Procument.Module.Sales.Services.TransferProposal? Proposal = null);
+
+// ── Wallet withdraws paid by the warehouse ───────────────────────────────────
+
+/// <summary>
+/// Currency null = the wallet's own; OfficeRate = wallet currency per 1 Currency (optional, the warehouse sets the real
+/// one). WireFeePaidBy = WireFeePayer (null = the wallet's setting).
+/// </summary>
+public record CreateWalletWithdrawRequest(
+    long PaymentBoxId,
+    decimal Amount,
+    string? Currency,
+    decimal? OfficeRate,
+    string ToType,
+    long? ToSupplierId,
+    long? PaymentRequestId,
+    string? Base,
+    string? Notes,
+    string? WireFeePaidBy = null);
+
+/// <summary>The office's final numbers for a withdraw in Review: Amount in the withdraw currency, fees in the wallet's.</summary>
+public record AcceptWalletWithdrawRequest(
+    decimal Amount,
+    decimal? ExchangeRate,
+    decimal HandlingFee,
+    decimal BankFee,
+    decimal WireFee);
+
+public record WalletWithdrawResponse(
+    long Id,
+    long PaymentBoxId,
+    string WalletName,
+    string WalletCurrency,
+    decimal Amount,
+    string Currency,
+    decimal? OfficeRate,
+    string ToType,
+    string? ToName,
+    long? PaymentRequestId,
+    long? PrNumber,
+    string? Base,
+    string? Notes,
+    string Status,
+    string CreatedByName,
+    DateTime CreatedAt,
+    string? PopFileName,
+    decimal? ExchangeRate,
+    decimal? HandlingFee,
+    decimal? WireFee,
+    decimal? WalletAmount,
+    string? WarehouseBy,
+    DateTime? CompletedAt,
+    decimal? BankFee = null,
+    string? WireFeePaidBy = null,
+    decimal? BocRate = null,
+    string? RateAt = null,
+    DateTime? PopAt = null,
+    Procument.Module.Sales.Services.PopReadingDto? Reading = null,
+    Procument.Module.Sales.Services.WithdrawProposal? Proposal = null);

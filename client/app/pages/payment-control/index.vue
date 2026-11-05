@@ -6,6 +6,8 @@
         <div class="text-caption text-medium-emphasis">Company wallet accounts and ledger</div>
       </div>
       <div class="d-flex align-center gap-4">
+        <!-- The latest Bank of China rate the warehouse read, brought over by the Payment sync -->
+        <WarehouseRateChip />
         <!-- Off: POPs / bank fees / supplier credits still pay the PI, PO or credit, but are kept out of every wallet -->
         <v-switch
           :model-value="autoImport"
@@ -155,6 +157,7 @@
       <v-tab value="wallets" prepend-icon="mdi-wallet-outline">Wallets</v-tab>
       <v-tab value="ledger" prepend-icon="mdi-format-list-bulleted">All Transactions</v-tab>
       <v-tab value="transfers" prepend-icon="mdi-swap-horizontal">Ready To Transfer</v-tab>
+      <v-tab value="withdraws" prepend-icon="mdi-arrow-up-circle-outline">Ready To Withdraw</v-tab>
       <v-tab value="incoming" prepend-icon="mdi-cash-plus">
         Incoming Money
         <v-chip v-if="incomingPending" size="x-small" color="warning" variant="tonal" class="ml-2">{{ incomingPending }}</v-chip>
@@ -759,6 +762,11 @@
         <WalletTransfersPanel />
       </v-tabs-window-item>
 
+      <!-- ── Ready To Withdraw Tab ── -->
+      <v-tabs-window-item value="withdraws">
+        <WalletWithdrawsPanel @completed="onIncomingAccepted" />
+      </v-tabs-window-item>
+
       <!-- ── Incoming Money Tab (eager: the tab badge needs its count) ── -->
       <v-tabs-window-item value="incoming" eager>
         <IncomingMoneyTab @pending="incomingPending = $event" @accepted="onIncomingAccepted" />
@@ -807,6 +815,10 @@
             <v-col cols="6">
               <v-text-field v-model="form.wireFee" :label="`Wire Fee (${form.currency})`" type="number" min="0" step="0.01"
                 variant="outlined" density="comfortable" hide-details />
+            </v-col>
+            <v-col cols="12">
+              <v-select v-model="form.wireFeePaidBy" :items="WIRE_PAYER_OPTIONS" item-title="title" item-value="value"
+                label="Wire fee paid by (when this wallet sends money)" variant="outlined" density="comfortable" hide-details class="mt-2" />
             </v-col>
           </v-row>
           <div class="text-caption text-medium-emphasis mt-1 mb-3">{{ FEES_HINT }}</div>
@@ -973,6 +985,10 @@
             <v-col cols="6">
               <v-text-field v-model="renameWireFee" :label="`Wire Fee (${renameTarget?.currency})`" type="number" min="0" step="0.01"
                 variant="outlined" density="comfortable" hide-details />
+            </v-col>
+            <v-col cols="12">
+              <v-select v-model="renameWireFeePaidBy" :items="WIRE_PAYER_OPTIONS" item-title="title" item-value="value"
+                label="Wire fee paid by (when this wallet sends money)" variant="outlined" density="comfortable" hide-details class="mt-2" />
             </v-col>
           </v-row>
           <div class="text-caption text-medium-emphasis mt-1 mb-3">{{ FEES_HINT }}</div>
@@ -1302,6 +1318,7 @@ interface PaymentBox {
   surname?: string | null
   handlingFee?: number | null
   wireFee?: number | null
+  wireFeePaidBy?: string | null
 }
 
 interface AllTransactionRow {
@@ -1359,7 +1376,7 @@ const api = useApi()
 const showSupplierCredits = computed(() =>
   ['SuperAdmin', 'Admin', 'Payment', 'AHM'].includes(authStore.user?.role ?? ''))
 
-const tab = ref<'wallets' | 'ledger' | 'transfers' | 'incoming'>('wallets')
+const tab = ref<'wallets' | 'ledger' | 'transfers' | 'withdraws' | 'incoming'>('wallets')
 const incomingPending = ref(0)
 const boxes = ref<PaymentBox[]>([])
 const allTransactions = ref<AllTransactionRow[]>([])
@@ -1412,7 +1429,14 @@ function currencySymbol(c: string) {
   return ({ USD: '$', EUR: '€', GBP: '£', CNY: '¥', AED: 'د.إ', RUB: '₽' } as Record<string, string>)[c] ?? c
 }
 const SURNAME_HINT = 'The warehouse app is on a public server: it gets this instead of the wallet name and company. Empty = the real name is sent.'
-const FEES_HINT = 'Fixed bank charges for this wallet. Leave empty if they change. They fill the phone\'s fee boxes after the next Sync warehouse.'
+const FEES_HINT = 'Fixed bank charges for this wallet. The handling fee is added to every transfer and warehouse withdraw it sends; the wire fee is split by who pays it. Yuan wallets send transfers with no wire fee.'
+/** WireFeePayer on the server. Not set: transfers take the wire fee off the destination, withdraws off this wallet. */
+const WIRE_PAYER_OPTIONS = [
+  { title: 'Not set (transfer: destination pays · withdraw: we pay)', value: null },
+  { title: 'All from our wallet', value: 'Ours' },
+  { title: '50% / 50%', value: 'Split' },
+  { title: 'All from their wallet (the receiver)', value: 'Theirs' },
+]
 
 /** An empty number field gives '' (or null when cleared), which means no fixed fee. */
 function feeValue(v: string | number | null | undefined) {
@@ -1427,6 +1451,7 @@ const form = ref({
   surname: '',
   handlingFee: '' as string | number,
   wireFee: '' as string | number,
+  wireFeePaidBy: null as string | null,
   bankName: '',
   bankAddress: '',
   accountNumber: '',
@@ -1444,6 +1469,7 @@ const renameParentId = ref<number | null>(null)
 const renameSurname = ref('')
 const renameHandlingFee = ref<string | number>('')
 const renameWireFee = ref<string | number>('')
+const renameWireFeePaidBy = ref<string | null>(null)
 const renameError = ref('')
 const renaming = ref(false)
 
@@ -1498,6 +1524,7 @@ function openRename(box: PaymentBox) {
   renameSurname.value = box.surname ?? ''
   renameHandlingFee.value = box.handlingFee ?? ''
   renameWireFee.value = box.wireFee ?? ''
+  renameWireFeePaidBy.value = box.wireFeePaidBy ?? null
   renameError.value = ''
   // Admins can reach this dialog but don't preload presets on mount.
   if (presets.value.length === 0) loadPresets()
@@ -1516,6 +1543,7 @@ async function doRename() {
       surname: renameSurname.value.trim() || null,
       handlingFee: feeValue(renameHandlingFee.value),
       wireFee: feeValue(renameWireFee.value),
+      wireFeePaidBy: renameWireFeePaidBy.value,
     })
     renameDialog.value = false
     // Moving a wallet changes the totals of both main wallets involved.
@@ -1815,7 +1843,7 @@ watch(tab, (val) => {
   }
 })
 
-/** Accepted money changes the balances, and the ledger when it was already opened. */
+/** Accepted money or a paid withdraw changes the balances, and the ledger when it was already opened. */
 function onIncomingAccepted() {
   loadBoxes()
   if (allTransactions.value.length) loadAllTransactions()
@@ -1834,6 +1862,7 @@ async function saveBox() {
       surname: form.value.surname.trim() || null,
       handlingFee: feeValue(form.value.handlingFee),
       wireFee: feeValue(form.value.wireFee),
+      wireFeePaidBy: form.value.wireFeePaidBy,
       bankName: form.value.bankName || null,
       bankAddress: form.value.bankAddress || null,
       accountNumber: form.value.accountNumber || null,
@@ -1841,7 +1870,7 @@ async function saveBox() {
       swiftCode: form.value.swiftCode || null,
     })
     addDialog.value = false
-    form.value = { companyPresetId: null, parentBoxId: null, currency: 'USD', name: '', surname: '', handlingFee: '', wireFee: '', bankName: '', bankAddress: '', accountNumber: '', beneficiaryName: '', swiftCode: '' }
+    form.value = { companyPresetId: null, parentBoxId: null, currency: 'USD', name: '', surname: '', handlingFee: '', wireFee: '', wireFeePaidBy: null, bankName: '', bankAddress: '', accountNumber: '', beneficiaryName: '', swiftCode: '' }
     await loadBoxes()
   } catch (e: any) {
     saveError.value = e?.data?.message || 'Could not create the wallet.'

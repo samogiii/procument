@@ -627,7 +627,7 @@
             <v-text-field
               v-if="showTransferRate"
               v-model.number="txForm.transferExchangeRate"
-              :label="`Exchange Rate (1 ${detail?.currency} = ? ${toBoxCurrency})`"
+              :label="`Exchange Rate (1 ${transferRateBase} = ? ${transferRateQuote})`"
               type="number"
               variant="outlined"
               density="comfortable"
@@ -643,7 +643,19 @@
               class="mb-3"
               readonly
               :prefix="currencySymbol(toBoxCurrency)"
-              hint="Exchange Rate × Withdraw Amount — the amount deposited into the target wallet"
+              hint="The amount converted into the target wallet, before any wire fee"
+              persistent-hint
+            />
+            <v-select
+              v-model="txForm.wireFeePaidBy"
+              :items="WIRE_PAYER_OPTIONS_TRANSFER"
+              item-title="title"
+              item-value="value"
+              label="Wire fee paid by"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              :hint="(detail?.currency ?? '').toUpperCase() === 'CNY' ? 'Transfers from a yuan wallet have no wire fee — only this wallet\'s handling fee.' : 'Taken from this wallet\'s setting unless you pick one.'"
               persistent-hint
             />
             <v-text-field
@@ -657,6 +669,33 @@
 
           <!-- Deposit / Withdraw UI -->
           <template v-else>
+          <template v-if="txForm.type === 'Withdraw' && !txForm.id && warehouseEnabled">
+            <v-switch
+              v-model="txForm.viaWarehouse"
+              color="deep-purple"
+              density="compact"
+              hide-details
+              inset
+              label="Pay through the warehouse"
+            />
+            <v-alert v-if="txForm.viaWarehouse" type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-cellphone-arrow-down">
+              Nothing leaves the wallet yet. The warehouse pays it and uploads the POP (the rate is saved with it); the local AI reads it
+              and you accept it in Wallets → Ready To Withdraw, with this wallet's handling fee and your part of the wire fee.
+            </v-alert>
+            <v-select
+              v-if="txForm.viaWarehouse"
+              v-model="txForm.wireFeePaidBy"
+              :items="WIRE_PAYER_OPTIONS_WITHDRAW"
+              item-title="title"
+              item-value="value"
+              label="Wire fee paid by"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              hint="Taken from this wallet's setting unless you pick one."
+              persistent-hint
+            />
+          </template>
           <!-- Amount + Currency -->
           <v-row dense class="mb-3">
             <v-col cols="7">
@@ -708,7 +747,7 @@
             variant="outlined"
             density="comfortable"
             class="mb-3"
-            hint="Used to compute balance in wallet's base currency"
+            :hint="withdrawViaWarehouse ? 'Optional — the warehouse saves the rate of the moment it uploads the POP' : 'Used to compute balance in wallet\'s base currency'"
             persistent-hint
           />
 
@@ -830,7 +869,7 @@
           </template>
 
           <v-text-field
-            v-if="txForm.type !== 'Transfer'"
+            v-if="txForm.type !== 'Transfer' && !withdrawViaWarehouse"
             v-model="txForm.createdAt"
             label="Transaction Date/Time"
             type="datetime-local"
@@ -856,7 +895,7 @@
           <v-spacer />
           <v-btn variant="text" @click="txDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="txSaving" @click="saveTx">
-        {{ txForm.id ? 'Save Changes' : txForm.type === 'Transfer' ? 'Send for Approval' : 'Add' }}
+        {{ txForm.id ? 'Save Changes' : txForm.type === 'Transfer' ? 'Send for Approval' : withdrawViaWarehouse ? 'Send to Warehouse' : 'Add' }}
       </v-btn>
         </v-card-actions>
       </v-card>
@@ -1031,10 +1070,26 @@ const txForm = ref({
   // Wallet-to-wallet
   toBoxId: null as number | null,
   transferExchangeRate: null as number | null,
+  /** New withdraw only: the warehouse pays it (Wallets → Ready To Withdraw) instead of recording it now. */
+  viaWarehouse: false,
+  /** Transfer / warehouse withdraw: WireFeePayer (Ours / Split / Theirs); null = the wallet's setting. */
+  wireFeePaidBy: null as string | null,
   base: [] as string[],
   notes: '',
   createdAt: '',
 })
+const WIRE_PAYER_OPTIONS_TRANSFER = [
+  { title: "This wallet's setting", value: null },
+  { title: 'All from this wallet', value: 'Ours' },
+  { title: '50% / 50%', value: 'Split' },
+  { title: 'All from the destination wallet', value: 'Theirs' },
+]
+const WIRE_PAYER_OPTIONS_WITHDRAW = [
+  { title: "This wallet's setting", value: null },
+  { title: 'All from this wallet', value: 'Ours' },
+  { title: '50% / 50%', value: 'Split' },
+  { title: 'All from the receiver (nothing from us)', value: 'Theirs' },
+]
 
 // ── Base tags auto-fill ───────────────────────────────────────────────────────
 // Picking a customer, PI# or PR# fills the bases from the customers behind it
@@ -1576,6 +1631,8 @@ function openEditTx(tx: TransactionRow) {
     paymentRequestId: tx.prId,
     toBoxId: null,
     transferExchangeRate: null,
+    viaWarehouse: false,
+    wireFeePaidBy: null,
     base: splitBases(tx.base),
     notes: tx.notes || '',
     createdAt: tx.createdAt ? toDateTimeLocal(tx.createdAt) : toDateTimeLocal(),
@@ -1602,8 +1659,26 @@ function buildSubmitFn(): (() => Promise<void>) | null {
       depositAmount: transferRealAmount.value,
       exchangeRate: form.transferExchangeRate || null,
       notes: form.notes || null,
+      wireFeePaidBy: form.wireFeePaidBy,
     }
     return () => api.post('/wallet-transfers', payload)
+  } else if (withdrawViaWarehouse.value) {
+    if (!form.amount || form.amount <= 0) return null
+    const boxCurrency = detail.value?.currency ?? 'USD'
+    const isSameCurrency = !form.currency || form.currency === boxCurrency
+    const payload = {
+      paymentBoxId: id.value,
+      amount: form.amount,
+      currency: isSameCurrency ? null : form.currency,
+      officeRate: isSameCurrency ? null : form.exchangeRate,
+      toType: form.toType,
+      toSupplierId: form.toType === 'Supplier' ? form.toSupplierId : null,
+      paymentRequestId: form.toType === 'Supplier' ? form.paymentRequestId : null,
+      base: form.base.length ? form.base.join(',') : null,
+      notes: form.notes || null,
+      wireFeePaidBy: form.wireFeePaidBy,
+    }
+    return () => api.post('/wallet-withdraws', payload)
   } else {
     if (!form.amount || form.amount <= 0) return null
     const boxCurrency = detail.value?.currency ?? 'USD'
@@ -1636,8 +1711,8 @@ async function saveTx() {
   const submitFn = buildSubmitFn()
   if (!submitFn) return
 
-  // Transfers wait for POP execution — skip negative balance check and immediate deduction.
-  if (txForm.value.type === 'Transfer') {
+  // Transfers and warehouse withdraws wait for their POP — skip negative balance check and immediate deduction.
+  if (txForm.value.type === 'Transfer' || withdrawViaWarehouse.value) {
     await executeSubmit(submitFn)
     return
   }
@@ -1669,12 +1744,15 @@ async function proceedDespiteNegative() {
 async function executeSubmit(submitFn: () => Promise<void>) {
   txSaving.value = true
   const isTransfer = txForm.value.type === 'Transfer'
+  const isWarehouseWithdraw = withdrawViaWarehouse.value
   try {
     await submitFn()
     txDialog.value = false
     resetForm()
-    if (isTransfer) {
-      snackbarText.value = 'Transfer accepted — upload its POP in Wallets → Ready To Transfer'
+    if (isTransfer || isWarehouseWithdraw) {
+      snackbarText.value = isTransfer
+        ? 'Transfer accepted — see Wallets → Ready To Transfer'
+        : 'Sent to the warehouse — it leaves the wallet once they have paid it (Wallets → Ready To Withdraw)'
       snackbarColor.value = 'deep-purple'
       snackbar.value = true
     } else {
@@ -1710,6 +1788,8 @@ function resetForm() {
     paymentRequestId: null,
     toBoxId: null,
     transferExchangeRate: null,
+    viaWarehouse: warehouseEnabled.value,
+    wireFeePaidBy: null,
     base: [],
     notes: '',
     createdAt: toDateTimeLocal(),
@@ -1738,10 +1818,26 @@ const showTransferRate = computed(() =>
   toBoxCurrency.value !== (detail.value?.currency ?? 'USD')
 )
 
-// Amount that actually lands in the target wallet: rate × withdraw (1:1 when no exchange).
-const transferRealAmount = computed(() =>
-  Math.round(txForm.value.amount * (txForm.value.transferExchangeRate || 1) * 100) / 100
-)
+// Same rule as WalletTransferPending.RateBase: "1 USD = 6.91 CNY" whichever way the money goes, else 1 source = rate destination.
+const transferRateBase = computed(() => {
+  const from = detail.value?.currency ?? 'USD'
+  return toBoxCurrency.value.toUpperCase() === 'USD' && from.toUpperCase() !== 'USD' ? toBoxCurrency.value : from
+})
+const transferRateQuote = computed(() =>
+  transferRateBase.value === (detail.value?.currency ?? 'USD') ? toBoxCurrency.value : detail.value?.currency ?? 'USD')
+
+// What converts into the target wallet (1:1 when no exchange); the server works it out the same way.
+const transferRealAmount = computed(() => {
+  const rate = showTransferRate.value ? txForm.value.transferExchangeRate || 0 : 1
+  if (!rate) return txForm.value.amount
+  const multiply = transferRateBase.value === (detail.value?.currency ?? 'USD')
+  return Math.round((multiply ? txForm.value.amount * rate : txForm.value.amount / rate) * 100) / 100
+})
+
+// Withdraws can go to the warehouse to be paid (Wallets → Ready To Withdraw) when the warehouse sync is set up.
+const warehouseEnabled = ref(false)
+useWarehouseSync().getPaymentConfig().then(c => { warehouseEnabled.value = c.enabled }).catch(() => {})
+const withdrawViaWarehouse = computed(() => txForm.value.type === 'Withdraw' && !txForm.value.id && txForm.value.viaWarehouse)
 
 /** Wallets are identified by their own name; fall back to the company preset when unnamed. */
 function boxLabel(box: { id?: number; name?: string | null; companyPresetName?: string | null }) {

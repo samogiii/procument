@@ -14,6 +14,12 @@ namespace Procument.Module.Sales.Controllers;
 public record SendBackDepositRequest(string? Note);
 
 /// <summary>
+/// What really arrived, as the office confirms it (the POP reader's amount, maybe changed): Amount in the customer POP's
+/// currency, ExchangeRate = wallet currency per 1 of it. Both null = the warehouse's values as they came.
+/// </summary>
+public record AcceptDepositRequest(decimal? Amount, decimal? ExchangeRate);
+
+/// <summary>
 /// Wallets page, Incoming Money tab: customer POPs the warehouse has confirmed against the bank (they arrive
 /// on the Payment sync, see WarehousePaymentSyncController). Accepting one puts the money in its wallet.
 /// </summary>
@@ -44,22 +50,38 @@ public class IncomingMoneyController(DbContext db, IDocumentStorageService stora
                 PopFileName = d.CustomerPayment.FileName, PopNotes = d.CustomerPayment.Notes,
                 d.Amount, d.Currency, d.WalletRate, d.OfficeAmount,
                 WalletName = d.PaymentBox.Name, WalletCurrency = d.PaymentBox.Currency,
-                d.BankPopFileName, d.BankAmount, d.BankRate, d.BankWalletAmount, d.BankBy, d.BankAt, d.RejectNote,
+                d.BankPopFileName, d.BankAmount, d.BankRate, d.BocRate, d.RateAt, d.BankWalletAmount, d.BankBy, d.BankAt, d.RejectNote,
                 d.Status, d.BankFee, d.ReviewedAt, d.CreatedAt,
                 ReviewedBy = d.ReviewedBy != null ? d.ReviewedBy.Name : null,
             })
             .Take(pending + DecidedRows)
             .ToListAsync();
 
-        return Ok(rows.Select(r => new
+        var waitingIds = rows.Where(r => r.Status == IncomingDeposit.Pending && r.BankAt != null).Select(r => r.Id).ToList();
+        var readings = await _db.Set<PopReading>().AsNoTracking()
+            .Where(p => p.Kind == PopReading.Deposit && waitingIds.Contains(p.RefId))
+            .ToDictionaryAsync(p => p.RefId);
+
+        return Ok(rows.Select(r =>
         {
-            r.Id, r.InvoiceId, r.InvoiceNumber, r.Customer, r.PopFileName, r.PopNotes,
-            r.Amount, r.Currency, r.WalletRate, r.OfficeAmount, r.WalletName, r.WalletCurrency,
-            r.BankPopFileName, r.BankAmount, r.BankRate, r.BankWalletAmount, r.BankBy, r.BankAt, r.RejectNote,
-            r.Status, r.ReviewedAt, r.ReviewedBy, r.CreatedAt,
-            Stage = IncomingDeposit.Stage(r.Status, r.BankAt),
-            // Before acceptance this is the fee it would book.
-            Difference = r.BankWalletAmount is { } received ? IncomingDeposit.Difference(r.OfficeAmount, received) : (decimal?)null,
+            var reading = readings.GetValueOrDefault(r.Id);
+            // What the POP reader says arrived; the office confirms (or changes) it on Accept.
+            var proposal = r.Status == IncomingDeposit.Pending && r.BankAmount is { } bankAmount
+                ? PopFees.Deposit(r.WalletCurrency, r.Currency, bankAmount, r.BankRate ?? r.WalletRate, reading)
+                : null;
+            var received = proposal?.WalletAmount ?? r.BankWalletAmount;
+            return new
+            {
+                r.Id, r.InvoiceId, r.InvoiceNumber, r.Customer, r.PopFileName, r.PopNotes,
+                r.Amount, r.Currency, r.WalletRate, r.OfficeAmount, r.WalletName, r.WalletCurrency,
+                r.BankPopFileName, r.BankAmount, r.BankRate, r.BocRate, r.RateAt, r.BankWalletAmount, r.BankBy, r.BankAt, r.RejectNote,
+                r.Status, r.ReviewedAt, r.ReviewedBy, r.CreatedAt,
+                Stage = IncomingDeposit.Stage(r.Status, r.BankAt),
+                // Before acceptance this is the fee it would book (from the POP reader's amount when there is one).
+                Difference = received is { } value ? IncomingDeposit.Difference(r.OfficeAmount, value) : (decimal?)null,
+                Reading = PopReadingDto.From(reading),
+                Proposal = proposal,
+            };
         }));
     }
 
@@ -90,8 +112,12 @@ public class IncomingMoneyController(DbContext db, IDocumentStorageService stora
     /// automatic rows this does not depend on the Auto Import switch.
     /// </summary>
     [HttpPost("{id:long}/accept")]
-    public async Task<IActionResult> Accept(long id)
+    public async Task<IActionResult> Accept(long id, [FromBody] AcceptDepositRequest? request = null)
     {
+        if (request?.Amount is { } a && (a <= 0 || decimal.Round(a, 2) != a))
+            return BadRequest(new { message = "The amount must be above 0 with at most two decimals." });
+        if (request?.ExchangeRate is { } x && (x <= 0 || decimal.Round(x, 6) != x))
+            return BadRequest(new { message = "The rate must be above 0 with at most six decimals." });
         return await _db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
         {
             _db.ChangeTracker.Clear();
@@ -102,8 +128,18 @@ public class IncomingMoneyController(DbContext db, IDocumentStorageService stora
                 .FirstOrDefaultAsync(d => d.Id == id);
             if (row == null) return NotFound();
             if (row.Status != IncomingDeposit.Pending) return BadRequest(new { message = "This deposit was already accepted." });
-            if (row.BankWalletAmount is not { } received || row.BankAmount is not { } bankAmount)
+            if (row.BankWalletAmount == null || row.BankAmount == null)
                 return BadRequest(new { message = "The warehouse has not confirmed this money yet." });
+            // The office's confirmed amount and rate (from the POP reader) replace the warehouse's placeholders.
+            var sameCurrency = string.Equals(row.Currency, row.PaymentBox.Currency, StringComparison.OrdinalIgnoreCase);
+            if (request?.Amount is { } confirmed) row.BankAmount = confirmed;
+            if (!sameCurrency && request?.ExchangeRate is { } confirmedRate) row.BankRate = confirmedRate;
+            if (!sameCurrency && row.BankRate is not > 0)
+                return BadRequest(new { message = $"Enter the rate as {row.PaymentBox.Currency} per 1 {row.Currency}." });
+            if (sameCurrency) row.BankRate = null;
+            row.BankWalletAmount = IncomingDeposit.WalletAmount(row.BankAmount.Value, row.BankRate);
+            var received = row.BankWalletAmount.Value;
+            var bankAmount = row.BankAmount.Value;
 
             var now = DateTime.UtcNow;
             var userId = CurrentUserId();

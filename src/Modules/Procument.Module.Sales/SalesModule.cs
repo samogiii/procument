@@ -19,9 +19,11 @@ public static class SalesModule
         services.AddScoped<ICustomerQuotePriceLookup, CustomerQuotePriceLookup>();
         services.AddScoped<ITotalPNService, TotalPNService>();
         services.AddScoped<PaymentBoxService>();
+        services.AddSingleton<PopReaderSignal>();
         services.AddScoped<IPaymentBoxService>(sp => sp.GetRequiredService<PaymentBoxService>());
         services.AddScoped<IPaymentLedgerService>(sp => sp.GetRequiredService<PaymentBoxService>());
         services.AddScoped<IWalletTransferService, WalletTransferService>();
+        services.AddScoped<IWalletWithdrawService, WalletWithdrawService>();
         services.AddScoped<ISupplierCreditService, SupplierCreditService>();
         services.AddScoped<ICustomerFollowUpService, CustomerFollowUpService>();
         return services;

@@ -6,8 +6,10 @@ using Microsoft.EntityFrameworkCore;
 using Procument.API.Services;
 using Procument.Data;
 using Procument.Module.Catalog.Entities;
+using Procument.Module.Identity.Entities;
 using Procument.Module.Purchasing.Entities;
 using Procument.Module.Sales.Entities;
+using Procument.Module.Sales.Services;
 using Procument.Shared.Services;
 
 namespace Procument.API.Controllers;
@@ -21,7 +23,9 @@ namespace Procument.API.Controllers;
 /// Accepting a warehouse result is SupplierPaymentsController.WarehouseAccept. Shipping costs entered on
 /// the phone travel the same way and are reviewed in ShippingCostsController; decisions go back on prepare.
 /// So do Customer POPs: pushed here with their file, confirmed on the phone (bank POP, price, rate) and
-/// accepted in IncomingMoneyController.
+/// accepted in IncomingMoneyController. Wallet transfers and withdraws too: the phone only uploads the POP (the rate
+/// of that moment is saved with it), and they wait in Review on the Wallets page. Every new POP (deposit, transfer,
+/// withdraw) is queued for the local POP reader (PopReaderWorker), whose numbers the office checks before Accept.
 /// </summary>
 [Authorize(Roles = "Payment,AHM,Admin,SuperAdmin")]
 [ApiController]
@@ -59,14 +63,41 @@ public class WarehousePaymentSyncController : ControllerBase
     private readonly IConfiguration _config;
     private readonly ICryptoService _crypto;
     private readonly IDocumentStorageService _storage;
+    private readonly IWalletTransferService _transfers;
+    private readonly IWalletWithdrawService _withdraws;
+    private readonly PopReaderSignal _reader;
 
-    public WarehousePaymentSyncController(AppDbContext db, IConfiguration config, ICryptoService crypto, IDocumentStorageService storage)
+    public WarehousePaymentSyncController(AppDbContext db, IConfiguration config, ICryptoService crypto, IDocumentStorageService storage,
+        IWalletTransferService transfers, IWalletWithdrawService withdraws, PopReaderSignal reader)
     {
         _db = db;
         _config = config;
         _crypto = crypto;
         _storage = storage;
+        _transfers = transfers;
+        _withdraws = withdraws;
+        _reader = reader;
     }
+
+    /// <summary>The latest Bank of China USD rate the warehouse read, saved on the last Payment sync (Wallets page).</summary>
+    [HttpGet("rate")]
+    public async Task<IActionResult> GetRate()
+    {
+        var s = await _db.Set<WalletSettings>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == WalletSettings.SingletonId);
+        return Ok(s?.WarehouseCnyPerUsd is not { } rate ? null : new
+        {
+            CnyPerUsd = rate,
+            WithMarkup = rate + RateMarkup,
+            Markup = RateMarkup,
+            PublishedAt = s.WarehouseRatePublishedAt,
+            FetchedAt = s.WarehouseRateFetchedAt,
+            Stale = s.WarehouseRateStale,
+            SyncedAt = s.WarehouseRateSyncedAt,
+        });
+    }
+
+    /// <summary>Same +0.2 the warehouse adds to the BOC rate it saves with a POP (warehouse AutoRate.Markup).</summary>
+    public const decimal RateMarkup = 0.2m;
 
     private string SharedKey => _config["WarehouseSync:SharedKey"] is { Length: > 0 } k && k != "REPLACEME"
         ? k
@@ -194,8 +225,92 @@ public class WarehousePaymentSyncController : ControllerBase
             });
         }
 
+        var transfers = await (
+            from t in _db.Set<WalletTransferPending>().AsNoTracking()
+            where t.Status == "Accepted"
+            join u in _db.Set<User>() on t.CreatedByUserId equals u.Id into users
+            from u in users.DefaultIfEmpty()
+            orderby t.CreatedAt
+            select new
+            {
+                t.Id, t.WithdrawAmount, t.DepositAmount, t.ExchangeRate, t.RateBaseCurrency, t.Notes, t.CreatedAt,
+                CreatedBy = u != null ? u.Name : null,
+                FromName = t.FromBox.Name, FromSurname = t.FromBox.Surname, FromCompany = t.FromBox.CompanyPreset.Name,
+                FromCurrency = t.FromBox.Currency, FromHandlingFee = t.FromBox.HandlingFee,
+                ToName = t.ToBox.Name, ToSurname = t.ToBox.Surname, ToCompany = t.ToBox.CompanyPreset.Name,
+                ToCurrency = t.ToBox.Currency, ToWireFee = t.ToBox.WireFee,
+            })
+            .ToListAsync();
+        foreach (var t in transfers)
+        {
+            var (fromWallet, fromCompany) = PaymentBox.ForWarehouse(t.FromName, t.FromSurname, t.FromCompany);
+            var (toWallet, toCompany) = PaymentBox.ForWarehouse(t.ToName, t.ToSurname, t.ToCompany);
+            push.Transfers.Add(new TransferPushItem
+            {
+                MainTransferId = t.Id,
+                FromWallet = fromWallet,
+                FromCompany = fromCompany,
+                FromCurrency = t.FromCurrency,
+                ToWallet = toWallet,
+                ToCompany = toCompany,
+                ToCurrency = t.ToCurrency,
+                Amount = t.WithdrawAmount,
+                // Older transfers kept "1 From = rate To": the phone only understands the new form, so not those.
+                OfficeRate = t.RateBaseCurrency != null ? t.ExchangeRate : null,
+                OfficeReceived = t.DepositAmount,
+                FromHandlingFee = t.FromHandlingFee,
+                ToWireFee = t.ToWireFee,
+                Notes = t.Notes,
+                CreatedBy = t.CreatedBy,
+                CreatedAt = t.CreatedAt,
+            });
+        }
+
+        var withdraws = await (
+            from w in _db.Set<WalletWithdrawPending>().AsNoTracking()
+            where w.Status == WalletWithdrawPending.Pending
+            join u in _db.Set<User>() on w.CreatedByUserId equals u.Id into users
+            from u in users.DefaultIfEmpty()
+            join pr in _db.Set<PaymentRequest>() on w.PaymentRequestId equals pr.Id into prs
+            from pr in prs.DefaultIfEmpty()
+            orderby w.CreatedAt
+            select new
+            {
+                w.Id, w.Amount, w.Currency, w.OfficeRate, w.ToType, w.Notes, w.CreatedAt,
+                Supplier = w.ToSupplier != null ? w.ToSupplier.Name : null, CreatedBy = u != null ? u.Name : null,
+                PrNumber = pr != null ? pr.PRId : null,
+                WalletName = w.PaymentBox.Name, w.PaymentBox.Surname, Company = w.PaymentBox.CompanyPreset.Name,
+                WalletCurrency = w.PaymentBox.Currency, w.PaymentBox.HandlingFee, w.PaymentBox.WireFee,
+            })
+            .ToListAsync();
+        foreach (var w in withdraws)
+        {
+            var (walletName, company) = PaymentBox.ForWarehouse(w.WalletName, w.Surname, w.Company);
+            push.Withdraws.Add(new WithdrawPushItem
+            {
+                MainWithdrawId = w.Id,
+                WalletName = walletName,
+                CompanyName = company,
+                WalletCurrency = w.WalletCurrency,
+                Amount = w.Amount,
+                Currency = w.Currency ?? w.WalletCurrency,
+                OfficeRate = w.OfficeRate,
+                WalletHandlingFee = w.HandlingFee,
+                WalletWireFee = w.WireFee,
+                ToName = w.ToType == "Supplier" ? w.Supplier ?? "Supplier" : "Mother Wallet",
+                PrNumber = w.PrNumber,
+                Notes = w.Notes,
+                CreatedBy = w.CreatedBy,
+                CreatedAt = w.CreatedAt,
+            });
+        }
+
         var cipher = _crypto.EncryptBrowser(JsonSerializer.Serialize(push, Json), SharedKey, out var iv);
-        return Ok(new { CipherText = cipher, Iv = iv, PaymentCount = push.Payments.Count, DepositCount = push.Deposits.Count });
+        return Ok(new
+        {
+            CipherText = cipher, Iv = iv, PaymentCount = push.Payments.Count, DepositCount = push.Deposits.Count,
+            TransferCount = push.Transfers.Count, WithdrawCount = push.Withdraws.Count,
+        });
     }
 
     /// <summary>Store paid results from the warehouse; each one waits on its PR for review.</summary>
@@ -230,11 +345,27 @@ public class WarehousePaymentSyncController : ControllerBase
                 ack.Deposits.Add(new DepositResultAck { DepositId = d.DepositId, Version = d.Version, Stored = reason == null, Reason = reason });
                 if (reason != null) skipped.Add(reason);
             }
+            foreach (var t in results.Transfers)
+            {
+                var reason = await ImportTransferAsync(t);
+                ack.Transfers.Add(new TransferResultAck { TransferId = t.TransferId, Version = t.Version, Stored = reason == null, Reason = reason });
+                if (reason != null) skipped.Add(reason);
+            }
+            foreach (var w in results.Withdraws)
+            {
+                var reason = await ImportWithdrawAsync(w);
+                ack.Withdraws.Add(new WithdrawResultAck { WithdrawId = w.WithdrawId, Version = w.Version, Stored = reason == null, Reason = reason });
+                if (reason != null) skipped.Add(reason);
+            }
+            await SaveLatestRateAsync(results.LatestRate);
         }
         finally
         {
             ImportLock.Release();
         }
+        // New POPs are queued: let the reader start now rather than on its next round.
+        if (ack.Payments.Any(a => a.Stored) || ack.Deposits.Any(a => a.Stored) || ack.Transfers.Any(a => a.Stored)
+            || ack.Withdraws.Any(a => a.Stored)) _reader.Poke();
 
         var cipher = _crypto.EncryptBrowser(JsonSerializer.Serialize(ack, Json), SharedKey, out var iv);
         return Ok(new
@@ -243,9 +374,49 @@ public class WarehousePaymentSyncController : ControllerBase
             Summary = new
             {
                 Stored = ack.Payments.Count(a => a.Stored), Costs = ack.Costs.Count(a => a.Stored),
-                Deposits = ack.Deposits.Count(a => a.Stored), Skipped = skipped,
+                Deposits = ack.Deposits.Count(a => a.Stored), Transfers = ack.Transfers.Count(a => a.Stored),
+                Withdraws = ack.Withdraws.Count(a => a.Stored), Skipped = skipped,
             },
         });
+    }
+
+    /// <summary>Stores the POP and the rate; the withdraw waits in Review for the office. Null = stored; otherwise why not (the phone shows it).</summary>
+    private async Task<string?> ImportWithdrawAsync(WithdrawResult r)
+    {
+        _db.ChangeTracker.Clear();
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(r.DataBase64); }
+        catch (FormatException) { return $"Withdraw #{r.MainWithdrawId}: the POP file was damaged on the way."; }
+        if (bytes.Length == 0) return $"Withdraw #{r.MainWithdrawId}: the POP file is empty.";
+        return await _withdraws.StoreFromWarehouseAsync(r.MainWithdrawId, r.ExchangeRate, r.BocRate, r.RateAt,
+            r.By ?? "", r.At, Path.GetFileName(r.FileName), bytes, WalletTransferService.StorageRoot(_config));
+    }
+
+    /// <summary>Stores the POP and the rate; the transfer waits in Review for the office. Null = stored; otherwise why not (the phone shows it).</summary>
+    private async Task<string?> ImportTransferAsync(TransferResult r)
+    {
+        _db.ChangeTracker.Clear();
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(r.DataBase64); }
+        catch (FormatException) { return $"Transfer #{r.MainTransferId}: the POP file was damaged on the way."; }
+        if (bytes.Length == 0) return $"Transfer #{r.MainTransferId}: the POP file is empty.";
+        return await _transfers.StoreFromWarehouseAsync(r.MainTransferId, r.ExchangeRate, r.BocRate, r.RateAt,
+            r.By ?? "", r.At, Path.GetFileName(r.FileName), bytes, WalletTransferService.StorageRoot(_config));
+    }
+
+    /// <summary>Saves the latest Bank of China rate the warehouse read (shown on Wallets).</summary>
+    private async Task SaveLatestRateAsync(LatestRateInfo? rate)
+    {
+        if (rate is not { CnyPerUsd: > 0 }) return;
+        _db.ChangeTracker.Clear();
+        var s = await _db.Set<WalletSettings>().FirstOrDefaultAsync(x => x.Id == WalletSettings.SingletonId);
+        if (s == null) _db.Set<WalletSettings>().Add(s = new WalletSettings());
+        s.WarehouseCnyPerUsd = Math.Round(rate.CnyPerUsd, 6);
+        s.WarehouseRatePublishedAt = rate.PublishedAt?.Length > 50 ? rate.PublishedAt[..50] : rate.PublishedAt;
+        s.WarehouseRateFetchedAt = rate.FetchedAt;
+        s.WarehouseRateStale = rate.Stale;
+        s.WarehouseRateSyncedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
     }
 
     /// <summary>Null = stored; otherwise why not (the phone shows it and the user can fix and resend).</summary>
@@ -260,13 +431,13 @@ public class WarehousePaymentSyncController : ControllerBase
         var invoiceNumber = row.CustomerPayment.Invoice.InvoiceNumber;
         if (row.Status != IncomingDeposit.Pending) return $"{invoiceNumber}: this deposit was already accepted.";
 
-        if (r.Amount <= 0 || decimal.Round(r.Amount, 2) != r.Amount)
-            return $"{invoiceNumber}: the price must be above 0 with at most two decimals.";
+        // The phone no longer types a price: Amount is the customer POP's for now, the POP reader reads the real one.
+        var amount = r.Amount > 0 && decimal.Round(r.Amount, 2) == r.Amount ? r.Amount : row.Amount;
         var walletCurrency = row.PaymentBox.Currency;
         var sameCurrency = string.Equals(row.Currency, walletCurrency, StringComparison.OrdinalIgnoreCase);
-        var rate = sameCurrency ? null : r.ExchangeRate;
-        if (!sameCurrency && (rate is null or <= 0 || decimal.Round(rate.Value, 6) != rate.Value))
-            return $"{invoiceNumber}: enter the rate as {walletCurrency} per 1 {row.Currency} (up to six decimals).";
+        var rate = sameCurrency ? null
+            : r.ExchangeRate is > 0 && decimal.Round(r.ExchangeRate.Value, 6) == r.ExchangeRate.Value ? r.ExchangeRate
+            : row.WalletRate;
 
         byte[] bytes;
         try { bytes = Convert.FromBase64String(r.DataBase64); }
@@ -281,13 +452,16 @@ public class WarehousePaymentSyncController : ControllerBase
             row.BankPopFileName = _storage.SaveFileInInvoiceCategory(invoiceNumber, IncomingDeposit.BankPopFolder,
                 $"{r.UploadId:N}-{Path.GetFileName(r.FileName)}", stream);
         }
-        row.BankAmount = r.Amount;
+        row.BankAmount = amount;
         row.BankRate = rate;
+        row.BocRate = sameCurrency ? null : r.BocRate;
+        row.RateAt = sameCurrency ? null : r.RateAt?.Length > 50 ? r.RateAt[..50] : r.RateAt;
         // Worked out here, like the Procument side, so both are rounded the same way.
-        row.BankWalletAmount = IncomingDeposit.WalletAmount(r.Amount, rate);
+        row.BankWalletAmount = IncomingDeposit.WalletAmount(amount, rate);
         row.BankBy = string.IsNullOrWhiteSpace(r.By) ? "Warehouse" : r.By.Trim()[..Math.Min(200, r.By.Trim().Length)];
         row.BankAt = r.At == default ? DateTime.UtcNow : r.At;
         row.RejectNote = null;
+        await PopReading.QueueAsync(_db, PopReading.Deposit, row.Id);
         await _db.SaveChangesAsync();
         return null;
     }
@@ -344,9 +518,12 @@ public class WarehousePaymentSyncController : ControllerBase
         var currency = await _db.Set<PaymentBox>().Where(w => w.Id == pr.PendingWalletId).Select(w => w.Currency).FirstOrDefaultAsync();
         if (currency == null) return $"{label}: the office wallet no longer exists.";
         var isUsd = string.Equals(currency, "USD", StringComparison.OrdinalIgnoreCase);
-        var rate = isUsd ? 1m : r.ExchangeRate;
-        if (rate is null or <= 0 || decimal.Round(rate.Value, 6) != rate.Value)
-            return $"{label}: enter the rate as {currency} per 1 USD (up to six decimals).";
+        // Saved with the POP on the phone (BOC + 0.2 for yuan); the office's own rate when it came without one.
+        var rate = isUsd ? 1m
+            : r.ExchangeRate is > 0 && decimal.Round(r.ExchangeRate.Value, 6) == r.ExchangeRate.Value ? r.ExchangeRate
+            : pr.PendingExchangeRate;
+        if (rate is null or <= 0)
+            return $"{label}: there is no {currency} per 1 USD rate for this payment.";
         if (r.HandlingFee < 0 || r.BankWireFee < 0
             || decimal.Round(r.HandlingFee, 2) != r.HandlingFee || decimal.Round(r.BankWireFee, 2) != r.BankWireFee)
             return $"{label}: the handling and wire fees must be 0 or more with at most two decimals.";
@@ -373,9 +550,13 @@ public class WarehousePaymentSyncController : ControllerBase
         pr.WarehouseBankWireFee = r.BankWireFee;
         pr.WarehouseFinalAmount = finalAmount;
         pr.WarehouseExchangeRate = rate;
+        pr.WarehouseBocRate = isUsd || rate != r.ExchangeRate ? null : r.BocRate;
+        pr.WarehouseRateAt = pr.WarehouseBocRate == null ? null : r.RateAt?.Length > 50 ? r.RateAt[..50] : r.RateAt;
         pr.WarehousePaidBy = string.IsNullOrWhiteSpace(r.PaidBy) ? "Warehouse" : r.PaidBy.Trim()[..Math.Min(200, r.PaidBy.Trim().Length)];
         pr.WarehousePaidAt = r.PaidAt == default ? DateTime.UtcNow : r.PaidAt;
         pr.WarehouseRejectNote = null;
+        // The local AI reads the price and the bank fees off the POP for the office's review.
+        await PopReading.QueueAsync(_db, PopReading.Payment, pr.Id);
         await _db.SaveChangesAsync();
         return null;
     }

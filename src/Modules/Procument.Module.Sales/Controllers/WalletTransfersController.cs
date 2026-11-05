@@ -14,20 +14,17 @@ namespace Procument.Module.Sales.Controllers;
 public class WalletTransfersController : ControllerBase
 {
     private readonly IWalletTransferService _service;
+    private readonly PopReaderSignal _reader;
     private readonly string _storageRoot;
 
-    public WalletTransfersController(IWalletTransferService service, IConfiguration config)
+    public WalletTransfersController(IWalletTransferService service, PopReaderSignal reader, IConfiguration config)
     {
         _service = service;
-        var configured = config["DocumentStorage:ProformaInvoicesRoot"];
-        var base64Dir = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(AppContext.BaseDirectory, "Documents")
-            : Path.GetDirectoryName(
-                Path.IsPathRooted(configured)
-                    ? configured
-                    : Path.Combine(AppContext.BaseDirectory, configured))!;
-        _storageRoot = base64Dir;
+        _reader = reader;
+        _storageRoot = WalletTransferService.StorageRoot(config);
     }
+
+    private long UserId => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
     [HttpGet]
     public async Task<ActionResult<List<WalletTransferPendingResponse>>> GetAll()
@@ -36,17 +33,26 @@ public class WalletTransfersController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<WalletTransferPendingResponse>> Create([FromBody] CreateWalletTransferPendingRequest req)
     {
-        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-        return Ok(await _service.CreateAsync(req, userId));
+        try { return Ok(await _service.CreateAsync(req, UserId)); }
+        catch (InvalidOperationException e) { return BadRequest(new { message = e.Message }); }
     }
 
+    /// <summary>POP uploaded here instead of on the phone: it is read and waits for Accept like a warehouse one.</summary>
     [HttpPost("{id:long}/upload-pop")]
     public async Task<IActionResult> UploadPop(long id, IFormFile file)
     {
-        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-        if (!await _service.UploadPopAndExecuteAsync(id, file, userId, _storageRoot))
-            return BadRequest(new { message = "Transfer not found or not in Accepted state." });
+        if (!await _service.UploadPopAsync(id, file, UserId, _storageRoot))
+            return BadRequest(new { message = "Transfer not found or already completed." });
+        _reader.Poke();
         return Ok();
+    }
+
+    /// <summary>The office's final numbers (the POP reader's proposal, maybe changed): moves the money.</summary>
+    [HttpPost("{id:long}/accept")]
+    public async Task<IActionResult> Accept(long id, [FromBody] AcceptWalletTransferRequest req)
+    {
+        var error = await _service.AcceptAsync(id, req, UserId);
+        return error == null ? Ok(await _service.GetByIdAsync(id)) : BadRequest(new { message = error });
     }
 
     [HttpGet("{id:long}/pop-file")]

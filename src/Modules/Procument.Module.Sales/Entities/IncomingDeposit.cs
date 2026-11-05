@@ -33,6 +33,9 @@ public class IncomingDeposit
     /// <summary>The price on the bank POP, in Currency.</summary>
     public decimal? BankAmount { get; set; }
     public decimal? BankRate { get; set; }
+    /// <summary>The Bank of China rate behind BankRate (before +0.2) and when BOC published it; null = not from BOC.</summary>
+    public decimal? BocRate { get; set; }
+    public string? RateAt { get; set; }
     /// <summary>Warehouse side: BankAmount × BankRate, wallet currency.</summary>
     public decimal? BankWalletAmount { get; set; }
     public string? BankBy { get; set; }

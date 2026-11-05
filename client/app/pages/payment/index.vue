@@ -3,6 +3,7 @@
     <div class="d-flex align-center mb-4 mb-md-6">
       <h1 class="text-h6 text-sm-h5 font-weight-bold">Payments</h1>
       <v-spacer />
+      <WarehouseRateChip ref="rateChip" class="mr-2" />
       <v-btn v-if="whSyncEnabled" variant="tonal" size="small" color="primary" prepend-icon="mdi-cellphone-arrow-down"
         class="mr-2" :loading="whSyncing" @click="runWarehouseSync">Sync warehouse</v-btn>
       <v-btn variant="text" size="small" prepend-icon="mdi-refresh" :loading="loading" @click="loadAll">Refresh</v-btn>
@@ -14,6 +15,8 @@
       Warehouse: {{ whSyncResult.paymentsSent }} payment{{ whSyncResult.paymentsSent === 1 ? '' : 's' }} sent ·
       {{ whSyncResult.paid }} paid and waiting for your review in Ready To pay · {{ whSyncResult.costs }} shipping cost{{ whSyncResult.costs === 1 ? '' : 's' }} received ·
       {{ whSyncResult.deposits }} deposit{{ whSyncResult.deposits === 1 ? '' : 's' }} waiting in Wallets, Incoming Money ·
+      {{ whSyncResult.transfers }} wallet transfer{{ whSyncResult.transfers === 1 ? '' : 's' }} waiting in Wallets, Ready To Transfer ·
+      {{ whSyncResult.withdraws }} withdraw{{ whSyncResult.withdraws === 1 ? '' : 's' }} waiting in Wallets, Ready To Withdraw ·
       {{ whSyncResult.docs }} document{{ whSyncResult.docs === 1 ? '' : 's' }} sent
       <ul v-if="whSyncResult.skipped.length" class="mt-1 ml-4 text-body-2">
         <li v-for="(s, i) in whSyncResult.skipped" :key="i">{{ s }}</li>
@@ -429,32 +432,68 @@
                   </div>
                   <v-row dense class="mb-2">
                     <v-col cols="6" md="3">
-                      <div class="text-caption text-medium-emphasis">Amount paid</div>
+                      <div class="text-caption text-medium-emphasis">Amount set (USD)</div>
                       <div class="font-weight-bold">${{ formatPrice(paymentDraft.amount) }}</div>
                     </v-col>
-                    <v-col v-if="paymentDraft.walletCurrency !== 'USD'" cols="6" md="3">
-                      <div class="text-caption text-medium-emphasis">Rate ({{ paymentDraft.walletCurrency }} per 1 USD)</div>
+                    <v-col v-if="!whIsUsd" cols="6" md="5">
+                      <div class="text-caption text-medium-emphasis">Rate saved with the POP ({{ paymentDraft.walletCurrency }} per 1 USD)</div>
                       <div class="font-weight-bold">{{ paymentDraft.warehouse.exchangeRate }}</div>
-                      <div v-if="paymentDraft.exchangeRate && paymentDraft.exchangeRate !== paymentDraft.warehouse.exchangeRate" class="text-caption text-medium-emphasis">
-                        saved here: {{ paymentDraft.exchangeRate }}
+                      <div v-if="paymentDraft.warehouse.bocRate" class="text-caption text-medium-emphasis">
+                        BOC 中行折算价 {{ paymentDraft.warehouse.bocRate }} + 0.2<template v-if="paymentDraft.warehouse.rateAt"> · {{ paymentDraft.warehouse.rateAt }}</template>
                       </div>
+                      <div v-else class="text-caption text-medium-emphasis">Procument's rate</div>
                     </v-col>
-                    <v-col cols="6" md="3">
-                      <div class="text-caption text-medium-emphasis">Wallet debit ({{ paymentDraft.walletName }})</div>
-                      <div class="font-weight-medium">{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.warehouse.initialWalletAmount) }}</div>
-                    </v-col>
-                    <v-col cols="6" md="3">
-                      <div class="text-caption text-medium-emphasis">Final amount (bank)</div>
-                      <div class="font-weight-bold text-success">{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.warehouse.finalAmount) }}</div>
+                    <v-col cols="12" md="4">
+                      <div class="text-caption text-medium-emphasis">Wallet</div>
+                      <div class="font-weight-medium">{{ paymentDraft.walletName }} ({{ paymentDraft.walletCurrency }})</div>
                     </v-col>
                   </v-row>
-                  <PaymentFinalCalc class="mb-3" :amount="paymentDraft.amount" :currency="paymentDraft.walletCurrency"
-                    :rate="paymentDraft.warehouse.exchangeRate" :debit="paymentDraft.warehouse.initialWalletAmount"
-                    :handling="paymentDraft.warehouse.handlingFee" :wire="paymentDraft.warehouse.bankWireFee" />
+
+                  <PopReadingCard kind="Payment" :ref-id="paymentDraft.paymentRequestId" :reading="paymentDraft.warehouse.reading"
+                    :notes="paymentDraft.warehouse.proposal?.notes" :check="paymentDraft.warehouse.proposal?.check" class="mb-3"
+                    @queued="reloadDraft" />
+
+                  <div class="text-subtitle-2 mb-2">Check and accept <span class="text-caption text-medium-emphasis">(from the POP and the wallet's fees; change any)</span></div>
+                  <v-row dense>
+                    <v-col v-if="!whIsUsd" cols="12" sm="6" md="3">
+                      <v-text-field v-model.number="whAccept.rate" type="number" step="0.0001" min="0"
+                        :label="`Rate (${paymentDraft.walletCurrency} per 1 USD)`" variant="outlined" density="compact" hide-details />
+                    </v-col>
+                    <v-col cols="6" sm="6" md="3">
+                      <v-text-field v-model.number="whAccept.handling" type="number" step="0.01" min="0" :prefix="currencySymbol(paymentDraft.walletCurrency)"
+                        label="Handling fee (wallet)" variant="outlined" density="compact" hide-details />
+                    </v-col>
+                    <v-col cols="6" sm="6" md="3">
+                      <v-text-field v-model.number="whAccept.bankFee" type="number" step="0.01" min="0" :prefix="currencySymbol(paymentDraft.walletCurrency)"
+                        label="Bank fee on the POP" variant="outlined" density="compact" hide-details />
+                    </v-col>
+                    <v-col cols="6" sm="6" md="3">
+                      <v-text-field v-model.number="whAccept.wire" type="number" step="0.01" min="0" :prefix="currencySymbol(paymentDraft.walletCurrency)"
+                        label="Wire fee (ours)" variant="outlined" density="compact" hide-details />
+                    </v-col>
+                  </v-row>
+                  <v-sheet rounded class="pa-3 my-3 text-body-2" color="surface-variant" variant="tonal">
+                    <div class="d-flex justify-space-between">
+                      <span class="text-medium-emphasis">{{ whIsUsd ? 'Amount' : `$${formatPrice(paymentDraft.amount)} × ${whAccept.rate || '?'}` }}</span>
+                      <span>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.debit) }}</span>
+                    </div>
+                    <div class="d-flex justify-space-between"><span class="text-medium-emphasis">+ Handling fee</span><span>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.handling) }}</span></div>
+                    <div class="d-flex justify-space-between"><span class="text-medium-emphasis">+ Bank fee on the POP</span><span>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.bankFee) }}</span></div>
+                    <div class="d-flex justify-space-between"><span class="text-medium-emphasis">+ Wire fee</span><span>{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.wire) }}</span></div>
+                    <v-divider class="my-1" />
+                    <div class="d-flex justify-space-between font-weight-bold">
+                      <span>Leaves {{ paymentDraft.walletName }}</span>
+                      <span class="text-success">{{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.total) }}</span>
+                    </div>
+                    <div v-if="!whIsUsd && whAccept.rate" class="d-flex justify-space-between text-medium-emphasis">
+                      <span>In USD (÷ {{ whAccept.rate }})</span><span>${{ formatPrice(whCalc.total / whAccept.rate) }}</span>
+                    </div>
+                  </v-sheet>
                   <div class="d-flex flex-wrap gap-2">
                     <v-btn color="error" variant="tonal" prepend-icon="mdi-undo" @click="showWarehouseRejectDialog = true">Send Back</v-btn>
-                    <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="acceptingWarehouse" @click="acceptWarehousePayment">
-                      Accept &amp; Finish
+                    <v-btn color="success" variant="flat" prepend-icon="mdi-check-circle" :loading="acceptingWarehouse"
+                      :disabled="!whAcceptValid" @click="acceptWarehousePayment">
+                      Accept {{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(whCalc.total) }} &amp; Finish
                     </v-btn>
                   </div>
                 </template>
@@ -510,7 +549,7 @@
                       <div class="text-body-2">
                         Wallet debit: {{ currencySymbol(paymentDraft.walletCurrency) }}{{ formatPrice(paymentDraft.amount * (paymentDraft.exchangeRate || 0)) }}
                         {{ paymentDraft.walletCurrency }} at {{ paymentDraft.exchangeRate }} {{ paymentDraft.walletCurrency }} per 1 USD
-                        <span class="text-medium-emphasis">(the warehouse can enter the actual rate)</span>
+                        <span class="text-medium-emphasis">(a warehouse POP saves its own rate: BOC + 0.2 for ¥ wallets)</span>
                       </div>
                     </v-col>
                   </v-row>
@@ -788,6 +827,49 @@ const rejectingWarehouse = ref(false)
 const showWarehouseRejectDialog = ref(false)
 const warehouseRejectNote = ref('')
 
+// Review of a warehouse payment: numbers start from the POP reader's proposal (PopFees), the office can change them.
+const whAccept = reactive<{ rate: number | null; handling: number | null; bankFee: number | null; wire: number | null }>(
+  { rate: null, handling: 0, bankFee: 0, wire: 0 })
+const whIsUsd = computed(() => (paymentDraft.value?.walletCurrency ?? 'USD').toUpperCase() === 'USD')
+const cents = (v: number) => Math.round(v * 100) / 100
+const whCalc = computed(() => {
+  const rate = whIsUsd.value ? 1 : Number(whAccept.rate) || 0
+  const debit = cents(Number(paymentDraft.value?.amount ?? 0) * rate)
+  const handling = cents(Number(whAccept.handling) || 0)
+  const bankFee = cents(Number(whAccept.bankFee) || 0)
+  const wire = cents(Number(whAccept.wire) || 0)
+  return { debit, handling, bankFee, wire, total: cents(debit + handling + bankFee + wire) }
+})
+const whAcceptValid = computed(() => (whIsUsd.value || Number(whAccept.rate) > 0)
+  && [whAccept.handling, whAccept.bankFee, whAccept.wire].every(v => v == null || (v as any) === '' || Number(v) >= 0))
+
+/** Fill the accept form from the proposal; once the reader is done it refills (the office hasn't typed yet then). */
+let whFilledFrom = ''
+function fillWarehouseAccept() {
+  const w = paymentDraft.value?.warehouse
+  if (!w) { whFilledFrom = ''; return }
+  const key = `${paymentDraft.value.paymentRequestId}:${w.reading?.status ?? 'none'}:${w.reading?.readAt ?? ''}`
+  if (key === whFilledFrom) return
+  whFilledFrom = key
+  const p = w.proposal
+  whAccept.rate = p?.rate ?? w.exchangeRate ?? null
+  whAccept.handling = p?.handlingFee ?? w.handlingFee ?? 0
+  whAccept.bankFee = p?.bankFee ?? 0
+  whAccept.wire = p?.wireFee ?? w.bankWireFee ?? 0
+}
+watch(paymentDraft, fillWarehouseAccept)
+
+async function reloadDraft() {
+  if (!selectedPo.value) return
+  try { paymentDraft.value = await api.get<any>(`/supplier-payments/po/${selectedPo.value.id}/draft`) } catch { /* keep the old one */ }
+}
+
+// While the local AI is still reading the POP, look again now and then.
+const whPoll = setInterval(() => {
+  if (showDetail.value && paymentDraft.value?.warehouse?.reading?.status === 'Waiting') reloadDraft()
+}, 8000)
+onBeforeUnmount(() => clearInterval(whPoll))
+
 // ── Table headers ─────────────────────────────────────────────────────────────
 const acceptanceHeaders = [
   { title: 'PO Number', key: 'poNumber' },
@@ -986,6 +1068,7 @@ function cancelEditDetails() {
   pickerWireFee.value = Number(paymentDraft.value.wireFee ?? 0)
 }
 
+const rateChip = ref<{ load: () => void } | null>(null)
 async function runWarehouseSync() {
   if (whSyncing.value) return
   whSyncing.value = true
@@ -993,6 +1076,7 @@ async function runWarehouseSync() {
   try {
     whSyncResult.value = await warehouseSync.syncPayments(text => { whSyncText.value = text })
     shippingCostsRefresh.value++
+    rateChip.value?.load()
     await loadAll()
   } catch (e: any) {
     showSnack(e?.data?.message || e?.message || 'Warehouse sync failed', 'error')
@@ -1013,7 +1097,12 @@ async function acceptWarehousePayment() {
   if (!selectedPo.value || acceptingWarehouse.value) return
   acceptingWarehouse.value = true
   try {
-    const result = await api.post<any>(`/supplier-payments/po/${selectedPo.value.id}/warehouse-accept`, {})
+    const result = await api.post<any>(`/supplier-payments/po/${selectedPo.value.id}/warehouse-accept`, {
+      exchangeRate: whIsUsd.value ? null : Number(whAccept.rate),
+      handlingFee: whCalc.value.handling,
+      bankFee: whCalc.value.bankFee,
+      wireFee: whCalc.value.wire,
+    })
     showSnack(result.bankFee > 0
       ? `Warehouse payment accepted. ${formatPrice(result.bankFee)} ${result.walletCurrency} recorded as Bank Fee and Others.`
       : 'Warehouse payment accepted.', 'success')

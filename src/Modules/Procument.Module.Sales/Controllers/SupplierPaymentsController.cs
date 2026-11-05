@@ -21,6 +21,11 @@ public record SaveSupplierPaymentDraftRequest(long PaymentRequestId, long Wallet
 public record FinalizeSupplierPaymentRequest(decimal? FinalWalletAmount, decimal? HandlingFee = null, decimal? BankWireFee = null);
 public record RejectWarehousePaymentRequest(string? Note);
 /// <summary>
+/// The office's numbers for a warehouse payment (all wallet currency except the rate, wallet currency per 1 USD); a null
+/// keeps what the phone saved. BankFee = the extra the POP shows over amount × rate.
+/// </summary>
+public record AcceptWarehousePaymentRequest(decimal? ExchangeRate = null, decimal? HandlingFee = null, decimal? BankFee = null, decimal? WireFee = null);
+/// <summary>
 /// One row of a PO's supplier payment history. Id is the wallet transaction (null for credit rows);
 /// RowKey is unique across both kinds and is what the UI should key on.
 /// </summary>
@@ -109,9 +114,14 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 pr.WarehouseBankWireFee,
                 pr.WarehouseFinalAmount,
                 pr.WarehouseExchangeRate,
+                pr.WarehouseBocRate,
+                pr.WarehouseRateAt,
                 pr.WarehousePaidBy,
                 pr.WarehousePaidAt,
                 pr.WarehouseRejectNote,
+                WalletHandlingFee = wallet.HandlingFee,
+                WalletWireFee = wallet.WireFee,
+                WalletWireFeePaidBy = wallet.WireFeePaidBy,
             }).FirstOrDefaultAsync();
 
         if (draft == null) return Ok(null);
@@ -120,17 +130,33 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             .Select(t => new { t.Id, t.PopFileName, t.CreatedAt, InitialWalletAmount = t.Amount * (t.ExchangeRate ?? 1m) })
             .FirstOrDefaultAsync();
         // Paid in the warehouse app and waiting for review here (see WarehouseAccept / WarehouseReject).
-        var warehouse = draft.WarehousePaidAt == null ? null : new
+        object? warehouse = null;
+        if (draft.WarehousePaidAt != null)
         {
-            FileName = draft.WarehousePopFileName,
-            HandlingFee = draft.WarehouseHandlingFee ?? 0,
-            BankWireFee = draft.WarehouseBankWireFee ?? 0,
-            FinalAmount = draft.WarehouseFinalAmount,
-            ExchangeRate = draft.WarehouseExchangeRate,
-            PaidBy = draft.WarehousePaidBy,
-            PaidAt = draft.WarehousePaidAt,
-            InitialWalletAmount = Math.Round(draft.Amount * (draft.WarehouseExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero),
-        };
+            // What the local AI read off the POP, and the numbers Sam's fee rules make of it (the office can change them):
+            // handling fee = the wallet's own, bank fee = what the POP shows above amount × rate, wire fee = the wallet's
+            // by its "paid by" setting, and the POP's price checked against the amount (converted when it is in yuan).
+            var reading = await db.Set<PopReading>().AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Kind == PopReading.Payment && r.RefId == draft.PaymentRequestId);
+            var rate = draft.WarehouseExchangeRate ?? draft.ExchangeRate;
+            var proposal = PopFees.Withdraw(draft.WalletCurrency, "USD", draft.Amount, rate, draft.WalletHandlingFee,
+                draft.WalletWireFee, WireFeePayer.ForWithdraw(draft.WalletWireFeePaidBy), reading);
+            warehouse = new
+            {
+                FileName = draft.WarehousePopFileName,
+                HandlingFee = draft.WarehouseHandlingFee ?? 0,
+                BankWireFee = draft.WarehouseBankWireFee ?? 0,
+                FinalAmount = draft.WarehouseFinalAmount,
+                ExchangeRate = draft.WarehouseExchangeRate,
+                BocRate = draft.WarehouseBocRate,
+                RateAt = draft.WarehouseRateAt,
+                PaidBy = draft.WarehousePaidBy,
+                PaidAt = draft.WarehousePaidAt,
+                InitialWalletAmount = Math.Round(draft.Amount * (draft.WarehouseExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero),
+                Reading = PopReadingDto.From(reading),
+                Proposal = proposal,
+            };
+        }
         return Ok(new { draft.PaymentRequestId, draft.PrNumber, draft.WalletId, draft.WalletName,
             draft.WalletCurrency, draft.Amount, draft.ExchangeRate, draft.WireFee,
             draft.UploadId, draft.Status, Pop = pop, Warehouse = warehouse, draft.WarehouseRejectNote });
@@ -338,8 +364,15 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
     /// uploading the POP and saving the final amount here. Wallet rows follow the auto-import switch.
     /// </summary>
     [HttpPost("po/{poId:long}/warehouse-accept")]
-    public async Task<IActionResult> WarehouseAccept(long poId)
+    public async Task<IActionResult> WarehouseAccept(long poId, [FromBody] AcceptWarehousePaymentRequest? request = null)
     {
+        request ??= new AcceptWarehousePaymentRequest();
+        if (request.ExchangeRate is { } r && (r <= 0 || decimal.Round(r, 6) != r))
+            return BadRequest(new { message = "Enter the rate as wallet currency per 1 USD (up to six decimals)." });
+        foreach (var fee in new[] { request.HandlingFee, request.BankFee, request.WireFee })
+            if (fee is { } f && (f < 0 || decimal.Round(f, 2) != f))
+                return BadRequest(new { message = "Fees must be 0 or more with at most two decimals." });
+
         return await db.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () =>
         {
             db.ChangeTracker.Clear();
@@ -353,15 +386,18 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
                 return BadRequest(new { message = "A POP was already recorded for this payment." });
 
             var (payment, _, popError) = await AddPopPaymentAsync(po, pr, pr.WarehousePopFileName,
-                await PopFolderAsync(po), pr.WarehouseExchangeRate ?? pr.PendingExchangeRate);
+                await PopFolderAsync(po), request.ExchangeRate ?? pr.WarehouseExchangeRate ?? pr.PendingExchangeRate);
             if (payment == null) return BadRequest(new { message = popError });
             payment.Notes = $"POP for PR-{pr.PRId} / {po.PONumber} (warehouse · {pr.WarehousePaidBy})";
             // The final amount reads the POP row back through the ledger.
             await db.SaveChangesAsync();
 
-            // Fees as entered on the phone; the total is amount × rate + fees again here.
-            var (result, error) = await FinalizeCoreAsync(po, pr, null, pr.WarehouseHandlingFee ?? 0, pr.WarehouseBankWireFee ?? 0);
+            // The office's numbers (from the POP reader's proposal), else what the phone saved; the total is
+            // amount × rate + fees again here.
+            var (result, error) = await FinalizeCoreAsync(po, pr, null,
+                request.HandlingFee ?? pr.WarehouseHandlingFee ?? 0, request.WireFee ?? pr.WarehouseBankWireFee ?? 0, request.BankFee ?? 0);
             if (result == null) return BadRequest(new { message = error });
+            await DropReadingAsync(pr.Id);
             ClearWarehouse(pr, null);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -386,6 +422,7 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
 
         if (pr.WarehousePopFileName != null)
             storage.DeleteFileInSupplierCategory(await PopFolderAsync(po), po.Supplier.Name, Folder, pr.WarehousePopFileName);
+        await DropReadingAsync(pr.Id);
         ClearWarehouse(pr, note);
         await db.SaveChangesAsync();
         return Ok(new { rejected = true });
@@ -434,7 +471,7 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
     /// With fees given, the final amount = wallet debit (amount × rate) + handling + wire fee.
     /// </summary>
     private async Task<(object? Result, string? Error)> FinalizeCoreAsync(PurchaseOrder po, PaymentRequest pr,
-        decimal? finalWalletAmount, decimal? handlingFee, decimal? bankWireFee)
+        decimal? finalWalletAmount, decimal? handlingFee, decimal? bankWireFee, decimal popBankFee = 0)
     {
         var payment = await db.Set<PaymentTransaction>()
             .FirstOrDefaultAsync(t => t.PopUploadId == pr.PendingUploadId && t.ToType == "Supplier");
@@ -444,13 +481,14 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
 
         var initialWalletAmount = Math.Round(payment.Amount * (payment.ExchangeRate ?? 1m), 2, MidpointRounding.AwayFromZero);
         var byFees = handlingFee != null || bankWireFee != null;
-        var final = byFees ? initialWalletAmount + (handlingFee ?? 0) + (bankWireFee ?? 0) : finalWalletAmount ?? 0;
+        var final = byFees ? initialWalletAmount + (handlingFee ?? 0) + (bankWireFee ?? 0) + popBankFee : finalWalletAmount ?? 0;
         if (final < initialWalletAmount)
             return (null, $"The final amount cannot be less than the original wallet debit ({initialWalletAmount:0.00} {wallet.Currency}).");
         var bankFee = final - initialWalletAmount;
         if (bankFee > 0)
         {
-            var breakdown = byFees ? $" (handling {handlingFee ?? 0:0.00} + wire fee {bankWireFee ?? 0:0.00} {wallet.Currency})" : "";
+            var popPart = popBankFee > 0 ? $" + bank fee on the POP {popBankFee:0.00}" : "";
+            var breakdown = byFees ? $" (handling {handlingFee ?? 0:0.00}{popPart} + wire fee {bankWireFee ?? 0:0.00} {wallet.Currency})" : "";
             db.Set<PaymentTransaction>().Add(new PaymentTransaction
             {
                 PaymentBoxId = wallet.Id, PaymentRequestId = pr.Id, InvoiceId = po.InvoiceId,
@@ -473,11 +511,17 @@ public class SupplierPaymentsController(DbContext db, IDocumentStorageService st
             complete = progress.Complete, status = po.PaymentStatus }, null);
     }
 
+    /// <summary>The POP reader's result for a warehouse payment is only for its review.</summary>
+    private Task DropReadingAsync(long paymentRequestId) => db.Set<PopReading>()
+        .Where(r => r.Kind == PopReading.Payment && r.RefId == paymentRequestId).ExecuteDeleteAsync();
+
     private static void ClearWarehouse(PaymentRequest pr, string? rejectNote)
     {
         pr.WarehousePopFileName = null;
         pr.WarehouseFinalAmount = null;
         pr.WarehouseExchangeRate = null;
+        pr.WarehouseBocRate = null;
+        pr.WarehouseRateAt = null;
         pr.WarehousePaidBy = null;
         pr.WarehousePaidAt = null;
         pr.WarehouseRejectNote = rejectNote;

@@ -298,6 +298,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             Surname = CleanSurname(req.Surname),
             HandlingFee = CleanFee(req.HandlingFee, "The handling fee"),
             WireFee = CleanFee(req.WireFee, "The wire fee"),
+            WireFeePaidBy = WireFeePayer.Normalize(req.WireFeePaidBy),
         };
         _db.Set<PaymentBox>().Add(box);
         await _db.SaveChangesAsync();
@@ -322,6 +323,7 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
         box.Surname = CleanSurname(req.Surname);
         box.HandlingFee = CleanFee(req.HandlingFee, "The handling fee");
         box.WireFee = CleanFee(req.WireFee, "The wire fee");
+        box.WireFeePaidBy = WireFeePayer.Normalize(req.WireFeePaidBy);
         // CompanyPresetId is a required FK, so "no company" maps to the placeholder preset.
         box.CompanyPresetId = req.CompanyPresetId is > 0
             ? req.CompanyPresetId.Value
@@ -931,7 +933,8 @@ public class PaymentBoxService : IPaymentBoxService, IPaymentLedgerService
             box.ParentBoxId,
             Surname: box.Surname,
             HandlingFee: box.HandlingFee,
-            WireFee: box.WireFee);
+            WireFee: box.WireFee,
+            WireFeePaidBy: box.WireFeePaidBy);
     }
 
     /// <summary>Same fixed rate as the Wallets page's Net Balance. For display only, never posted to a wallet.</summary>
